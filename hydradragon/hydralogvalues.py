@@ -1,0 +1,23 @@
+import os
+import logging
+
+logging.getLogger('comtypes').setLevel(logging.WARNING)
+
+script_dir = os.getcwd()
+log_directory = os.path.join(script_dir, "log")
+os.makedirs(log_directory, exist_ok=True)
+application_log_file = os.path.join(log_directory, "antivirus.log")
+
+# Create a named logger
+logger = logging.getLogger("HydraAntivirus")
+logger.setLevel(logging.DEBUG)
+
+file_handler = logging.FileHandler(application_log_file)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+if not logger.handlers:
+    logger.addHandler(file_handler)
+
+# Now you can safely do:
+logger.info("Antivirus started")

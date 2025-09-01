@@ -3,20 +3,15 @@
 
 import os
 import sys
-import logging
 from datetime import datetime, timedelta
 import time
-
-logging.getLogger('comtypes').setLevel(logging.WARNING)
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
+from hydralogvalues import log_directory, script_dir, logger
 import clamav
-from clamav import log_directory
-from clamav import script_dir
-from clamav import application_log_file
 
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
@@ -37,7 +32,7 @@ sys.stderr = open(
 )
 
 # Logging for application initialization
-logging.info(
+logger.info(
     "Application started at %s",
     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 )
@@ -45,127 +40,127 @@ logging.info(
 # Start timing total duration
 total_start_time = time.time()
 
-# Measure and logging.info time taken for each import
+# Measure and logger.info time taken for each import
 start_time = time.time()
 import hashlib
-logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import io
-logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import webbrowser
-logging.info(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from uuid import uuid4 as uniquename
-logging.info(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import shutil
-logging.info(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import subprocess
-logging.info(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import threading
-logging.info(f"threading module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from concurrent.futures import ThreadPoolExecutor
-logging.info(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
-logging.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import json
-logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextEdit, QFileDialog,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox)
-logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect)
-logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
-logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
-logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import traceback
-logging.info(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
-logging.info(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
-logging.info(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara
-logging.info(f"yara module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"yara module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara_x
-logging.info(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
-logging.info(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from notifypy import Notify
-logging.info(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.observers import Observer
-logging.info(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.events import FileSystemEventHandler
-logging.info(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32file
-logging.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32con
-logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32service
-logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32serviceutil
-logging.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import wmi
-logging.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import numpy as np
-logging.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 
@@ -174,234 +169,234 @@ from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.sendrecv import sniff
 
-logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import comtypes
-logging.info(f"comtypes modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"comtypes modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import comtypes.client
-logging.info(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes import cast, GUID
-logging.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
 
 from comtypes.automation import POINTER
-logging.info(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes.client import CreateObject
-logging.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import atexit
-logging.info(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
-logging.info(f"ast module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"ast module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
-logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from ctypes import wintypes
-logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32gui
-logging.info(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
-logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from urllib.parse import urlparse
-logging.info(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import spacy
-logging.info(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import csv
-logging.info(f"csv module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
-logging.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import lzma
-logging.info(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from importlib.util import MAGIC_NUMBER
-logging.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import string
-logging.info(f"string module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"string module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import chardet
-logging.info(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import difflib
-logging.info(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zlib
-logging.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import marshal
-logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base64
-logging.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base32_crockford
-logging.info(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import binascii
-logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from accelerate import Accelerator
-logging.info(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import py7zr
-logging.info(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import inspect
-logging.info(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
-logging.info(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.elf.elffile import ELFFile
-logging.info(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.common.exceptions import ELFError
-logging.info(f"elftools.common.exceptions, ELFFError module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"elftools.common.exceptions, ELFFError module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.MachO
-logging.info(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
-logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from dataclasses import dataclass
-logging.info(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union, Callable
-logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union, Callable module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union, Callable module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from androguard.misc import AnalyzeAPK
-logging.info(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
-logging.info(f"types module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"types module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-logging.info(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import debloat.processor
-logging.info(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from Crypto.Cipher import AES
-logging.info(f"Crpyto.Cipher.AES module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"Crpyto.Cipher.AES module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from Crypto.Util import Counter
-logging.info(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pathlib import Path, WindowsPath
-logging.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import requests
-logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from functools import wraps
-logging.info(f"functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from xdis.unmarshal import load_code
-logging.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import capstone
-logging.info(f"capstone imported in {time.time() - start_time:.6f} seconds")
+logger.info(f"capstone imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import nltk
-logging.info(f"nltk imported in {time.time() - start_time:.6f} seconds")
+logger.info(f"nltk imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from nltk.corpus import words
-logging.info(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
+logger.info(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from nltk.tokenize import word_tokenize
-logging.info(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
+logger.info(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
-logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pylingual.main import main as pylingual_main
-logging.info(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from unipacker.core import Sample, UnpackerEngine, SimpleClient
-logging.info(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
+logger.info(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
 
-# Calculate and logging.info total time
+# Calculate and logger.info total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
-logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
+logger.info(f"Total time for all imports: {total_duration:.6f} seconds")
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
-logging.info("spaCy model 'en_core_web_md' loaded successfully")
+logger.info("spaCy model 'en_core_web_md' loaded successfully")
 
 try:
     nltk.data.find('tokenizers/punkt')
 except Exception:
-    logging.info("NLTK 'punkt' resource not found. Downloading...")
+    logger.info("NLTK 'punkt' resource not found. Downloading...")
     nltk.download('punkt', quiet=True)
 
 try:
     nltk.data.find('corpora/words')
 except Exception:
-    logging.info("NLTK 'words' resource not found. Downloading...")
+    logger.info("NLTK 'words' resource not found. Downloading...")
     nltk.download('words', quiet=True)
 
 # Create a set of English words for efficient lookup.
@@ -602,8 +597,8 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 evtx_logs_path = os.path.join(system32_dir, "winevt\\Logs")
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
+logger.basicConfig(
+    level=logger.INFO,
     format="[%(levelname)s] %(message)s"
 )
 
@@ -698,7 +693,7 @@ def unpack_pe(packed_pe_data: bytes) -> bytes:
         else:
             raise RuntimeError("RVA pattern sequence for PACKER_INFO not found in packed PE, but patterns were expected.")
     else:
-        logging.info("RVA pattern array is empty. No PACKER_INFO entries to process for LZMA.")
+        logger.info("RVA pattern array is empty. No PACKER_INFO entries to process for LZMA.")
 
     for i, section in enumerate(pe.sections):
         virtual_address = section.VirtualAddress
@@ -712,7 +707,7 @@ def unpack_pe(packed_pe_data: bytes) -> bytes:
                 section_data = packed_pe_data[pointer_to_raw_data:pointer_to_raw_data+size_of_raw_data]
                 unpacked_image[virtual_address:virtual_address+len(section_data)] = section_data
             else:
-                logging.error(f"Section {section_name} data exceeds boundaries. RawOffset={to_hex_string(pointer_to_raw_data)}, "
+                logger.error(f"Section {section_name} data exceeds boundaries. RawOffset={to_hex_string(pointer_to_raw_data)}, "
                               f"RawSize={to_hex_string(size_of_raw_data)}, VA={to_hex_string(virtual_address)}. Skipping copy.")
 
         section_offset = pe.OPTIONAL_HEADER.get_file_offset() + pe.FILE_HEADER.SizeOfOptionalHeader + i * 40
@@ -733,7 +728,7 @@ def unpack_pe(packed_pe_data: bytes) -> bytes:
             raise RuntimeError("LZMA properties data extends beyond packed PE size.")
 
         if lzma_props_size != LZMA_PROPERTIES_SIZE:
-            logging.error(f"PACKER_INFO[0].Dst (LZMA properties size) is {lzma_props_size}. Standard is {LZMA_PROPERTIES_SIZE}. Using provided size.")
+            logger.error(f"PACKER_INFO[0].Dst (LZMA properties size) is {lzma_props_size}. Standard is {LZMA_PROPERTIES_SIZE}. Using provided size.")
 
         try:
             for block_idx in range(1, len(packer_info_array)):
@@ -766,10 +761,10 @@ def unpack_pe(packed_pe_data: bytes) -> bytes:
                     if len(decompressed_data) <= available_space:
                         unpacked_image[uncompressed_target_rva:uncompressed_target_rva+len(decompressed_data)] = decompressed_data
                     else:
-                        logging.error(f"Block {block_idx}: Decompressed data size exceeds available space in image")
+                        logger.error(f"Block {block_idx}: Decompressed data size exceeds available space in image")
                         unpacked_image[uncompressed_target_rva:uncompressed_target_rva+available_space] = decompressed_data[:available_space]
 
-                    logging.info(f"Block {block_idx}: Decompressed. Output size={len(decompressed_data)}")
+                    logger.info(f"Block {block_idx}: Decompressed. Output size={len(decompressed_data)}")
                 except lzma.LZMAError as e:
                     raise RuntimeError(f"LZMA decompression error: {str(e)}")
         except Exception as e:
@@ -813,7 +808,7 @@ def parse_suricata_alert(json_line):
 
             return priority, src_ip, dest_ip, signature, category
     except (json.JSONDecodeError, KeyError) as ex:
-        logging.debug(f"Error parsing JSON alert: {ex}")
+        logger.debug(f"Error parsing JSON alert: {ex}")
         return None, None, None, None, None
     return None, None, None, None, None
 
@@ -1049,16 +1044,16 @@ for make_directory in MANAGED_DIRECTORIES:
     if os.path.exists(make_directory):
         try:
             shutil.rmtree(make_directory)
-            logging.info(f"Removed directory: {make_directory}")
+            logger.info(f"Removed directory: {make_directory}")
         except Exception as e:
-            logging.error(f"Failed to remove directory '{make_directory}': {e}")
+            logger.error(f"Failed to remove directory '{make_directory}': {e}")
             continue  # Skip creating the directory if removal failed
 
     try:
         os.makedirs(make_directory)
-        logging.info(f"Created directory: {make_directory}")
+        logger.info(f"Created directory: {make_directory}")
     except Exception as e:
-        logging.error(f"Failed to create directory '{make_directory}': {e}")
+        logger.error(f"Failed to create directory '{make_directory}': {e}")
 
 # Directory conditions and their corresponding logging messages
 DIRECTORY_MESSAGES = [
@@ -1174,7 +1169,7 @@ def try_unpack_enigma1(input_exe: str) -> str | None:
         os.makedirs(version_dir, exist_ok=True)
 
         cmd = ["evbunpack"] + flags + [input_exe, version_dir]
-        logging.info(f"Trying Enigma protected v{version} flags: {flags}")
+        logger.info(f"Trying Enigma protected v{version} flags: {flags}")
         proc = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
@@ -1183,14 +1178,14 @@ def try_unpack_enigma1(input_exe: str) -> str | None:
         )
 
         if proc.returncode == 0:
-            logging.info(f"Successfully unpacked with version {version} into {version_dir}")
+            logger.info(f"Successfully unpacked with version {version} into {version_dir}")
             return version_dir
 
-        logging.error(
+        logger.error(
             f"Attempt v{version} failed (exit {proc.returncode}). Output:\n{proc.stdout}"
         )
 
-    logging.error(
+    logger.error(
         f"All unpack attempts failed for {input_exe}. Tried versions: {', '.join(PACKER_FLAGS)}"
     )
     return None
@@ -1239,7 +1234,7 @@ def is_plain_text_data(die_output):
     Checks if the DIE output does indicate plain text, suggesting it is plain text data.
     """
     if die_output and "Format: plain text" in die_output.lower():
-        logging.info("DIE output does not contain plain text; identified as non-plain text data.")
+        logger.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
     return False
 
@@ -1256,42 +1251,42 @@ def is_valid_ip(ip_string: str) -> bool:
         ip_core, sep, port = ip_string.partition(']')
         if sep and port.startswith(':') and port[1:].isdigit():
             ip_string = ip_core.lstrip('[')
-            logging.debug(f"Stripped port from bracketed IPv6: {original!r} {ip_string!r}")
+            logger.debug(f"Stripped port from bracketed IPv6: {original!r} {ip_string!r}")
     # IPv4 or unbracketed IPv6: split on last colon only if it looks like a port
     elif ip_string.count(':') == 1:
         ip_part, port = ip_string.rsplit(':', 1)
         if port.isdigit():
             ip_string = ip_part
-            logging.debug(f"Stripped port from IPv4/unbracketed: {original!r} {ip_string!r}")
+            logger.debug(f"Stripped port from IPv4/unbracketed: {original!r} {ip_string!r}")
     # else: leave IPv6 with multiple colons intact
 
-    logging.info(f"Validating IP: {ip_string!r}")
+    logger.info(f"Validating IP: {ip_string!r}")
     try:
         ip_obj = ipaddress.ip_address(ip_string)
-        logging.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
+        logger.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
     except ValueError:
-        logging.error(f"Invalid IP syntax: {ip_string!r}")
+        logger.error(f"Invalid IP syntax: {ip_string!r}")
         return False
 
     # exclusion categories
     if ip_obj.is_private:
-        logging.info(f"Excluded private IP: {ip_obj}")
+        logger.info(f"Excluded private IP: {ip_obj}")
         return False
     if ip_obj.is_loopback:
-        logging.info(f"Excluded loopback IP: {ip_obj}")
+        logger.info(f"Excluded loopback IP: {ip_obj}")
         return False
     if ip_obj.is_link_local:
-        logging.info(f"Excluded link-local IP: {ip_obj}")
+        logger.info(f"Excluded link-local IP: {ip_obj}")
         return False
     if ip_obj.is_multicast:
-        logging.info(f"Excluded multicast IP: {ip_obj}")
+        logger.info(f"Excluded multicast IP: {ip_obj}")
         return False
     if ip_obj.is_reserved:
-        logging.info(f"Excluded reserved IP: {ip_obj}")
+        logger.info(f"Excluded reserved IP: {ip_obj}")
         return False
 
     # valid public IP
-    logging.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
+    logger.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
     return True
 
 def sanitize_filename(filename: str) -> str:
@@ -1351,9 +1346,9 @@ try:
         with open(extensions_path, 'r') as ext_file:
             fileTypes = [line.strip() for line in ext_file.readlines()]
 except Exception as ex:
-    logging.info(f"Error reading {extensions_path}: {ex}")
+    logger.info(f"Error reading {extensions_path}: {ex}")
 
-logging.info(f"File types read from {extensions_path}: {fileTypes}")
+logger.info(f"File types read from {extensions_path}: {fileTypes}")
 
 # Read antivirus process list from antivirusprocesslist.txt with try-except.
 antivirus_process_list = []
@@ -1362,9 +1357,9 @@ try:
         with open(antivirus_process_list_path, 'r') as av_file:
             antivirus_process_list = [line.strip() for line in av_file if line.strip()]
 except Exception as ex:
-    logging.info(f"Error reading {antivirus_process_list_path}: {ex}")
+    logger.info(f"Error reading {antivirus_process_list_path}: {ex}")
 
-logging.info(f"Antivirus process list read from {antivirus_process_list_path}: {antivirus_process_list}")
+logger.info(f"Antivirus process list read from {antivirus_process_list_path}: {antivirus_process_list}")
 
 pe_file_paths = []  # List to store the PE file paths
 
@@ -1381,13 +1376,13 @@ try:
                 magic, file_type = parts
                 magic_bytes[magic] = file_type
 
-    # If reading and processing is successful, logging.info the dictionary
-    logging.info("Magic bytes have been successfully loaded.")
+    # If reading and processing is successful, logger.info the dictionary
+    logger.info("Magic bytes have been successfully loaded.")
 
 except FileNotFoundError:
-    logging.error(f"Error: The file {magic_bytes_path} was not found.")
+    logger.error(f"Error: The file {magic_bytes_path} was not found.")
 except Exception as e:
-    logging.error(f"An error occurred: {e}")
+    logger.error(f"An error occurred: {e}")
 
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
     """
@@ -1505,7 +1500,7 @@ class AdvancedInstallerReader:
                 self.footer_position = i + 0x48 - 12
                 break
         if self.footer_position is None:
-            logging.error("ADVINSTSFX not found")
+            logger.error("ADVINSTSFX not found")
 
     def read_footer(self):
         if self.footer_position is None:
@@ -1542,7 +1537,7 @@ class AdvancedInstallerReader:
                         self.info_off = struct.unpack("<l", footer[16:20])[0] if len(footer) >= 20 else 0
                         file_off = struct.unpack("<l", footer[20:24])[0] if len(footer) >= 24 else 0
                     else:
-                        logging.error("Footer too short to parse")
+                        logger.error("Footer too short to parse")
                     hexhash = b""
                     name = b""
 
@@ -1643,7 +1638,7 @@ def advanced_installer_extractor(file_path):
 
         with AdvancedInstallerReader(file_path) as ar:
                 for f in ar.infolist():
-                        logging.debug(f)
+                        logger.debug(f)
                         path = f.name.replace("\\","/")
                         full_path = os.path.join(advanced_installer_extracted_dir, path)
                         dirname = os.path.dirname(full_path)
@@ -1658,7 +1653,7 @@ def advanced_installer_extractor(file_path):
                                          out.write(blk)
                         extracted_files.append(full_path)
 
-                logging.debug(ar)
+                logger.debug(ar)
 
         return extracted_files
 
@@ -1668,7 +1663,7 @@ def analyze_file_with_die(file_path):
     The output is also saved to a unique .txt file and displayed to the user.
     """
     try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+        logger.info(f"Analyzing file: {file_path} using Detect It Easy...")
         output_dir = Path(detectiteasy_plain_text_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1686,30 +1681,30 @@ def analyze_file_with_die(file_path):
         with open(txt_output_path, "w", encoding="utf-8") as txt_file:
             txt_file.write(result.stdout)
 
-        logging.info(f"Analysis result saved to {txt_output_path}")
+        logger.info(f"Analysis result saved to {txt_output_path}")
 
         # Display the result using logging
         if result.stdout.strip():
-            logging.info(f"{'='*60}")
-            logging.info(f"DIE Analysis Result for: {Path(file_path).name}")
-            logging.info(f"{'='*60}")
-            logging.info(result.stdout)
-            logging.info(f"{'='*60}")
-            logging.info(f"Result saved to: {txt_output_path}")
+            logger.info(f"{'='*60}")
+            logger.info(f"DIE Analysis Result for: {Path(file_path).name}")
+            logger.info(f"{'='*60}")
+            logger.info(result.stdout)
+            logger.info(f"{'='*60}")
+            logger.info(f"Result saved to: {txt_output_path}")
         else:
-            logging.error(f"No DIE output for {Path(file_path).name}")
+            logger.error(f"No DIE output for {Path(file_path).name}")
             if result.stderr:
-                logging.error(f"DIE stderr output: {result.stderr}")
+                logger.error(f"DIE stderr output: {result.stderr}")
 
         return result.stdout
 
     except subprocess.SubprocessError as ex:
         error_msg = f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
-        logging.error(error_msg)
+        logger.error(error_msg)
         return None
     except Exception as ex:
         error_msg = f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
-        logging.error(error_msg)
+        logger.error(error_msg)
         return None
 
 def get_die_output_binary(path: str) -> str:
@@ -1761,7 +1756,7 @@ def is_go_garble_from_output(die_output):
       - "Compiler: Go(unknown)"
     """
     if die_output and ("Compiler: Go(unknown)" in die_output):
-        logging.info("DIE output indicates a garbled Go file.")
+        logger.info("DIE output indicates a garbled Go file.")
         return True
     return False
 
@@ -1771,7 +1766,7 @@ def is_pyc_file_from_output(die_output):
     It looks for markers that suggest it's a Python compiled module.
     """
     if die_output and "Python Compiled Module" in die_output:
-        logging.info("DIE output indicates a Python compiled module.")
+        logger.info("DIE output indicates a Python compiled module.")
         return True
     return False
 
@@ -1787,10 +1782,10 @@ def is_themida_from_output(die_output):
        "Protector: Themida/Winlicense (3.XX)" in die_output:
 
         if die_output.startswith("PE32"):
-            logging.info("DIE output indicates PE32 protected with Themida/WinLicense.")
+            logger.info("DIE output indicates PE32 protected with Themida/WinLicense.")
             return "PE32 Themida"
         if die_output.startswith("PE64"):
-            logging.info("DIE output indicates PE64 protected with Themida/WinLicense.")
+            logger.info("DIE output indicates PE64 protected with Themida/WinLicense.")
             return "PE64 Themida"
 
     return None
@@ -1807,9 +1802,9 @@ def is_vm_protect_from_output(die_output):
     if die_output.startswith("PE32") or die_output.startswith("PE64"):
         if "Protector: VMProtec" in die_output:
             if die_output.startswith("PE32"):
-                logging.info("DIE output indicates PE32 protected with VMProtect.")
+                logger.info("DIE output indicates PE32 protected with VMProtect.")
             else:
-                logging.info("DIE output indicates PE64 protected with VMProtect.")
+                logger.info("DIE output indicates PE64 protected with VMProtect.")
 
             return True
 
@@ -1829,21 +1824,21 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
     """
     # Check DIE output first
     if die_output and (die_output.startswith("PE32") or die_output.startswith("PE64")):
-        logging.info("DIE output indicates a PE file.")
+        logger.info("DIE output indicates a PE file.")
 
         # Cross-validate using pefile
         try:
             pefile.PE(file_path, fast_load=True)
-            logging.info("pefile successfully parsed the file as PE.")
+            logger.info("pefile successfully parsed the file as PE.")
             return True
         except pefile.PEFormatError:
-            logging.error("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
+            logger.error("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say PE, try pefile directly
     try:
         pefile.PE(file_path, fast_load=True)
-        logging.info("pefile detected a PE file even though DIE did not.")
+        logger.info("pefile detected a PE file even though DIE did not.")
         return True
     except pefile.PEFormatError:
         return False
@@ -1851,21 +1846,21 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
 def is_cx_freeze_file_from_output(die_output):
     """Checks if DIE output indicates a cx_Freeze file."""
     if die_output and ("Packer: cx_Freeze(5.x+)" in die_output):
-        logging.info("DIE output indicates a cx_Freeze file.")
+        logger.info("DIE output indicates a cx_Freeze file.")
         return True
     return False
 
 def is_advanced_installer_file_from_output(die_output):
     """Checks if DIE output indicates a Advanced Installer file."""
     if die_output and ("Advanced Installer" in die_output):
-        logging.info("DIE output indicates a Advanced Installer file.")
+        logger.info("DIE output indicates a Advanced Installer file.")
         return True
     return False
 
 def is_autoit_file_from_output(die_output):
     """Checks if DIE output indicates a AutoIt file."""
     if die_output and ("AutoIt" in die_output):
-        logging.info("DIE output indicates a AutoIt file.")
+        logger.info("DIE output indicates a AutoIt file.")
         return True
     return False
 
@@ -1886,7 +1881,7 @@ def is_asar_archive_from_output(die_output):
     expected = ["Binary", "Archive: Asar Archive (Electron)"]
 
     if first_two == expected:
-        logging.info("DIE output indicates an Asar Archive (Electron).")
+        logger.info("DIE output indicates an Asar Archive (Electron).")
         return True
 
     return False
@@ -1894,14 +1889,14 @@ def is_asar_archive_from_output(die_output):
 def is_installshield_file_from_output(die_output):
     """Checks if DIE output indicates a Install Shield file."""
     if die_output and ("InstallShield" in die_output):
-        logging.info("DIE output indicates a Install Shield file.")
+        logger.info("DIE output indicates a Install Shield file.")
         return True
     return False
 
 def is_nsis_from_output(die_output: str) -> bool:
     """Checks if DIE output indicates an NSIS installer file."""
     if not die_output:
-        logging.info("DIE output is empty or None.")
+        logger.info("DIE output is empty or None.")
         return False
 
     # Look for NSIS installer signatures in the output
@@ -1911,7 +1906,7 @@ def is_nsis_from_output(die_output: str) -> bool:
     ]
 
     if any(indicator in die_output for indicator in indicators):
-        logging.info("DIE output indicates an NSIS installer.")
+        logger.info("DIE output indicates an NSIS installer.")
         return True
 
     return False
@@ -1931,7 +1926,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
     """
     # Check DIE output first
     if die_output and (die_output.startswith("ELF32") or die_output.startswith("ELF64")):
-        logging.info("DIE output indicates an ELF file.")
+        logger.info("DIE output indicates an ELF file.")
 
         # Cross-validate using pyelftools
         try:
@@ -1939,10 +1934,10 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
                 elf_file = ELFFile(f)
                 # Basic validation - check if we can read the header
                 header = elf_file.header
-                logging.info(f"ELF file successfully parsed. Architecture: {header['e_machine']}")
+                logger.info(f"ELF file successfully parsed. Architecture: {header['e_machine']}")
                 return True
         except (ELFError, IOError, ValueError) as e:
-            logging.error(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
+            logger.error(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say ELF, try pyelftools directly
@@ -1950,7 +1945,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
         with open(file_path, 'rb') as f:
             elf_file = ELFFile(f)
             header = elf_file.header
-            logging.info("pyelftools detected an ELF file even though DIE did not.")
+            logger.info("pyelftools detected an ELF file even though DIE did not.")
             return True
     except (ELFError, IOError, ValueError):
         return False
@@ -1970,7 +1965,7 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
         False          - otherwise.
     """
     if die_output:
-        logging.info(f"DIE output: {die_output.strip()}")
+        logger.info(f"DIE output: {die_output.strip()}")
 
     # Only continue if DIE flagged the file as APK
     if not die_output or not die_output.strip().upper().startswith("APK"):
@@ -1980,14 +1975,14 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
     try:
         a, d, dx = AnalyzeAPK(file_path)
         if a.is_valid_APK():
-            logging.info("Androguard confirms this is a valid APK.")
+            logger.info("Androguard confirms this is a valid APK.")
             return True
         else:
-            logging.error("Androguard opened the file but it failed APK validity checks.")
+            logger.error("Androguard opened the file but it failed APK validity checks.")
             return "Broken APK"
 
     except Exception as e:
-        logging.error(f"Androguard failed to parse APK: {e}")
+        logger.error(f"Androguard failed to parse APK: {e}")
         return "Broken APK"
 
 def is_enigma1_virtual_box(die_output):
@@ -1996,7 +1991,7 @@ def is_enigma1_virtual_box(die_output):
     Returns True if 'Protector: Enigma' is found, else False.
     """
     if die_output and ".enigma1" in die_output:
-        logging.info("DIE output indicates Protector: Enigma.")
+        logger.info("DIE output indicates Protector: Enigma.")
         return True
 
     return False
@@ -2016,17 +2011,17 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
     """
     # Check DIE output first
     if die_output and (die_output.startswith("Mach-O")):
-        logging.info("DIE output indicates a Mach-O file.")
+        logger.info("DIE output indicates a Mach-O file.")
 
         # Cross-validate using macholib
         try:
             macho = macholib.MachO.MachO(file_path)
             # Basic validation - check if we can access the headers
             for header in macho.headers:
-                logging.info(f"Mach-O file successfully parsed. CPU type: {header.header.cputype}")
+                logger.info(f"Mach-O file successfully parsed. CPU type: {header.header.cputype}")
             return True
         except (IOError, ValueError, struct.error, IndexError, Exception) as e:
-            logging.error(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
+            logger.error(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say Mach-O, try macholib directly
@@ -2035,10 +2030,10 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
         # Verify we can read at least one header
         headers = list(macho.headers)
         if headers:
-            logging.info("macholib detected a Mach-O file even though DIE did not.")
+            logger.info("macholib detected a Mach-O file even though DIE did not.")
             return True
         else:
-            logging.debug("macholib found no valid headers in the file.")
+            logger.debug("macholib found no valid headers in the file.")
             return False
     except (IOError, ValueError, struct.error, IndexError, Exception):
         return False
@@ -2067,17 +2062,17 @@ def is_dotnet_file_from_output(die_output):
     """
     try:
         if not die_output:
-            logging.info("Empty DIE output; no .NET markers found.")
+            logger.info("Empty DIE output; no .NET markers found.")
             return None
 
         # 0) If it contains a C++ indicator, treat as non-.NET and return False
         if "C++" in die_output:
-            logging.info("DIE output indicates native C++ with .NET.")
+            logger.info("DIE output indicates native C++ with .NET.")
             return False
 
         # 1) Check if already deobfuscated by de4dot
         if "Tool: de4dot[deobfuscated]" in die_output:
-            logging.info("DIE output indicates file was already deobfuscated by de4dot.")
+            logger.info("DIE output indicates file was already deobfuscated by de4dot.")
             return "Already Deobfuscated"
 
         # 2) Specific Obfuscar protector
@@ -2085,7 +2080,7 @@ def is_dotnet_file_from_output(die_output):
         if obfuscar_match:
             version = obfuscar_match.group(1)
             result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
-            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            logger.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
         # 3) Specific ConfuserEx protector
@@ -2093,7 +2088,7 @@ def is_dotnet_file_from_output(die_output):
         if confuser_match:
             version = confuser_match.group(1)
             result = f"Protector: ConfuserEx({version})" if version else "Protector: ConfuserEx"
-            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            logger.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
         # 4) Specific .NET Reactor protector (version 6.X only)
@@ -2101,32 +2096,32 @@ def is_dotnet_file_from_output(die_output):
         if reactor_match:
             version = reactor_match.group(0).split('(')[1].rstrip(')')
             result = f"Protector: .NET Reactor({version})"
-            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            logger.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
         # 5) Generic Protector marker - capture the full line
         line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
         if line_match:
             marker = line_match.group(0).strip()
-            logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
+            logger.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
             return marker
 
         # 6) .NET runtime indication (only if no protector found)
         if ".NET" in die_output:
-            logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
+            logger.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
             return "Probably No Protector"
 
         # 7) Nothing .NET/protector-related found
         return None
 
     except re.error as e:
-        logging.error(f"Regular expression error in is_dotnet_file_from_output: {e}")
+        logger.error(f"Regular expression error in is_dotnet_file_from_output: {e}")
         return None
     except AttributeError as e:
-        logging.error(f"Attribute error in is_dotnet_file_from_output (possibly invalid die_output): {e}")
+        logger.error(f"Attribute error in is_dotnet_file_from_output (possibly invalid die_output): {e}")
         return None
     except Exception as e:
-        logging.error(f"Unexpected error in is_dotnet_file_from_output: {e}")
+        logger.error(f"Unexpected error in is_dotnet_file_from_output: {e}")
         return None
 
 def is_file_fully_unknown(die_output: str) -> bool:
@@ -2139,7 +2134,7 @@ def is_file_fully_unknown(die_output: str) -> bool:
         Unknown: Unknown
     """
     if not die_output:
-        logging.info("No DIE output provided.")
+        logger.info("No DIE output provided.")
         return False
 
     # Normalize: split into lines, strip whitespace, drop empty lines
@@ -2147,7 +2142,7 @@ def is_file_fully_unknown(die_output: str) -> bool:
 
     # We only care about the first two markers; ignore anything after.
     if len(lines) >= 2 and lines[0] == "Binary" and lines[1] == "Unknown: Unknown":
-        logging.info("DIE output indicates an unknown file (ignoring extra errors).")
+        logger.info("DIE output indicates an unknown file (ignoring extra errors).")
         return True
     else:
         return False
@@ -2210,13 +2205,13 @@ def is_packed_from_output(die_output):
     # Return result based on architecture
     if detected_packer:
         if die_output.startswith("PE64"):
-            logging.info(f"DIE output indicates PE64 packed/protected binary: {detected_packer}")
+            logger.info(f"DIE output indicates PE64 packed/protected binary: {detected_packer}")
             return f"PE64 Packed ({detected_packer})"
         elif die_output.startswith("PE32"):
-            logging.info(f"DIE output indicates PE32 packed/protected binary: {detected_packer}")
+            logger.info(f"DIE output indicates PE32 packed/protected binary: {detected_packer}")
             return f"PE32 Packed ({detected_packer})"
         else:
-            logging.info(f"DIE output indicates packed/protected binary: {detected_packer}")
+            logger.info(f"DIE output indicates packed/protected binary: {detected_packer}")
             return f"Packed ({detected_packer})"
 
     return None
@@ -2227,7 +2222,7 @@ def is_packer_upx_output(die_output):
     Looks for the marker 'Packer: UPX' (optionally with version/modifier).
     """
     if die_output and re.search(r"Packer:\s*UPX\b", die_output):
-        logging.info("DIE output indicates UPX packer.")
+        logger.info("DIE output indicates UPX packer.")
         return True
 
     return False
@@ -2235,7 +2230,7 @@ def is_packer_upx_output(die_output):
 def is_jar_file_from_output(die_output):
     """Checks if DIE output indicates a JAR file (Java archive)."""
     if die_output and "Virtual machine: JVM" in die_output:
-        logging.info("DIE output indicates a JAR file.")
+        logger.info("DIE output indicates a JAR file.")
         return True
     return False
 
@@ -2245,7 +2240,7 @@ def is_java_class_from_output(die_output):
     It does this by looking for 'Format: Java Class File' in the output.
     """
     if die_output and "Format: Java Class " in die_output:
-        logging.info("DIE output indicates a Java class file.")
+        logger.info("DIE output indicates a Java class file.")
         return True
     return False
 
@@ -2255,7 +2250,7 @@ def debloat_pe_file(file_path):
     output into its own uniquely-named subdirectory of debloat_dir.
     """
     try:
-        logging.info(f"Debloating PE file {file_path} for faster scanning.")
+        logger.info(f"Debloating PE file {file_path} for faster scanning.")
 
         # Flag for last-ditch processing
         last_ditch_processing = False
@@ -2276,12 +2271,12 @@ def debloat_pe_file(file_path):
         pe_data = file_path.read_bytes()
         pe      = pefile.PE(data=pe_data, fast_load=True)
 
-        # Wrap logging.info so it accepts and ignores print-style kwargs
+        # Wrap logger.info so it accepts and ignores print-style kwargs
         def log_message(msg, *args, **kwargs):
             # Remove print-style arguments that logging doesn't support
             kwargs.pop('end', None)
             kwargs.pop('flush', None)
-            logging.info(msg, *args, **kwargs)
+            logger.info(msg, *args, **kwargs)
 
         # Debloat into our new directory
         debloat.processor.process_pe(
@@ -2294,14 +2289,14 @@ def debloat_pe_file(file_path):
 
         # Verify that something landed in there
         if any(output_dir.iterdir()):
-            logging.info(f"Debloated file(s) saved in: {output_dir}")
+            logger.info(f"Debloated file(s) saved in: {output_dir}")
             return str(output_dir)
         else:
-            logging.error(f"Debloating failed for {file_path}; {output_dir} is empty.")
+            logger.error(f"Debloating failed for {file_path}; {output_dir} is empty.")
             return None
 
     except Exception as ex:
-        logging.error("Error during debloating of %s: %s", file_path, ex)
+        logger.error("Error during debloating of %s: %s", file_path, ex)
 
 def remove_magic_bytes(data_content, die_output):
     """Remove magic bytes from data, considering it might be hex-encoded."""
@@ -2322,7 +2317,7 @@ def remove_magic_bytes(data_content, die_output):
                 # Decode the data using UTF-8
                 decoded_content = data_content.decode("utf-8", errors="ignore")
             except (AttributeError, TypeError) as ex:
-                logging.error(f"Error decoding data: {ex}")
+                logger.error(f"Error decoding data: {ex}")
                 return data_content  # Return original data if decoding fails
 
             # Convert decoded content back to bytes for magic byte removal
@@ -2335,10 +2330,10 @@ def remove_magic_bytes(data_content, die_output):
             try:
                 return binascii.unhexlify(hex_data)
             except Exception as ex:
-                logging.error(f"Error unhexlifying data: {ex}")
+                logger.error(f"Error unhexlifying data: {ex}")
                 return data_content  # Return original data if unhexlifying fails
     except Exception as ex:
-        logging.error(f"Unexpected error in remove_magic_bytes: {ex}")
+        logger.error(f"Unexpected error in remove_magic_bytes: {ex}")
         return data_content  # Return original data in case of unexpected errors
 
 def DecryptString(key, tag, nonce, _input):
@@ -2390,7 +2385,7 @@ def save_to_file(file_path, content):
             file.write(content)
         return file_path
     except Exception as ex:
-        logging.error(f"Error saving file {file_path}: {ex}")
+        logger.error(f"Error saving file {file_path}: {ex}")
         return None
 
 def decode_base64(data_content):
@@ -2398,7 +2393,7 @@ def decode_base64(data_content):
     try:
         return base64.b64decode(data_content, validate=True)
     except (binascii.Error, ValueError):
-        logging.error("Base64 decoding failed.")
+        logger.error("Base64 decoding failed.")
         return None
 
 def decode_b64_import(match: re.Match) -> str:
@@ -2422,7 +2417,7 @@ def decode_base32(data_content):
             data_content = data_content.encode("utf-8")
         return base32_crockford.decode(data_content)
     except (binascii.Error, ValueError) as ex:
-        logging.error(f"Base32 decoding error: {ex}")
+        logger.error(f"Base32 decoding error: {ex}")
         return None
 
 # match only Base64 characters plus 0_2 padding"="
@@ -2461,7 +2456,7 @@ def process_file_data(file_path, die_output):
             if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
                 decoded = decode_base64(data_content)
                 if decoded is not None:
-                    logging.info("Base64 layer removed.")
+                    logger.info("Base64 layer removed.")
                     data_content = decoded
                     continue
 
@@ -2469,11 +2464,11 @@ def process_file_data(file_path, die_output):
             if isinstance(data_content, (bytes, bytearray)) and is_base32(data_content):
                 decoded = decode_base32(data_content)
                 if decoded is not None:
-                    logging.info("Base32 layer removed.")
+                    logger.info("Base32 layer removed.")
                     data_content = decoded
                     continue
 
-            logging.info("No more base64 or base32 encoded data found.")
+            logger.info("No more base64 or base32 encoded data found.")
             break
 
         # strip out your magic bytes
@@ -2487,7 +2482,7 @@ def process_file_data(file_path, die_output):
         )
         with open(output_file_path, 'wb') as processed_file:
             processed_file.write(processed_data)
-        logging.info(f"Processed data from {file_path} saved to {output_file_path}")
+        logger.info(f"Processed data from {file_path} saved to {output_file_path}")
 
         # now create a reversed lines variant with .txt extension
         lines = processed_data.splitlines(keepends=True)
@@ -2499,10 +2494,10 @@ def process_file_data(file_path, die_output):
         )
         with open(reversed_output_path, 'wb') as rev_file:
             rev_file.write(reversed_lines_data)
-        logging.info(f"Reversed lines data from {file_path} saved to {reversed_output_path}")
+        logger.info(f"Reversed lines data from {file_path} saved to {reversed_output_path}")
 
     except Exception as ex:
-        logging.error(f"Error processing file {file_path}: {ex}")
+        logger.error(f"Error processing file {file_path}: {ex}")
 
 # --- PE Analysis and Feature Extraction Functions ---
 
@@ -2605,7 +2600,7 @@ class PEFeatureExtractor:
             analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
 
         except Exception as e:
-            logging.error(f"Capstone disassembly failed: {e}")
+            logger.error(f"Capstone disassembly failed: {e}")
             analysis['error'] = str(e)
 
         return analysis
@@ -2668,7 +2663,7 @@ class PEFeatureExtractor:
 
             return callback_addresses
         except Exception as e:
-            logging.error(f"Error retrieving TLS callback addresses: {e}")
+            logger.error(f"Error retrieving TLS callback addresses: {e}")
             return []
 
     def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
@@ -2696,7 +2691,7 @@ class PEFeatureExtractor:
 
             return tls_callbacks
         except Exception as e:
-            logging.error(f"Error analyzing TLS callbacks: {e}")
+            logger.error(f"Error analyzing TLS callbacks: {e}")
             return {}
 
     def analyze_dos_stub(self, pe) -> Dict[str, Any]:
@@ -2719,7 +2714,7 @@ class PEFeatureExtractor:
 
             return dos_stub
         except Exception as e:
-            logging.error(f"Error analyzing DOS stub: {e}")
+            logger.error(f"Error analyzing DOS stub: {e}")
             return {}
 
     def analyze_certificates(self, pe) -> Dict[str, Any]:
@@ -2745,7 +2740,7 @@ class PEFeatureExtractor:
 
             return cert_info
         except Exception as e:
-            logging.error(f"Error analyzing certificates: {e}")
+            logger.error(f"Error analyzing certificates: {e}")
             return {}
 
     def analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
@@ -2778,7 +2773,7 @@ class PEFeatureExtractor:
 
             return delay_imports
         except Exception as e:
-            logging.error(f"Error analyzing delay imports: {e}")
+            logger.error(f"Error analyzing delay imports: {e}")
             return []
 
     def analyze_load_config(self, pe) -> Dict[str, Any]:
@@ -2804,7 +2799,7 @@ class PEFeatureExtractor:
 
             return load_config
         except Exception as e:
-            logging.error(f"Error analyzing load config: {e}")
+            logger.error(f"Error analyzing load config: {e}")
             return {}
 
     def analyze_relocations(self, pe) -> List[Dict[str, Any]]:
@@ -2835,7 +2830,7 @@ class PEFeatureExtractor:
 
             return relocations
         except Exception as e:
-            logging.error(f"Error analyzing relocations: {e}")
+            logger.error(f"Error analyzing relocations: {e}")
             return []
 
     def analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
@@ -2859,13 +2854,13 @@ class PEFeatureExtractor:
                             }
                             bound_import['references'].append(reference)
                     else:
-                        logging.warning(f"Bound import {bound_import['name']} has no references.")
+                        logger.warning(f"Bound import {bound_import['name']} has no references.")
 
                     bound_imports.append(bound_import)
 
             return bound_imports
         except Exception as e:
-            logging.error(f"Error analyzing bound imports: {e}")
+            logger.error(f"Error analyzing bound imports: {e}")
             return []
 
     def analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
@@ -2903,7 +2898,7 @@ class PEFeatureExtractor:
 
             return characteristics
         except Exception as e:
-            logging.error(f"Error analyzing section characteristics: {e}")
+            logger.error(f"Error analyzing section characteristics: {e}")
             return {}
 
     def analyze_extended_headers(self, pe) -> Dict[str, Any]:
@@ -2945,7 +2940,7 @@ class PEFeatureExtractor:
 
             return headers
         except Exception as e:
-            logging.error(f"Error analyzing extended headers: {e}")
+            logger.error(f"Error analyzing extended headers: {e}")
             return {}
 
     def serialize_data(self, data) -> Any:
@@ -2983,7 +2978,7 @@ class PEFeatureExtractor:
 
             return rich_header
         except Exception as e:
-            logging.error(f"Error analyzing Rich header: {e}")
+            logger.error(f"Error analyzing Rich header: {e}")
             return {}
 
     def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
@@ -3019,7 +3014,7 @@ class PEFeatureExtractor:
 
             return overlay_info
         except Exception as e:
-            logging.error(f"Error analyzing overlay: {e}")
+            logger.error(f"Error analyzing overlay: {e}")
             return {}
 
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -3034,15 +3029,15 @@ class PEFeatureExtractor:
                 # Attempt to load PE file directly
                 pe = pefile.PE(file_path, fast_load=True)
             except pefile.PEFormatError:
-                logging.error(f"{file_path} is not a valid PE file.")
+                logger.error(f"{file_path} is not a valid PE file.")
                 return None
             except Exception as ex:
-                logging.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
+                logger.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
                 return None
             try:
                 pe.parse_data_directories()
             except Exception:
-                logging.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
+                logger.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
 
             # Extract features
             numeric_features = {
@@ -3175,7 +3170,7 @@ class PEFeatureExtractor:
             return numeric_features
 
         except Exception as ex:
-            logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
+            logger.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None
         finally:
             # ensure PE handle is closed to release underlying file descriptor
@@ -3183,7 +3178,7 @@ class PEFeatureExtractor:
                 if pe is not None:
                     pe.close()
             except Exception:
-                logging.debug(f"Failed to close pe for {file_path}", exc_info=True)
+                logger.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
 pe_extractor = PEFeatureExtractor()
 
@@ -3216,7 +3211,7 @@ def notify_user(file_path, virus_name, engine_detected):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_pua(file_path, virus_name, engine_detected):
     notification = Notify()
@@ -3225,7 +3220,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_malicious_source_code(file_path, virus_name):
     """
@@ -3237,7 +3232,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.error(notification_message)
+    logger.error(notification_message)
 
 def notify_user_for_detected_command(message, file_path):
     notification = Notify()
@@ -3249,7 +3244,7 @@ def notify_user_for_detected_command(message, file_path):
     )
 
     notification.send()
-    logging.critical(f"Notification: {notification.message}")
+    logger.critical(f"Notification: {notification.message}")
 
 
 def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis_flag=False):
@@ -3267,7 +3262,7 @@ def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
@@ -3278,7 +3273,7 @@ def notify_size_warning(file_path, archive_type, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
     """Send a notification for warnings related to suspicious filenames in archive files."""
@@ -3290,7 +3285,7 @@ def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_susp_name(file_path, virus_name):
     notification = Notify()
@@ -3299,7 +3294,7 @@ def notify_user_susp_name(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_scr(file_path, virus_name):
     """
@@ -3311,7 +3306,7 @@ def notify_user_scr(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(f"ALERT: {notification_message}")
+    logger.critical(f"ALERT: {notification_message}")
 
 def notify_user_etw_tampering(file_path, virus_name):
     notification = Notify()
@@ -3320,7 +3315,7 @@ def notify_user_etw_tampering(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification = Notify()
@@ -3334,7 +3329,7 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_detected_rootkit(file_path, virus_name):
     notification = Notify()
@@ -3347,7 +3342,7 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
@@ -3356,7 +3351,7 @@ def notify_user_invalid(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_fake_size(file_path, virus_name):
     notification = Notify()
@@ -3365,7 +3360,7 @@ def notify_user_fake_size(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_startup(file_path, message):
     """Notify the user about suspicious or malicious startup files."""
@@ -3377,7 +3372,7 @@ def notify_user_startup(file_path, message):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_uefi(file_path, virus_name):
     notification = Notify()
@@ -3386,7 +3381,7 @@ def notify_user_uefi(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
@@ -3395,7 +3390,7 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
@@ -3404,7 +3399,7 @@ def notify_user_exela_stealer_v2(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_hosts(file_path, virus_name):
     notification = Notify()
@@ -3413,7 +3408,7 @@ def notify_user_hosts(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_worm(file_path, virus_name):
     notification = Notify()
@@ -3422,7 +3417,7 @@ def notify_user_worm(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
@@ -3451,7 +3446,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
@@ -3469,7 +3464,7 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification.message = notification_message
     notification.send()
 
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     """
@@ -3480,7 +3475,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification_message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.message = notification_message
     notification.send()
-    logging.critical(notification_message)
+    logger.critical(notification_message)
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -3490,17 +3485,17 @@ def load_antivirus_list():
             antivirus_domains_data = antivirus_file.read().splitlines()
         return antivirus_domains_data
     except Exception as ex:
-        logging.error(f"Error loading Antivirus domains: {ex}")
+        logger.error(f"Error loading Antivirus domains: {ex}")
         return []
 
 def load_digital_signatures(file_path, description="Digital signatures"):
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             signatures = file.read().splitlines()
-        logging.info(f"{description} loaded successfully!")
+        logger.info(f"{description} loaded successfully!")
         return signatures
     except Exception as ex:
-        logging.error(f"Error loading {description}: {ex}")
+        logger.error(f"Error loading {description}: {ex}")
         return []
 
 def load_website_data():
@@ -3524,10 +3519,10 @@ def load_website_data():
                             'address': row[0].strip(),
                             'reference': ''
                         })
-            logging.info(f"{data_name} loaded successfully! ({len(data)} entries)")
+            logger.info(f"{data_name} loaded successfully! ({len(data)} entries)")
             return data
         except Exception as ex:
-            logging.error(f"Error loading {data_name}: {ex}")
+            logger.error(f"Error loading {data_name}: {ex}")
             return []
 
     # Load IPv4 Malicious addresses
@@ -3570,9 +3565,9 @@ def load_website_data():
             reader = csv.DictReader(urlhaus_file)
             for row in reader:
                 urlhaus_data.append(row)
-        logging.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
+        logger.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
     except Exception as ex:
-        logging.error(f"Error loading URLhaus data: {ex}")
+        logger.error(f"Error loading URLhaus data: {ex}")
         urlhaus_data = []
 
     # Load malware domains
@@ -3627,12 +3622,12 @@ def load_website_data():
     try:
         with open(spam_email_365_path, 'r', encoding='utf-8') as file:
             spam_email_365_data = [line.strip() for line in file.readlines() if line.strip()]
-        logging.info(f"Spam Email 365 data loaded successfully! ({len(spam_email_365_data)} entries)")
+        logger.info(f"Spam Email 365 data loaded successfully! ({len(spam_email_365_data)} entries)")
     except Exception as ex:
-        logging.error(f"Error loading Spam Email 365 data: {ex}")
+        logger.error(f"Error loading Spam Email 365 data: {ex}")
         spam_email_365_data = []
 
-    logging.info("All domain and IP address CSV files loaded successfully!")
+    logger.info("All domain and IP address CSV files loaded successfully!")
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
@@ -3689,7 +3684,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
 
             # Log appropriate message
             if signature_base == "Telegram.Bot":
-                logging.info(f"{description} detected in decompiled code: {matches}")
+                logger.info(f"{description} detected in decompiled code: {matches}")
             else:
                 platform_desc = {
                     "DotNET": ".NET source code file",
@@ -3701,7 +3696,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
                     "Registry": "Registry"
                 }.get(platform_suffix, "decompiled code")
 
-                logging.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
+                logger.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
 
             notify_user_for_malicious_source_code(file_path, signature)
 
@@ -3754,7 +3749,7 @@ def scan_domain_general(url, **flags):
             url = 'https://' + url
         parsed_url = urlparse(url)
         if not parsed_url.netloc:
-            logging.error("Invalid URL or domain format")
+            logger.error("Invalid URL or domain format")
         full_domain = parsed_url.netloc.lower()
         domain_parts = full_domain.split('.')
 
@@ -3766,10 +3761,10 @@ def scan_domain_general(url, **flags):
             subdomain = None
 
         if full_domain in scanned_domains_general:
-            logging.info(f"Domain {full_domain} has already been scanned.")
+            logger.info(f"Domain {full_domain} has already been scanned.")
             return
         scanned_domains_general.append(full_domain)
-        logging.info(f"Scanning domain: {full_domain}")
+        logger.info(f"Scanning domain: {full_domain}")
 
         # Helper function to check if domain is in CSV data
         def is_domain_in_data_general(domain, data_list):
@@ -3789,7 +3784,7 @@ def scan_domain_general(url, **flags):
         for data_list, whitelist_type in whitelist_data:
             is_whitelisted, reference = is_domain_in_data_general(full_domain, data_list)
             if is_whitelisted:
-                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
+                logger.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
                 return
 
         # Threat check configurations
@@ -3816,7 +3811,7 @@ def scan_domain_general(url, **flags):
             for data_list, threat_name, signature_suffix, homepage_threat in subdomain_threats:
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
-                    logging.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
+                    logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
                     notify_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
                     return
 
@@ -3828,25 +3823,25 @@ def scan_domain_general(url, **flags):
             if is_full_threat or is_main_threat:
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
-                logging.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
+                logger.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
                 notify_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
                 return
 
-        logging.info(f"Domain {full_domain} passed all checks.")
+        logger.info(f"Domain {full_domain} passed all checks.")
 
     except Exception as ex:
-        logging.error(f"Error scanning domain {url}: {ex}")
+        logger.error(f"Error scanning domain {url}: {ex}")
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
 def scan_ip_address_general(ip_address, **flags):
     try:
         if is_valid_ip(ip_address):
-            logging.info(f"Skipping non valid IP address: {ip_address}")
+            logger.info(f"Skipping non valid IP address: {ip_address}")
             return
 
         if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
-            logging.info(f"IP address {ip_address} has already been scanned.")
+            logger.info(f"IP address {ip_address} has already been scanned.")
             return
 
         def is_ip_in_data_general(ip, data_list):
@@ -3858,12 +3853,12 @@ def scan_ip_address_general(ip_address, **flags):
         # IPv6 processing
         if re.match(IPv6_pattern, ip_address):
             scanned_ipv6_addresses_general.append(ip_address)
-            logging.info(f"Scanning IPv6 address: {ip_address}")
+            logger.info(f"Scanning IPv6 address: {ip_address}")
 
             # IPv6 whitelist check
             is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv6_whitelist_data)
             if is_whitelisted:
-                logging.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
+                logger.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
                 return
 
             # IPv6 threat checks
@@ -3876,21 +3871,21 @@ def scan_ip_address_general(ip_address, **flags):
             for data_list, threat_name, signature_suffix, homepage_threat in ipv6_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
-                    logging.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
+                    logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
                     notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
-            logging.info(f"Unknown IPv6 address detected: {ip_address}")
+            logger.info(f"Unknown IPv6 address detected: {ip_address}")
 
         # IPv4 processing
         elif re.match(IPv4_pattern, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
-            logging.info(f"Scanning IPv4 address: {ip_address}")
+            logger.info(f"Scanning IPv4 address: {ip_address}")
 
             # IPv4 whitelist check
             is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv4_whitelist_data)
             if is_whitelisted:
-                logging.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
+                logger.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
                 return
 
             # IPv4 threat checks
@@ -3909,21 +3904,21 @@ def scan_ip_address_general(ip_address, **flags):
                     # Custom logging messages for different threat types
                     if threat_name in ["PhishingActive", "PhishingInactive"]:
                         status = "active" if threat_name == "PhishingActive" else "inactive"
-                        logging.critical(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {reference})")
+                        logger.critical(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {reference})")
                     elif threat_name in ["DDoS", "BruteForce"]:
-                        logging.critical(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
+                        logger.critical(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
                     else:
-                        logging.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
+                        logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
 
                     notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
-            logging.info(f"Unknown IPv4 address detected: {ip_address}")
+            logger.info(f"Unknown IPv4 address detected: {ip_address}")
         else:
-            logging.debug(f"Invalid IP address format detected: {ip_address}")
+            logger.debug(f"Invalid IP address format detected: {ip_address}")
 
     except Exception as ex:
-        logging.error(f"Error scanning IP address {ip_address}: {ex}")
+        logger.error(f"Error scanning IP address {ip_address}: {ex}")
 
 # --------------------------------------------------------------------------
 # Spam Email 365 Scanner
@@ -3931,22 +3926,22 @@ def scan_spam_email_365_general(email_content, **flags):
     """Scans email content for spam keywords from StopForum Spam Database."""
     try:
         if not email_content:
-            logging.info("No email content provided for spam scanning.")
+            logger.info("No email content provided for spam scanning.")
             return False
 
         email_content_lower = email_content.lower()
         detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
 
         if detected_spam_words:
-            logging.critical(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
+            logger.critical(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
             notify_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
             return True
         else:
-            logging.info("Email content passed spam check - no spam indicators found.")
+            logger.info("Email content passed spam check - no spam indicators found.")
             return False
 
     except Exception as ex:
-        logging.error(f"Error scanning email content for spam: {ex}")
+        logger.error(f"Error scanning email content for spam: {ex}")
         return False
 
 # --------------------------------------------------------------------------
@@ -3954,11 +3949,11 @@ def scan_spam_email_365_general(email_content, **flags):
 def scan_url_general(url, **flags):
     try:
         if url in scanned_urls_general:
-            logging.info(f"URL {url} has already been scanned.")
+            logger.info(f"URL {url} has already been scanned.")
             return
 
         scanned_urls_general.append(url)
-        logging.info(f"Scanning URL: {url}")
+        logger.info(f"Scanning URL: {url}")
 
         # Check against URLhaus signatures
         for entry in urlhaus_data:
@@ -3968,23 +3963,23 @@ def scan_url_general(url, **flags):
                           f"URL Status: {entry['url_status']}, Last Online: {entry['last_online']}\n"
                           f"Threat: {entry['threat']}, Tags: {entry['tags']}\n"
                           f"URLhaus Link: {entry['urlhaus_link']}, Reporter: {entry['reporter']}")
-                logging.critical(message)
+                logger.critical(message)
                 notify_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
                 return
 
         # Heuristic check using uBlock Origin style detection
         if ublock_detect(url):
             notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
-            logging.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
+            logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
             homepage_flag = flags.get('homepage_flag')
             if homepage_flag:
                 notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             return
 
-        logging.info(f"No match found for URL: {url}")
+        logger.info(f"No match found for URL: {url}")
 
     except Exception as ex:
-        logging.error(f"Error scanning URL {url}: {ex}")
+        logger.error(f"Error scanning URL {url}: {ex}")
 
 def ensure_http_prefix(url):
     parsed = urlparse(url)
@@ -4003,7 +3998,7 @@ def fetch_html(url, return_file_path=False):
     try:
         # Checking for valid IP
         if not is_valid_ip(url):
-            logging.info(f"Invalid or disallowed IP address in URL: {url}")
+            logger.info(f"Invalid or disallowed IP address in URL: {url}")
             return ("", None) if return_file_path else ""
 
         safe_url = ensure_http_prefix(url)
@@ -4019,18 +4014,18 @@ def fetch_html(url, return_file_path=False):
             # Save the HTML
             with open(out_path, 'w', encoding='utf-8', errors='ignore') as f:
                 f.write(html)
-            logging.info(f"Saved HTML for {safe_url} to {out_path}")
+            logger.info(f"Saved HTML for {safe_url} to {out_path}")
             # record the new path
             saved_paths.append(out_path)
             return (html, out_path) if return_file_path else html
         else:
-            logging.error(f"Non-OK status {response.status_code} for URL: {safe_url}")
+            logger.error(f"Non-OK status {response.status_code} for URL: {safe_url}")
             return ("", None) if return_file_path else ""
     except requests.exceptions.RequestException as e:
-        logging.error(f"Request error while fetching HTML content from {url}: {e}")
+        logger.error(f"Request error while fetching HTML content from {url}: {e}")
         return ("", None) if return_file_path else ""
     except Exception as e:
-        logging.error(f"Unexpected error fetching HTML content from {url}: {e}")
+        logger.error(f"Unexpected error fetching HTML content from {url}: {e}")
         return ("", None) if return_file_path else ""
 
 
@@ -4122,7 +4117,7 @@ def run_pd64_db_gen(quick=False):
         subprocess.run(cmd, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to generate clean.hashes: {e}")
+        logger.error(f"Failed to generate clean.hashes: {e}")
         return False
 
 def extract_with_unipacker(file_path):
@@ -4140,16 +4135,16 @@ def extract_with_unipacker(file_path):
         base_name = os.path.splitext(file_path)[0]
         unpack_path = f"{base_name}.unpacked.exe"
 
-        logging.info(f"Starting Unipacker extraction for {file_path}")
+        logger.info(f"Starting Unipacker extraction for {file_path}")
 
         # Initialize sample
         sample = Sample(file_path, auto_default_unpacker=True)
 
         if sample.unpacker is None:
-            logging.warning(f"No suitable unpacker found for {file_path}")
+            logger.warning(f"No suitable unpacker found for {file_path}")
             return None
 
-        logging.info(f"Detected packer: {sample.unpacker.name}")
+        logger.info(f"Detected packer: {sample.unpacker.name}")
 
         # Create unpacker engine
         engine = UnpackerEngine(sample, unpack_path)
@@ -4168,20 +4163,20 @@ def extract_with_unipacker(file_path):
         emu_thread.join(timeout=1200)  # 20 minute timeout
 
         if emu_thread.is_alive():
-            logging.warning(f"Unipacker timeout for {file_path}")
+            logger.warning(f"Unipacker timeout for {file_path}")
             engine.stop()
             return None
 
         # Check if unpacked file was created
         if os.path.exists(unpack_path) and os.path.getsize(unpack_path) > 0:
-            logging.info(f"Successfully unpacked {file_path} to {unpack_path}")
+            logger.info(f"Successfully unpacked {file_path} to {unpack_path}")
             return unpack_path
         else:
-            logging.warning(f"Unpacking failed or produced empty file for {file_path}")
+            logger.warning(f"Unpacking failed or produced empty file for {file_path}")
             return None
 
     except Exception as e:
-        logging.error(f"Unipacker extraction failed for {file_path}: {e}")
+        logger.error(f"Unipacker extraction failed for {file_path}: {e}")
         return None
 
 def extract_with_pd64(pid: str, output_dir: str) -> bool:
@@ -4194,10 +4189,10 @@ def extract_with_pd64(pid: str, output_dir: str) -> bool:
             "-o",
             output_dir
         ], check=True)
-        logging.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
+        logger.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
         return True
     except subprocess.CalledProcessError as e:
-        logging.error(f"pd64 extraction failed for PID {pid}: {e}")
+        logger.error(f"pd64 extraction failed for PID {pid}: {e}")
         return False
 
 # Global variables for worm detection
@@ -4211,7 +4206,7 @@ unified_pe_cache = {}
 def clear_pe_cache():
     """Clear the unified PE feature cache."""
     unified_pe_cache.clear()
-    logging.info("Unified PE feature cache cleared")
+    logger.info("Unified PE feature cache cleared")
 
 def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
@@ -4226,7 +4221,7 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
 
     # Check if we already have features for this MD5
     if file_md5 in unified_pe_cache:
-        logging.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
+        logger.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
         return unified_pe_cache[file_md5]
 
     try:
@@ -4235,7 +4230,7 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
         if features:
             # Cache the result with MD5 as key
             unified_pe_cache[file_md5] = features
-            logging.debug(f"Cached features for {file_path} (MD5: {file_md5})")
+            logger.debug(f"Cached features for {file_path} (MD5: {file_md5})")
             return features
         else:
             # Cache negative result too to avoid re-processing failed files
@@ -4243,7 +4238,7 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
             return None
 
     except Exception as ex:
-        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
+        logger.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
         # Cache the failure to avoid repeated attempts
         unified_pe_cache[file_md5] = None
         return None
@@ -4251,16 +4246,16 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
     malware_definition = "Unknown"
-    logging.info(f"Starting machine learning scan for file: {file_path}")
+    logger.info(f"Starting machine learning scan for file: {file_path}")
 
     try:
         pe = pefile.PE(file_path)
         pe.close()
     except pefile.PEFormatError:
-        logging.error(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
+        logger.error(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
         return False, malware_definition, 0
 
-    logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
+    logger.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
 
     # Use unified cache for feature extraction
     file_numeric_features = get_cached_pe_features(file_path)
@@ -4290,7 +4285,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 malware_definition = str(info)
                 rank = 'N/A'
 
-            logging.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
+            logger.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
     # If not malicious, check benign
     if not is_malicious_ml:
@@ -4308,10 +4303,10 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
         if nearest_benign_similarity >= 0.93:
             malware_definition = "Benign"
-            logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
+            logger.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
         else:
             malware_definition = "Unknown"
-            logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
+            logger.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
 
     # Return result
     if is_malicious_ml:
@@ -4324,44 +4319,44 @@ def restart_service(service_name, stop_only=False):
     try:
         # Check if service exists
         if not service_exists(service_name):
-            logging.error(f"Service '{service_name}' does not exist on this system.")
+            logger.error(f"Service '{service_name}' does not exist on this system.")
             return False
 
         # Stop service if running
         if is_service_running(service_name):
-            logging.info(f"Stopping service '{service_name}'...")
+            logger.info(f"Stopping service '{service_name}'...")
             try:
                 win32serviceutil.StopService(service_name)
-                logging.info(f"Service '{service_name}' stopped successfully.")
+                logger.info(f"Service '{service_name}' stopped successfully.")
             except Exception as ex:
-                logging.error(f"Failed to stop service '{service_name}': {ex}")
+                logger.error(f"Failed to stop service '{service_name}': {ex}")
                 return False
         else:
-            logging.info(f"Service '{service_name}' is not running, skipping stop step.")
+            logger.info(f"Service '{service_name}' is not running, skipping stop step.")
 
         # If only stopping, return now
         if stop_only:
             return True
 
         # Start service
-        logging.info(f"Starting service '{service_name}'...")
+        logger.info(f"Starting service '{service_name}'...")
         try:
             win32serviceutil.StartService(service_name)
 
             # Verify service is running
             if is_service_running(service_name):
-                logging.info(f"Service '{service_name}' started successfully.")
+                logger.info(f"Service '{service_name}' started successfully.")
                 return True
             else:
-                logging.error(f"Service start command succeeded but '{service_name}' is not running.")
+                logger.error(f"Service start command succeeded but '{service_name}' is not running.")
                 return False
 
         except Exception as ex:
-            logging.error(f"Failed to start service '{service_name}': {ex}")
+            logger.error(f"Failed to start service '{service_name}': {ex}")
             return False
 
     except Exception as ex:
-        logging.error(f"An error occurred while managing service '{service_name}': {ex}")
+        logger.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
 clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
@@ -4372,39 +4367,39 @@ def reload_clamav_database():
     Required after updating signatures.
     """
     try:
-        logging.info("Reloading ClamAV database...")
+        logger.info("Reloading ClamAV database...")
         clamav_scanner.loadDB()
-        logging.info("ClamAV database reloaded successfully.")
+        logger.info("ClamAV database reloaded successfully.")
     except Exception as ex:
-        logging.error(f"Failed to reload ClamAV database: {ex}")
+        logger.error(f"Failed to reload ClamAV database: {ex}")
 
 def restart_owlyshield_threaded(stop_only=False):
     """Restart or stop Owlyshield services in a separate thread."""
     def manage_owlyshield():
         try:
-            logging.info(f"{'Stopping' if stop_only else 'Restarting'} OwlyshieldRansomFilter service...")
+            logger.info(f"{'Stopping' if stop_only else 'Restarting'} OwlyshieldRansomFilter service...")
             if restart_service('OwlyshieldRansomFilter', stop_only=stop_only):
-                logging.info(f"OwlyshieldRansomFilter service {'stopped' if stop_only else 'restarted'} successfully.")
+                logger.info(f"OwlyshieldRansomFilter service {'stopped' if stop_only else 'restarted'} successfully.")
             else:
-                logging.error(f"OwlyshieldRansomFilter service {'stop' if stop_only else 'restart'} failed.")
+                logger.error(f"OwlyshieldRansomFilter service {'stop' if stop_only else 'restart'} failed.")
         except Exception as ex:
-            logging.error(f"Exception during OwlyshieldRansomFilter {'stop' if stop_only else 'restart'}: {ex}")
+            logger.error(f"Exception during OwlyshieldRansomFilter {'stop' if stop_only else 'restart'}: {ex}")
 
         try:
-            logging.info(f"{'Stopping' if stop_only else 'Restarting'} Owlyshield Service...")
+            logger.info(f"{'Stopping' if stop_only else 'Restarting'} Owlyshield Service...")
             if restart_service('Owlyshield Service', stop_only=stop_only):
-                logging.info(f"Owlyshield Service {'stopped' if stop_only else 'restarted'} successfully.")
+                logger.info(f"Owlyshield Service {'stopped' if stop_only else 'restarted'} successfully.")
             else:
-                logging.error(f"Owlyshield Service {'stop' if stop_only else 'restart'} failed.")
+                logger.error(f"Owlyshield Service {'stop' if stop_only else 'restart'} failed.")
         except Exception as ex:
-            logging.error(f"Exception during Owlyshield Service {'stop' if stop_only else 'restart'}: {ex}")
+            logger.error(f"Exception during Owlyshield Service {'stop' if stop_only else 'restart'}: {ex}")
 
     try:
         thread = threading.Thread(target=manage_owlyshield)
         thread.start()
         thread.join()  # Wait for the thread to finish
     except Exception as ex:
-        logging.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
+        logger.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
 
 def scan_file_with_clamav(file_path):
     """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
@@ -4417,10 +4412,10 @@ def scan_file_with_clamav(file_path):
         elif ret == clamav.CL_VIRUS:
             return virus_name or "Infected"
         else:
-            logging.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
+            logger.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
             return "Error"
     except Exception as ex:
-        logging.error(f"Error scanning file {file_path}: {ex}")
+        logger.error(f"Error scanning file {file_path}: {ex}")
         return "Error"
 
 def is_related_to_critical_paths(file_path):
@@ -4484,7 +4479,7 @@ class RealTimeWebProtectionHandler:
                     message = f"{detection_type} {message}"
                 if reference:
                     message += f" Reference: {reference}"
-                logging.critical(message)
+                logger.critical(message)
 
                 notify_info[entity_type] = entity_value
                 notify_info['file_path'] = file_path
@@ -4507,7 +4502,7 @@ class RealTimeWebProtectionHandler:
                     message = f"{detection_type} {message}"
                 if reference:
                     message += f" Reference: {reference}"
-                logging.info(message)
+                logger.info(message)
 
             # Only notify if there's meaningful data (ignore detection_type alone)
             has_data = any(
@@ -4517,7 +4512,7 @@ class RealTimeWebProtectionHandler:
                 notify_user_for_web(**notify_info)
 
         except Exception as ex:
-            logging.error(f"Error in handle_detection: {ex}")
+            logger.error(f"Error in handle_detection: {ex}")
 
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
@@ -4597,7 +4592,7 @@ class RealTimeWebProtectionHandler:
             for data_list, whitelist_type in whitelist_checks:
                 is_whitelisted, reference = self.is_domain_in_data(main_domain, data_list)
                 if is_whitelisted:
-                    logging.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
+                    logger.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
                     return
 
             # Check against threat lists with address-reference structure
@@ -4638,17 +4633,17 @@ class RealTimeWebProtectionHandler:
             ip_address = entity_value
             # valid ip check
             if not is_valid_ip(ip_address):
-                logging.info(f"Skipping non valid IP address: {ip_address}")
+                logger.info(f"Skipping non valid IP address: {ip_address}")
                 return
 
             # signatures
             if kind == 'ipv6':
-                logging.info(f"Scanning IPv6 address: {ip_address}")
+                logger.info(f"Scanning IPv6 address: {ip_address}")
 
                 # Check whitelist first
                 is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv6_whitelist_data)
                 if is_whitelisted:
-                    logging.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
+                    logger.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
                     return
 
                 # Check threat lists
@@ -4664,15 +4659,15 @@ class RealTimeWebProtectionHandler:
                         self.handle_detection('ipv6_address', ip_address, detection_type_check, reference)
                         return
 
-                logging.info(f"Unknown IPv6 address detected: {ip_address}")
+                logger.info(f"Unknown IPv6 address detected: {ip_address}")
 
             else:  # ipv4
-                logging.info(f"Scanning IPv4 address: {ip_address}")
+                logger.info(f"Scanning IPv4 address: {ip_address}")
 
                 # Check whitelist first
                 is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv4_whitelist_data)
                 if is_whitelisted:
-                    logging.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
+                    logger.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
                     return
 
                 # Check threat lists
@@ -4690,7 +4685,7 @@ class RealTimeWebProtectionHandler:
                         self.handle_detection('ipv4_address', ip_address, detection_type_check, reference)
                         return
 
-                logging.info(f"Unknown IPv4 address detected: {ip_address}")
+                logger.info(f"Unknown IPv4 address detected: {ip_address}")
 
             # fetch & parse
             full_url = f"http://{ip_address}"
@@ -4740,19 +4735,19 @@ class RealTimeWebProtectionHandler:
                         f"URLhaus Link: {entry['urlhaus_link']}\n"
                         f"Reporter: {entry['reporter']}"
                     )
-                    logging.critical(message)
+                    logger.critical(message)
                     self.handle_detection('url', url, 'URLhaus Match')
                     return
 
             # Heuristic check using uBlock detection (e.g., Steam Community pattern).
             if ublock_detect(url):
                 self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
-                logging.critical(
+                logger.critical(
                     f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen."
                 )
                 return
 
-            logging.info(f"No match found for URL: {url}")
+            logger.info(f"No match found for URL: {url}")
 
     def scan_domain(self, domain):
         self.scan('domain', domain)
@@ -4773,17 +4768,17 @@ class RealTimeWebProtectionHandler:
                     for i in range(packet[DNS].qdcount):
                         qn = packet[DNSQR][i].qname.decode().rstrip('.')
                         self.scan_domain(qn)
-                        logging.info(f"DNS Query (IPv4): {qn}")
+                        logger.info(f"DNS Query (IPv4): {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         an = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(an)
-                        logging.info(f"DNS Answer (IPv4): {an}")
+                        logger.info(f"DNS Answer (IPv4): {an}")
 
                 self.scan_ipv4_address(packet[IP].src)
                 self.scan_ipv4_address(packet[IP].dst)
         except Exception as ex:
-            logging.error(f"Error handling IPv4 packet: {ex}")
+            logger.error(f"Error handling IPv4 packet: {ex}")
 
     def handle_ipv6(self, packet):
         try:
@@ -4792,19 +4787,19 @@ class RealTimeWebProtectionHandler:
                     for i in range(packet[DNS].qdcount):
                         qn = packet[DNSQR][i].qname.decode().rstrip('.')
                         self.scan_domain(qn)
-                        logging.info(f"DNS Query (IPv6): {qn}")
+                        logger.info(f"DNS Query (IPv6): {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         an = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(an)
-                        logging.info(f"DNS Answer (IPv6): {an}")
+                        logger.info(f"DNS Answer (IPv6): {an}")
 
                 self.scan_ipv6_address(packet[IPv6].src)
                 self.scan_ipv6_address(packet[IPv6].dst)
             else:
-                logging.debug("IPv6 layer or DNS layer not found in the packet.")
+                logger.debug("IPv6 layer or DNS layer not found in the packet.")
         except Exception as ex:
-            logging.error(f"Error handling IPv6 packet: {ex}")
+            logger.error(f"Error handling IPv6 packet: {ex}")
 
     def on_packet_received(self, packet):
         try:
@@ -4822,12 +4817,12 @@ class RealTimeWebProtectionHandler:
                     for i in range(packet[DNS].qdcount):
                         qn = packet[DNSQR][i].qname.decode().rstrip('.')
                         self.scan_domain(qn)
-                        logging.info(f"DNS Query: {qn}")
+                        logger.info(f"DNS Query: {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         an = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(an)
-                        logging.info(f"DNS Answer: {an}")
+                        logger.info(f"DNS Answer: {an}")
                 if IP in packet:
                     self.scan_ipv4_address(packet[IP].src)
                     self.scan_ipv4_address(packet[IP].dst)
@@ -4835,7 +4830,7 @@ class RealTimeWebProtectionHandler:
                     self.scan_ipv6_address(packet[IPv6].src)
                     self.scan_ipv6_address(packet[IPv6].dst)
         except Exception as ex:
-            logging.error(f"Error processing packet: {ex}")
+            logger.error(f"Error processing packet: {ex}")
 
 
 class RealTimeWebProtectionObserver:
@@ -4850,14 +4845,14 @@ class RealTimeWebProtectionObserver:
             self.thread.start()
             self.is_started = True
             message = "Real-time web protection observer started"
-            logging.info(message)
+            logger.info(message)
 
     def start_sniffing(self):
         filter_expression = "(tcp or udp)"
         try:
             sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
         except Exception as ex:
-            logging.error(f"An error occurred while sniffing packets: {ex}")
+            logger.error(f"An error occurred while sniffing packets: {ex}")
 
 
 web_protection_observer = RealTimeWebProtectionObserver()
@@ -4877,7 +4872,7 @@ def scan_yara(file_path):
 
     try:
         if not os.path.exists(file_path):
-            logging.error(f"File not found during YARA scan: {file_path}")
+            logger.error(f"File not found during YARA scan: {file_path}")
             return None, None, None
 
         with open(file_path, 'rb') as yara_file:
@@ -4991,9 +4986,9 @@ def scan_yara(file_path):
                                         f.write(unpacked_data)
 
                                     local_vmprotect_file = unpacked_path
-                                    logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
+                                    logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
                             except Exception as e:
-                                logging.error(f"Error unpacking after VMProtect indicator: {e}")
+                                logger.error(f"Error unpacking after VMProtect indicator: {e}")
 
                     # Update shared results
                     with thread_lock:
@@ -5002,9 +4997,9 @@ def scan_yara(file_path):
                         if local_vmprotect_file:
                             results['vmprotect_unpacked_file'] = local_vmprotect_file
                 else:
-                    logging.error("clean_rules is not defined.")
+                    logger.error("clean_rules is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with clean_rules: {e}")
+                logger.error(f"Error scanning with clean_rules: {e}")
 
         # Thread worker for yarGen_rule scanning
         def yargen_rule_worker():
@@ -5020,16 +5015,16 @@ def scan_yara(file_path):
                             match_details = extract_match_details(match, 'yarGen_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from yarGen_rule.")
 
                     # Update shared results
                     with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logging.error("yarGen_rule is not defined.")
+                    logger.error("yarGen_rule is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with yarGen_rule: {e}")
+                logger.error(f"Error scanning with yarGen_rule: {e}")
 
         # Thread worker for icewater_rule scanning
         def icewater_rule_worker():
@@ -5045,16 +5040,16 @@ def scan_yara(file_path):
                             match_details = extract_match_details(match, 'icewater_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from icewater_rule.")
 
                     # Update shared results
                     with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logging.error("icewater_rule is not defined.")
+                    logger.error("icewater_rule is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with icewater_rule: {e}")
+                logger.error(f"Error scanning with icewater_rule: {e}")
 
         # Thread worker for valhalla_rule scanning
         def valhalla_rule_worker():
@@ -5070,16 +5065,16 @@ def scan_yara(file_path):
                             match_details = extract_match_details(match, 'valhalla_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from valhalla_rule.")
 
                     # Update shared results
                     with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logging.error("valhalla_rule is not defined.")
+                    logger.error("valhalla_rule is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with valhalla_rule: {e}")
+                logger.error(f"Error scanning with valhalla_rule: {e}")
 
         # Thread worker for yaraxtr_rule scanning (YARA-X)
         def yaraxtr_rule_worker():
@@ -5097,16 +5092,16 @@ def scan_yara(file_path):
                             match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+                            logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
 
                     # Update shared results
                     with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logging.error("yaraxtr_rule is not defined.")
+                    logger.error("yaraxtr_rule is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with yaraxtr_rule: {e}")
+                logger.error(f"Error scanning with yaraxtr_rule: {e}")
 
         # Create and start all threads
         workers = [
@@ -5132,7 +5127,7 @@ def scan_yara(file_path):
                 results['vmprotect_unpacked_file'])
 
     except Exception as ex:
-        logging.error(f"An error occurred during YARA scan: {ex}")
+        logger.error(f"An error occurred during YARA scan: {ex}")
         return None, None, None
 
 def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
@@ -5144,10 +5139,10 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
     """
     try:
         if not os.path.isfile(ntdll_path):
-            logging.error(f"[ETW Sandbox Detection] Original ntdll.dll not found at {ntdll_path}")
+            logger.error(f"[ETW Sandbox Detection] Original ntdll.dll not found at {ntdll_path}")
             return False
         if not os.path.isfile(moved_sandboxed_ntdll_path):
-            logging.error(f"[ETW Sandbox Detection] Sandboxed ntdll.dll not found at {moved_sandboxed_ntdll_path}")
+            logger.error(f"[ETW Sandbox Detection] Sandboxed ntdll.dll not found at {moved_sandboxed_ntdll_path}")
             return False
 
         # Load original PE to find NtTraceEvent RVA
@@ -5155,7 +5150,7 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
             pe_orig = pefile.PE(ntdll_path, fast_load=True)
             pe_orig.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Failed to parse original PE: {e}")
+            logger.error(f"[ETW Sandbox Detection] Failed to parse original PE: {e}")
             return False
 
         nttrace_rva = None
@@ -5164,14 +5159,14 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
                 nttrace_rva = exp.address
                 break
         if nttrace_rva is None:
-            logging.error("[ETW Sandbox Detection] Export NtTraceEvent not found in original ntdll.dll")
+            logger.error("[ETW Sandbox Detection] Export NtTraceEvent not found in original ntdll.dll")
             return False
 
         # Compute offset in original file
         try:
             orig_offset = pe_orig.get_offset_from_rva(nttrace_rva)
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Cannot compute offset in original for RVA {hex(nttrace_rva)}: {e}")
+            logger.error(f"[ETW Sandbox Detection] Cannot compute offset in original for RVA {hex(nttrace_rva)}: {e}")
             return False
 
         # Load sandboxed PE to compute offset there
@@ -5179,7 +5174,7 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
             pe_sandbox = pefile.PE(moved_sandboxed_ntdll_path, fast_load=True)
             pe_sandbox.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Failed to parse sandboxed PE: {e}")
+            logger.error(f"[ETW Sandbox Detection] Failed to parse sandboxed PE: {e}")
             return False
 
         # Verify that sandboxed export table contains NtTraceEvent (optional but good)
@@ -5189,14 +5184,14 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
                 found_in_sandbox = True
                 break
         if not found_in_sandbox:
-            logging.error("[ETW Sandbox Detection] Export NtTraceEvent not found in sandboxed ntdll.dll")
+            logger.error("[ETW Sandbox Detection] Export NtTraceEvent not found in sandboxed ntdll.dll")
             return False
 
         # Compute offset in sandboxed file
         try:
             sandbox_offset = pe_sandbox.get_offset_from_rva(nttrace_rva)
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Cannot compute offset in sandboxed for RVA {hex(nttrace_rva)}: {e}")
+            logger.error(f"[ETW Sandbox Detection] Cannot compute offset in sandboxed for RVA {hex(nttrace_rva)}: {e}")
             return False
 
         # Read bytes
@@ -5206,10 +5201,10 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
                 f_orig.seek(orig_offset)
                 orig_bytes = f_orig.read(length)
             if len(orig_bytes) < length:
-                logging.error(f"[ETW Sandbox Detection] Could not read {length} bytes from original ntdll.dll")
+                logger.error(f"[ETW Sandbox Detection] Could not read {length} bytes from original ntdll.dll")
                 return False
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Error reading original file: {e}")
+            logger.error(f"[ETW Sandbox Detection] Error reading original file: {e}")
             return False
 
         try:
@@ -5217,17 +5212,17 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
                 f_s.seek(sandbox_offset)
                 sandbox_bytes = f_s.read(length)
             if len(sandbox_bytes) < length:
-                logging.error(f"[ETW Sandbox Detection] Could not read {length} bytes from sandboxed ntdll.dll")
+                logger.error(f"[ETW Sandbox Detection] Could not read {length} bytes from sandboxed ntdll.dll")
                 return False
         except Exception as e:
-            logging.error(f"[ETW Sandbox Detection] Error reading sandboxed file: {e}")
+            logger.error(f"[ETW Sandbox Detection] Error reading sandboxed file: {e}")
             return False
 
         # Compare
         if sandbox_bytes != orig_bytes:
             orig_hex = orig_bytes[:8].hex()
             sand_hex = sandbox_bytes[:8].hex()
-            logging.critical(
+            logger.critical(
                 f"[ETW Sandbox Detection] Sandboxed ntdll.dll NtTraceEvent seems patched: "
                 f"original bytes={orig_hex}, sandbox bytes={sand_hex}"
             )
@@ -5237,7 +5232,7 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
         return False
 
     except Exception as ex:
-        logging.error(f"[ETW Sandbox Detection] Unexpected error: {ex}")
+        logger.error(f"[ETW Sandbox Detection] Unexpected error: {ex}")
         return False
 
 # Constants for CryptQueryObject
@@ -5337,7 +5332,7 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
         return ({"Subject": subject, "Issuer": issuer}, raw_bytes)
 
     except Exception as e:
-        logging.debug(f"Failed to extract certificate info: {e}")
+        logger.debug(f"Failed to extract certificate info: {e}")
         return None
 
     finally:
@@ -5588,15 +5583,15 @@ def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
             return False
         # If RLO found after dot, check if file has a known extension
         ext = os.path.splitext(filename)[1].lower()
-        logging.info(f"RLO detected after dot in '{filename}', checking extension '{ext}'")
+        logger.info(f"RLO detected after dot in '{filename}', checking extension '{ext}'")
         has_known_ext = ext in fileTypes
         if has_known_ext:
-            logging.critical(f"POTENTIAL RLO ATTACK: File '{filename}' has RLO after dot with known extension '{ext}'")
+            logger.critical(f"POTENTIAL RLO ATTACK: File '{filename}' has RLO after dot with known extension '{ext}'")
         else:
-            logging.info(f"RLO found after dot but extension '{ext}' not in known types")
+            logger.info(f"RLO found after dot but extension '{ext}' not in known types")
         return has_known_ext
     except Exception as ex:
-        logging.error(f"Error checking RLO and extension for file {filename}: {ex}")
+        logger.error(f"Error checking RLO and extension for file {filename}: {ex}")
         return False
 
 def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
@@ -5671,12 +5666,12 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
         ])
 
         if results['suspicious']:
-            logging.critical(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
+            logger.critical(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
 
         return results
 
     except Exception as ex:
-        logging.error(f"Error analyzing filename {filename}: {ex}")
+        logger.error(f"Error analyzing filename {filename}: {ex}")
         return results
 
 class FileType:
@@ -5700,7 +5695,7 @@ class NuitkaPayload:
     def _validate(self):
         """Validate payload magic and set compression flag"""
         if not self.data.startswith(self.MAGIC_KA):
-            logging.error("Invalid Nuitka payload magic")
+            logger.error("Invalid Nuitka payload magic")
 
         magic_type = self.data[2]
         if magic_type == self.MAGIC_UNCOMPRESSED:
@@ -5708,7 +5703,7 @@ class NuitkaPayload:
         elif magic_type == self.MAGIC_COMPRESSED:
             self.compression = CompressionFlag.COMPRESSED
         else:
-            logging.error(f"Unknown compression magic: {magic_type}")
+            logger.error(f"Unknown compression magic: {magic_type}")
 
     def __init__(self, data: bytes, offset: int, size: int):
         self.data = data
@@ -5730,7 +5725,7 @@ class NuitkaPayload:
                 # Create a stream reader with a large read size
                 return dctx.stream_reader(stream, read_size=8192)
             except zstandard.ZstdError as ex:
-                logging.error(f"Failed to initialize decompression: {str(ex)}")
+                logger.error(f"Failed to initialize decompression: {str(ex)}")
         return stream
 
 
@@ -5777,11 +5772,11 @@ class NuitkaExtractor:
 
             # Find RT_RCDATA resource with ID 27
             if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-                logging.error("No resource directory found")
+                logger.error("No resource directory found")
 
             offset, size = self._find_pe_resource(pe)
             if offset is None or size is None:
-                logging.error("No Nuitka payload found in PE resources")
+                logger.error("No Nuitka payload found in PE resources")
 
             # Read the payload data
             with open(self.filepath, 'rb') as f:
@@ -5791,7 +5786,7 @@ class NuitkaExtractor:
             return NuitkaPayload(payload_data, offset, size)
 
         except Exception as ex:
-            logging.error(f"PE payload extraction failed: {str(ex)}")
+            logger.error(f"PE payload extraction failed: {str(ex)}")
 
     def _extract_elf_payload(self) -> Optional[NuitkaPayload]:
         """Extract payload from ELF file"""
@@ -5815,7 +5810,7 @@ class NuitkaExtractor:
                 return NuitkaPayload(payload_data, payload_offset, payload_size)
 
         except Exception as ex:
-            logging.error(f"ELF payload extraction failed: {str(ex)}")
+            logger.error(f"ELF payload extraction failed: {str(ex)}")
 
     def _extract_macho_payload(self) -> Optional[NuitkaPayload]:
         """Extract payload from Mach-O file"""
@@ -5835,10 +5830,10 @@ class NuitkaExtractor:
                                     payload_data = f.read(size)
                                     return NuitkaPayload(payload_data, offset, size)
 
-            logging.error("No payload section found in Mach-O file")
+            logger.error("No payload section found in Mach-O file")
 
         except Exception as ex:
-            logging.error(f"Mach-O payload extraction failed: {str(ex)}")
+            logger.error(f"Mach-O payload extraction failed: {str(ex)}")
 
     def _read_string(self, stream: BinaryIO, is_wide: bool = False) -> Optional[str]:
         """Read a null-terminated string from the stream"""
@@ -5893,18 +5888,18 @@ class NuitkaExtractor:
                             chunk_size = min(remaining, 8192)
                             data = stream.read(chunk_size)
                             if not data:
-                                logging.error(f"Incomplete read for {filename}")
+                                logger.error(f"Incomplete read for {filename}")
                                 break
                             f.write(data)
                             remaining -= len(data)
                     total_files += 1
-                    logging.info(f"[+] Extracted: {filename}")
+                    logger.info(f"[+] Extracted: {filename}")
                 except Exception as ex:
-                    logging.error(f"Failed to extract {filename}: {ex}")
+                    logger.error(f"Failed to extract {filename}: {ex}")
                     continue
 
         except Exception as ex:
-            logging.error(f"Extraction error: {ex}")
+            logger.error(f"Extraction error: {ex}")
 
         return total_files
 
@@ -5914,10 +5909,10 @@ class NuitkaExtractor:
             # Detect file type using the new detection methods
             self.file_type = self._detect_file_type()
             if self.file_type == FileType.UNKNOWN:
-                logging.error("Unsupported file type")
+                logger.error("Unsupported file type")
 
-            logging.info(f"[+] Processing: {self.filepath}")
-            logging.info(f"[+] Detected file type: {['ELF', 'PE', 'MACHO'][self.file_type]}")
+            logger.info(f"[+] Processing: {self.filepath}")
+            logger.info(f"[+] Detected file type: {['ELF', 'PE', 'MACHO'][self.file_type]}")
 
             # Extract payload based on file type
             if self.file_type == FileType.PE:
@@ -5928,19 +5923,19 @@ class NuitkaExtractor:
                 self.payload = self._extract_macho_payload()
 
             if not self.payload:
-                logging.error("Failed to extract payload")
+                logger.error("Failed to extract payload")
 
-            logging.info(f"[+] Payload size: {self.payload.size} bytes")
-            logging.info(f"[+] Compression: {'Yes' if self.payload.compression == CompressionFlag.COMPRESSED else 'No'}")
+            logger.info(f"[+] Payload size: {self.payload.size} bytes")
+            logger.info(f"[+] Compression: {'Yes' if self.payload.compression == CompressionFlag.COMPRESSED else 'No'}")
 
             # Extract files from payload
             stream = self.payload.get_stream()
             total_files = self._extract_files(stream)
 
-            logging.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
+            logger.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
 
         except Exception as ex:
-            logging.error(f"[!] Unexpected error: {str(ex)}")
+            logger.error(f"[!] Unexpected error: {str(ex)}")
 
 
 def scan_zip_file(file_path):
@@ -5997,10 +5992,10 @@ def scan_zip_file(file_path):
         return True, entries
 
     except pyzipper.zipfile.BadZipFile:
-        logging.error(f"Not a valid ZIP archive: {file_path}")
+        logger.error(f"Not a valid ZIP archive: {file_path}")
         return False, []
     except Exception as ex:
-        logging.error(f"Error scanning zip file: {file_path} {ex}")
+        logger.error(f"Error scanning zip file: {file_path} {ex}")
         return False, []
 
 
@@ -6059,10 +6054,10 @@ def scan_7z_file(file_path):
         return True, entries
 
     except py7zr.exceptions.Bad7zFile:
-        logging.error(f"Not a valid 7z archive: {file_path}")
+        logger.error(f"Not a valid 7z archive: {file_path}")
         return False, []
     except Exception as ex:
-        logging.error(f"Error scanning 7z file: {file_path} {ex}")
+        logger.error(f"Error scanning 7z file: {file_path} {ex}")
         return False, []
 
 def is_7z_file_from_output(die_output: str) -> bool:
@@ -6071,7 +6066,7 @@ def is_7z_file_from_output(die_output: str) -> bool:
     Expects the raw stdout (or equivalent) from a Detect It Easy run.
     """
     if die_output and "Archive: 7-Zip" in die_output:
-        logging.info("DIE output indicates a 7z archive.")
+        logger.info("DIE output indicates a 7z archive.")
         return True
 
     return False
@@ -6097,7 +6092,7 @@ def scan_tar_file(file_path):
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
                     virus_name = f"HEUR:{attack_string}.Susp.Name.TAR.gen"
 
-                    logging.critical(
+                    logger.critical(
                         f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - "
                         f"flagged as {virus_name}"
                     )
@@ -6108,7 +6103,7 @@ def scan_tar_file(file_path):
 
                     # Skip if the file has already been processed
                     if os.path.isfile(extracted_file_path):
-                        logging.info(f"File {member.name} already processed, skipping...")
+                        logger.info(f"File {member.name} already processed, skipping...")
                         continue
 
                     # Extract the file
@@ -6118,7 +6113,7 @@ def scan_tar_file(file_path):
                     extracted_file_size = os.path.getsize(extracted_file_path)
                     if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
                         virus_name = "HEUR:Win32.Susp.Size.Encrypted.TAR"
-                        logging.critical(
+                        logger.critical(
                             f"TAR file {file_path} is smaller than 20MB but contains a large file: {member.name} "
                             f"({extracted_file_size / (1024 * 1024):.2f} MB) - flagged as {virus_name}. "
                             "Potential TARbomb or Fake Size detected to avoid VirusTotal detections."
@@ -6127,7 +6122,7 @@ def scan_tar_file(file_path):
 
         return True, []
     except Exception as ex:
-        logging.error(f"Error scanning tar file: {file_path} - {ex}")
+        logger.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
 def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
@@ -6154,7 +6149,7 @@ def check_worm_similarity(file_path: str, features_current: List[float]) -> bool
             if features_main:
                 similarity_main = calculate_vector_similarity(features_current, features_main)
                 if similarity_main > 0.86:
-                    logging.critical(
+                    logger.critical(
                         f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
                         f"with similarity score: {similarity_main:.2f}"
                     )
@@ -6167,27 +6162,27 @@ def check_worm_similarity(file_path: str, features_current: List[float]) -> bool
                 if features_collected:
                     similarity_collected = calculate_vector_similarity(features_current, features_collected)
                     if similarity_collected > 0.86:
-                        logging.critical(
+                        logger.critical(
                             f"Worm has potentially spread to '{collected_file_path}' "
                             f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
                         )
                         worm_detected = True
 
     except FileNotFoundError as fnf_error:
-        logging.error(f"File not found: {fnf_error}")
+        logger.error(f"File not found: {fnf_error}")
     except Exception as ex:
-        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
+        logger.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
 
     return worm_detected
 
 def worm_alert(file_path):
 
     if file_path in worm_alerted_files:
-        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
+        logger.info(f"Worm alert already triggered for {file_path}, skipping...")
         return
 
     try:
-        logging.info(f"Running worm detection for file '{file_path}'")
+        logger.info(f"Running worm detection for file '{file_path}'")
 
         # Extract features
         features_current = extract_numeric_worm_features(file_path)
@@ -6207,13 +6202,13 @@ def worm_alert(file_path):
                 mtime_difference = abs(current_file_mtime - original_file_mtime)
 
                 if size_difference > 0.10:
-                    logging.critical(f"File size difference for '{file_path}' exceeds 10%.")
+                    logger.critical(f"File size difference for '{file_path}' exceeds 10%.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
 
                 if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logging.critical(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    logger.critical(f"Modification time difference for '{file_path}' exceeds 1 hour.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
@@ -6222,7 +6217,7 @@ def worm_alert(file_path):
             worm_detected = check_worm_similarity(file_path, features_current)
 
             if worm_detected:
-                logging.critical(f"Worm '{file_path}' detected in critical directory. Alerting user.")
+                logger.critical(f"Worm '{file_path}' detected in critical directory. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
                 worm_alerted_files.append(file_path)
 
@@ -6233,7 +6228,7 @@ def worm_alert(file_path):
 
             if worm_detected or worm_detected_count[file_path] >= 5:
                 if file_path not in worm_alerted_files:
-                    logging.critical(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
+                    logger.critical(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
                     worm_alerted_files.append(file_path)
 
@@ -6244,7 +6239,7 @@ def worm_alert(file_path):
                         worm_alerted_files.append(detected_file)
 
     except Exception as ex:
-        logging.error(f"Error in worm detection for file {file_path}: {ex}")
+        logger.error(f"Error in worm detection for file {file_path}: {ex}")
 
 def check_pe_file(file_path, signature_check, file_name):
     try:
@@ -6252,21 +6247,21 @@ def check_pe_file(file_path, signature_check, file_name):
         normalized_path = os.path.abspath(file_path).lower()
         normalized_sandboxie = sandboxie_folder.lower()
 
-        logging.info(f"File {file_path} is a valid PE file.")
+        logger.info(f"File {file_path} is a valid PE file.")
 
         # Check if file is inside the Sandboxie folder
         if normalized_path.startswith(normalized_sandboxie):
             worm_alert(file_path)
-            logging.info(f"File {file_path} is inside Sandboxie folder, scanned with worm_alert.")
+            logger.info(f"File {file_path} is inside Sandboxie folder, scanned with worm_alert.")
 
         # Check for fake system files after signature validation
         if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
             if not signature_check["is_valid"]:
-                logging.critical(f"Detected fake system file: {file_path}")
+                logger.critical(f"Detected fake system file: {file_path}")
                 notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
 
     except Exception as ex:
-        logging.error(f"Error checking PE file {file_path}: {ex}")
+        logger.error(f"Error checking PE file {file_path}: {ex}")
 
 def is_zip_file(file_path):
     """
@@ -6284,12 +6279,12 @@ def is_zip_file(file_path):
         except Exception:
             return False
     except Exception as e:
-        logging.error(f"Unexpected error checking ZIP: {e}")
+        logger.error(f"Unexpected error checking ZIP: {e}")
         return False
 
 def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
     """Scan file in real-time using multiple engines in parallel."""
-    logging.info(f"Started scanning file: {file_path}")
+    logger.info(f"Started scanning file: {file_path}")
 
     # Shared variables for results
     results = {
@@ -6311,12 +6306,12 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
 
                 if is_malicious_machine_learning:
                     # Log all matched rules
-                    logging.critical(f"Matched ML rules for {file_path}: {matched_rules}")
+                    logger.critical(f"Matched ML rules for {file_path}: {matched_rules}")
 
                     if benign_score < 0.93:
                         if signature_check.get("is_valid"):
                             malware_definition = malware_definition + ".SIG"
-                        logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                        logger.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
 
                         with thread_lock:
                             if not results['malware_found']:  # First detection wins
@@ -6325,12 +6320,12 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                                 results['engine'] = "ML"
                         return
                     elif benign_score >= 0.93:
-                        logging.info(f"File is clean based on ML benign score: {file_path}")
+                        logger.info(f"File is clean based on ML benign score: {file_path}")
                 else:
-                    logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+                    logger.info(f"No malware detected by Machine Learning in file: {file_path}")
 
         except Exception as ex:
-            logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
 
     def pe_scan_worker():
         """Worker function for PE file analysis"""
@@ -6338,7 +6333,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if pe_file:
                 check_pe_file(file_path, signature_check, file_name)
         except Exception as ex:
-            logging.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
 
     def clamav_scan_worker():
         """Worker function for ClamAV scan"""
@@ -6347,7 +6342,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if result not in ("Clean", "Error"):
                 if signature_check["is_valid"]:
                     result = result + ".SIG"
-                logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
                 with thread_lock:
                     if not results['malware_found']:  # First detection wins
@@ -6355,9 +6350,9 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         results['virus_name'] = result
                         results['engine'] = "ClamAV"
                 return
-            logging.info(f"No malware detected by ClamAV in file: {file_path}")
+            logger.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
-            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
 
     def yara_scan_worker():
         """Worker function for YARA scan"""
@@ -6366,7 +6361,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if yara_match is not None and yara_match not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     yara_match = yara_match + ".SIG"
-                logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
+                logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
 
                 with thread_lock:
                     if not results['malware_found']:  # First detection wins
@@ -6375,9 +6370,9 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         results['engine'] = "YARA"
                         results['vmprotect_path'] = vmprotect_unpacked_path
                 return
-            logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+            logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
-            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
     def tar_scan_worker():
         """Worker function for TAR scan"""
@@ -6388,7 +6383,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     virus_str = str(virus_name) if virus_name else "Unknown"
                     if signature_check["is_valid"]:
                         virus_name = virus_str + ".SIG"
-                    logging.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
+                    logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
 
                     with thread_lock:
                         if not results['malware_found']:  # First detection wins
@@ -6396,13 +6391,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                             results['virus_name'] = virus_str
                             results['engine'] = "TAR"
                     return
-                logging.info(f"No malware detected in TAR file: {file_path}")
+                logger.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
-            logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
+            logger.error(f"Permission error occurred while scanning TAR file: {file_path}")
         except FileNotFoundError:
-            logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+            logger.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
         except Exception as ex:
-            logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
 
     def zip_scan_worker():
         """Worker function for ZIP scan"""
@@ -6412,7 +6407,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
-                    logging.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                    logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
 
                     with thread_lock:
                         if not results['malware_found']:  # First detection wins
@@ -6420,13 +6415,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                             results['virus_name'] = virus_name
                             results['engine'] = "ZIP"
                     return
-                logging.info(f"No malware detected in ZIP file: {file_path}")
+                logger.info(f"No malware detected in ZIP file: {file_path}")
         except PermissionError:
-            logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
+            logger.error(f"Permission error occurred while scanning ZIP file: {file_path}")
         except FileNotFoundError:
-            logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+            logger.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
         except Exception as ex:
-            logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
 
     def sevenz_scan_worker():
         """Worker function for 7z scan"""
@@ -6436,7 +6431,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
-                    logging.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
+                    logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
 
                     with thread_lock:
                         if not results['malware_found']:  # First detection wins
@@ -6444,13 +6439,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                             results['virus_name'] = virus_name
                             results['engine'] = "7z"
                     return
-                logging.info(f"No malware detected in 7z file: {file_path}")
+                logger.info(f"No malware detected in 7z file: {file_path}")
         except PermissionError:
-            logging.error(f"Permission error occurred while scanning 7Z file: {file_path}")
+            logger.error(f"Permission error occurred while scanning 7Z file: {file_path}")
         except FileNotFoundError:
-            logging.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
+            logger.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
         except Exception as ex:
-            logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
+            logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
 
     try:
         # Create and start all threads
@@ -6480,11 +6475,11 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             else:
                 return results['malware_found'], results['virus_name'], results['engine']
         else:
-            logging.info(f"File is clean - no malware detected by any engine: {file_path}")
+            logger.info(f"File is clean - no malware detected by any engine: {file_path}")
             return False, "Clean", "", None
 
     except Exception as ex:
-        logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
+        logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
 
     return False, "Clean", "", None  # Default to clean if no malware found
 
@@ -6505,7 +6500,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
                         file_path = proc.info['exe']
                         if file_path:
-                            logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
+                            logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
 
                             # Only proceed with files in the Sandboxie folder or the main file path
                             if sandboxie_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
@@ -6514,31 +6509,31 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             signature_info = check_signature(file_path)
                             if status == "Info":
                                 if not signature_info["is_valid"]:
-                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
+                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
                                 else:
-                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
+                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
                             else:
                                 if not signature_info["is_valid"]:
-                                    logging.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                    logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
                                     notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                                 else:
-                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
 
         except psutil.ZombieProcess:
-            logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
+            logger.error(f"Zombie process encountered: {proc.info.get('pid')}")
         except psutil.NoSuchProcess:
-            logging.error(f"Process no longer exists: {proc.info.get('pid')}")
+            logger.error(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
-            logging.error(f"Access denied to process: {proc.info.get('pid')}")
+            logger.error(f"Access denied to process: {proc.info.get('pid')}")
         except Exception as ex:
-            logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
+            logger.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
 def process_alert_data(priority, src_ip, dest_ip):
     """Process parsed alert data from EVE JSON format"""
     try:
         # Check if the source IP is in the IPv4 or IPv6 whitelist
         if src_ip in ipv4_whitelist_data or src_ip in ipv6_whitelist_data:
-            logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
+            logger.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
             return False
 
         # Determine threat type based on signature lists
@@ -6569,12 +6564,12 @@ def process_alert_data(priority, src_ip, dest_ip):
         formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}"
 
         if priority == 1:
-            logging.critical(
+            logger.critical(
                 f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority} | Threat: {threat_type}")
             try:
                 notify_user_for_hips(ip_address=src_ip, dst_ip_address=dest_ip)
             except Exception as ex:
-                logging.error(f"Error notifying user for HIPS (malicious): {ex}")
+                logger.error(f"Error notifying user for HIPS (malicious): {ex}")
             convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
             return True
         elif priority == 2:
@@ -6585,7 +6580,7 @@ def process_alert_data(priority, src_ip, dest_ip):
             return True
 
     except Exception as ex:
-        logging.error(f"Error processing alert data: {ex}")
+        logger.error(f"Error processing alert data: {ex}")
         return False
 
 def activate_uefi_drive():
@@ -6594,9 +6589,9 @@ def activate_uefi_drive():
     try:
         # Execute the mountvol command
         subprocess.run(mount_command, shell=True, check=True, encoding="utf-8", errors="ignore")
-        logging.info("UEFI drive activated!")
+        logger.info("UEFI drive activated!")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Error mounting UEFI drive: {ex}")
+        logger.error(f"Error mounting UEFI drive: {ex}")
 
 def is_suricata_running():
     """
@@ -6617,45 +6612,45 @@ def run_suricata():
     try:
         # Validate paths exist
         if not os.path.exists(suricata_exe_path):
-            logging.error(f"Suricata executable not found at: {suricata_exe_path}")
+            logger.error(f"Suricata executable not found at: {suricata_exe_path}")
             return False
 
         if not os.path.exists(suricata_config_path):
-            logging.error(f"Suricata config not found at: {suricata_config_path}")
+            logger.error(f"Suricata config not found at: {suricata_config_path}")
             return False
 
         # Check if executable has proper permissions
         if not os.access(suricata_exe_path, os.X_OK):
-            logging.error(f"Suricata executable is not executable: {suricata_exe_path}")
+            logger.error(f"Suricata executable is not executable: {suricata_exe_path}")
             return False
 
         # Check if config file is readable
         if not os.access(suricata_config_path, os.R_OK):
-            logging.error(f"Suricata config is not readable: {suricata_config_path}")
+            logger.error(f"Suricata config is not readable: {suricata_config_path}")
             return False
 
         # Ensure log directory exists
         if not os.path.exists(suricata_log_dir):
             try:
                 os.makedirs(suricata_log_dir, exist_ok=True)
-                logging.info(f"Created Suricata log directory: {suricata_log_dir}")
+                logger.info(f"Created Suricata log directory: {suricata_log_dir}")
             except OSError as e:
-                logging.error(f"Failed to create log directory {suricata_log_dir}: {e}")
+                logger.error(f"Failed to create log directory {suricata_log_dir}: {e}")
                 return False
 
         # Verify log directory is writable
         if not os.access(suricata_log_dir, os.W_OK):
-            logging.error(f"Suricata log directory is not writable: {suricata_log_dir}")
+            logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
             return False
 
         # Check if Suricata is already running
         if is_suricata_running():
-            logging.info("Suricata process is already running.")
+            logger.info("Suricata process is already running.")
             return True
 
         # Log the paths being used
-        logging.info(f"Using Suricata executable: {suricata_exe_path}")
-        logging.info(f"Using Suricata config: {suricata_config_path}")
+        logger.info(f"Using Suricata executable: {suricata_exe_path}")
+        logger.info(f"Using Suricata config: {suricata_config_path}")
 
         # Build the Suricata command
         suricata_cmd = [
@@ -6664,7 +6659,7 @@ def run_suricata():
             "--windivert-forward", "true"
         ]
 
-        logging.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
+        logger.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
 
         # Start Suricata process
         process = subprocess.Popen(
@@ -6673,7 +6668,7 @@ def run_suricata():
             stderr=subprocess.PIPE,
         )
 
-        logging.info(f"Suricata started with PID: {process.pid}")
+        logger.info(f"Suricata started with PID: {process.pid}")
 
         # Wait a moment to check if process started successfully
         import time
@@ -6681,30 +6676,30 @@ def run_suricata():
 
         # Check if process is still running
         if process.poll() is None:
-            logging.info("Suricata process is running successfully")
+            logger.info("Suricata process is running successfully")
             return True
         else:
             # Process exited, get error output
             stdout, stderr = process.communicate()
-            logging.error(f"Suricata process exited with code: {process.returncode}")
+            logger.error(f"Suricata process exited with code: {process.returncode}")
             if stdout:
-                logging.error(f"Suricata stdout: {stdout.decode('utf-8', errors='ignore')}")
+                logger.error(f"Suricata stdout: {stdout.decode('utf-8', errors='ignore')}")
             if stderr:
-                logging.error(f"Suricata stderr: {stderr.decode('utf-8', errors='ignore')}")
+                logger.error(f"Suricata stderr: {stderr.decode('utf-8', errors='ignore')}")
             return False
 
     except FileNotFoundError as ex:
-        logging.error(f"Suricata executable not found: {ex}")
+        logger.error(f"Suricata executable not found: {ex}")
         return False
     except PermissionError as ex:
-        logging.error(f"Permission denied when starting Suricata: {ex}")
+        logger.error(f"Permission denied when starting Suricata: {ex}")
         return False
     except subprocess.SubprocessError as ex:
-        logging.error(f"Failed to start Suricata process: {ex}")
+        logger.error(f"Failed to start Suricata process: {ex}")
         return False
     except Exception as ex:
-        logging.error(f"Unexpected error when running Suricata: {ex}")
-        logging.exception("Full traceback:")
+        logger.error(f"Unexpected error when running Suricata: {ex}")
+        logger.exception("Full traceback:")
         return False
 
 def stop_suricata():
@@ -6714,11 +6709,11 @@ def stop_suricata():
     try:
         for proc in psutil.process_iter(['pid', 'name']):
             if proc.info['name'] and 'suricata' in proc.info['name'].lower():
-                logging.info(f"Terminating Suricata process with PID: {proc.info['pid']}")
+                logger.info(f"Terminating Suricata process with PID: {proc.info['pid']}")
                 proc.terminate()
                 proc.wait(timeout=10)  # Wait up to 10 seconds for graceful termination
     except psutil.Error as ex:
-        logging.error(f"Failed to stop Suricata: {ex}")
+        logger.error(f"Failed to stop Suricata: {ex}")
 
 def suricata_callback():
     """Start Suricata and verify it's running properly."""
@@ -6728,13 +6723,13 @@ def suricata_callback():
             # Wait a moment and double-check
             time.sleep(1)
             if is_suricata_running():
-                logging.info("Suricata started successfully.")
+                logger.info("Suricata started successfully.")
             else:
-                logging.error("Suricata may have failed to start properly.")
+                logger.error("Suricata may have failed to start properly.")
         else:
-            logging.error("Failed to start Suricata.")
+            logger.error("Failed to start Suricata.")
     except Exception as ex:
-        logging.error("Error starting Suricata: %s", ex)
+        logger.error("Error starting Suricata: %s", ex)
 
 threading.Thread(target=suricata_callback).start()
 
@@ -6744,10 +6739,10 @@ def monitor_suricata_log():
 
     # Wait for the file to exist instead of creating it
     while not os.path.exists(log_path):
-        logging.info(f"Waiting for log file to be created: {log_path}")
+        logger.info(f"Waiting for log file to be created: {log_path}")
         time.sleep(1)  # Wait 5 seconds before checking again
 
-    logging.info(f"Log file found: {log_path}")
+    logger.info(f"Log file found: {log_path}")
 
     with open(log_path, 'r') as log_file:
         log_file.seek(0, os.SEEK_END)  # Move to the end of the file
@@ -6763,11 +6758,11 @@ def monitor_suricata_log():
                     if priority is not None:
                         # Enhanced logging with signature and category info
                         full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
-                        logging.debug(full_line)
+                        logger.debug(full_line)
                         process_alert_data(priority, src_ip, dest_ip)
 
             except Exception as ex:
-                logging.info(f"Error processing line: {ex}")
+                logger.info(f"Error processing line: {ex}")
 
 reload_clamav_database()
 activate_uefi_drive() # Call the UEFI function
@@ -6975,7 +6970,7 @@ def load_ml_definitions(filepath: str) -> bool:
 
     # --- main loader body ---
     if not os.path.exists(filepath):
-        logging.error(f"Machine learning definitions file not found: {filepath}. ML scanning will be disabled.")
+        logger.error(f"Machine learning definitions file not found: {filepath}. ML scanning will be disabled.")
         return False
 
     try:
@@ -7000,30 +6995,30 @@ def load_ml_definitions(filepath: str) -> bool:
             benign_numeric_features.append(numeric)
             benign_file_names.append(filename)
 
-        logging.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions (vectors length = {len(malicious_numeric_features[0]) if malicious_numeric_features else 'N/A'}).")
+        logger.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions (vectors length = {len(malicious_numeric_features[0]) if malicious_numeric_features else 'N/A'}).")
         return True
 
     except (json.JSONDecodeError, IOError) as e:
-        logging.error(f"Failed to load or parse ML definitions from {filepath}: {e}. ML scanning will be disabled.")
+        logger.error(f"Failed to load or parse ML definitions from {filepath}: {e}. ML scanning will be disabled.")
         return False
 
 try:
     success = load_ml_definitions(machine_learning_results_json)
     if not success:
-        logging.error("ML definitions could not be loaded properly.")
+        logger.error("ML definitions could not be loaded properly.")
 except Exception as ex:
-    logging.exception(f"Unexpected error while loading ML definitions: {ex}")
+    logger.exception(f"Unexpected error while loading ML definitions: {ex}")
 
 try:
     # Load excluded rules from text file
     with open(excluded_rules_path, "r") as excluded_file:
         excluded_rules = [line.strip() for line in excluded_file if line.strip()]
-        logging.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
+        logger.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
 except FileNotFoundError:
-    logging.error(f"Excluded rules file not found: {excluded_rules_path}")
+    logger.error(f"Excluded rules file not found: {excluded_rules_path}")
     excluded_rules = []
 except Exception as ex:
-    logging.error(f"Error loading excluded rules: {ex}")
+    logger.error(f"Error loading excluded rules: {ex}")
     excluded_rules = []
 
 def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False):
@@ -7031,7 +7026,7 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
     Load a YARA or YARA-X rule from a precompiled .yrc file.
 
     :param path: Path to the precompiled rule file.
-    :param display_name: Optional friendly name for logging.
+    :param display_name: Optional friendly name for logger.
     :param is_yara_x: If True, use YARA-X deserialization.
     :return: Loaded rule object or None if failed.
     """
@@ -7043,11 +7038,11 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
             rule = yara.load(path)
 
         name = display_name or path
-        logging.info(f"{name} loaded successfully!")
+        logger.info(f"{name} loaded successfully!")
         return rule
     except Exception as ex:
         name = display_name or path
-        logging.error(f"Error loading {name}: {ex}")
+        logger.error(f"Error loading {name}: {ex}")
         return None
 
 yarGen_rule   = load_yara_rule(yarGen_rule_path, display_name="yarGen Rules")
@@ -7075,12 +7070,12 @@ def get_next_project_name(base_name):
             suffix += 1
         return f"{base_name}_{suffix}"
     except Exception as ex:
-        logging.error(f"An error occurred while generating project name: {ex}")
+        logger.error(f"An error occurred while generating project name: {ex}")
 
 def decompile_file(file_path):
     """Decompile the file using Ghidra."""
     try:
-        logging.info(f"Decompiling file: {file_path}")
+        logger.info(f"Decompiling file: {file_path}")
 
         # Path to Ghidra's analyzeHeadless.bat
         analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
@@ -7095,7 +7090,7 @@ def decompile_file(file_path):
         try:
             project_name = get_next_project_name(base_project_name)
         except Exception as ex:
-            logging.error(f"Failed to generate project name: {ex}")
+            logger.error(f"Failed to generate project name: {ex}")
             return  # Exit the function if project name generation fails
 
         existing_projects.append(project_name)
@@ -7116,14 +7111,14 @@ def decompile_file(file_path):
 
         # Check and log the results
         if result.returncode == 0:
-            logging.info(f"Decompilation completed successfully for file: {file_path}")
+            logger.info(f"Decompilation completed successfully for file: {file_path}")
         else:
-            logging.error(f"Decompilation failed for file: {file_path}.")
-            logging.error(f"Return code: {result.returncode}")
-            logging.error(f"Error output: {result.stderr}")
-            logging.error(f"Standard output: {result.stdout}")
+            logger.error(f"Decompilation failed for file: {file_path}.")
+            logger.error(f"Return code: {result.returncode}")
+            logger.error(f"Error output: {result.stderr}")
+            logger.error(f"Standard output: {result.stdout}")
     except Exception as ex:
-        logging.error(f"An error occurred during decompilation: {ex}")
+        logger.error(f"An error occurred during decompilation: {ex}")
 
 def extract_original_norm_path_from_decompiled(file_path):
     try:
@@ -7137,12 +7132,12 @@ def extract_original_norm_path_from_decompiled(file_path):
                     original_file_path = f"{drive_letter}\\{path}".strip()
 
                     # Log the extracted original file path
-                    logging.info(f"Original file path extracted: {original_file_path}")
+                    logger.info(f"Original file path extracted: {original_file_path}")
 
                     return original_file_path
         return None
     except Exception as ex:
-        logging.error(f"An error occurred while extracting the original file path: {ex}")
+        logger.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
 def is_nuitka_file_from_output(die_output):
@@ -7154,26 +7149,26 @@ def is_nuitka_file_from_output(die_output):
       - None otherwise.
     """
     if die_output is None:
-        logging.error("No DIE output available for Nuitka check.")
+        logger.error("No DIE output available for Nuitka check.")
         return None
 
     if "Packer: Nuitka[OneFile]" in die_output:
-        logging.info("DIE output indicates a Nuitka OneFile executable.")
+        logger.info("DIE output indicates a Nuitka OneFile executable.")
         return "Nuitka OneFile"
     elif "Packer: Nuitka" in die_output:
-        logging.info("DIE output indicates a Nuitka executable.")
+        logger.info("DIE output indicates a Nuitka executable.")
         return "Nuitka"
     else:
         return None
 
 def clean_text(input_text):
     """
-    Remove non-logging.infoable ASCII control characters from the input text.
+    Remove non-logger.infoable ASCII control characters from the input text.
 
     :param input_text: The string to clean.
     :return: Cleaned text with control characters removed.
     """
-    # Remove non-logging.infoable characters (ASCII 0-31 and 127)
+    # Remove non-logger.infoable characters (ASCII 0-31 and 127)
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
@@ -7210,7 +7205,7 @@ def is_likely_junk(line):
         return True  # JUNK, delete
 
     except Exception as e:
-        logging.error(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
+        logger.error(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
         # On error, keep the line to be safe
         return False  # NOT JUNK, keep
 
@@ -7219,7 +7214,7 @@ def split_source_by_u_delimiter(source_code):
     Parses a raw source code block by filtering lines based on junk detection
     and then grouping them into module files.
     """
-    logging.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
+    logger.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
 
     # Check if entire source is junk once
     if is_likely_junk(source_code.strip()):
@@ -7254,7 +7249,7 @@ def split_source_by_u_delimiter(source_code):
         # Keep all lines
         filtered_lines = [line.strip() for line in lines if line.strip()]
 
-    logging.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
+    logger.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
 
     current_module_name = "initial_code"
     current_module_code = []
@@ -7269,9 +7264,9 @@ def split_source_by_u_delimiter(source_code):
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
-            logging.info(f"Reconstructed module saved to: {output_path}")
+            logger.info(f"Reconstructed module saved to: {output_path}")
         except IOError as e:
-            logging.error(f"Failed to write module file {output_path}: {e}")
+            logger.error(f"Failed to write module file {output_path}: {e}")
 
     module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
 
@@ -7319,7 +7314,7 @@ def scan_rsrc_files(file_paths):
                     if "upython.exe" in content:
                         executable_file = file_path
                         found_marker = "upython.exe"
-                        logging.info(f"Found upython.exe in: {file_path}")
+                        logger.info(f"Found upython.exe in: {file_path}")
                         break
                     # If no upython.exe, check for \\python.exe
                     elif "\\python.exe" in content:
@@ -7327,15 +7322,15 @@ def scan_rsrc_files(file_paths):
                         if executable_file is None:
                             executable_file = file_path
                             found_marker = "\\python.exe"
-                            logging.info(f"Found \\python.exe in: {file_path}")
+                            logger.info(f"Found \\python.exe in: {file_path}")
             except Exception as ex:
-                logging.error(f"Error reading file {file_path}: {ex}")
+                logger.error(f"Error reading file {file_path}: {ex}")
         else:
-            logging.error(f"Path {file_path} is not a valid file.")
+            logger.error(f"Path {file_path} is not a valid file.")
 
     # Case 1: No markers found -> use largest file and scan with nuitka_flag=True
     if executable_file is None:
-        logging.info("No file containing python exe markers was found.")
+        logger.info("No file containing python exe markers was found.")
         largest_file = None
         largest_size = -1
         for file_path in file_paths:
@@ -7346,7 +7341,7 @@ def scan_rsrc_files(file_paths):
                         largest_size = size
                         largest_file = file_path
                 except Exception as ex:
-                    logging.error(f"Error checking size for {file_path}: {ex}")
+                    logger.error(f"Error checking size for {file_path}: {ex}")
 
         if largest_file:
             try:
@@ -7356,14 +7351,14 @@ def scan_rsrc_files(file_paths):
                 decompiled_code = "\n".join(cleaned_source_code)
                 scan_code_for_links(decompiled_code, largest_file, nuitka_flag=True)
             except Exception as ex:
-                logging.error(f"Error processing largest file {largest_file}: {ex}")
+                logger.error(f"Error processing largest file {largest_file}: {ex}")
         else:
-            logging.info("No valid files found to scan.")
+            logger.info("No valid files found to scan.")
         return
 
     # Case 2: Marker found -> extract but no scan
     try:
-        logging.info(f"Processing file: {executable_file}")
+        logger.info(f"Processing file: {executable_file}")
         with open(executable_file, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
 
@@ -7399,16 +7394,16 @@ def scan_rsrc_files(file_paths):
                 # Write out the cleaned source
                 with open(save_path, "w", encoding="utf-8") as save_file:
                     save_file.write(decompiled_code)
-                logging.info(f"Saved extracted source code from {executable_file} to {save_path}")
+                logger.info(f"Saved extracted source code from {executable_file} to {save_path}")
                 # Send only the saved file path
                 split_source_by_u_delimiter(decompiled_code)
 
             else:
-                logging.info(f"No line containing '{found_marker}' found in {executable_file}.")
+                logger.info(f"No line containing '{found_marker}' found in {executable_file}.")
         else:
-            logging.info(f"File {executable_file} is empty.")
+            logger.info(f"File {executable_file} is empty.")
     except Exception as ex:
-        logging.error(f"Error during file scanning of {executable_file}: {ex}")
+        logger.error(f"Error during file scanning of {executable_file}: {ex}")
 
 def scan_directory_for_executables(directory):
     """
@@ -7472,7 +7467,7 @@ def is_pyinstaller_archive_from_output(die_output):
       - "Packer: PyInstaller"
     """
     if die_output and "Packer: PyInstaller" in die_output:
-        logging.info("DIE output indicates a PyInstaller archive.")
+        logger.info("DIE output indicates a PyInstaller archive.")
         return True
 
     return False
@@ -7508,7 +7503,7 @@ class PyInstArchive:
             self.fPtr = open(self.filePath, "rb")
             self.fileSize = os.stat(self.filePath).st_size
         except:
-            logging.error("Could not open %s", self.filePath)
+            logger.error("Could not open %s", self.filePath)
             return False
         return True
 
@@ -7519,14 +7514,14 @@ class PyInstArchive:
             pass
 
     def checkFile(self):
-        logging.info("Processing %s", self.filePath)
+        logger.info("Processing %s", self.filePath)
 
         searchChunkSize = 8192
         endPos = self.fileSize
         self.cookiePos = -1
 
         if endPos < len(self.MAGIC):
-            logging.error("File is too short or truncated")
+            logger.error("File is too short or truncated")
             return False
 
         while True:
@@ -7551,7 +7546,7 @@ class PyInstArchive:
                 break
 
         if self.cookiePos == -1:
-            logging.error(
+            logger.error(
                 "Missing cookie, unsupported pyinstaller version or not a pyinstaller archive"
             )
             return False
@@ -7559,11 +7554,11 @@ class PyInstArchive:
         self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
 
         if b"python" in self.fPtr.read(64).lower():
-            logging.info("Pyinstaller version: 2.1+")
+            logger.info("Pyinstaller version: 2.1+")
             self.pyinstVer = 21  # pyinstaller 2.1+
         else:
             self.pyinstVer = 20  # pyinstaller 2.0
-            logging.info("Pyinstaller version: 2.0")
+            logger.info("Pyinstaller version: 2.0")
 
         return True
 
@@ -7586,13 +7581,13 @@ class PyInstArchive:
                 )
 
         except:
-            logging.error("Error: The file is not a pyinstaller archive")
+            logger.error("Error: The file is not a pyinstaller archive")
             return False
 
         self.pymaj, self.pymin = (
             (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
         )
-        logging.info("Python version: %s.%s", self.pymaj, self.pymin)
+        logger.info("Python version: %s.%s", self.pymaj, self.pymin)
 
         # Additional data after the cookie
         tailBytes = (
@@ -7611,7 +7606,7 @@ class PyInstArchive:
         self.tableOfContentsPos = self.overlayPos + toc
         self.tableOfContentsSize = tocLen
 
-        logging.info("Length of package: %s bytes", lengthofPackage)
+        logger.info("Length of package: %s bytes", lengthofPackage)
         return True
 
     def parseTOC(self):
@@ -7641,7 +7636,7 @@ class PyInstArchive:
                 name = name.decode("utf-8").rstrip("\0")
             except UnicodeDecodeError:
                 newName = str(uniquename())
-                logging.error("File name %s contains invalid bytes. Using random name %s", name, newName)
+                logger.error("File name %s contains invalid bytes. Using random name %s", name, newName)
                 name = newName
 
             # Prevent writing outside the extraction directory
@@ -7650,7 +7645,7 @@ class PyInstArchive:
 
             if len(name) == 0:
                 name = str(uniquename())
-                logging.error("Found an unnamed file in CArchive. Using random name %s", name)
+                logger.error("Found an unnamed file in CArchive. Using random name %s", name)
 
             self.tocList.append(
                 CTOCEntry(
@@ -7664,7 +7659,7 @@ class PyInstArchive:
             )
 
             parsedLen += entrySize
-        logging.info("Found %d files in CArchive", len(self.tocList))
+        logger.info("Found %d files in CArchive", len(self.tocList))
 
     def _writeRawData(self, filepath, data):
         nm = (
@@ -7758,7 +7753,7 @@ class PyInstArchive:
 
             elif self.pycMagic != pyzPycMagic:
                 self.pycMagic = pyzPycMagic
-                logging.error(
+                logger.error(
                     "pyc magic of files inside PYZ archive are different from those in CArchive"
                 )
 
@@ -7768,10 +7763,10 @@ class PyInstArchive:
             try:
                 toc = load_code(f, pycHeader2Magic(pyzPycMagic))
             except:
-                logging.error("Unmarshalling FAILED. Cannot extract %s. Extracting remaining files.", name)
+                logger.error("Unmarshalling FAILED. Cannot extract %s. Extracting remaining files.", name)
                 return
 
-            logging.info("Found %d files in PYZ archive", len(toc))
+            logger.info("Found %d files in PYZ archive", len(toc))
 
             # From pyinstaller 3.1+ toc is a list of tuples
             if type(toc) == list:
@@ -7820,7 +7815,7 @@ class PyInstArchive:
                             data = self._tryDecrypt(data, "cfb")
                             data = zlib.decompress(data)
                         except:
-                            logging.error("Failed to decrypt & decompress %s. Extracting as is.", filePath)
+                            logger.error("Failed to decrypt & decompress %s. Extracting as is.", filePath)
                             open(filePath + ".encrypted", "wb").write(data_copy)
                             continue
 
@@ -7833,7 +7828,7 @@ class PyInstArchive:
                 pycFile.write(self.pycMagic)
 
     def extractFiles(self, one_dir):
-        logging.info("Beginning extraction...please standby")
+        logger.info("Beginning extraction...please standby")
         extractionDir = pyinstaller_extracted_dir
         if not os.path.exists(extractionDir):
             os.mkdir(extractionDir)
@@ -7865,7 +7860,7 @@ class PyInstArchive:
             if entry.typeCmprsData == b"s":
                 # s -> ARCHIVE_ITEM_PYSOURCE
                 # Entry point are expected to be python scripts
-                logging.info("Possible entry point: %s.pyc", entry.name)
+                logger.info("Possible entry point: %s.pyc", entry.name)
 
                 if self.pycMagic == b"\0" * 4:
                     # if we don't have the pyc header yet, fix them in a later pass
@@ -7886,7 +7881,7 @@ class PyInstArchive:
                     self._writeRawData(entry.name + ".pyc", data)
 
                     if entry.name.endswith("_crypto_key"):
-                        logging.info(
+                        logger.info(
                             "Detected _crypto_key file, saving key for automatic decryption"
                         )
                         # This is a pyc file with a header (8,12, or 16 bytes)
@@ -7902,7 +7897,7 @@ class PyInstArchive:
                     self._writePyc(entry.name + ".pyc", data)
 
                     if entry.name.endswith("_crypto_key"):
-                        logging.info(
+                        logger.info(
                             "Detected _crypto_key file, saving key for automatic decryption"
                         )
                         # This is a plain code object without a header
@@ -7923,17 +7918,17 @@ def extract_pyinstaller_archive(file_path):
 
         # Open the PyInstaller archive
         if not archive.open():
-            logging.error(f"Failed to open PyInstaller archive: {file_path}")
+            logger.error(f"Failed to open PyInstaller archive: {file_path}")
             return None
 
         # Check if the file is a valid PyInstaller archive
         if not archive.checkFile():
-            logging.error(f"File {file_path} is not a valid PyInstaller archive.")
+            logger.error(f"File {file_path} is not a valid PyInstaller archive.")
             return None
 
         # Retrieve CArchive info from the archive
         if not archive.getCArchiveInfo():
-            logging.error(f"Failed to get CArchive info from {file_path}.")
+            logger.error(f"Failed to get CArchive info from {file_path}.")
             return None
 
         # Parse the Table of Contents (TOC) from the archive
@@ -7945,108 +7940,108 @@ def extract_pyinstaller_archive(file_path):
         # Close the archive
         archive.close()
 
-        logging.info(f"[+] Extraction completed successfully: {extraction_dir}")
+        logger.info(f"[+] Extraction completed successfully: {extraction_dir}")
 
         return extraction_dir
 
     except Exception as ex:
-        logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
+        logger.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
         return None
 
 def has_known_extension(file_path):
     try:
         ext = os.path.splitext(file_path)[1].lower()
-        logging.info(f"Extracted extension '{ext}' for file '{file_path}'")
+        logger.info(f"Extracted extension '{ext}' for file '{file_path}'")
         return ext in fileTypes
     except Exception as ex:
-        logging.error(f"Error checking extension for file {file_path}: {ex}")
+        logger.error(f"Error checking extension for file {file_path}: {ex}")
         return False
 
 def is_readable(file_path):
     try:
-        logging.info(f"Attempting to read file '{file_path}'")
+        logger.info(f"Attempting to read file '{file_path}'")
         with open(file_path, 'r') as readable_file:
             file_data = readable_file.read(1024)
             if file_data:  # Check if file has readable content
-                logging.info(f"File '{file_path}' is readable")
+                logger.info(f"File '{file_path}' is readable")
                 return True
             return False
     except UnicodeDecodeError:
-        logging.error(f"UnicodeDecodeError while reading file '{file_path}'")
+        logger.error(f"UnicodeDecodeError while reading file '{file_path}'")
         return False
     except Exception as ex:
-        logging.error(f"Error reading file {file_path}: {ex}")
+        logger.error(f"Error reading file {file_path}: {ex}")
         return False
 
 def is_ransomware(file_path):
     try:
         filename = os.path.basename(file_path)
         parts = filename.split('.')
-        logging.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
+        logger.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
 
         # Check if there are multiple extensions
         if len(parts) < 3:
-            logging.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
+            logger.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
             return False
 
         # Check if the second last extension is known
         previous_extension = '.' + parts[-2].lower()
         if previous_extension not in fileTypes:
-            logging.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
+            logger.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
             return False
 
         # Check if the final extension is not in fileTypes
         final_extension = '.' + parts[-1].lower()
         if final_extension not in fileTypes:
-            logging.critical(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
+            logger.critical(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
 
             # Check if the file has a known extension or is readable
             if has_known_extension(file_path) or is_readable(file_path):
-                logging.info(f"File '{file_path}' is not ransomware")
+                logger.info(f"File '{file_path}' is not ransomware")
                 return False
             else:
-                logging.critical(f"File '{file_path}' might be a ransomware sign")
+                logger.critical(f"File '{file_path}' might be a ransomware sign")
                 return True
 
-        logging.info(f"File '{file_path}' does not meet ransomware conditions")
+        logger.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
 
     except Exception as ex:
-        logging.error(f"Error checking ransomware for file {file_path}: {ex}")
+        logger.error(f"Error checking ransomware for file {file_path}: {ex}")
         return False
 
 def search_files_with_same_extension(directory, extension):
     try:
-        logging.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
+        logger.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
         files_with_same_extension = []
         for root, _, files in os.walk(directory):
             for search_file in files:
                 if search_file.endswith(extension):
                     files_with_same_extension.append(os.path.join(root, search_file))
-        logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
+        logger.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
         return files_with_same_extension
     except Exception as ex:
-        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {ex}")
+        logger.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {ex}")
         return []
 
 def ransomware_alert(file_path):
     global ransomware_detection_count
 
     try:
-        logging.info(f"Running ransomware alert check for file '{file_path}'")
+        logger.info(f"Running ransomware alert check for file '{file_path}'")
 
         # Check the ransomware flag once.
         if is_ransomware(file_path):
             # If file is from the Sandboxie log folder, trigger Sandboxie-specific alert.
             if file_path.startswith(sandboxie_log_folder):
                 ransomware_detection_count += 1
-                logging.critical(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
+                logger.critical(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
-                logging.critical(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
+                logger.critical(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
 
             # Normal processing for all flagged files.
             ransomware_detection_count += 1
-            logging.critical(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
+            logger.critical(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
 
             # When exactly two alerts occur, search for files with the same extension.
             if ransomware_detection_count == 2:
@@ -8055,28 +8050,28 @@ def ransomware_alert(file_path):
                     directory = os.path.dirname(file_path)
                     files_with_same_extension = search_files_with_same_extension(directory, ext)
                     for ransom_file in files_with_same_extension:
-                        logging.info(f"Checking file '{ransom_file}' with same extension '{ext}'")
+                        logger.info(f"Checking file '{ransom_file}' with same extension '{ext}'")
                         if is_ransomware(ransom_file):
-                            logging.critical(f"File '{ransom_file}' might also be related to ransomware")
+                            logger.critical(f"File '{ransom_file}' might also be related to ransomware")
 
             # When detections reach a threshold, notify the user with a generic flag.
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
-                logging.critical(f"User has been notified about potential ransomware in {main_file_path}")
+                logger.critical(f"User has been notified about potential ransomware in {main_file_path}")
 
     except Exception as ex:
-        logging.error(f"Error in ransomware_alert: {ex}")
+        logger.error(f"Error in ransomware_alert: {ex}")
 
 def log_directory_type(file_path):
     try:
         for condition, message in DIRECTORY_MESSAGES:
             if condition(file_path):
-                logging.info(f"{file_path}: {message}")
+                logger.info(f"{file_path}: {message}")
                 return
 
-        logging.error(f"{file_path}: File does not match known directories.")
+        logger.error(f"{file_path}: File does not match known directories.")
     except Exception as ex:
-        logging.error(f"Error logging directory type for {file_path}: {ex}")
+        logger.error(f"Error logging directory type for {file_path}: {ex}")
 
 def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=False, capa_flag=False):
     """
@@ -8089,7 +8084,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         decompiled_flag (bool): If True, indicates that the file was decompiled by our tool.
     """
     if not meta_llama_1b_model or not meta_llama_1b_tokenizer:
-        logging.error("Llama model is not loaded. Cannot perform analysis.")
+        logger.error("Llama model is not loaded. Cannot perform analysis.")
         return "Llama model is not loaded. Cannot perform analysis."
 
     try:
@@ -8098,7 +8093,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         dir_note = None
         for condition, message in DIRECTORY_MESSAGES:
             if condition(file_path):
-                logging.info(f"{file_path}: {message}")
+                logger.info(f"{file_path}: {message}")
                 dir_note = message
                 break
         if dir_note is None:
@@ -8194,7 +8189,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
                     else:
                         break
         except Exception as ex:
-            logging.error(f"Error reading file {file_path}: {ex}")
+            logger.error(f"Error reading file {file_path}: {ex}")
             return None
 
         # Tokenize the readable file content
@@ -8235,7 +8230,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             )
             response = meta_llama_1b_tokenizer.decode(response_ids[0], skip_special_tokens=True).strip()
         except Exception as ex:
-            logging.error(f"Error generating response: {ex}")
+            logger.error(f"Error generating response: {ex}")
             return
 
         # Extract the relevant part of the response
@@ -8275,7 +8270,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             f"Malicious Content: {explanation}\n"
         )
 
-        logging.info(final_response)
+        logger.info(final_response)
 
         # Log the raw model response
         answer_log_path = os.path.join(script_dir, "log", "answer.log")
@@ -8283,7 +8278,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             with open(answer_log_path, "a") as answer_log_file:
                 answer_log_file.write(relevant_response + "\n\n")
         except Exception as ex:
-            logging.error(f"Error writing to log file {answer_log_path}: {ex}")
+            logger.error(f"Error writing to log file {answer_log_path}: {ex}")
 
         # Log the final summary
         log_file_path = os.path.join(script_dir, "log", "Meta Llama-3.2-1B.log")
@@ -8291,7 +8286,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             with open(log_file_path, "a") as log_file:
                 log_file.write(final_response + "\n")
         except Exception as ex:
-            logging.error(f"Error writing to log file {log_file_path}: {ex}")
+            logger.error(f"Error writing to log file {log_file_path}: {ex}")
 
         # If malware is detected (Maybe or Yes), notify the user
         if malware.lower() in ["maybe", "yes"]:
@@ -8301,14 +8296,14 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
                 else:
                     notify_user_for_meta_llama(file_path, virus_name, malware)
             except Exception as ex:
-                logging.error(f"Error notifying user: {ex}")
+                logger.error(f"Error notifying user: {ex}")
 
         # Otherwise, log and do not return (implicit None)
-        logging.info("Meta Llama analysis completed.")
+        logger.info("Meta Llama analysis completed.")
         return final_response
 
     except Exception as ex:
-        logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
+        logger.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
         return f"[!] Llama analysis failed: {ex}"
 
 def is_exela_v2_payload(content):
@@ -8357,7 +8352,7 @@ def process_exela_v2_payload(output_file):
         saved_temp_file = save_to_file(temp_file, intermediate_data)
 
         if not saved_temp_file:
-            logging.error("Failed to save intermediate data.")
+            logger.error("Failed to save intermediate data.")
             return
 
         with open(saved_temp_file, 'r', encoding='utf-8') as temp:
@@ -8379,16 +8374,16 @@ def process_exela_v2_payload(output_file):
         webhooks = webhooks_discord + webhooks_canary
 
         if webhooks:
-            logging.critical(f"[+] Webhook URLs found: {webhooks}")
+            logger.critical(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
                 notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
             else:
-                logging.error("Failed to save the final decrypted source code.")
+                logger.error("Failed to save the final decrypted source code.")
         else:
-            logging.info("[!] No webhook URLs found in Exela v2 payload.")
+            logger.info("[!] No webhook URLs found in Exela v2 payload.")
 
     except Exception as ex:
-        logging.error(f"Error during Exela v2 payload processing: {ex}")
+        logger.error(f"Error during Exela v2 payload processing: {ex}")
 
 def decode_zip(match: re.Match) -> str:
     """Decode one zip->chr join."""
@@ -8422,7 +8417,7 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     try:
         tree = ast.parse(source)
     except Exception as e:
-        logging.error(f"Failed to parse source as AST: {e}")
+        logger.error(f"Failed to parse source as AST: {e}")
         return None
 
     class Extractor(ast.NodeVisitor):
@@ -8508,7 +8503,7 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
                         if isinstance(code_obj, types.CodeType):
                             self.code_obj = code_obj
                     except Exception as e:
-                        logging.error(f"Failed to decode/unmarshal: {e}")
+                        logger.error(f"Failed to decode/unmarshal: {e}")
             self.generic_visit(node)
 
     extractor = Extractor()
@@ -8517,7 +8512,7 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     if extractor.code_obj:
         return extractor.code_obj
 
-    logging.error("[!] marshal.loads pattern with base64 blob not found in AST")
+    logger.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
 
 
@@ -8540,12 +8535,12 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
 
         # Check if the .pyc file exists
         if not pyc_file.exists():
-            logging.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
+            logger.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
             return None
 
         # Check if the file is readable
         if not os.access(pyc_file, os.R_OK):
-            logging.error(f"[Pylingual] .pyc file is not readable: {pyc_path}")
+            logger.error(f"[Pylingual] .pyc file is not readable: {pyc_path}")
             return None
 
         base_name = pyc_file.stem
@@ -8553,7 +8548,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
 
         # Check if parent directory is writable
         if not os.access(parent_dir, os.W_OK):
-            logging.error(f"[Pylingual] Parent directory is not writable: {parent_dir}")
+            logger.error(f"[Pylingual] Parent directory is not writable: {parent_dir}")
             return None
 
         # Check if a .py file with the same name already exists
@@ -8562,35 +8557,35 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         if potential_output_file.exists():
             # File exists, create a separate folder
             output_path = parent_dir / f"decompiled_{base_name}"
-            logging.info(f"[Pylingual] Output file exists, using folder: {output_path}")
+            logger.info(f"[Pylingual] Output file exists, using folder: {output_path}")
         else:
             # File doesn't exist, use the parent directory directly (no folder creation)
             output_path = parent_dir
-            logging.info(f"[Pylingual] Decompiling directly to parent directory: {output_path}")
+            logger.info(f"[Pylingual] Decompiling directly to parent directory: {output_path}")
 
         # Ensure output directory exists (but don't create unnecessary folders)
         if output_path != parent_dir:
             try:
                 output_path.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                logging.error(f"[Pylingual] Failed to create output directory {output_path}: {e}")
+                logger.error(f"[Pylingual] Failed to create output directory {output_path}: {e}")
                 return None
 
         # Call pylingual main function directly with parameters
         start_time = time.time()
         try:
             # Add more detailed logging
-            logging.info(f"[Pylingual] Starting decompilation of {pyc_file}")
-            logging.info(f"[Pylingual] Output directory: {output_path}")
-            logging.info(f"[Pylingual] File size: {pyc_file.stat().st_size} bytes")
+            logger.info(f"[Pylingual] Starting decompilation of {pyc_file}")
+            logger.info(f"[Pylingual] Output directory: {output_path}")
+            logger.info(f"[Pylingual] File size: {pyc_file.stat().st_size} bytes")
 
             # Check if file is actually a valid .pyc file by reading magic number
             try:
                 with open(pyc_file, 'rb') as f:
                     magic = f.read(4)
-                    logging.info(f"[Pylingual] Magic number: {magic.hex()}")
+                    logger.info(f"[Pylingual] Magic number: {magic.hex()}")
             except Exception as magic_error:
-                logging.error(f"[Pylingual] Could not read magic number: {magic_error}")
+                logger.error(f"[Pylingual] Could not read magic number: {magic_error}")
 
             pylingual_main(
                 files=[str(pyc_file)],
@@ -8602,12 +8597,12 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                 init_pyenv=False,
                 quiet=False
             )
-            logging.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
+            logger.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
         except Exception as pylingual_error:
-            logging.error(f"[Pylingual] pylingual_main failed: {pylingual_error}")
-            logging.error(f"[Pylingual] Error type: {type(pylingual_error).__name__}")
+            logger.error(f"[Pylingual] pylingual_main failed: {pylingual_error}")
+            logger.error(f"[Pylingual] Error type: {type(pylingual_error).__name__}")
             # Try to get more details about the error
-            logging.error(f"[Pylingual] Traceback: {traceback.format_exc()}")
+            logger.error(f"[Pylingual] Traceback: {traceback.format_exc()}")
             raise
 
         # Find all generated .py files
@@ -8619,13 +8614,13 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             possible_subdir = parent_dir / f"decompiled_{base_name}"
             if possible_subdir.exists():
                 py_files = list(possible_subdir.rglob("*.py"))
-                logging.info(f"[Pylingual] Found files in subdirectory: {possible_subdir}")
+                logger.info(f"[Pylingual] Found files in subdirectory: {possible_subdir}")
 
         if not py_files:
-            logging.error(f"[Pylingual] No .py files found in output for: {pyc_path}")
+            logger.error(f"[Pylingual] No .py files found in output for: {pyc_path}")
             # List all files in the output directory for debugging
             all_files = list(output_path.rglob("*"))
-            logging.info(f"[Pylingual] All files in output directory: {[str(f) for f in all_files]}")
+            logger.info(f"[Pylingual] All files in output directory: {[str(f) for f in all_files]}")
             return None
 
         # Combine all decompiled source files
@@ -8636,20 +8631,20 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                 combined_source += f"# From: {py_file.name}\n"
                 combined_source += source_content.strip() + "\n\n"
             except Exception as read_error:
-                logging.error(f"[Pylingual] Could not read {py_file}: {read_error}")
+                logger.error(f"[Pylingual] Could not read {py_file}: {read_error}")
                 continue
 
         if not combined_source.strip():
-            logging.error(f"[Pylingual] All decompiled files were empty for: {pyc_path}")
+            logger.error(f"[Pylingual] All decompiled files were empty for: {pyc_path}")
             return None
 
-        logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
-        logging.info(f"[Pylingual] Generated {len(py_files)} Python files")
+        logger.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
+        logger.info(f"[Pylingual] Generated {len(py_files)} Python files")
 
         return combined_source
 
     except Exception as e:
-        logging.error(f"[Pylingual] Decompilation failed for {pyc_path}: {e}")
+        logger.error(f"[Pylingual] Decompilation failed for {pyc_path}: {e}")
         return None
 
 
@@ -8676,7 +8671,7 @@ def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
             return "# Failed to decompile code object with both tools"
 
     except Exception as e:
-        logging.error(f"Error in codeobj_to_source: {e}")
+        logger.error(f"Error in codeobj_to_source: {e}")
         return "# Exception during decompilation"
 
 class ImportCleaner(ast.NodeTransformer):
@@ -8810,7 +8805,7 @@ def clean_syntax(source_code: str, max_attempts=20) -> str:
                 break
 
             bad_line = lines[lineno - 1].strip()
-            logging.info(f"[Clean Syntax] Removing line {lineno}: {bad_line}")
+            logger.info(f"[Clean Syntax] Removing line {lineno}: {bad_line}")
             lines.pop(lineno - 1)
 
             # ALSO remove orphaned identifiers (like `lambda_output`) if any
@@ -8823,7 +8818,7 @@ def clean_syntax(source_code: str, max_attempts=20) -> str:
     if is_valid(cleaned_code):
         return cleaned_code
     else:
-        logging.info("[Clean Syntax] Could not fully clean code.")
+        logger.info("[Clean Syntax] Could not fully clean code.")
         return cleaned_code
 
 # Robust exec-call detection
@@ -8869,9 +8864,9 @@ def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
         ast.fix_missing_locations(tree)
         result = ast.unparse(tree)
         output_path.write_text(result, encoding="utf-8")
-        logging.debug(f"[PRUNE_IFS] Wrote transformed code to: {output_path}")
+        logger.debug(f"[PRUNE_IFS] Wrote transformed code to: {output_path}")
     except Exception as e:
-        logging.error(f"[PRUNE_IFS] Failed to parse or transform: {e}")
+        logger.error(f"[PRUNE_IFS] Failed to parse or transform: {e}")
         # Optional: write cleaned original as fallback
         output_path.write_text(cleaned, encoding="utf-8")
 
@@ -8897,8 +8892,8 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     )
 
     exec_path_str = sandbox_inner_execs.as_posix().replace('/', '\\')
-    logging.info(f"[SANDBOX] Running shell command: {shell_cmd!r}")
-    logging.info(f"[SANDBOX] Expect exec output at: {exec_path_str}")
+    logger.info(f"[SANDBOX] Running shell command: {shell_cmd!r}")
+    logger.info(f"[SANDBOX] Expect exec output at: {exec_path_str}")
 
     try:
         subprocess.run(
@@ -8909,7 +8904,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
             creationflags=subprocess.CREATE_NO_WINDOW
         )
     except Exception as e:
-        logging.error(f"[SANDBOX] Run failed: {e}")
+        logger.error(f"[SANDBOX] Run failed: {e}")
         return None
 
     # Real-time file watch loop with stability check (10 minutes timeout)
@@ -8937,7 +8932,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
             pass
 
     else:
-        logging.error("[SANDBOX] Timed out waiting for execs file to stabilize.")
+        logger.error("[SANDBOX] Timed out waiting for execs file to stabilize.")
         return None
 
     # Copy result back to host
@@ -8948,20 +8943,20 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     try:
         content = sandbox_inner_execs.read_bytes()
         if not content:
-            logging.error("[SANDBOX] Execs file content empty on read, aborting.")
+            logger.error("[SANDBOX] Execs file content empty on read, aborting.")
             return None
         host_target.write_bytes(content)
-        logging.info(f"[SANDBOX] Copied execs output back to host: {host_target}")
+        logger.info(f"[SANDBOX] Copied execs output back to host: {host_target}")
         return host_target
     except Exception as copy_exc:
-        logging.error(f"[SANDBOX] Failed to copy from sandbox: {copy_exc}")
+        logger.error(f"[SANDBOX] Failed to copy from sandbox: {copy_exc}")
         return None
 
 # Main loop: apply exec->file and remove unused imports, with stuck-detection
 def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
     source_path = Path(source_path)
     base_name = source_path.stem
-    logging.info(f"Starting deobfuscation for: {source_path}")
+    logger.info(f"Starting deobfuscation for: {source_path}")
 
     # Each queue entry: (depth, stage_tag, cleaned_flag, offloaded_flag, candidate_path)
     processing_queue: List[Tuple[int, str, bool, bool, Path]] = []
@@ -8972,11 +8967,11 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
         _ = source_path.read_text(encoding="utf-8", errors="replace")
         processing_queue.append((0, "original", False, False, source_path))
     except Exception as e:
-        logging.error(f"Failed to read source file: {e}")
+        logger.error(f"Failed to read source file: {e}")
         return None
 
     while processing_queue:
-        logging.info(f"--- New Pass (queue size = {len(processing_queue)}) ---")
+        logger.info(f"--- New Pass (queue size = {len(processing_queue)}) ---")
         next_queue: List[Tuple[int, str, bool, bool, Path]] = []
 
         for depth, stage_tag, cleaned, offloaded, candidate_path in processing_queue:
@@ -9005,11 +9000,11 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                                     Path(f"{base_name[:8]}_d{depth}_m.py")
                                 )
                                 new_path.write_text(extracted_src, encoding="utf-8")
-                                logging.info(f"[MARSHAL] Extracted and wrote: {new_path}")
+                                logger.info(f"[MARSHAL] Extracted and wrote: {new_path}")
                                 next_queue.append((depth + 1, "marshal", False, False, new_path))
                                 continue
                     except Exception as e:
-                        logging.error(f"[MARSHAL] Failed on {candidate_path}: {e}")
+                        logger.error(f"[MARSHAL] Failed on {candidate_path}: {e}")
 
                 # Stage 2: AST transform (exec->file + import cleaning)
                 if stage_tag not in ("marshal", "zlib", "ast"):
@@ -9028,7 +9023,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         )
                         transformed = cleaned_source_path.read_text(encoding="utf-8", errors="replace")
                     except Exception as e:
-                        logging.error(f"[AST] Transform failed on {candidate_path}: {e}")
+                        logger.error(f"[AST] Transform failed on {candidate_path}: {e}")
                         transformed = content
 
                     transformed_hash = compute_md5_via_text(transformed)
@@ -9039,7 +9034,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                             f"{base_name[:8]}_d{depth}_ast.py"
                         )
                         new_path.write_text(transformed, encoding="utf-8")
-                        logging.info(f"[AST] Transformed and wrote: {new_path}")
+                        logger.info(f"[AST] Transformed and wrote: {new_path}")
                         # Mark offloaded=True because exec was moved to a file
                         next_queue.append((depth + 1, "ast", False, True, new_path))
                         continue
@@ -9052,13 +9047,13 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         f"{base_name[:8]}_d{depth}_clean.py"
                     )
                     clean_path.write_text(cleaned_code, encoding="utf-8")
-                    logging.debug(f"[CLEAN_SYNTAX] Wrote cleaned code to: {clean_path}")
+                    logger.debug(f"[CLEAN_SYNTAX] Wrote cleaned code to: {clean_path}")
 
                     clean_content = clean_path.read_text(encoding="utf-8", errors="replace")
                     clean_hash = compute_md5_via_text(clean_content)
                     state4 = ("clean", True, offloaded, clean_hash)
                     if state4 not in seen_hashes:
-                        logging.info(f"[CLEAN_SYNTAX] Cleaned and wrote: {clean_path}")
+                        logger.info(f"[CLEAN_SYNTAX] Cleaned and wrote: {clean_path}")
 
                         # Only finalize if exec truly gone and not offloaded
                         if not offloaded and not contains_exec_calls(clean_content) and "eval" not in clean_content:
@@ -9067,7 +9062,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                                 f"{base_name[:8]}_final.py"
                             )
                             prune_ifs_and_write(final_candidate, clean_content)
-                            logging.info(
+                            logger.info(
                                 f"[FINAL] No exec/eval found post-clean_syntax, saved: {final_candidate}"
                             )
                             return final_candidate
@@ -9075,7 +9070,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         next_queue.append((depth + 1, "clean", True, offloaded, clean_path))
                         continue
                 else:
-                    logging.debug("[CLEAN_SYNTAX] Skipping clean_syntax (already cleaned)")
+                    logger.debug("[CLEAN_SYNTAX] Skipping clean_syntax (already cleaned)")
 
                 # Stage 4: Sandbox simulation
                 try:
@@ -9089,7 +9084,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                             f"{base_name[:8]}_final.py"
                         )
                         prune_ifs_and_write(final_candidate, disk_text)
-                        logging.info(
+                        logger.info(
                             f"[FINAL] No exec/eval present post-clean, saved: {final_candidate}"
                         )
                         return final_candidate
@@ -9106,7 +9101,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         result = output_path.read_text(encoding="utf-8", errors="replace")
                         result_hash = compute_md5_via_text(result)
 
-                        logging.info(f"[SANDBOX] Produced sandbox output: {output_path}")
+                        logger.info(f"[SANDBOX] Produced sandbox output: {output_path}")
 
                         # After sandbox, queue as new "original" (offloaded=False)
                         next_queue.append((depth + 1, "original", False, False, output_path))
@@ -9119,28 +9114,28 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                                 f"{base_name[:8]}_final.py"
                             )
                             prune_ifs_and_write(final_candidate, result)
-                            logging.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
+                            logger.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
                             return final_candidate
 
                         continue
                     else:
-                        logging.error(f"[SANDBOX] No output for {candidate_path}; dropping it")
+                        logger.error(f"[SANDBOX] No output for {candidate_path}; dropping it")
                         seen_hashes.add(("sandbox", False, False, content_hash))
                         continue
 
                 except Exception as e:
-                    logging.error(f"[SANDBOX] Failed on {candidate_path}: {e}")
+                    logger.error(f"[SANDBOX] Failed on {candidate_path}: {e}")
                     seen_hashes.add(("sandbox", False, False, content_hash))
                     continue
 
             except Exception as e:
-                logging.error(f"[ERROR] While processing {candidate_path}: {e}")
+                logger.error(f"[ERROR] While processing {candidate_path}: {e}")
                 seen_hashes.add((stage_tag, cleaned, offloaded, compute_md5_via_text(candidate_path.read_text(encoding="utf-8", errors="replace"))))
                 continue
 
         processing_queue = next_queue
 
-    logging.info("No more clean code found; transformations exhausted.")
+    logger.info("No more clean code found; transformations exhausted.")
     return None
 
 def process_decompiled_code(output_file):
@@ -9153,14 +9148,14 @@ def process_decompiled_code(output_file):
             content = file.read()
 
         if is_exela_v2_payload(content):
-            logging.info("[*] Detected Exela Stealer v2 payload.")
+            logger.info("[*] Detected Exela Stealer v2 payload.")
             process_exela_v2_payload(output_file)
 
         elif 'exec(' not in content:
-            logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
+            logger.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
 
         else:
-            logging.info("[*] Detected non-Exela payload. Using generic processing.")
+            logger.info("[*] Detected non-Exela payload. Using generic processing.")
             deobfuscated = deobfuscate_until_clean(output_file)
             if deobfuscated:
                 deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
@@ -9169,10 +9164,10 @@ def process_decompiled_code(output_file):
                     "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen"
                 )
             else:
-                logging.error("[!] Generic deobfuscation failed; skipping scan and notification.")
+                logger.error("[!] Generic deobfuscation failed; skipping scan and notification.")
 
     except Exception as ex:
-        logging.error(f"[!] Error during payload dispatch: {ex}")
+        logger.error(f"[!] Error during payload dispatch: {ex}")
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -9189,7 +9184,7 @@ def extract_and_return_pyinstaller(file_path):
     output_dir = extract_pyinstaller_archive(file_path)
 
     if output_dir:
-        logging.info(f"PyInstaller archive extracted to {output_dir}")
+        logger.info(f"PyInstaller archive extracted to {output_dir}")
 
         # Traverse and collect all extracted files
         for root, _, files in os.walk(output_dir):
@@ -9205,7 +9200,7 @@ def decompile_apk_file(file_path):
     all decompiled files for URLs, IPs, domains, and Discord webhooks.
     """
     try:
-        logging.info(f"Detected APK file: {file_path}")
+        logger.info(f"Detected APK file: {file_path}")
 
         # Find a free output folder number
         folder_number = 1
@@ -9224,25 +9219,25 @@ def decompile_apk_file(file_path):
             file_path
         ]
         subprocess.run(cmd, check=True)
-        logging.info(f"APK decompiled to {output_dir}")
+        logger.info(f"APK decompiled to {output_dir}")
 
         # Walk and scan any generated .smali or .java files
         for root, _, files in os.walk(output_dir):
             for fname in files:
                 if fname.endswith((".smali", ".java")):
                     full_path = os.path.join(root, fname)
-                    logging.info(f"Scanning file: {full_path}")
+                    logger.info(f"Scanning file: {full_path}")
                     try:
                         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
                         scan_code_for_links(content, full_path, androguard_flag=True)
                     except Exception as ex:
-                        logging.error(f"Error scanning {full_path}: {ex}")
+                        logger.error(f"Error scanning {full_path}: {ex}")
 
     except subprocess.CalledProcessError as cpe:
-        logging.error(f"Androguard subprocess failed: {cpe}")
+        logger.error(f"Androguard subprocess failed: {cpe}")
     except Exception as ex:
-        logging.error(f"Error decompiling APK {file_path}: {ex}")
+        logger.error(f"Error decompiling APK {file_path}: {ex}")
 
 def decompile_dotnet_file(file_path):
     """
@@ -9252,7 +9247,7 @@ def decompile_dotnet_file(file_path):
     :param file_path: Path to the .NET assembly file.
     """
     try:
-        logging.info(f"Detected .NET assembly: {file_path}")
+        logger.info(f"Detected .NET assembly: {file_path}")
 
         # Create a unique numbered subdirectory under dotnet_dir
         folder_number = 1
@@ -9268,14 +9263,14 @@ def decompile_dotnet_file(file_path):
             file_path
         ]
         subprocess.run(ilspy_command, check=True)
-        logging.info(f".NET content decompiled to {dotnet_output_dir}")
+        logger.info(f".NET content decompiled to {dotnet_output_dir}")
 
         # Scan all .cs files in the output directory
         for root, _, files in os.walk(dotnet_output_dir):
             for file in files:
                 if file.endswith(".cs"):  # Only process .cs files
                     cs_file_path = os.path.join(root, file)
-                    logging.info(f"Scanning .cs file: {cs_file_path}")
+                    logger.info(f"Scanning .cs file: {cs_file_path}")
 
                     try:
                         # Read the content of the .cs file
@@ -9286,10 +9281,10 @@ def decompile_dotnet_file(file_path):
                         scan_code_for_links(cs_file_content, cs_file_path, dotnet_flag=True)
 
                     except Exception as ex:
-                        logging.error(f"Error scanning .cs file {cs_file_path}: {ex}")
+                        logger.error(f"Error scanning .cs file {cs_file_path}: {ex}")
 
     except Exception as ex:
-        logging.error(f"Error decompiling .NET file {file_path}: {ex}")
+        logger.error(f"Error decompiling .NET file {file_path}: {ex}")
 
 def run_capa_analysis(file_path):
     """
@@ -9299,7 +9294,7 @@ def run_capa_analysis(file_path):
     :return: Path to the text results file or None if failed
     """
     try:
-        logging.info(f"Running CAPA analysis on: {file_path}")
+        logger.info(f"Running CAPA analysis on: {file_path}")
 
         # Create a unique numbered subdirectory under capa_results_dir
         folder_number = 1
@@ -9334,13 +9329,13 @@ def run_capa_analysis(file_path):
         with open(txt_output_file, "w", encoding="utf-8") as f:
             f.write(result.stdout)
 
-        logging.info(f"CAPA text results saved to: {txt_output_file}")
-        logging.info(f"CAPA analysis completed successfully for {file_path}")
+        logger.info(f"CAPA text results saved to: {txt_output_file}")
+        logger.info(f"CAPA analysis completed successfully for {file_path}")
         return txt_output_file
 
     except subprocess.CalledProcessError as ex:
-        logging.error(f"CAPA analysis failed for {file_path}: {ex}")
-        logging.error(f"CAPA stderr: {ex.stderr}")
+        logger.error(f"CAPA analysis failed for {file_path}: {ex}")
+        logger.error(f"CAPA stderr: {ex.stderr}")
 
         # Save error information
         if 'capa_output_dir' in locals():
@@ -9350,12 +9345,12 @@ def run_capa_analysis(file_path):
                 f.write(f"Return code: {ex.returncode}\n")
                 f.write(f"STDOUT:\n{ex.stdout}\n")
                 f.write(f"STDERR:\n{ex.stderr}\n")
-            logging.info(f"Error details saved to: {error_file}")
+            logger.info(f"Error details saved to: {error_file}")
 
         return None
 
     except Exception as ex:
-        logging.error(f"Error running CAPA analysis on {file_path}: {ex}")
+        logger.error(f"Error running CAPA analysis on {file_path}: {ex}")
         return None
 
 def analyze_file_with_capa(file_path):
@@ -9370,14 +9365,14 @@ def analyze_file_with_capa(file_path):
         capa_file_path = run_capa_analysis(file_path)
 
         if not capa_file_path:
-            logging.info(f"No CAPA results obtained for {file_path}")
+            logger.info(f"No CAPA results obtained for {file_path}")
             return None
 
-        logging.info(f"CAPA analysis completed for {file_path}, results: {capa_file_path}")
+        logger.info(f"CAPA analysis completed for {file_path}, results: {capa_file_path}")
         return capa_file_path
 
     except Exception as ex:
-        logging.error(f"Error processing CAPA results for {file_path}: {ex}")
+        logger.error(f"Error processing CAPA results for {file_path}: {ex}")
         return None
 
 def extract_asar_file(file_path):
@@ -9388,7 +9383,7 @@ def extract_asar_file(file_path):
     :param file_path: Path to the .asar file
     """
     try:
-        logging.info(f"Detected Asar archive: {file_path}")
+        logger.info(f"Detected Asar archive: {file_path}")
 
         # Create a unique numbered subdirectory under asar_dir
         folder_number = 1
@@ -9405,13 +9400,13 @@ def extract_asar_file(file_path):
             asar_output_dir
         ]
         subprocess.run(asar_command, check=True)
-        logging.info(f"Asar archive extracted to {asar_output_dir}")
+        logger.info(f"Asar archive extracted to {asar_output_dir}")
 
         # Scan all extracted files
         for root, _, files in os.walk(asar_output_dir):
             for file in files:
                 file_path_full = os.path.join(root, file)
-                logging.info(f"Scanning file: {file_path_full}")
+                logger.info(f"Scanning file: {file_path_full}")
 
                 try:
                     # Read the file content (skip binary decoding errors)
@@ -9422,12 +9417,12 @@ def extract_asar_file(file_path):
                     scan_code_for_links(content, file_path_full, asar_flag=True)
 
                 except Exception as ex:
-                    logging.error(f"Error scanning file {file_path_full}: {ex}")
+                    logger.error(f"Error scanning file {file_path_full}: {ex}")
 
     except subprocess.CalledProcessError as ex:
-        logging.error(f"asar extraction failed for {file_path}: {ex}")
+        logger.error(f"asar extraction failed for {file_path}: {ex}")
     except Exception as ex:
-        logging.error(f"Error processing Asar file {file_path}: {ex}")
+        logger.error(f"Error processing Asar file {file_path}: {ex}")
 
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
@@ -9448,7 +9443,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         output_dir = f"{base_output_dir}_{counter}"
         os.makedirs(output_dir, exist_ok=True)
 
-        logging.info(f"Extracting {file_path} into {output_dir}...")
+        logger.info(f"Extracting {file_path} into {output_dir}...")
         cmd = [
             seven_zip_path, "x", file_path,
             f"-o{output_dir}", "-y", "-snl", "-spe"
@@ -9460,7 +9455,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
             text=True, encoding="utf-8", errors="ignore"
         )
         if proc.returncode != 0:
-            logging.error(
+            logger.error(
                 f"7z extraction failed (code {proc.returncode}): {proc.stderr.strip()}"
             )
             return extracted_files
@@ -9477,9 +9472,9 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
                     links = scan_code_for_links(content, path, nsis_flag=True)
-                    logging.info(f"Scanned NSIS script {path}, found {len(links)} links.")
+                    logger.info(f"Scanned NSIS script {path}, found {len(links)} links.")
                 except Exception as e:
-                    logging.error(f"Failed to scan NSIS script {path}: {e}")
+                    logger.error(f"Failed to scan NSIS script {path}: {e}")
 
             for path in extracted_files:
                 if path.lower().endswith('.nsi'):
@@ -9489,7 +9484,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         return extracted_files
 
     except Exception as ex:
-        logging.error(f"Error during 7z extraction: {ex}")
+        logger.error(f"Error during 7z extraction: {ex}")
         return extracted_files
 
 # Generic obfuscation decoder: reverse -> Base64 -> zlib
@@ -9775,7 +9770,7 @@ def safe_eval_node(node):
 
             # Could extend for other modules if needed
 
-        logging.error(f"Unsupported function call: {ast.dump(node)}")
+        logger.error(f"Unsupported function call: {ast.dump(node)}")
 
     elif isinstance(node, ast.Constant):
         # Python 3.8+: constant node (str, bytes, etc.)
@@ -9789,7 +9784,7 @@ def safe_eval_node(node):
         return node.s
 
     else:
-        logging.error(f"Unsupported AST node type: {ast.dump(node)}")
+        logger.error(f"Unsupported AST node type: {ast.dump(node)}")
 
 def find_balanced_parens(s, start_idx):
     count = 0
@@ -9844,13 +9839,13 @@ def run_pycdas_decompiler(file_path):
         result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode == 0:
-            logging.info(f"Successfully decompiled using pycdas. Output saved to {output_path}")
+            logger.info(f"Successfully decompiled using pycdas. Output saved to {output_path}")
             return output_path
         else:
-            logging.error(f"pycdas error: {result.stderr}")
+            logger.error(f"pycdas error: {result.stderr}")
             return None
     except Exception as e:
-        logging.error(f"Error running pycdas: {e}")
+        logger.error(f"Error running pycdas: {e}")
         return None
 
 def deobfuscate_with_net_reactor(file_path, file_basename):
@@ -9871,36 +9866,36 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
       str | None: Path to the deobfuscated file (with "_Slayed" suffix), or None on error.
     """
     if not os.path.exists(net_reactor_slayer_x64_cli_path):
-        logging.error(f".NET Reactor Slayer x64 CLI executable not found at {net_reactor_slayer_x64_cli_path}")
+        logger.error(f".NET Reactor Slayer x64 CLI executable not found at {net_reactor_slayer_x64_cli_path}")
         return None
 
     # Copy the file to the net_reactor directory
     copied_file_path = os.path.join(net_reactor_extracted_dir, file_basename)
     try:
         shutil.copy(file_path, copied_file_path)
-        logging.info(f"Copied file {file_path} to {copied_file_path}")
+        logger.info(f"Copied file {file_path} to {copied_file_path}")
     except Exception as e:
-        logging.error(f"Failed to copy file to .NET Reactor directory: {e}")
+        logger.error(f"Failed to copy file to .NET Reactor directory: {e}")
         return None
 
     # Run the deobfuscation tool with --no-pause option
     try:
         command = [net_reactor_slayer_x64_cli_path, copied_file_path, "--no-pause", "True"]
-        logging.info(f"Running .NET Reactor deobfuscation: {' '.join(command)}")
+        logger.info(f"Running .NET Reactor deobfuscation: {' '.join(command)}")
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         # Log the output for debugging
         if result.stdout:
-            logging.info(f".NET Reactor Slayer output: {result.stdout}")
+            logger.info(f".NET Reactor Slayer output: {result.stdout}")
         if result.stderr:
-            logging.error(f".NET Reactor Slayer errors: {result.stderr}")
+            logger.error(f".NET Reactor Slayer errors: {result.stderr}")
 
     except Exception as e:
-        logging.error(f"Error during .NET Reactor deobfuscation execution: {e}")
+        logger.error(f"Error during .NET Reactor deobfuscation execution: {e}")
         return None
 
     # Monitor directory for the deobfuscated output
-    logging.info("Waiting for deobfuscated file to appear...")
+    logger.info("Waiting for deobfuscated file to appear...")
 
     # The tool adds "_Slayed" to the end of the filename
     name_without_ext = os.path.splitext(file_basename)[0]
@@ -9915,15 +9910,15 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
             # Check for the expected output file with "_Slayed" suffix
             expected_path = os.path.join(net_reactor_extracted_dir, expected_output)
             if os.path.exists(expected_path):
-                logging.info(f"Deobfuscated file found: {expected_path}")
+                logger.info(f"Deobfuscated file found: {expected_path}")
                 return expected_path
 
         except OSError as e:
-            logging.error(f"Error checking for output file: {e}")
+            logger.error(f"Error checking for output file: {e}")
 
         time.sleep(1)  # Wait 1 second before checking again
 
-    logging.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
+    logger.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
     return None
 
 def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
@@ -9935,7 +9930,7 @@ def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
     - Waits for the output file to appear and returns its path
     """
     if not os.path.exists(un_confuser_ex_path):
-        logging.error(f"UnConfuserEx executable not found at {un_confuser_ex_path}")
+        logger.error(f"UnConfuserEx executable not found at {un_confuser_ex_path}")
         return None
 
     # Prepare copied input and output paths
@@ -9946,40 +9941,40 @@ def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
 
     try:
         shutil.copy(file_path, copied_file_path)
-        logging.info(f"Copied file {file_path} to {copied_file_path} for UnConfuserEx processing")
+        logger.info(f"Copied file {file_path} to {copied_file_path} for UnConfuserEx processing")
     except Exception as e:
-        logging.error(f"Failed to copy file to UnConfuserEx directory: {e}")
+        logger.error(f"Failed to copy file to UnConfuserEx directory: {e}")
         return None
 
     # Build and run command: UnConfuserEx.exe <input> <output>
     try:
         command = [un_confuser_ex_path, copied_file_path, expected_output_path]
-        logging.info(f"Running UnConfuserEx: {' '.join(command)}")
+        logger.info(f"Running UnConfuserEx: {' '.join(command)}")
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.stdout:
-            logging.info(f"UnConfuserEx stdout: {result.stdout.strip()}")
+            logger.info(f"UnConfuserEx stdout: {result.stdout.strip()}")
         if result.stderr:
-            logging.error(f"UnConfuserEx stderr: {result.stderr.strip()}")
+            logger.error(f"UnConfuserEx stderr: {result.stderr.strip()}")
 
     except Exception as e:
-        logging.error(f"Error during UnConfuserEx execution: {e}")
+        logger.error(f"Error during UnConfuserEx execution: {e}")
         return None
 
     # Wait for the expected output file to appear
-    logging.info("Waiting for UnConfuserEx output file to appear...")
+    logger.info("Waiting for UnConfuserEx output file to appear...")
     start_time = time.time()
     while time.time() - start_time < max_wait_time:
         try:
             if os.path.exists(expected_output_path):
-                logging.info(f"UnConfuserEx produced deobfuscated file: {expected_output_path}")
+                logger.info(f"UnConfuserEx produced deobfuscated file: {expected_output_path}")
                 return expected_output_path
         except OSError as e:
-            logging.error(f"Error checking for UnConfuserEx output: {e}")
+            logger.error(f"Error checking for UnConfuserEx output: {e}")
 
         time.sleep(1)
 
-    logging.error(f"Timeout: No UnConfuserEx output found after {max_wait_time} seconds")
+    logger.error(f"Timeout: No UnConfuserEx output found after {max_wait_time} seconds")
     return None
 
 def deobfuscate_with_obfuscar(file_path, file_basename):
@@ -10000,35 +9995,35 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
       str | None: Path to the deobfuscated file, or None on error.
     """
     if not os.path.exists(deobfuscar_path):
-        logging.error(f"Deobfuscar executable not found at {deobfuscar_path}")
+        logger.error(f"Deobfuscar executable not found at {deobfuscar_path}")
         return None
 
     # Copy the file to the obfuscar directory
     copied_file_path = os.path.join(obfuscar_dir, file_basename)
     try:
         shutil.copy(file_path, copied_file_path)
-        logging.info(f"Copied file {file_path} to {copied_file_path}")
+        logger.info(f"Copied file {file_path} to {copied_file_path}")
     except Exception as e:
-        logging.error(f"Failed to copy file to obfuscar directory: {e}")
+        logger.error(f"Failed to copy file to obfuscar directory: {e}")
         return None
 
     # Run the deobfuscation tool
     try:
         command = [deobfuscar_path, copied_file_path]
-        logging.info(f"Running deobfuscation: {' '.join(command)}")
+        logger.info(f"Running deobfuscation: {' '.join(command)}")
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
     except Exception as e:
-        logging.error(f"Error during deobfuscation execution: {e}")
+        logger.error(f"Error during deobfuscation execution: {e}")
         return None
 
     # Monitor directory for the unpacked output
-    logging.info("Waiting for unpacked_ file to appear...")
+    logger.info("Waiting for unpacked_ file to appear...")
     deobfuscated_file_path = None
     while True:
         for entry in os.listdir(obfuscar_dir):
             if entry.startswith("unpacked_"):
                 deobfuscated_file_path = os.path.join(obfuscar_dir, entry)
-                logging.info(f"Deobfuscated file found: {deobfuscated_file_path}")
+                logger.info(f"Deobfuscated file found: {deobfuscated_file_path}")
                 break
         if deobfuscated_file_path:
             break
@@ -10039,12 +10034,12 @@ def extract_rcdata_resource(pe_path):
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
+        logger.error(f"Error loading PE file: {e}")
         return None, []
 
     # Check if the PE file has any resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
+        logger.error("No resources found in this file.")
         return None, []
 
     first_rcdata_file = None  # Will hold the first RCData resource file path we care about
@@ -10082,13 +10077,13 @@ def extract_rcdata_resource(pe_path):
                 with open(output_path, "wb") as f:
                     f.write(data)
 
-                logging.info(f"Extracted resource saved: {output_path}")
+                logger.info(f"Extracted resource saved: {output_path}")
                 all_extracted_files.append(output_path)
 
                 # If it's an RCData resource (type "10") and matches 10_3_0.bin, record and stop
                 if type_name == "10" and res_id == "3" and lang_id == 0:
                     first_rcdata_file = output_path
-                    logging.info(f"Using RCData resource file: {first_rcdata_file}")
+                    logger.info(f"Using RCData resource file: {first_rcdata_file}")
                     # Break out of all loops once found
                     break
             if first_rcdata_file:
@@ -10097,7 +10092,7 @@ def extract_rcdata_resource(pe_path):
             break
 
     if first_rcdata_file is None:
-        logging.info("No matching RCData resource (10_3_0.bin) found.")
+        logger.info("No matching RCData resource (10_3_0.bin) found.")
     return first_rcdata_file, all_extracted_files
 
 def extract_nuitka_file(file_path, nuitka_type):
@@ -10114,7 +10109,7 @@ def extract_nuitka_file(file_path, nuitka_type):
     extracted_files_list = []
     try:
         if nuitka_type == "Nuitka OneFile":
-            logging.info(f"Nuitka OneFile executable detected in {file_path}")
+            logger.info(f"Nuitka OneFile executable detected in {file_path}")
 
             # Extract the file name (without extension) to include in the folder name
             file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
@@ -10128,20 +10123,20 @@ def extract_nuitka_file(file_path, nuitka_type):
             nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")
             os.makedirs(nuitka_output_dir, exist_ok=True)
 
-            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
+            logger.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
 
             # Use NuitkaExtractor for extraction
             extractor = NuitkaExtractor(file_path, nuitka_output_dir)
             extractor.extract()
 
             # Scan the extracted directory for additional Nuitka executables
-            logging.info("Scanning extracted directory for additional Nuitka executables...")
+            logger.info("Scanning extracted directory for additional Nuitka executables...")
             found_executables = scan_directory_for_executables(nuitka_output_dir)
 
             # Process any found normal Nuitka executables
             for exe_path, exe_type in found_executables:
                 if exe_type == "Nuitka":
-                    logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                    logger.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
                     nested_files = extract_nuitka_file(exe_path, exe_type)
                     if nested_files:
                         extracted_files_list.extend(nested_files)
@@ -10149,7 +10144,7 @@ def extract_nuitka_file(file_path, nuitka_type):
             return extracted_files_list
 
         elif nuitka_type == "Nuitka":
-            logging.info(f"Nuitka executable detected in {file_path}")
+            logger.info(f"Nuitka executable detected in {file_path}")
 
             # Extract the Nuitka executable
             file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
@@ -10158,11 +10153,11 @@ def extract_nuitka_file(file_path, nuitka_type):
             extracted_files_nuitka, all_extracted_files = extract_rcdata_resource(file_path)
 
             if extracted_files_nuitka:
-                logging.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
+                logger.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
                 scan_rsrc_files(extracted_files_nuitka)
                 extracted_files_list.extend(extracted_files_nuitka)
             else:
-                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
+                logger.error(f"Failed to extract normal Nuitka executable: {file_path}")
 
             if all_extracted_files:
                 extracted_files_list.extend(all_extracted_files)
@@ -10170,11 +10165,11 @@ def extract_nuitka_file(file_path, nuitka_type):
             return extracted_files_list
 
         else:
-            logging.info(f"No Nuitka content found in {file_path}")
+            logger.info(f"No Nuitka content found in {file_path}")
             return None
 
     except Exception as ex:
-        logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
+        logger.error(f"Unexpected error while extracting Nuitka file: {ex}")
         return None
 
 def extract_resources(pe_path, output_dir):
@@ -10188,7 +10183,7 @@ def extract_resources(pe_path, output_dir):
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
+        logger.error(f"Error loading PE file: {e}")
         return None
 
     # Check if the PE file has resources
@@ -10220,15 +10215,15 @@ def extract_resources(pe_path, output_dir):
                 output_path = os.path.join(output_dir, file_name)
                 with open(output_path, "wb") as f:
                     f.write(data)
-                logging.info(f"Resource saved: {output_path}")
+                logger.info(f"Resource saved: {output_path}")
 
                 extracted_files.append(output_path)
                 resource_count += 1
 
     if resource_count == 0:
-        logging.info("No resources were extracted.")
+        logger.info("No resources were extracted.")
     else:
-        logging.info(f"Extracted a total of {resource_count} resources.")
+        logger.info(f"Extracted a total of {resource_count} resources.")
 
     return extracted_files
 
@@ -10268,7 +10263,7 @@ def run_fernflower_decompiler(file_path):
         )
 
         if result.returncode == 0:
-            logging.info(f"FernFlower decompilation successful to: {FernFlower_output_dir}")
+            logger.info(f"FernFlower decompilation successful to: {FernFlower_output_dir}")
             # List all files in output dir (recursively)
             decompiled_files = []
             for root, dirs, files in os.walk(FernFlower_output_dir):
@@ -10276,10 +10271,10 @@ def run_fernflower_decompiler(file_path):
                     decompiled_files.append(os.path.join(root, name))
             return decompiled_files
         else:
-            logging.error(f"FernFlower decompilation failed: {result.stderr}")
+            logger.error(f"FernFlower decompilation failed: {result.stderr}")
             return None
     except Exception as ex:
-        logging.error(f"Error in run_fernflower_decompiler: {ex}")
+        logger.error(f"Error in run_fernflower_decompiler: {ex}")
         return None
 
 def run_jar_extractor(file_path, flag_fernflower):
@@ -10312,9 +10307,9 @@ def run_jar_extractor(file_path, flag_fernflower):
         )
 
         if result.returncode == 0:
-            logging.info("JAR extraction completed successfully.")
+            logger.info("JAR extraction completed successfully.")
         else:
-            logging.error(f"JAR extraction failed: {result.stderr}")
+            logger.error(f"JAR extraction failed: {result.stderr}")
 
         # Collect all files from extracted_dir
         for root, _, files in os.walk(extracted_dir):
@@ -10327,14 +10322,14 @@ def run_jar_extractor(file_path, flag_fernflower):
             if fernflower_decompiler_results:
                 extracted_file_paths.extend(fernflower_decompiler_results)
             else:
-                logging.info("No files returned from FernFlower decompiler.")
+                logger.info("No files returned from FernFlower decompiler.")
         else:
-            logging.info("FernFlower analysis already performed; skipping decompilation.")
+            logger.info("FernFlower analysis already performed; skipping decompilation.")
 
         return extracted_file_paths
 
     except Exception as ex:
-        logging.error(f"Error in run_jar_extractor: {ex}")
+        logger.error(f"Error in run_jar_extractor: {ex}")
         return None
 
 def extract_inno_setup(file_path):
@@ -10346,7 +10341,7 @@ def extract_inno_setup(file_path):
     :return: List of file paths under extraction directory, or None if extraction failed.
     """
     try:
-        logging.info(f"Detected Inno Setup installer: {file_path}")
+        logger.info(f"Detected Inno Setup installer: {file_path}")
 
         # Create a unique output directory
         folder_number = 1
@@ -10376,10 +10371,10 @@ def extract_inno_setup(file_path):
 
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         if result.returncode != 0:
-            logging.error(f"innounp-2 failed: {result.stderr}")
+            logger.error(f"innounp-2 failed: {result.stderr}")
             return None
 
-        logging.info(f"Inno Setup content extracted to {output_dir}")
+        logger.info(f"Inno Setup content extracted to {output_dir}")
 
         # Gather all extracted file paths
         extracted_paths = []
@@ -10390,7 +10385,7 @@ def extract_inno_setup(file_path):
         return extracted_paths
 
     except Exception as ex:
-        logging.error(f"Error extracting Inno Setup file {file_path}: {ex}")
+        logger.error(f"Error extracting Inno Setup file {file_path}: {ex}")
         return None
 
 def is_inno_setup_archive_from_output(die_output):
@@ -10403,7 +10398,7 @@ def is_inno_setup_archive_from_output(die_output):
     if die_output and \
        "Data: Inno Setup Installer data" in die_output and \
        "Installer: Inno Setup Module" in die_output:
-        logging.info("DIE output indicates an Inno Setup installer.")
+        logger.info("DIE output indicates an Inno Setup installer.")
         return True
 
     return False
@@ -10417,7 +10412,7 @@ def extract_installshield(file_path):
     :return: Path to the directory containing extracted files, or None if extraction failed.
     """
     try:
-        logging.info(f"Detected InstallShield file: {file_path}")
+        logger.info(f"Detected InstallShield file: {file_path}")
 
         # create a unique subdirectory inside installshield-extracted_dir
         base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -10446,14 +10441,14 @@ def extract_installshield(file_path):
         )
 
         if result.returncode != 0:
-            logging.error(f"ISx extraction failed ({result.returncode}): {result.stderr.strip()}")
+            logger.error(f"ISx extraction failed ({result.returncode}): {result.stderr.strip()}")
             return None
 
-        logging.info(f"Files extracted to: {output_dir}")
+        logger.info(f"Files extracted to: {output_dir}")
         return output_dir
 
     except Exception as ex:
-        logging.error(f"Error extracting InstallShield file {file_path}: {ex}")
+        logger.error(f"Error extracting InstallShield file {file_path}: {ex}")
         return None
 
 def extract_autoit(file_path):
@@ -10465,7 +10460,7 @@ def extract_autoit(file_path):
     :return: Path to the directory containing extracted files, or None if extraction failed.
     """
     try:
-        logging.info(f"Detected AutoIt binary: {file_path}")
+        logger.info(f"Detected AutoIt binary: {file_path}")
 
         # Create a unique subdirectory inside autoit_extracted_dir
         base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -10495,14 +10490,14 @@ def extract_autoit(file_path):
         )
 
         if result.returncode != 0:
-            logging.error(f"autoit-ripper extraction failed ({result.returncode}): {result.stderr.strip()}")
+            logger.error(f"autoit-ripper extraction failed ({result.returncode}): {result.stderr.strip()}")
             return None
 
-        logging.info(f"AutoIt scripts extracted to: {output_dir}")
+        logger.info(f"AutoIt scripts extracted to: {output_dir}")
         return output_dir
 
     except Exception as ex:
-        logging.error(f"Error extracting AutoIt binary {file_path}: {ex}")
+        logger.error(f"Error extracting AutoIt binary {file_path}: {ex}")
         return None
 
 def extract_upx(file_path):
@@ -10514,7 +10509,7 @@ def extract_upx(file_path):
     :return: Path to the unpacked file, or None if unpacking failed.
     """
     try:
-        logging.info(f"Detected UPX-packed file: {file_path}")
+        logger.info(f"Detected UPX-packed file: {file_path}")
 
         # Create a unique output filename inside that directory
         base_name = os.path.basename(file_path)
@@ -10543,27 +10538,27 @@ def extract_upx(file_path):
             errors="ignore"
         )
         if result.returncode != 0:
-            logging.error(f"UPX unpack failed: {result.stderr.strip()}")
+            logger.error(f"UPX unpack failed: {result.stderr.strip()}")
             return None
 
-        logging.info(f"UPX unpacked file written to: {output_path}")
+        logger.info(f"UPX unpacked file written to: {output_path}")
         return output_path
 
     except Exception as ex:
-        logging.error(f"Error unpacking UPX file {file_path}: {ex}")
+        logger.error(f"Error unpacking UPX file {file_path}: {ex}")
         return None
 
 def extract_pe_sections(file_path: str):
     try:
         # Load the PE file
         pe = pefile.PE(file_path)
-        logging.info(f"Loaded PE file: {file_path}")
+        logger.info(f"Loaded PE file: {file_path}")
 
         # Ensure output directory exists
         output_dir = Path(pe_extracted_dir)
         if not output_dir.exists():
             output_dir.mkdir(parents=True)
-            logging.info(f"Created output directory: {output_dir}")
+            logger.info(f"Created output directory: {output_dir}")
 
         # Extract sections
         for section in pe.sections:
@@ -10578,14 +10573,14 @@ def extract_pe_sections(file_path: str):
             with open(section_file, "wb") as f:
                 f.write(section_data)
 
-            logging.info(f"Section '{section_name}' saved to {section_file}")
+            logger.info(f"Section '{section_name}' saved to {section_file}")
             pe_file_paths.append(section_file)  # Add the file path to the list
 
-        logging.info("Extraction completed successfully.")
+        logger.info("Extraction completed successfully.")
         return pe_file_paths  # Return the list of file paths
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logger.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
 
 def create_shadow_copy(drive_letter):
@@ -10599,13 +10594,13 @@ def create_shadow_copy(drive_letter):
         # Context "ClientAccessible" means the copy is exposed under a drive letter.
         result, shadow_id = c.Win32_ShadowCopy.Create(Volume=drive_letter + "\\", Context="ClientAccessible")
         if result == 0:
-            logging.info(f"Shadow copy created, ID = {shadow_id}")
+            logger.info(f"Shadow copy created, ID = {shadow_id}")
             return shadow_id
         else:
-            logging.error(f"Failed to create shadow (WMI code {result})")
+            logger.error(f"Failed to create shadow (WMI code {result})")
             return None
     except Exception:
-        logging.error("Error creating shadow copy via WMI")
+        logger.error("Error creating shadow copy via WMI")
         return None
 
 def copy_from_shadow(shadow_root, rel_path, dest_path):
@@ -10614,14 +10609,14 @@ def copy_from_shadow(shadow_root, rel_path, dest_path):
     """
     shadow_file = os.path.join(shadow_root, rel_path)
     if not os.path.exists(shadow_file):
-        logging.error(f"Not found in shadow: {shadow_file}")
+        logger.error(f"Not found in shadow: {shadow_file}")
         return False
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     try:
         shutil.copy2(shadow_file, dest_path)
         return True
     except Exception as e:
-        logging.error(f"Failed to copy from shadow: {e}")
+        logger.error(f"Failed to copy from shadow: {e}")
         return False
 
 def _copy_to_dest(file_path, dest_root):
@@ -10631,7 +10626,7 @@ def _copy_to_dest(file_path, dest_root):
     Uses Volume Shadow Copy on Windows to handle locked files.
     """
     if not os.path.exists(file_path):
-        logging.error(f"Source does not exist: {file_path}")
+        logger.error(f"Source does not exist: {file_path}")
         return None
 
     if file_path.startswith(sandboxie_folder):
@@ -10649,10 +10644,10 @@ def _copy_to_dest(file_path, dest_root):
     # Try normal copy first
     try:
         shutil.copy2(file_path, dest_path)
-        logging.info(f"Copied '{file_path}' to '{dest_path}'")
+        logger.info(f"Copied '{file_path}' to '{dest_path}'")
         return dest_path
     except Exception as e:
-        logging.error(f"Normal copy failed ({e}), attempting shadow copy")
+        logger.error(f"Normal copy failed ({e}), attempting shadow copy")
 
     # Fallback: shadow copy
     drive = os.path.splitdrive(file_path)[0]  # e.g. "C:"
@@ -10664,10 +10659,10 @@ def _copy_to_dest(file_path, dest_root):
             shadow_rel_path = os.path.basename(file_path)
 
         if copy_from_shadow(shadow_root, shadow_rel_path, dest_path):
-            logging.info(f"Copied from shadow '{file_path}' to '{dest_path}'")
+            logger.info(f"Copied from shadow '{file_path}' to '{dest_path}'")
             return dest_path
 
-    logging.error(f"All copy methods failed for: {file_path}")
+    logger.error(f"All copy methods failed for: {file_path}")
     return None
 
 def decompile_cx_freeze(executable_path):
@@ -10680,7 +10675,7 @@ def decompile_cx_freeze(executable_path):
     lib_zip_path = os.path.join(dist_dir, "lib", "library.zip")
 
     if not os.path.isfile(lib_zip_path):
-        logging.error("CXFreeze library.zip not found: %s", lib_zip_path)
+        logger.error("CXFreeze library.zip not found: %s", lib_zip_path)
         return None
 
     target_pyc_name = f"{exe_name}__main__.pyc"
@@ -10688,7 +10683,7 @@ def decompile_cx_freeze(executable_path):
     try:
         os.makedirs(cx_freeze_extracted_dir, exist_ok=True)
     except Exception as e:
-        logging.error("Failed to create directory %s: %s", cx_freeze_extracted_dir, e)
+        logger.error("Failed to create directory %s: %s", cx_freeze_extracted_dir, e)
         return None
 
     extracted_pyc_path = os.path.join(cx_freeze_extracted_dir, target_pyc_name)
@@ -10696,16 +10691,16 @@ def decompile_cx_freeze(executable_path):
     try:
         with pyzipper.AESZipFile(lib_zip_path, 'r') as zipf:
             if target_pyc_name not in zipf.namelist():
-                logging.error("File '%s' not found in archive: %s", target_pyc_name, lib_zip_path)
+                logger.error("File '%s' not found in archive: %s", target_pyc_name, lib_zip_path)
                 return None
 
             with zipf.open(target_pyc_name) as src, open(extracted_pyc_path, "wb") as dst:
                 dst.write(src.read())
 
-            logging.info("Extracted file: %s", extracted_pyc_path)
+            logger.info("Extracted file: %s", extracted_pyc_path)
 
     except Exception as e:
-        logging.error("Failed to extract '%s' from '%s': %s", target_pyc_name, lib_zip_path, e)
+        logger.error("Failed to extract '%s' from '%s': %s", target_pyc_name, lib_zip_path, e)
         return None
 
     return extracted_pyc_path
@@ -10732,10 +10727,10 @@ def show_code_with_pylingual_pycdas(
           - pycdas_files: List of file paths to decompiled files by pycdas, or None
     """
     try:
-        logging.info(f"Decompiling with Pylingual and pycdas: {file_path}")
+        logger.info(f"Decompiling with Pylingual and pycdas: {file_path}")
         pyc_path = Path(file_path)
         if not pyc_path.exists():
-            logging.error(f".pyc file not found: {file_path}")
+            logger.error(f".pyc file not found: {file_path}")
             return None, None
 
         pylingual_files: List[str] = []
@@ -10760,10 +10755,10 @@ def show_code_with_pylingual_pycdas(
                     py_files = list(possible_subdir.rglob("*.py"))
 
             pylingual_files = [str(p) for p in py_files]
-            logging.info(f"Pylingual decompiled {len(pylingual_files)} .py files")
+            logger.info(f"Pylingual decompiled {len(pylingual_files)} .py files")
 
         except Exception as pylingual_ex:
-            logging.error(f"Pylingual decompilation failed for {file_path}: {pylingual_ex}")
+            logger.error(f"Pylingual decompilation failed for {file_path}: {pylingual_ex}")
 
         # === pycdas Decompilation ===
         try:
@@ -10771,12 +10766,12 @@ def show_code_with_pylingual_pycdas(
 
             if pycdas_output_path and os.path.exists(pycdas_output_path):
                 pycdas_files.append(str(pycdas_output_path))
-                logging.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
+                logger.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
             else:
-                logging.error(f"pycdas decompilation failed or produced no output for {file_path}")
+                logger.error(f"pycdas decompilation failed or produced no output for {file_path}")
 
         except Exception as pycdas_ex:
-            logging.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
+            logger.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
 
         # Return lists or None if empty
         return (
@@ -10785,7 +10780,7 @@ def show_code_with_pylingual_pycdas(
         )
 
     except Exception as ex:
-        logging.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
+        logger.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
         return None, None
 
 def run_themida_unlicense(file_path, x64=False):
@@ -10795,13 +10790,13 @@ def run_themida_unlicense(file_path, x64=False):
     The unpacker creates a new file with 'unpacked_' prefix in the same directory.
     """
     if not os.path.isfile(file_path):
-        logging.error(f"Invalid input file: {file_path}")
+        logger.error(f"Invalid input file: {file_path}")
         return None
 
     # choose correct unpacker
     unpacker = unlicense_x64_path if x64 else unlicense_path
     if not os.path.isfile(unpacker):
-        logging.error(f"Unpacker not found: {unpacker}")
+        logger.error(f"Unpacker not found: {unpacker}")
         return None
 
     # build Sandboxie command
@@ -10816,7 +10811,7 @@ def run_themida_unlicense(file_path, x64=False):
 
     try:
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logging.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
+        logger.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
 
         # Construct expected unpacked filename
         unpacked_path = os.path.join(
@@ -10825,14 +10820,14 @@ def run_themida_unlicense(file_path, x64=False):
         )
 
         if os.path.isfile(unpacked_path):
-            logging.info(f"Unpacked file created: {unpacked_path}")
+            logger.info(f"Unpacked file created: {unpacked_path}")
             return unpacked_path
         else:
-            logging.error(f"Unpacker finished but no unpacked file found for {file_path}")
+            logger.error(f"Unpacker finished but no unpacked file found for {file_path}")
             return None
 
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
+        logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
         return None
 
 # --- Main Scanning Function ---
@@ -10870,17 +10865,17 @@ def scan_and_warn(file_path,
 
         # Ensure path is a string, exists, and is non-empty
         if not isinstance(file_path, str):
-            logging.error(f"Invalid file_path type: {type(file_path).__name__}")
+            logger.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
 
         # Ensure the file exists before proceeding.
         if not os.path.exists(file_path):
-            logging.error(f"File not found: {file_path}")
+            logger.error(f"File not found: {file_path}")
             return False
 
         # Check if the file is empty.
         if os.path.getsize(file_path) == 0:
-            logging.debug(f"File {file_path} is empty. Skipping scan.")
+            logger.debug(f"File {file_path} is empty. Skipping scan.")
             return False
 
         # Normalize the original path
@@ -10896,7 +10891,7 @@ def scan_and_warn(file_path,
         # If we've already scanned this exact (path, hash), skip immediately
         key = (norm_path.lower(), md5)
         if key in scan_and_warn._seen:
-            logging.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})")
+            logger.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})")
             return False
 
          # Mark it seen and proceed
@@ -10923,7 +10918,7 @@ def scan_and_warn(file_path,
             # Check if this is a dropped ntdll.dll in the sandbox
             if normalized_path == sandboxed_ntdll_path:
                 ntdll_dropped = True
-                logging.critical(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
+                logger.critical(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
                 # Optionally force a special scan for this file
                 perform_special_scan = True
                 # You may choose a specific dir for ntdll analysis, or reuse existing staging dir
@@ -10960,31 +10955,31 @@ def scan_and_warn(file_path,
             if perform_special_scan:
                 ransomware_alert(norm_path)  # Direct call, not threaded
             if mega_optimization_with_anti_false_positive:
-                logging.info(f"Stopped analysis; unknown data detected in {norm_path}")
+                logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
                 return False  # EARLY EXIT - must not be threaded
 
         # CRITICAL: File type checks that can cause early return - NO THREADING
         pefile_result = is_pe_file_from_output(die_output, norm_path)
         if pefile_result:
-            logging.info(f"The file {norm_path} is a valid PE file.")
+            logger.info(f"The file {norm_path} is a valid PE file.")
             pe_file = True
         elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
-            logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
+            logger.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
             return False  # EARLY EXIT
 
         apk_result = is_apk_file_from_output(die_output, norm_path)
         if apk_result == "Broken APK" and mega_optimization_with_anti_false_positive:
-            logging.info(f"The file {norm_path} is a broken APK file. Skipping scan...")
+            logger.info(f"The file {norm_path} is a broken APK file. Skipping scan...")
             return False  # EARLY EXIT
 
         elf_result = is_elf_file_from_output(die_output, norm_path)
         if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
-            logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
+            logger.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
             return False  # EARLY EXIT
 
         macho_result = is_macho_file_from_output(die_output, norm_path)
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
-            logging.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
+            logger.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
             return False  # EARLY EXIT
 
         # Handle first pass worm detection - CRITICAL PATH
@@ -11008,9 +11003,9 @@ def scan_and_warn(file_path,
                 sig_check = check_signature(norm_path)
                 with thread_lock:
                     thread_results['signature_check'] = sig_check
-                logging.debug(f"Signature check completed for {norm_path}")
+                logger.debug(f"Signature check completed for {norm_path}")
             except Exception as e:
-                logging.error(f"Error in signature check thread for {norm_path}: {e}")
+                logger.error(f"Error in signature check thread for {norm_path}: {e}")
                 with thread_lock:
                     thread_results['signature_check'] = {
                         "has_microsoft_signature": False,
@@ -11027,7 +11022,7 @@ def scan_and_warn(file_path,
                 with thread_lock:
                     thread_results['file_lines'] = lines
             except Exception as e:
-                logging.error(f"Failed to read text lines from {norm_path}: {e}")
+                logger.error(f"Failed to read text lines from {norm_path}: {e}")
 
         # Start background threads for I/O operations
         signature_thread = threading.Thread(target=signature_check_thread)
@@ -11041,13 +11036,13 @@ def scan_and_warn(file_path,
 
         if Path(obfuscar_dir) in wrap_norm_path.parents and not flag_obfuscar:
             flag_obfuscar = True
-            logging.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory.")
+            logger.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory.")
 
         match = next((Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
                      if Path(p) in wrap_norm_path.parents), None)
         if match and not flag_de4dot:
             flag_de4dot = True
-            logging.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
+            logger.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
 
         # ========== SPECIALIZED ANALYSIS THREADS ==========
         def vmprotect_detection():
@@ -11071,81 +11066,81 @@ def scan_and_warn(file_path,
                             with open(unpacked_path, 'wb') as f:
                                 f.write(unpacked_data)
 
-                            logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
+                            logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
                             # Optional: further scanning/warning in a thread
                             threading.Thread(target=scan_and_warn, args=(unpacked_path,)).start()
 
                     except Exception as e:
-                        logging.error(f"Error unpacking VMProtect file '{file_path}': {e}")
+                        logger.error(f"Error unpacking VMProtect file '{file_path}': {e}")
 
             except Exception as e:
-                logging.error(f"Error in VMProtect detection for '{file_path}': {e}")
+                logger.error(f"Error in VMProtect detection for '{file_path}': {e}")
 
         def themida_detection():
             try:
                 is_themida_protected = is_themida_from_output(die_output)
                 if is_themida_protected == "PE32 Themida":
-                    logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
+                    logger.info(f"File '{norm_path}' is protected by Themida 32 bit.")
                     run_themida_unlicense(norm_path)
                     threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
                 elif is_themida_protected == "PE64 Themida":
-                    logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
+                    logger.info(f"File '{norm_path}' is protected by Themida 64 bit.")
                     run_themida_unlicense(norm_path, x64=True)
                     threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
             except Exception as e:
-                logging.error(f"Error in Themida detection for {norm_path}: {e}")
+                logger.error(f"Error in Themida detection for {norm_path}: {e}")
 
         def autoit_analysis():
             try:
                 if is_autoit_file_from_output(die_output):
-                    logging.info(f"File {norm_path} is a valid AutoIt file.")
+                    logger.info(f"File {norm_path} is a valid AutoIt file.")
                     extracted_autoit_files = extract_autoit(norm_path)
                     for extracted_autoit_file in extracted_autoit_files:
                         threading.Thread(target=scan_and_warn, args=(extracted_autoit_file,)).start()
             except Exception as e:
-                logging.error(f"Error in AutoIt analysis for {norm_path}: {e}")
+                logger.error(f"Error in AutoIt analysis for {norm_path}: {e}")
 
         def asar_analysis():
             try:
                 if is_asar_archive_from_output(die_output):
-                    logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
+                    logger.info(f"File {norm_path} is a valid Asar Archive (Electron).")
                     extracted_asar_files = extract_asar_file(norm_path)
                     for extracted_asar_file in extracted_asar_files:
                         threading.Thread(target=scan_and_warn, args=(extracted_asar_file,)).start()
             except Exception as e:
-                logging.error(f"Error in ASAR analysis for {norm_path}: {e}")
+                logger.error(f"Error in ASAR analysis for {norm_path}: {e}")
 
         def installshield_analysis():
             try:
                 if is_installshield_file_from_output(die_output):
-                    logging.info(f"File {norm_path} is a valid Install Shield file.")
+                    logger.info(f"File {norm_path} is a valid Install Shield file.")
                     extracted_installshield_files = extract_installshield(norm_path)
                     for extracted_installshield_file in extracted_installshield_files:
                         threading.Thread(target=scan_and_warn, args=(extracted_installshield_file,)).start()
             except Exception as e:
-                logging.error(f"Error in InstallShield analysis for {norm_path}: {e}")
+                logger.error(f"Error in InstallShield analysis for {norm_path}: {e}")
 
         def advanced_installer_analysis():
             try:
                 if is_advanced_installer_file_from_output(die_output):
-                    logging.info(f"File {norm_path} is a valid Advanced Installer file.")
+                    logger.info(f"File {norm_path} is a valid Advanced Installer file.")
                     extracted_files = advanced_installer_extractor(norm_path)
                     for extracted_file in extracted_files:
                         threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
             except Exception as e:
-                logging.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
+                logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
         def apk_analysis():
             try:
                 if apk_result:
-                    logging.info(f"File {norm_path} is a valid APK file.")
+                    logger.info(f"File {norm_path} is a valid APK file.")
                     decompile_apk_files = decompile_apk_file(norm_path)
                     if decompile_apk_files:
                         for decompiled_apk_file in decompile_apk_files:
                             threading.Thread(target=scan_and_warn, args=(decompiled_apk_file,)).start()
             except Exception as e:
-                logging.error(f"Error in APK analysis for {norm_path}: {e}")
+                logger.error(f"Error in APK analysis for {norm_path}: {e}")
 
         def dotnet_analysis():
             try:
@@ -11169,17 +11164,17 @@ def scan_and_warn(file_path,
                 with thread_lock:
                     thread_results['dotnet_result'] = dotnet_result
             except Exception as e:
-                logging.error(f"Error in .NET analysis for {norm_path}: {e}")
+                logger.error(f"Error in .NET analysis for {norm_path}: {e}")
 
         def cx_freeze_thread():
             try:
                 if is_cx_freeze_file_from_output(die_output):
-                    logging.info(f"Invoking cx_Freeze decompiler on {norm_path}")
+                    logger.info(f"Invoking cx_Freeze decompiler on {norm_path}")
                     cx_main_pyc = decompile_cx_freeze(norm_path)
                     if cx_main_pyc:
                         threading.Thread(target=scan_and_warn, args=(cx_main_pyc,)).start()
             except Exception as e:
-                logging.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
+                logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
         # Start all specialized analysis threads
         analysis_threads = [
@@ -11199,40 +11194,40 @@ def scan_and_warn(file_path,
 
         # Cache check - CRITICAL PATH
         if initial_md5_in_cache == md5:
-            logging.info(f"Skipping scan for unchanged file: {norm_path}")
+            logger.info(f"Skipping scan for unchanged file: {norm_path}")
             return False  # EARLY EXIT
         else:
             file_md5_cache[norm_path] = md5
 
-        logging.info(f"Deep scanning file: {norm_path}")
+        logger.info(f"Deep scanning file: {norm_path}")
 
         # ========== BINARY vs TEXT FILE PROCESSING ==========
 
         if not plain_text_flag:
             # Binary file processing with threading
-            logging.info(f"File {norm_path} contains valid non plain text data.")
+            logger.info(f"File {norm_path} contains valid non plain text data.")
 
             # Heavy extraction operations in threads
             def extraction_thread():
                 try:
-                    logging.info(f"Attempting to extract file {norm_path}...")
+                    logger.info(f"Attempting to extract file {norm_path}...")
                     extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
                     if extracted_files:
-                        logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
+                        logger.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
                         for extracted_file in extracted_files:
                             threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
                 except Exception as e:
-                    logging.error(f"Error during extraction of {norm_path}: {e}")
+                    logger.error(f"Error during extraction of {norm_path}: {e}")
 
             def enigma_thread():
                 try:
                     if is_enigma1_virtual_box(die_output):
                         extracted_path = try_unpack_enigma1(norm_path)
                         if extracted_path:
-                            logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
+                            logger.info(f"Unpack succeeded. Files are in: {extracted_path}")
                             threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
                 except Exception as e:
-                    logging.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
+                    logger.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
 
             def upx_thread():
                 try:
@@ -11241,7 +11236,7 @@ def scan_and_warn(file_path,
                         if upx_unpacked:
                             threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
                 except Exception as e:
-                    logging.error(f"Error in UPX unpacking for {norm_path}: {e}")
+                    logger.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
             def unipacker_thread():
                 try:
@@ -11250,18 +11245,18 @@ def scan_and_warn(file_path,
                         if unpacked_file:
                             threading.Thread(target=scan_and_warn, args=(unpacked_file,)).start()
                 except Exception as e:
-                    logging.error(f"Error in Unipacker unpacking for {norm_path}: {e}")
+                    logger.error(f"Error in Unipacker unpacking for {norm_path}: {e}")
 
             def inno_setup_thread():
                 try:
                     if is_inno_setup_archive_from_output(die_output):
                         extracted = extract_inno_setup(norm_path)
                         if extracted is not None:
-                            logging.info(f"Extracted {len(extracted)} files. Scanning...")
+                            logger.info(f"Extracted {len(extracted)} files. Scanning...")
                             for inno_norm_path in extracted:
                                 threading.Thread(target=scan_and_warn, args=(inno_norm_path,)).start()
                 except Exception as e:
-                    logging.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
+                    logger.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
             def go_garble_thread():
                 try:
@@ -11275,12 +11270,12 @@ def scan_and_warn(file_path,
                         if results.get("decrypt_func_list"):
                             threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
                 except Exception as e:
-                    logging.error(f"Error in Go Garble processing for {norm_path}: {e}")
+                    logger.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
             def pyc_thread():
                 try:
                     if is_pyc_file_from_output(die_output):
-                        logging.info(f"File {norm_path} is a .pyc file. Attempting Pylingual decompilation...")
+                        logger.info(f"File {norm_path} is a .pyc file. Attempting Pylingual decompilation...")
                         pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
                         if pylingual:
@@ -11292,7 +11287,7 @@ def scan_and_warn(file_path,
                             for rname in pycdas.keys():
                                 threading.Thread(target=scan_and_warn, kwargs={"file_path": rname}).start()
                 except Exception as e:
-                    logging.error(f"Error in PYC processing for {norm_path}: {e}")
+                    logger.error(f"Error in PYC processing for {norm_path}: {e}")
 
             def nsis_thread():
                 try:
@@ -11300,7 +11295,7 @@ def scan_and_warn(file_path,
                         nonlocal nsis_flag
                         nsis_flag = True
                 except Exception as e:
-                    logging.error(f"Error in NSIS detection for {norm_path}: {e}")
+                    logger.error(f"Error in NSIS detection for {norm_path}: {e}")
 
             # Start binary processing threads
             binary_threads = [
@@ -11319,7 +11314,7 @@ def scan_and_warn(file_path,
 
         # ========== PE FILE SPECIFIC PROCESSING ==========
         if pe_file:
-            logging.info(f"File {norm_path} is identified as a PE file.")
+            logger.info(f"File {norm_path} is identified as a PE file.")
 
             # Wait for signature check to complete (needed for PE logic)
             signature_thread.join()
@@ -11331,18 +11326,18 @@ def scan_and_warn(file_path,
 
             # CRITICAL: Early returns for valid signatures - NO THREADING
             if signature_check["has_microsoft_signature"]:
-                logging.info(f"Valid Microsoft signature detected for file: {norm_path}")
+                logger.info(f"Valid Microsoft signature detected for file: {norm_path}")
                 return False
 
             if signature_check.get("valid_goodsign_signatures"):
-                logging.info(f"Valid good signature(s) detected for file: {norm_path}")
+                logger.info(f"Valid good signature(s) detected for file: {norm_path}")
                 return False
 
             # Handle signature validation
             if signature_check["is_valid"]:
-                logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
+                logger.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
             elif signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
-                logging.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
+                logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                 threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature")).start()
 
             # PE-specific threaded operations
@@ -11355,31 +11350,31 @@ def scan_and_warn(file_path,
                                        kwargs={"capa_flag": True}).start()
                         threading.Thread(target=scan_and_warn, args=(capa_analysis_results,)).start()
                 except Exception as e:
-                    logging.error(f"Error in CAPA analysis for {norm_path}: {e}")
+                    logger.error(f"Error in CAPA analysis for {norm_path}: {e}")
 
             def scr_detection_thread():
                 try:
                     if norm_path.lower().endswith(".scr"):
-                        logging.critical(f"Suspicious .scr file detected: {norm_path}")
+                        logger.critical(f"Suspicious .scr file detected: {norm_path}")
                         threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")).start()
                 except Exception as e:
-                    logging.error(f"Error in SCR detection for {norm_path}: {e}")
+                    logger.error(f"Error in SCR detection for {norm_path}: {e}")
 
             def decompile_thread():
                 try:
                     decompile_file(norm_path)
                 except Exception as e:
-                    logging.error(f"Error in decompilation for {norm_path}: {e}")
+                    logger.error(f"Error in decompilation for {norm_path}: {e}")
 
             def pe_section_thread():
                 try:
                     section_files = extract_pe_sections(norm_path)
                     if section_files:
-                        logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
+                        logger.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                         for fpath in section_files:
                             threading.Thread(target=scan_and_warn, args=(fpath,)).start()
                 except Exception as e:
-                    logging.error(f"Error in PE section extraction for {norm_path}: {e}")
+                    logger.error(f"Error in PE section extraction for {norm_path}: {e}")
 
             def resource_extraction_thread():
                 try:
@@ -11388,20 +11383,20 @@ def scan_and_warn(file_path,
                         for file in extracted:
                             threading.Thread(target=scan_and_warn, args=(file,)).start()
                 except Exception as e:
-                    logging.error(f"Error in resource extraction for {norm_path}: {e}")
+                    logger.error(f"Error in resource extraction for {norm_path}: {e}")
 
             def debloat_thread():
                 try:
                     if not flag_debloat:
-                        logging.info(f"Debloating PE file {norm_path} for faster scanning.")
+                        logger.info(f"Debloating PE file {norm_path} for faster scanning.")
                         optimized_norm_path = debloat_pe_file(norm_path)
                         if optimized_norm_path:
-                            logging.info(f"Debloated file saved at: {optimized_norm_path}")
+                            logger.info(f"Debloated file saved at: {optimized_norm_path}")
                             threading.Thread(target=scan_and_warn,
                                            args=(optimized_norm_path,),
                                            kwargs={'flag_debloat': True}).start()
                 except Exception as e:
-                    logging.error(f"Error during debloating of {norm_path}: {e}")
+                    logger.error(f"Error during debloating of {norm_path}: {e}")
 
             # Start PE processing threads
             pe_threads = [
@@ -11430,24 +11425,24 @@ def scan_and_warn(file_path,
         def dotnet_obfuscar_thread():
             try:
                 if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
-                    logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
+                    logger.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
                     if deobfuscated_path:
                         threading.Thread(target=scan_and_warn,
                                        args=(deobfuscated_path,),
                                        kwargs={'flag_obfuscar': True}).start()
             except Exception as e:
-                logging.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
+                logger.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
 
         def dotnet_reactor_thread():
             try:
                 if isinstance(dotnet_result, str) and "Protector: .NET Reactor" in dotnet_result:
-                    logging.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
+                    logger.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
                     if deobfuscated_path:
                         threading.Thread(target=scan_and_warn, args=(deobfuscated_path,)).start()
             except Exception as e:
-                logging.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
+                logger.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
 
         def dotnet_confuserex_thread():
             """
@@ -11463,7 +11458,7 @@ def scan_and_warn(file_path,
                 # NOTE: dotnet_result, norm_path, file_name, flag_confuserex and scan_and_warn
                 # are expected to be available in the surrounding scope / caller.
                 if isinstance(dotnet_result, str) and "Protector: ConfuserEx" in dotnet_result and not flag_confuserex:
-                    logging.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
+                    logger.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_confuserex(norm_path, file_name)
                     if deobfuscated_path:
                         threading.Thread(
@@ -11473,7 +11468,7 @@ def scan_and_warn(file_path,
                         ).start()
 
             except Exception as e:
-                logging.error(f"Error in ConfuserEx deobfuscation for {norm_path}: {e}")
+                logger.error(f"Error in ConfuserEx deobfuscation for {norm_path}: {e}")
 
         def jar_analysis_thread():
             try:
@@ -11485,26 +11480,26 @@ def scan_and_warn(file_path,
                                            args=(jar_extractor_path,),
                                            kwargs={'flag_fernflower': True}).start()
             except Exception as e:
-                logging.error(f"Error in JAR analysis for {norm_path}: {e}")
+                logger.error(f"Error in JAR analysis for {norm_path}: {e}")
 
         def java_class_thread():
             try:
                 if is_java_class_from_output(die_output):
                     threading.Thread(target=run_fernflower_decompiler, args=(norm_path,)).start()
             except Exception as e:
-                logging.error(f"Error in Java class analysis for {norm_path}: {e}")
+                logger.error(f"Error in Java class analysis for {norm_path}: {e}")
 
         def nuitka_thread():
             try:
                 nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
-                    logging.info(f"Checking if the file {norm_path} contains Nuitka executable of type: {nuitka_type}")
+                    logger.info(f"Checking if the file {norm_path} contains Nuitka executable of type: {nuitka_type}")
                     nuitka_files = extract_nuitka_file(norm_path, nuitka_type)
                     if nuitka_files:
                         for extracted_file in nuitka_files:
                             threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
             except Exception as e:
-                logging.error(f"Error in Nuitka analysis for {norm_path}: {e}")
+                logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
         def pyinstaller_thread():
             try:
@@ -11518,7 +11513,7 @@ def scan_and_warn(file_path,
                         for extracted_file in extracted_files_pyinstaller:
                             threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
             except Exception as e:
-                logging.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
+                logger.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
 
         # Start additional analysis threads
         additional_threads = [
@@ -11537,7 +11532,7 @@ def scan_and_warn(file_path,
         # ========== TEXT FILE PROCESSING ==========
         else:
             # Plain text file processing
-            logging.info(f"File {norm_path} does contain plain text data.")
+            logger.info(f"File {norm_path} does contain plain text data.")
 
             # Wait for file reading to complete
             file_read_thread.join()
@@ -11552,19 +11547,19 @@ def scan_and_warn(file_path,
                             parts = line.split(',')
                             if len(parts) == 2:
                                 browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
-                                logging.info(f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
+                                logger.info(f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
                                 scan_code_for_links(homepage_value, norm_path, homepage_flag=browser_tag)
                             else:
-                                logging.error(f"Invalid format in homepage change file: {line}")
+                                logger.error(f"Invalid format in homepage change file: {line}")
                 except Exception as ex:
-                    logging.error(f"Error processing homepage change file {norm_path}: {ex}")
+                    logger.error(f"Error processing homepage change file {norm_path}: {ex}")
 
             # Directory type logging
             log_directory_type(norm_path)
 
             # Check if file is in decompiled directory
             if norm_path.startswith(decompiled_dir):
-                logging.info(f"File {norm_path} is in decompiled_dir.")
+                logger.info(f"File {norm_path} is in decompiled_dir.")
                 is_decompiled = True
 
             # Meta Llama scanning for text files (threaded)
@@ -11593,16 +11588,16 @@ def scan_and_warn(file_path,
                                     threading.Thread(target=scan_file_with_meta_llama, args=(norm_path,)).start()
                                     break
                 except Exception as e:
-                    logging.error(f"Error in Meta Llama text processing for {norm_path}: {e}")
+                    logger.error(f"Error in Meta Llama text processing for {norm_path}: {e}")
 
             # Real-time malware detection for command flag (threaded)
             def command_flag_thread():
                 try:
                     if command_flag:
-                        logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
+                        logger.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
                         monitor_message.detect_malware(norm_path)
                 except Exception as e:
-                    logging.error(f"Error in command flag processing for {norm_path}: {e}")
+                    logger.error(f"Error in command flag processing for {norm_path}: {e}")
 
             # Start text processing threads
             text_threads = [
@@ -11621,7 +11616,7 @@ def scan_and_warn(file_path,
                 if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
                     process_file_data(norm_path, die_output)
             except Exception as e:
-                logging.error(f"Error in file processing for {norm_path}: {e}")
+                logger.error(f"Error in file processing for {norm_path}: {e}")
 
         # Fake size check thread (heavy I/O for large files)
         def fake_size_check_thread():
@@ -11631,13 +11626,13 @@ def scan_and_warn(file_path,
                     with open(norm_path, 'rb') as fake_file:
                         file_content_read = fake_file.read(100 * 1024 * 1024)
                         if file_content_read == b'\x00' * 100 * 1024 * 1024:
-                            logging.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
+                            logger.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
                                 fake_size = "HEUR:SIG.Win32.FakeSize.gen"
                             threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size)).start()
             except Exception as e:
-                logging.error(f"Error in fake size check for {norm_path}: {e}")
+                logger.error(f"Error in fake size check for {norm_path}: {e}")
 
         # Real-time malware scan thread (CPU intensive)
         def realtime_malware_thread():
@@ -11647,7 +11642,7 @@ def scan_and_warn(file_path,
 
                 if is_malicious:
                     virus_name = ''.join(virus_names)
-                    logging.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
+                    logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
@@ -11656,7 +11651,7 @@ def scan_and_warn(file_path,
                 if vmprotect_unpacked_path:
                     threading.Thread(target=scan_and_warn, args=(vmprotect_unpacked_path,)).start()
             except Exception as e:
-                logging.error(f"Error in real-time malware scan for {norm_path}: {e}")
+                logger.error(f"Error in real-time malware scan for {norm_path}: {e}")
 
         # Suspicious filename detection thread
         def filename_detection_thread():
@@ -11674,16 +11669,16 @@ def scan_and_warn(file_path,
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
                     threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name)).start()
             except Exception as e:
-                logging.error(f"Error in filename detection for {norm_path}: {e}")
+                logger.error(f"Error in filename detection for {norm_path}: {e}")
 
         # Decompilation post-processing thread
         def decompilation_postprocess_thread():
             try:
                 if is_decompiled:
-                    logging.info(f"Checking original file path from decompiled data for: {norm_path}")
+                    logger.info(f"Checking original file path from decompiled data for: {norm_path}")
                     extract_original_norm_path_from_decompiled(norm_path)
             except Exception as e:
-                logging.error(f"Error in decompilation post-processing for {norm_path}: {e}")
+                logger.error(f"Error in decompilation post-processing for {norm_path}: {e}")
 
         # Start common processing threads
         common_threads = [
@@ -11703,11 +11698,11 @@ def scan_and_warn(file_path,
         # operations that don't affect the main scan flow. The function can return
         # while background threads continue processing.
 
-        logging.info(f"Main scan completed for {norm_path}, background processing continues...")
+        logger.info(f"Main scan completed for {norm_path}, background processing continues...")
         return False  # Scan completed successfully
 
     except Exception as ex:
-        logging.error(f"Error scanning file {norm_path}: {ex}")
+        logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
 
@@ -11720,7 +11715,7 @@ class LogFileEventHandler(FileSystemEventHandler):
             self.last_position = os.path.getsize(self.filename)
         except FileNotFoundError:
             self.last_position = 0
-        logging.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
+        logger.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
 
     def on_modified(self, event):
         """
@@ -11735,7 +11730,7 @@ class LogFileEventHandler(FileSystemEventHandler):
 
             # Handle log rotation or truncation.
             if current_position < self.last_position:
-                logging.info("Log file has been reset. Reading from the beginning.")
+                logger.info("Log file has been reset. Reading from the beginning.")
                 self.last_position = 0
 
             # If the file has grown, read the new lines.
@@ -11757,45 +11752,45 @@ class LogFileEventHandler(FileSystemEventHandler):
 
                         if file_path_to_scan:
                             process_name = event_data.get('process_name', 'N/A')
-                            logging.info(f"New event detected for process '{process_name}'")
+                            logger.info(f"New event detected for process '{process_name}'")
                             scan_and_warn(file_path_to_scan)
                         else:
-                            logging.error("Found event log line without a 'file_path' key.")
+                            logger.error("Found event log line without a 'file_path' key.")
 
                     except json.JSONDecodeError:
-                        logging.error(f"Could not decode JSON from line: {line}")
+                        logger.error(f"Could not decode JSON from line: {line}")
                     except Exception as e:
-                        logging.error(f"An error occurred while processing an event: {e}")
+                        logger.error(f"An error occurred while processing an event: {e}")
 
         except FileNotFoundError:
-             logging.error(f"Log file '{self.filename}' not found during modification check.")
+             logger.error(f"Log file '{self.filename}' not found during modification check.")
              self.last_position = 0 # Reset position for when it's recreated.
         except Exception as e:
-            logging.error(f"A critical error occurred in the event handler: {e}")
+            logger.error(f"A critical error occurred in the event handler: {e}")
 
 
 def monitor_log_file(json_file_path: str):
     """
     Monitors a JSON log file for new entries using file system events.
     """
-    logging.info(f"Starting to monitor log file: {json_file_path}")
+    logger.info(f"Starting to monitor log file: {json_file_path}")
 
     # Ensure the file and its directory exist before starting the observer.
     log_dir = os.path.dirname(os.path.abspath(json_file_path))
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-        logging.info(f"Created directory: {log_dir}")
+        logger.info(f"Created directory: {log_dir}")
 
     if not os.path.exists(json_file_path):
         with open(json_file_path, 'w', encoding='utf-8'):
-            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
+            logger.info(f"Log file not found. Created an empty file at: {json_file_path}")
 
     event_handler = LogFileEventHandler(json_file_path)
     observer = Observer()
     # We watch the directory containing the file, not the file itself.
     observer.schedule(event_handler, log_dir, recursive=False)
 
-    logging.info(f"Observer started. Watching directory: '{log_dir}'")
+    logger.info(f"Observer started. Watching directory: '{log_dir}'")
     observer.start()
 
     try:
@@ -11804,7 +11799,7 @@ def monitor_log_file(json_file_path: str):
             time.sleep(0)
     except KeyboardInterrupt:
         observer.stop()
-        logging.info("Observer stopped by user.")
+        logger.info("Observer stopped by user.")
     observer.join()
 
 def remove_log_file(json_file_path: str):
@@ -11814,17 +11809,17 @@ def remove_log_file(json_file_path: str):
     Args:
         json_file_path (str): The path to the av_events.json file to be removed.
     """
-    logging.info("Owlyshield has stopped. Cleaning up event file.")
+    logger.info("Owlyshield has stopped. Cleaning up event file.")
     try:
         if os.path.exists(json_file_path):
             os.remove(json_file_path)
-            logging.info(f"Successfully removed log file: {json_file_path}")
+            logger.info(f"Successfully removed log file: {json_file_path}")
         else:
-            logging.error(f"Log file not found, nothing to remove: {json_file_path}")
+            logger.error(f"Log file not found, nothing to remove: {json_file_path}")
     except OSError as e:
-        logging.error(f"Error removing file {json_file_path}: {e}")
+        logger.error(f"Error removing file {json_file_path}: {e}")
     except Exception as e:
-        logging.error(f"An unexpected error occurred during file removal: {e}")
+        logger.error(f"An unexpected error occurred during file removal: {e}")
 
 def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
@@ -11849,15 +11844,15 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                 continue
 
         if not matching_processes:
-            logging.error(f"No running processes found matching: {process_name}")
+            logger.error(f"No running processes found matching: {process_name}")
             return None
 
         if len(matching_processes) > 1:
-            logging.info(f"Multiple processes found matching {process_name}: {matching_processes}")
+            logger.info(f"Multiple processes found matching {process_name}: {matching_processes}")
 
         # Use the first matching process
         target_pid, target_exe = matching_processes[0]
-        logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
+        logger.info(f"Found target process: {target_exe} (PID: {target_pid})")
 
         # Ensure output directories exist
         os.makedirs(memory_dir, exist_ok=True)
@@ -11866,13 +11861,13 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         extracted_strings = []
 
         # Run pd64 on the process PID to dump suspicious modules
-        logging.info(f"Running pd64 on process PID: {target_pid}")
+        logger.info(f"Running pd64 on process PID: {target_pid}")
         pid_pd64_dir = os.path.join(pd64_extracted_dir, f"pid_{target_pid}")
         os.makedirs(pid_pd64_dir, exist_ok=True)
 
         try:
             if extract_with_pd64(str(target_pid), pid_pd64_dir):
-                logging.info(f"pd64 successfully extracted from PID {target_pid}")
+                logger.info(f"pd64 successfully extracted from PID {target_pid}")
 
                 # Scan all extracted files
                 for root, _, files in os.walk(pid_pd64_dir):
@@ -11883,10 +11878,10 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                             # Check file size before processing
                             file_size = os.path.getsize(full_path)
                             if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
-                                logging.info(f"Skipping large file: {full_path} ({file_size} bytes)")
+                                logger.info(f"Skipping large file: {full_path} ({file_size} bytes)")
                                 continue
 
-                            logging.info(f"Scanning pd64 extracted file: {full_path}")
+                            logger.info(f"Scanning pd64 extracted file: {full_path}")
 
                             # Extract strings from pd64 results
                             try:
@@ -11912,21 +11907,21 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                                         extracted_strings.extend(file_strings[:500])  # Limit total strings per file
 
                             except Exception as file_ex:
-                                logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+                                logger.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
 
                             # Scan the extracted file for threats
                             scan_and_warn(full_path)
 
                         except Exception as file_process_ex:
-                            logging.error(f"Error processing file {full_path}: {file_process_ex}")
+                            logger.error(f"Error processing file {full_path}: {file_process_ex}")
                             continue
 
             else:
-                logging.error(f"pd64 extraction failed for PID {target_pid}")
+                logger.error(f"pd64 extraction failed for PID {target_pid}")
                 return None
 
         except Exception as pd64_ex:
-            logging.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
+            logger.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
             return None
 
         # Save extracted ASCII strings to file if we got any
@@ -11939,14 +11934,14 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                 output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
                 counter += 1
             save_extracted_strings(output_txt, extracted_strings)
-            logging.info(f"Strings analysis complete. Results saved in {output_txt}")
+            logger.info(f"Strings analysis complete. Results saved in {output_txt}")
         else:
-            logging.error(f"No strings extracted from process {target_pid}")
+            logger.error(f"No strings extracted from process {target_pid}")
 
         return output_txt
 
     except Exception as overall_ex:
-        logging.error(f"Overall error in analyze_specific_process: {overall_ex}")
+        logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
 
 @dataclass
@@ -12048,7 +12043,7 @@ class SafeProcessMonitor:
 
         except Exception as e:
             # Log unexpected exceptions for debugging
-            logging.debug(f"Unexpected error getting process info: {e}")
+            logger.debug(f"Unexpected error getting process info: {e}")
             return None
 
     def _should_analyze_process(self, proc_info: ProcessInfo, change_threshold: int) -> tuple[bool, str]:
@@ -12084,11 +12079,11 @@ class SafeProcessMonitor:
 
             change_amount = proc_info.rss - prev_rss if prev_rss else proc_info.rss
 
-            logging.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
-            logging.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
-            logging.info(f"  Current RSS: {proc_info.rss} bytes")
-            logging.info(f"  Change: {change_amount:+} bytes")
-            logging.info(f"  In sandbox: {proc_info.is_in_sandbox}, Is main file: {proc_info.is_main_file}")
+            logger.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
+            logger.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
+            logger.info(f"  Current RSS: {proc_info.rss} bytes")
+            logger.info(f"  Change: {change_amount:+} bytes")
+            logger.info(f"  In sandbox: {proc_info.is_in_sandbox}, Is main file: {proc_info.is_main_file}")
 
             return True, "Ready for analysis"
 
@@ -12100,15 +12095,15 @@ class SafeProcessMonitor:
         def analysis_task():
             try:
                 if self._stop_requested.is_set():
-                    logging.debug(f"Analysis cancelled for PID {proc_info.pid} (stop requested)")
+                    logger.debug(f"Analysis cancelled for PID {proc_info.pid} (stop requested)")
                     return None
 
                 # Verify process still exists before analysis
                 if not psutil.pid_exists(proc_info.pid):
-                    logging.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
+                    logger.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
                     return None
 
-                logging.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
+                logger.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
 
                 # Call the external analysis function
                 result_file = analyze_specific_process(
@@ -12116,11 +12111,11 @@ class SafeProcessMonitor:
                 )
 
                 if self._stop_requested.is_set():
-                    logging.debug(f"Analysis completed but stop requested for PID {proc_info.pid}")
+                    logger.debug(f"Analysis completed but stop requested for PID {proc_info.pid}")
                     return result_file
 
                 if result_file:
-                    logging.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
+                    logger.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
 
                     # Launch scan in separate thread if not stopping
                     if not self._stop_requested.is_set():
@@ -12131,12 +12126,12 @@ class SafeProcessMonitor:
                         )
                         scan_thread.start()
                 else:
-                    logging.error(f"Memory analysis for PID {proc_info.pid} returned no results")
+                    logger.error(f"Memory analysis for PID {proc_info.pid} returned no results")
 
                 return result_file
 
             except Exception as e:
-                logging.error(f"Memory analysis failed for PID {proc_info.pid}: {e}")
+                logger.error(f"Memory analysis failed for PID {proc_info.pid}: {e}")
                 return None
 
         # Submit task to thread pool
@@ -12149,7 +12144,7 @@ class SafeProcessMonitor:
             self._active_futures -= completed_futures
 
         except Exception as e:
-            logging.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
+            logger.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
 
     def _safe_scan_and_warn(self, result_file: str) -> None:
         """Safely execute scan_and_warn with error handling"""
@@ -12157,16 +12152,16 @@ class SafeProcessMonitor:
             if not self._stop_requested.is_set():
                 scan_and_warn(result_file)
         except Exception as e:
-            logging.error(f"Scan and warn failed for {result_file}: {e}")
+            logger.error(f"Scan and warn failed for {result_file}: {e}")
 
     def request_monitor_stop(self) -> None:
         """Request graceful shutdown of the monitor"""
-        logging.info("Memory monitor stop requested")
+        logger.info("Memory monitor stop requested")
         self._stop_requested.set()
 
     def cleanup(self) -> None:
         """Clean up resources"""
-        logging.info("Memory monitor shutting down...")
+        logger.info("Memory monitor shutting down...")
 
         # Cancel pending futures
         for future in self._active_futures:
@@ -12175,15 +12170,15 @@ class SafeProcessMonitor:
         # Shutdown thread pool with timeout
         self._executor.shutdown(wait=True, timeout=10)
 
-        logging.info("Memory monitor shutdown complete")
+        logger.info("Memory monitor shutdown complete")
 
     def monitor_processes(self, change_threshold_bytes: int, memory_dir: str,
                          pd64_extracted_dir: str, sleep_interval: float = 0.1) -> None:
         """Main monitoring loop"""
-        logging.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
-        logging.info(f"Monitoring main file: {self.main_file_path}")
-        logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
-        logging.info(f"Our PID (excluded from analysis): {self.current_pid}")
+        logger.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
+        logger.info(f"Monitoring main file: {self.main_file_path}")
+        logger.info(f"Memory change threshold: {change_threshold_bytes} bytes")
+        logger.info(f"Our PID (excluded from analysis): {self.current_pid}")
 
         iteration_count = 0
 
@@ -12211,7 +12206,7 @@ class SafeProcessMonitor:
                         )
 
                         if should_analyze:
-                            logging.info(f"Analyzing process {proc_info.pid}: {reason}")
+                            logger.info(f"Analyzing process {proc_info.pid}: {reason}")
                             self._submit_analysis_task(proc_info, memory_dir, pd64_extracted_dir)
 
                     # Cleanup stale tracking data every 100 iterations
@@ -12219,7 +12214,7 @@ class SafeProcessMonitor:
                         self._cleanup_stale_data(current_pids)
 
                 except Exception as e:
-                    logging.error(f"Error in monitoring iteration {iteration_count}: {e}")
+                    logger.error(f"Error in monitoring iteration {iteration_count}: {e}")
                     # Add longer delay on error to prevent rapid error loops
                     time.sleep(min(sleep_interval * 10, 5.0))
                     continue
@@ -12231,9 +12226,9 @@ class SafeProcessMonitor:
                     break  # Stop was requested
 
         except KeyboardInterrupt:
-            logging.info("Memory monitor interrupted by user")
+            logger.info("Memory monitor interrupted by user")
         except Exception as e:
-            logging.error(f"Fatal error in memory monitor: {e}")
+            logger.error(f"Fatal error in memory monitor: {e}")
             raise
         finally:
             self.cleanup()
@@ -12274,7 +12269,7 @@ def monitor_memory_changes(
                         break  # Normal exit
                     except Exception as e:
                         if not check_stop_callback():
-                            logging.error(f"Monitor restarting due to error: {e}")
+                            logger.error(f"Monitor restarting due to error: {e}")
                             time.sleep(1)
                         break
 
@@ -12293,10 +12288,10 @@ def monitor_memory_changes(
             monitor.monitor_processes(change_threshold_bytes, memory_dir, pd64_extracted_dir)
 
     except KeyboardInterrupt:
-        logging.info("Memory monitoring interrupted")
+        logger.info("Memory monitoring interrupted")
         monitor.request_monitor_stop()
     except Exception as e:
-        logging.error(f"Memory monitoring failed: {e}")
+        logger.error(f"Memory monitoring failed: {e}")
         monitor.request_monitor_stop()
         raise
     finally:
@@ -12333,7 +12328,7 @@ def monitor_directory(path):
     Monitor a single directory for changes and invoke scan_and_warn on new/modified items.
     """
     if not os.path.exists(path):
-        logging.error(f"The directory does not exist: {path}")
+        logger.error(f"The directory does not exist: {path}")
         return
 
     hDir = win32file.CreateFile(
@@ -12359,12 +12354,12 @@ def monitor_directory(path):
             for action, filename in results:
                 full_path = os.path.join(path, filename)
                 if os.path.exists(full_path):
-                    logging.info(f"Detected change in: {full_path}")
+                    logger.info(f"Detected change in: {full_path}")
                     threading.Thread(target=scan_and_warn, args=(full_path,)).start()
                 else:
-                    logging.error(f"File or folder not found: {full_path}")
+                    logger.error(f"File or folder not found: {full_path}")
     except Exception as e:
-        logging.error(f"Error monitoring {path}: {e}")
+        logger.error(f"Error monitoring {path}: {e}")
     finally:
         win32file.CloseHandle(hDir)
 
@@ -12377,7 +12372,7 @@ def monitor_directories():
         t = threading.Thread(target=monitor_directory, args=(d,))
         t.start()
         threads.append(t)
-        logging.info(f"Started monitoring thread for: {d}")
+        logger.info(f"Started monitoring thread for: {d}")
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_directories).start()
@@ -12419,12 +12414,12 @@ def check_startup_directories():
                                 malware_type = "HEUR:Win32.Startup.Susp.gen.Malware"
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
-                            logging.critical(f"Suspicious or malicious startup file detected in {directory}: {file}")
+                            logger.critical(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                             alerted_files.append(file_path)
         except Exception as ex:
-            logging.error(f"An error occurred while checking startup directories: {ex}")
+            logger.error(f"An error occurred while checking startup directories: {ex}")
 
 def check_hosts_file_for_blocked_antivirus():
     """
@@ -12553,7 +12548,7 @@ def check_hosts_file_for_blocked_antivirus():
         return any_flagged
 
     except Exception as ex:
-        logging.error(f"Error reading hosts file: {ex}")
+        logger.error(f"Error reading hosts file: {ex}")
         return False
 
 # Function to continuously monitor hosts file
@@ -12563,7 +12558,7 @@ def monitor_hosts_file():
         is_malicious_host = check_hosts_file_for_blocked_antivirus()
 
         if is_malicious_host:
-            logging.critical("Malicious hosts file detected and flagged.")
+            logger.critical("Malicious hosts file detected and flagged.")
             break  # Stop monitoring after notifying once
 
 def is_malicious_file(file_path, size_limit_kb):
@@ -12603,12 +12598,12 @@ def check_uefi_directories():
                     # --- END NEW CHECK ---
 
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
-                        logging.critical(f"Malicious file detected: {uefi_path}")
+                        logger.critical(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
                         threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
-                        logging.critical(f"Malicious file detected: {uefi_path}")
+                        logger.critical(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
                         threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
@@ -12646,7 +12641,7 @@ def check_uefi_directories():
                                 continue
                     # --- END NEW CHECK ---
 
-                    logging.critical(f"Unknown malicious UEFI file detected: {file_path}")
+                    logger.critical(f"Unknown malicious UEFI file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Bootkit.Startup.UEFI.gen.Malware")
                     threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
@@ -12657,9 +12652,9 @@ class ScanAndWarnHandler(FileSystemEventHandler):
     def process_file(self, file_path):
         try:
             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-            logging.info(f"Processed file: {file_path}")
+            logger.info(f"Processed file: {file_path}")
         except Exception as ex:
-            logging.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
+            logger.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
 
     def process_directory(self, dir_path):
         try:
@@ -12667,37 +12662,37 @@ class ScanAndWarnHandler(FileSystemEventHandler):
                 for file_name in files:
                     file_path = os.path.join(root, file_name)
                     self.process_file(file_path)
-            logging.info(f"Processed all files in directory: {dir_path}")
+            logger.info(f"Processed all files in directory: {dir_path}")
         except Exception as ex:
-            logging.error(f"Error processing directory {dir_path}: {ex}")
+            logger.error(f"Error processing directory {dir_path}: {ex}")
 
     def on_any_event(self, event):
         if event.is_directory:
             self.process_directory(event.src_path)
-            logging.info(f"Directory event detected: {event.src_path}")
+            logger.info(f"Directory event detected: {event.src_path}")
         else:
-            logging.info(f"Event detected: {event.event_type} for file: {event.src_path}")
+            logger.info(f"Event detected: {event.event_type} for file: {event.src_path}")
 
     def on_created(self, event):
         if event.is_directory:
             self.process_directory(event.src_path)
-            logging.info(f"Directory created: {event.src_path}")
+            logger.info(f"Directory created: {event.src_path}")
         else:
             self.process_file(event.src_path)
-            logging.info(f"File created: {event.src_path}")
+            logger.info(f"File created: {event.src_path}")
 
     def on_modified(self, event):
         if not event.is_directory:
             self.process_file(event.src_path)
-            logging.info(f"File modified: {event.src_path}")
+            logger.info(f"File modified: {event.src_path}")
 
     def on_moved(self, event):
         if event.is_directory:
             self.process_directory(event.dest_path)
-            logging.info(f"Directory moved: {event.src_path} to {event.dest_path}")
+            logger.info(f"Directory moved: {event.src_path} to {event.dest_path}")
         else:
             self.process_file(event.dest_path)
-            logging.info(f"File moved: {event.src_path} to {event.dest_path}")
+            logger.info(f"File moved: {event.src_path} to {event.dest_path}")
 
 
 def monitor_directories_with_watchdog():
@@ -12708,19 +12703,19 @@ def monitor_directories_with_watchdog():
     observer = Observer()
     for path in directories_to_scan:
         observer.schedule(event_handler, path=path, recursive=False)
-        logging.info(f"Scheduled watchdog observer for: {path}")
+        logger.info(f"Scheduled watchdog observer for: {path}")
     observer.start()
 
 def run_sandboxie_control():
     try:
-        logging.info("Running Sandboxie control.")
+        logger.info("Running Sandboxie control.")
         # Include the '/open' argument to open the Sandboxie control window
         result = subprocess.run([sandboxie_control_path, "/open"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
-        logging.info(f"Sandboxie control output: {result.stdout}")
+        logger.info(f"Sandboxie control output: {result.stdout}")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Error running Sandboxie control: {ex.stderr}")
+        logger.error(f"Error running Sandboxie control: {ex.stderr}")
     except Exception as ex:
-        logging.error(f"Unexpected error running Sandboxie control: {ex}")
+        logger.error(f"Unexpected error running Sandboxie control: {ex}")
 
 # ----------------------------------------------------
 # Constants for Windows API calls
@@ -12806,7 +12801,7 @@ def get_control_text(hwnd):
                 if text and text.strip():
                     return text.strip()
     except Exception as e:
-        logging.debug(f"WM_GETTEXT failed for {hwnd}: {e}")
+        logger.debug(f"WM_GETTEXT failed for {hwnd}: {e}")
 
     # Method 2: Fallback to original simple method
     try:
@@ -12835,7 +12830,7 @@ def find_child_windows(parent_hwnd):
        EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
        user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
    except Exception as e:
-       logging.debug(f"EnumChildWindows failed for {parent_hwnd}: {e}")
+       logger.debug(f"EnumChildWindows failed for {parent_hwnd}: {e}")
 
    return child_windows
 
@@ -12869,10 +12864,10 @@ def _load_uia_types():
             return comtypes.gen.UIAutomationClient
 
         except Exception as e:
-            logging.error("Failed to load UIAutomationClient types: %s", e)
+            logger.error("Failed to load UIAutomationClient types: %s", e)
             return None
     except Exception as e:
-        logging.error("Failed to load UIAutomationClient types: %s", e)
+        logger.error("Failed to load UIAutomationClient types: %s", e)
         return None
 
 @atexit.register
@@ -12890,7 +12885,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
             if not elem:
                 return []
         except Exception as e:
-            logging.debug("Failed to get element from handle %s: %s", hwnd, e)
+            logger.debug("Failed to get element from handle %s: %s", hwnd, e)
             return []
 
         all_texts = []
@@ -12911,7 +12906,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
             if name and name.strip():
                 all_texts.append(name.strip())
         except Exception as e:
-            logging.debug("Failed to get CurrentName: %s", e)
+            logger.debug("Failed to get CurrentName: %s", e)
 
         # 2) ValuePattern
         try:
@@ -12923,7 +12918,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                     if s:
                         all_texts.append(s)
         except Exception as e:
-            logging.debug("Failed to get ValuePattern: %s", e)
+            logger.debug("Failed to get ValuePattern: %s", e)
 
         # 3) TextPattern
         try:
@@ -12937,7 +12932,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                         if s:
                             all_texts.append(s)
         except Exception as e:
-            logging.debug("Failed to get TextPattern: %s", e)
+            logger.debug("Failed to get TextPattern: %s", e)
 
         # 4) LegacyIAccessiblePattern
         try:
@@ -12960,7 +12955,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                 except Exception:
                     pass
         except Exception as e:
-            logging.debug("Failed to get LegacyIAccessiblePattern: %s", e)
+            logger.debug("Failed to get LegacyIAccessiblePattern: %s", e)
 
         # 5) RangeValuePattern
         try:
@@ -12975,7 +12970,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                 except Exception:
                     pass
         except Exception as e:
-            logging.debug("Failed to get RangeValuePattern: %s", e)
+            logger.debug("Failed to get RangeValuePattern: %s", e)
 
         # 6) SelectionPattern
         try:
@@ -12994,11 +12989,11 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                                         if s:
                                             all_texts.append(s)
                             except Exception as e:
-                                logging.debug("Failed to get selection item %s: %s", i, e)
+                                logger.debug("Failed to get selection item %s: %s", i, e)
                 except Exception as e:
-                    logging.debug("SelectionPattern GetCurrentSelection failed: %s", e)
+                    logger.debug("SelectionPattern GetCurrentSelection failed: %s", e)
         except Exception as e:
-            logging.debug("Failed to get SelectionPattern: %s", e)
+            logger.debug("Failed to get SelectionPattern: %s", e)
 
         # 7) Child elements (limit to 50)
         try:
@@ -13016,9 +13011,9 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                                 if s:
                                     all_texts.append(s)
                     except Exception as e:
-                        logging.debug("Failed to get child element %s: %s", i, e)
+                        logger.debug("Failed to get child element %s: %s", i, e)
         except Exception as e:
-            logging.debug("Failed to enumerate child elements: %s", e)
+            logger.debug("Failed to enumerate child elements: %s", e)
 
         # Deduplicate while preserving order
         seen = set()
@@ -13033,7 +13028,7 @@ def _extract_uia_text(hwnd: int, uia, UIA):
 
         return unique
     except Exception as e:
-        logging.error("_extract_uia_text failed: %s", e, exc_info=True)
+        logger.error("_extract_uia_text failed: %s", e, exc_info=True)
         return []
 
 def get_uia_text(hwnd: int):
@@ -13056,13 +13051,13 @@ def get_uia_text(hwnd: int):
                uia = CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
 
        except Exception as e:
-           logging.error("Failed to create UI Automation object: %s", e, exc_info=True)
+           logger.error("Failed to create UI Automation object: %s", e, exc_info=True)
            return []
 
        return _extract_uia_text(hwnd, uia, UIA)
 
    except Exception as e:
-       logging.error("get_uia_text failed: %s", e, exc_info=True)
+       logger.error("get_uia_text failed: %s", e, exc_info=True)
        return []
 
 # ----------------------------------------------------
@@ -13266,7 +13261,7 @@ class MonitorMessageCommandLine:
             try:
                 fn(*args, **kwargs)
             except Exception as e:
-                logging.exception(f"Thread {fn.__name__} failed: {e}")
+                logger.exception(f"Thread {fn.__name__} failed: {e}")
 
         def process_text(hwnd, label, text, process_path, win_type):
             try:
@@ -13302,7 +13297,7 @@ class MonitorMessageCommandLine:
                         self.executor.submit(safe_run, scan_and_warn, fn, command_flag=False)
 
             except Exception as e:
-                logging.error(
+                logger.error(
                     f"Error processing text [{label}] for HWND {hwnd} from {process_path}: {e}"
                 )
 
@@ -13343,13 +13338,13 @@ class MonitorMessageCommandLine:
                     return True
                 win32gui.EnumWindows(enum_callback, None)
             except Exception as e:
-                logging.error(f"Failed during window enumeration: {e}")
+                logger.error(f"Failed during window enumeration: {e}")
 
         # Launch enumeration in background
         self.executor.submit(safe_run, start_enum)
 
     def monitoring_window_text(self):
-        logging.info("Started window/control monitoring loop")
+        logger.info("Started window/control monitoring loop")
         try:
             while True:
                 try:
@@ -13357,9 +13352,9 @@ class MonitorMessageCommandLine:
                         target=self.find_and_process_windows
                     ).start()
                 except Exception as e:
-                    logging.error(f"Window/control enumeration error: {e}")
+                    logger.error(f"Window/control enumeration error: {e}")
         except Exception as e:
-            logging.error(f"Error at monitoring_window_text: {e}")
+            logger.error(f"Error at monitoring_window_text: {e}")
 
     def capture_command_lines(self):
         command_lines = []
@@ -13373,9 +13368,9 @@ class MonitorMessageCommandLine:
                         executable_path = proc.info['name']
                     command_lines.append((cmdline_str, executable_path))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as ex:
-                logging.error(f"Process error: {ex}")
+                logger.error(f"Process error: {ex}")
             except Exception as ex:
-                logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
+                logger.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
         return command_lines
 
     def contains_keywords_within_max_distance(self, text, max_distance):
@@ -13418,17 +13413,17 @@ class MonitorMessageCommandLine:
 
     def process_detected_malware(self, text, file_path, virus_name, category):
         message = f"Detected malware ({category}): {virus_name} in text: {text} from {file_path}"
-        logging.critical(message)
+        logger.critical(message)
         notify_user_for_detected_command(message, file_path)
 
     def process_detected_text_ransom(self, text, file_path):
         message = f"Potential ransomware detected in text: {text} from {file_path}"
-        logging.critical(message)
+        logger.critical(message)
         notify_user_for_detected_command(message, file_path)
 
     def detect_malware(self, file_path: str, command_flag: bool = False):
         if not file_path or not isinstance(file_path, str):
-            logging.error(f"Invalid file_path provided: {file_path}")
+            logger.error(f"Invalid file_path provided: {file_path}")
             return
 
         try:
@@ -13440,20 +13435,20 @@ class MonitorMessageCommandLine:
 
             if command_flag:
                 # For command lines, check against ALL patterns (command and text)
-                logging.info(f"Scanning {file_path} as command content against ALL patterns.")
+                logger.info(f"Scanning {file_path} as command content against ALL patterns.")
                 all_dicts = {**self.known_malware_messages_cmd, **self.known_malware_messages_text}
                 for category, details in all_dicts.items():
                     for pattern in details.get("patterns", []):
                         if re.search(pattern, file_content, re.IGNORECASE):
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.critical(f"Detected command pattern for '{category}' in {file_path}.")
+                            logger.critical(f"Detected command pattern for '{category}' in {file_path}.")
                     if "message" in details:
                          if self.calculate_similarity_text(file_content, details["message"]) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.critical(f"Detected malware message for '{category}' in {file_path}.")
+                            logger.critical(f"Detected malware message for '{category}' in {file_path}.")
             else:
                 # For UI/window text, check ONLY against text patterns, excluding command patterns
-                logging.info(f"Scanning {file_path} as text content against TEXT patterns only.")
+                logger.info(f"Scanning {file_path} as text content against TEXT patterns only.")
                 for category, details in self.known_malware_messages_text.items():
                     # Check text patterns, but skip if it's a known command pattern
                     for pattern in details.get("patterns", []):
@@ -13461,7 +13456,7 @@ class MonitorMessageCommandLine:
                             continue # Skip command-specific patterns
                         if self.calculate_similarity_text(file_content, pattern) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.critical(f"Detected text pattern for '{category}' in {file_path}.")
+                            logger.critical(f"Detected text pattern for '{category}' in {file_path}.")
 
                     # Check fixed messages, but skip if it's a known command pattern
                     if "message" in details:
@@ -13469,24 +13464,24 @@ class MonitorMessageCommandLine:
                             continue # Skip command-specific patterns
                         if self.calculate_similarity_text(file_content, details["message"]) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.critical(f"Detected malware message for '{category}' in {file_path}.")
+                            logger.critical(f"Detected malware message for '{category}' in {file_path}.")
 
                 # Ransomware keyword distance check (only for text content)
                 if self.contains_keywords_within_max_distance(file_content, max_distance=10):
                     self.process_detected_text_ransom(file_content, file_path)
-                    logging.critical(f"Detected ransomware keywords in {file_path}.")
+                    logger.critical(f"Detected ransomware keywords in {file_path}.")
 
         except FileNotFoundError:
-            logging.error(f"File not found: {file_path}.")
+            logger.error(f"File not found: {file_path}.")
         except Exception as ex:
-            logging.error(f"Error handling file {file_path}: {ex}")
+            logger.error(f"Error handling file {file_path}: {ex}")
 
     def monitoring_command_line(self):
-        logging.info("Started command-line monitoring loop")
+        logger.info("Started command-line monitoring loop")
         while True:
             try:
                 cmdlines = self.capture_command_lines()
-                logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
+                logger.debug(f"Enumerated {len(cmdlines)} commandline(s)")
                 for cmd, exe_path in cmdlines:
 
                     process_name = os.path.basename(exe_path)
@@ -13500,7 +13495,7 @@ class MonitorMessageCommandLine:
                     orig_fn = self.get_unique_filename(f"cmd_{safe_process_name}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
-                    logging.info(f"Wrote cmd -> {orig_fn}")
+                    logger.info(f"Wrote cmd -> {orig_fn}")
                     # Scan command line (command_flag=True)
                     threading.Thread(
                         target=scan_and_warn,
@@ -13509,13 +13504,13 @@ class MonitorMessageCommandLine:
                     ).start()
 
             except Exception as ex:
-                logging.exception(f"Command-line snapshot error:{ex}")
+                logger.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
         # Start the main monitoring threads
         threading.Thread(target=self.monitoring_window_text).start()
         threading.Thread(target=self.monitoring_command_line).start()
-        logging.info("All monitoring threads have been started.")
+        logger.info("All monitoring threads have been started.")
 
 monitor_message = MonitorMessageCommandLine()
 
@@ -13540,7 +13535,7 @@ def monitor_sandboxie_directory():
 
                         # on first sight: alert + scan + copy
                         if file_path not in alerted_files:
-                            logging.info(f"New file detected in {root}: {filename}")
+                            logger.info(f"New file detected in {root}: {filename}")
                             alerted_files.add(file_path)
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
 
@@ -13550,12 +13545,12 @@ def monitor_sandboxie_directory():
                             file_mod_times[file_path] = last_mod_time
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()  # Scan immediately
                         elif file_mod_times[file_path] != last_mod_time:
-                            logging.info(f"File modified in {root}: {filename}")
+                            logger.info(f"File modified in {root}: {filename}")
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                             file_mod_times[file_path] = last_mod_time
 
     except Exception as ex:
-        logging.error(f"Error in monitor_sandboxie_directory: {ex}")
+        logger.error(f"Error in monitor_sandboxie_directory: {ex}")
 
 def _async_raise(tid, exctype):
     if not isinstance(exctype, type):
@@ -13573,21 +13568,21 @@ def kill_thread_silently(thread):
     _async_raise(thread.ident, SystemExit)
 
 def terminate_analysis_threads_immediately():
-    logging.info("Forcefully terminating all analysis threads...")
+    logger.info("Forcefully terminating all analysis threads...")
 
     for thread in analysis_threads:
         if thread.is_alive():
             name = thread_function_map.get(thread, thread.name)
-            logging.info(f"Killing thread: {name}")
+            logger.info(f"Killing thread: {name}")
             kill_thread_silently(thread)
 
     time.sleep(0.1)  # short delay to let threads exit
 
     still_alive = [t.name for t in analysis_threads if t.is_alive()]
     if still_alive:
-        logging.error(f"Some threads are still running: {still_alive}")
+        logger.error(f"Some threads are still running: {still_alive}")
     else:
-        logging.info("All analysis threads have been terminated.")
+        logger.info("All analysis threads have been terminated.")
 
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
@@ -13606,17 +13601,17 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
 
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
-            logging.error(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
+            logger.error(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
             return
 
-        logging.info(f"Performing sandbox analysis on: {file_path}")
+        logger.info(f"Performing sandbox analysis on: {file_path}")
 
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
 
         file_path = os.path.normpath(file_path)
         if not os.path.isfile(file_path):
-            logging.error(f"File does not exist: {file_path}")
+            logger.error(f"File does not exist: {file_path}")
             return
 
         main_file_path = file_path
@@ -13637,9 +13632,9 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
                         target_func(*args, **kwargs)
                 except Exception as e:
                     if stop_callback and stop_callback():
-                        logging.info(f"Thread {target_func.__name__} stopped by user request")
+                        logger.info(f"Thread {target_func.__name__} stopped by user request")
                     else:
-                        logging.error(f"Error in thread {target_func.__name__}: {e}")
+                        logger.error(f"Error in thread {target_func.__name__}: {e}")
 
             thread = threading.Thread(target=monitored_wrapper, name=f"Analysis_{target_func.__name__}")
             analysis_threads.append(thread)
@@ -13673,7 +13668,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
 
         for thread_info in threads_to_start:
             if stop_callback and stop_callback():
-                logging.info("Analysis stopped before all threads could start")
+                logger.info("Analysis stopped before all threads could start")
                 return "[!] Analysis stopped by user request"
 
             target_func = thread_info[0]
@@ -13682,13 +13677,13 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             thread = create_monitored_thread(target_func, *args)
             thread.start()
 
-        logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
+        logger.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
         # Instead of blocking loop, use a monitoring thread
         def monitor_threads():
             while any(thread.is_alive() for thread in analysis_threads):
                 if stop_callback and stop_callback():
-                    logging.info("Stop requested, terminating analysis threads...")
+                    logger.info("Stop requested, terminating analysis threads...")
                     terminate_analysis_threads_immediately()
                     return
                 time.sleep(0.1)
@@ -13704,11 +13699,11 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
 
     except Exception as ex:
         if stop_callback and stop_callback():
-            logging.info("Analysis stopped by user request during exception handling")
+            logger.info("Analysis stopped by user request during exception handling")
             return "[!] Analysis stopped by user request"
 
         error_message = f"An error occurred during sandbox analysis: {ex}"
-        logging.error(error_message)
+        logger.error(error_message)
         return error_message
 
 def run_analysis_with_yield(file_path: str, stop_callback=None):
@@ -13726,7 +13721,7 @@ def run_analysis_with_yield(file_path: str, stop_callback=None):
     yield_thread.start()
 
     try:
-        logging.info(f"Running analysis for: {file_path}")
+        logger.info(f"Running analysis for: {file_path}")
 
         # Check for stop request before starting
         if stop_callback and stop_callback():
@@ -13755,7 +13750,7 @@ def run_analysis_with_yield(file_path: str, stop_callback=None):
             return "[!] Analysis stopped by user request"
 
         error_message = f"An error occurred during sandbox analysis: {ex}"
-        logging.error(error_message)
+        logger.error(error_message)
         return error_message
 
     finally:
@@ -13785,9 +13780,9 @@ def run_anti_self_delete_check():
         with report_path.open("w", encoding="utf-8", errors="ignore") as fh:
             fh.write(line1 + "\n")
             fh.write(line2 + "\n")
-        logging.info("Main-file existence report written.")
+        logger.info("Main-file existence report written.")
     except Exception as e:
-        logging.error(f"Failed to write report file: {e}")
+        logger.error(f"Failed to write report file: {e}")
 
 def run_sandboxie_plugin_script():
     # Anti-self-delete check for plugin
@@ -13798,12 +13793,12 @@ def run_sandboxie_plugin_script():
     # build the full command line for Start.exe
     cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate "{python_path}" {python_entry}'
     try:
-        logging.info(f"Running python script via Sandboxie: {cmd}")
+        logger.info(f"Running python script via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
         subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logging.info("Python plugin ran successfully in Sandboxie.")
+        logger.info("Python plugin ran successfully in Sandboxie.")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run python plugin in Sandboxie: {ex}")
+        logger.error(f"Failed to run python plugin in Sandboxie: {ex}")
 
 def run_sandboxie_plugin():
     # build the inner rundll32 invocation
@@ -13811,18 +13806,18 @@ def run_sandboxie_plugin():
     # build the full command line for Start.exe
     cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate rundll32.exe {dll_entry}'
     try:
-        logging.info(f"Running DLL via Sandboxie: {cmd}")
+        logger.info(f"Running DLL via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
         subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logging.info("Plugin ran successfully in Sandboxie.")
+        logger.info("Plugin ran successfully in Sandboxie.")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run plugin in Sandboxie: {ex}")
+        logger.error(f"Failed to run plugin in Sandboxie: {ex}")
 
 def run_sandboxie(file_path):
     try:
         subprocess.run([sandboxie_path, '/box:DefaultBox', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+        logger.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
 def run_de4dot_in_sandbox(file_path):
     """
@@ -13851,9 +13846,9 @@ def run_de4dot_in_sandbox(file_path):
 
     try:
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logging.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
+        logger.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
+        logger.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
 
 # ----- Global Variables to hold captured data -----
 pre_analysis_log_path = None
@@ -13868,9 +13863,9 @@ def force_remove_log():
         try:
             os.chmod(HiJackThis_log_path, 0o777)
             os.remove(HiJackThis_log_path)
-            logging.info("Previous log removed successfully.")
+            logger.info("Previous log removed successfully.")
         except Exception as e:
-            logging.error("Failed to remove previous log: %s", e)
+            logger.error("Failed to remove previous log: %s", e)
 
 def run_and_copy_log(label="orig"):
     """
@@ -13886,7 +13881,7 @@ def run_and_copy_log(label="orig"):
     # Launch the tool
     cmd = [sandboxie_path, '/box:DefaultBox', '/elevate', HiJackThis_exe]
     subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
-    logging.debug("HiJackThis launched.")
+    logger.debug("HiJackThis launched.")
 
     # Wait until the log file appears _and_ has been modified with content
     while True:
@@ -13899,7 +13894,7 @@ def run_and_copy_log(label="orig"):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = os.path.join(HiJackThis_logs_dir, f"{label}_{ts}.txt")
     shutil.copy(HiJackThis_log_path, dest)
-    logging.info("Log copied to %s", dest)
+    logger.info("Log copied to %s", dest)
     return dest
 
 def parse_report(path):
@@ -13949,7 +13944,7 @@ def get_latest_clamav_def_time():
         mod_time = os.path.getmtime(latest_file)
         return f"Definitions: {datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')}"
     except Exception as e:
-        logging.error(f"Could not read ClamAV DB time: {e}")
+        logger.error(f"Could not read ClamAV DB time: {e}")
         return "Error Reading Definitions"
 
 # --- Custom Hydra Icon Widget ---
@@ -13961,7 +13956,7 @@ class HydraIconWidget(QWidget):
         if os.path.exists(icon_path):
             self.pixmap = QPixmap(icon_path)
         else:
-            logging.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
+            logger.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -14006,7 +14001,7 @@ class ShieldWidget(QWidget):
         if os.path.exists(icon_path):
             self.hydra_pixmap = QPixmap(icon_path)
         else:
-            logging.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
+            logger.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
 
 
         # Animation for the icon appearing/disappearing
@@ -14151,7 +14146,7 @@ class Worker(QThread):
         """
         # Check if the local model directory exists
         if not os.path.isdir(meta_llama_1b_dir):
-            logging.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
+            logger.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
             return None, None
 
         # --- Hugging Face Transformers for Llama model (Optional Feature) ---
@@ -14160,11 +14155,11 @@ class Worker(QThread):
             from transformers import AutoTokenizer, AutoModelForCausalLM
         except Exception as ex:
             error_message = f"Error importing transformers: {ex}"
-            logging.error(error_message)
+            logger.error(error_message)
             return None, None
 
         try:
-            logging.info("Attempting to load Llama-3.2-1B model and tokenizer...")
+            logger.info("Attempting to load Llama-3.2-1B model and tokenizer...")
 
             # Load tokenizer and model from the local directory
             llama32_tokenizer = AutoTokenizer.from_pretrained(
@@ -14177,11 +14172,11 @@ class Worker(QThread):
                 # Optional: Add device_map="auto" if you have a GPU and want to use it
             )
 
-            logging.info("Llama-3.2-1B successfully loaded!")
+            logger.info("Llama-3.2-1B successfully loaded!")
             return llama32_model, llama32_tokenizer
         except Exception as ex:
             error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
-            logging.error(error_message)
+            logger.error(error_message)
             return None, None
 
     def generate_clean_db(self):
@@ -14295,7 +14290,7 @@ class Worker(QThread):
                     self.output_signal.emit("[!] Analysis stopped by user")
             except Exception as e:
                 self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
-                logging.error(f"File analysis error: {str(e)}")
+                logger.error(f"File analysis error: {str(e)}")
 
         # Start analysis in a background thread - fully non-blocking
         threading.Thread(target=analysis_task).start()
@@ -14322,7 +14317,7 @@ class Worker(QThread):
                 )
 
         except Exception as e:
-            logging.error(f"Error scanning network indicators: {str(e)}")
+            logger.error(f"Error scanning network indicators: {str(e)}")
             self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
 
     def check_and_scan_network_indicators(self, reports_dir=None):
@@ -14353,7 +14348,7 @@ class Worker(QThread):
             # No message if file doesn't exist - just silently skip
 
         except Exception as e:
-            logging.error(f"Error checking network indicators: {str(e)}")
+            logger.error(f"Error checking network indicators: {str(e)}")
             self.output_signal.emit(f"[!] Error checking network indicators: {str(e)}")
 
     def perform_rootkit_scan(self):
@@ -14505,7 +14500,7 @@ class Worker(QThread):
             sys.stderr = sys.__stderr__
 
             # Stop the logging handlers
-            logging.shutdown()
+            logger.shutdown()
 
             # Remove log files if they exist
             log_files = [stdout_console_log_file, stderr_console_log_file, 
@@ -14550,9 +14545,9 @@ class Worker(QThread):
             application_log_file = os.path.join(log_directory, "antivirus.log")
 
             # Configure logging for application log
-            logging.basicConfig(
+            logger.basicConfig(
                 filename=application_log_file,
-                level=logging.DEBUG,
+                level=logger.DEBUG,
                 format='%(asctime)s - %(levelname)s - %(message)s',
                 force=True  # This forces reconfiguration
             )
@@ -14565,7 +14560,7 @@ class Worker(QThread):
 
             # Log the reinitialization
             from datetime import datetime
-            logging.info(
+            logger.info(
                 "Logging reinitialized at %s",
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
@@ -15453,7 +15448,7 @@ class AntivirusApp(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         else:
-            logging.error(f"Icon file not found at: {icon_path}")
+            logger.error(f"Icon file not found at: {icon_path}")
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
