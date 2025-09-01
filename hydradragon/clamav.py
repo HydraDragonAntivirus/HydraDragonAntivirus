@@ -19,13 +19,13 @@ log_directory = os.path.join(script_dir, "log")
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
-clamav_log_file = os.path.join(
-    log_directory, "clamav.log"
+application_log_file = os.path.join(
+    log_directory, "antivirus.log"
 )
 
 # Configure logging for clamav log
 logging.basicConfig(
-    filename=clamav_log_file,
+    filename=application_log_file,
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
