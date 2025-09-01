@@ -500,7 +500,7 @@ nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
 advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
-deteciteasy_plain_text_dir = os.path.join(script_dir, "deteciteasy_plain_text")
+detectiteasy_plain_text_dir = os.path.join(script_dir, "detectiteasy_plain_text")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
@@ -1054,7 +1054,7 @@ COMMON_DIRECTORIES = [
 
 # Additional directories only in MANAGED_DIRECTORIES
 MANAGED_ONLY_DIRECTORIES = [
-    deteciteasy_plain_text_dir,
+    detectiteasy_plain_text_dir,
     HiJackThis_logs_dir
 ]
 
@@ -1686,7 +1686,7 @@ def analyze_file_with_die(file_path):
     """
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        output_dir = Path(deteciteasy_plain_text_dir)
+        output_dir = Path(detectiteasy_plain_text_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Define the base name for the output text file
