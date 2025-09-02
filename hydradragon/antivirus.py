@@ -10,7 +10,7 @@ main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
-from hydralogvalues import log_directory, script_dir, logger
+from hydralogvalues import application_log_file, log_directory, script_dir, logger
 import clamav
 
 # Separate log files for different purposes

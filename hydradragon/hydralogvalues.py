@@ -9,7 +9,7 @@ os.makedirs(log_directory, exist_ok=True)
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
 # Create a named logger
-logger = logging.getLogger("HydraAntivirus")
+logger = logging.getLogger("HydraDragonAntivirus")
 logger.setLevel(logging.DEBUG)
 
 file_handler = logging.FileHandler(application_log_file)
