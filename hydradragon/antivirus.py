@@ -3765,6 +3765,7 @@ def get_signature(base_signature, **flags):
     """Generate platform-specific signature based on flags."""
     platform_map = {
         'dotnet_flag': 'DotNET',
+        'fernflower_flag': 'Java',
         'jsc_flag': 'JavaScript.ByteCode.v8',
         'nuitka_flag': 'Nuitka',
         'nsis_flag': 'NSIS',
@@ -10473,17 +10474,26 @@ def run_jar_extractor(file_path, flag_fernflower):
         # Collect all files from extracted_dir
         for root, _, files in os.walk(extracted_dir):
             for name in files:
-                extracted_file_paths.append(os.path.join(root, name))
+                full_path = os.path.join(root, name)
+                extracted_file_paths.append(full_path)
 
         # Decompile via FernFlower if not already done
         if not flag_fernflower:
-            fernflower_decompiler_results = run_fernflower_decompiler(file_path)
-            if fernflower_decompiler_results:
-                extracted_file_paths.extend(fernflower_decompiler_results)
+            fernflower_results = run_fernflower_decompiler(file_path)
+            if fernflower_results:
+                extracted_file_paths.extend(fernflower_results)
             else:
                 logger.info("No files returned from FernFlower decompiler.")
         else:
             logger.info("FernFlower analysis already performed; skipping decompilation.")
+
+        # Scan every Java file
+        for f in extracted_file_paths:
+            if f.endswith(".java"):
+                try:
+                    scan_code_for_links(decompiled_code=f, file_path=f)
+                except Exception as e:
+                    logger.error(f"Failed to scan {f}: {e}")
 
         return extracted_file_paths
 
