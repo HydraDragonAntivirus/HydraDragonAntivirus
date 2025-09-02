@@ -18,6 +18,3 @@ file_handler.setFormatter(formatter)
 
 if not logger.handlers:
     logger.addHandler(file_handler)
-
-# Now you can safely do:
-logger.info("Antivirus started")
