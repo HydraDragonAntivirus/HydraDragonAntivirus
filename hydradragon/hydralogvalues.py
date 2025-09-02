@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import logging
 
@@ -12,7 +15,8 @@ application_log_file = os.path.join(log_directory, "antivirus.log")
 logger = logging.getLogger("HydraDragonAntivirus")
 logger.setLevel(logging.DEBUG)
 
-file_handler = logging.FileHandler(application_log_file)
+# Ensure UTF-8 encoding for the log file
+file_handler = logging.FileHandler(application_log_file, encoding="utf-8")
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 
