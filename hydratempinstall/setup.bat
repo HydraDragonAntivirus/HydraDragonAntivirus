@@ -9,6 +9,7 @@ set "NODEJS_PATH=%ProgramW6432%\nodejs"
 set "SBIE_INI=%ProgramW6432%\Sandboxie\SbieIni.exe"
 set "SBIE_SANDBOX=DefaultBox"
 set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.dll"
+set "PKG_UNPACKER_DIR=%HYDRADRAGON_PATH%\pkg-unpacker"
 
 rem 1. Copy clamavconfig
 if exist "%HYDRADRAGON_PATH%\clamavconfig" (
@@ -140,6 +141,37 @@ if %errorlevel% equ 0 (
     echo 'asar' package installed successfully.
 ) else (
     echo Failed to install 'asar' package.
+)
+
+rem --------------------------------------------------------------------------
+rem 15. Navigate to HydraDragon pkg-unpacker folder and build npm project
+if exist "%PKG_UNPACKER_DIR%" (
+    echo Navigating to HydraDragon pkg-unpacker folder...
+    cd /d "%PKG_UNPACKER_DIR%"
+    if errorlevel 1 (
+        echo ERROR: Failed to change directory to %PKG_UNPACKER_DIR%
+        goto :end
+    )
+
+    rem Install npm dependencies
+    echo Installing npm dependencies...
+    "%NODEJS_PATH%\npm.cmd" install
+    if %errorlevel% neq 0 (
+        echo Failed to install npm dependencies.
+        goto :end
+    )
+    echo npm dependencies installed successfully.
+
+    rem Build the npm project
+    echo Building npm project...
+    "%NODEJS_PATH%\npm.cmd" run build
+    if %errorlevel% neq 0 (
+        echo Failed to build npm project.
+        goto :end
+    )
+    echo npm project built successfully.
+) else (
+    echo HydraDragon pkg-unpacker folder not found, skipping npm build.
 )
 
 echo Setup completed successfully!

@@ -415,6 +415,7 @@ unlicense_x64_path  = os.path.join(script_dir, "unlicense-x64.exe")
 capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
+pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
 av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
@@ -442,6 +443,8 @@ jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
 androguard_dir = os.path.join(script_dir, "androguard")
+decompiled_jsc_dir = os.path.join(script_dir, "decompiled_jsc")
+npm_pkg_extracted_dir = os.path.join(script_dir, "npm_pkg_extracted")
 asar_dir = os.path.join(script_dir, "asar")
 un_confuser_ex_dir = os.path.join(script_dir, "UnConfuserEx")
 un_confuser_ex_path = os.path.join(un_confuser_ex_dir, "UnConfuserEx.exe")
@@ -449,6 +452,8 @@ un_confuser_ex_extracted_dir = os.path.join(script_dir, "UnConfuserEx_extracted"
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
+view8_dir = os.path.join(script_dir, "View8")
+view8_script_path = os.path.join(view8_dir, "view8.py")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
 FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
@@ -1017,8 +1022,8 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
     pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir,
-    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir,
-    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir,
+    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
+    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
     commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir,
     seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
@@ -1069,6 +1074,8 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
     (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
     (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
+    (lambda fp: fp.startswith(npm_pkg_extracted_dir), "NPM packer (JavaScript) extracted."),
+    (lambda fp: fp.startswith(decompiled_jsc_dir), "V8 bytecode objects (JSC files) extracted."),
     (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
     (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot."),
     (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
@@ -1774,17 +1781,20 @@ def is_themida_from_output(die_output):
     """
     Check if the DIE output indicates Themida/WinLicense protection.
     Matches 'Protector: Themida/Winlicense (2.XX)' or '(3.XX)' in PE32/PE64 binaries.
+    Case-sensitive; does NOT use startswith.
     """
     if not die_output:
         return None
 
-    if "Protector: Themida/Winlicense (2.XX)" in die_output or \
-       "Protector: Themida/Winlicense (3.XX)" in die_output:
+    s = die_output.strip()
 
-        if die_output.startswith("PE32"):
+    if "Protector: Themida/Winlicense (2.XX)" in s or \
+       "Protector: Themida/Winlicense (3.XX)" in s:
+
+        if "PE32" in s:
             logger.info("DIE output indicates PE32 protected with Themida/WinLicense.")
             return "PE32 Themida"
-        if die_output.startswith("PE64"):
+        if "PE64" in s:
             logger.info("DIE output indicates PE64 protected with Themida/WinLicense.")
             return "PE64 Themida"
 
@@ -1793,25 +1803,30 @@ def is_themida_from_output(die_output):
 def is_vm_protect_from_output(die_output):
     """
     Check if the DIE output indicates VMProtect protection for PE32 or PE64.
-    Returns True only if a PE32 or PE64 binary is protected.
-    Returns False otherwise.
+    Case-sensitive; does NOT use startswith. Returns True only if the output
+    contains 'Protector: VMProtect' AND either 'PE32' or 'PE64' anywhere.
+    Otherwise returns False.
     """
     if not die_output:
         return False
 
-    if die_output.startswith("PE32") or die_output.startswith("PE64"):
-        if "Protector: VMProtec" in die_output:
-            if die_output.startswith("PE32"):
-                logger.info("DIE output indicates PE32 protected with VMProtect.")
-            else:
-                logger.info("DIE output indicates PE64 protected with VMProtect.")
+    s = die_output.strip()
 
-            return True
+    # must contain the exact protector token
+    if "Protector: VMProtect" not in s:
+        return False
 
-    # Either not a PE file or not VMProtect
+    # must contain one of the PE markers somewhere in the output
+    if "PE32" in s:
+        logger.info("DIE output indicates PE32 protected with VMProtect.")
+        return True
+    if "PE64" in s:
+        logger.info("DIE output indicates PE64 protected with VMProtect.")
+        return True
+
     return False
 
-def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
+def is_pe_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
     """
     Checks if DIE output or pefile validation indicates a PE (Portable Executable) file.
 
@@ -1820,22 +1835,26 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
         file_path: The path to the suspected PE file.
 
     Returns:
-        True if the file appears to be a PE file, False otherwise.
+        True if the file appears to be a PE file,
+        "Broken Executable" if DIE indicates PE but pefile fails to parse it,
+        False otherwise.
     """
-    # Check DIE output first
-    if die_output and (die_output.startswith("PE32") or die_output.startswith("PE64")):
-        logger.info("DIE output indicates a PE file.")
+    # Check DIE output first (case-sensitive, no startswith)
+    if die_output:
+        s = die_output.strip()
+        if "PE32" in s or "PE64" in s:
+            logger.info("DIE output indicates a PE file.")
 
-        # Cross-validate using pefile
-        try:
-            pefile.PE(file_path, fast_load=True)
-            logger.info("pefile successfully parsed the file as PE.")
-            return True
-        except pefile.PEFormatError:
-            logger.error("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
-            return "Broken Executable"
+            # Cross-validate using pefile
+            try:
+                pefile.PE(file_path, fast_load=True)
+                logger.info("pefile successfully parsed the file as PE.")
+                return True
+            except pefile.PEFormatError:
+                logger.error("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
+                return "Broken Executable"
 
-    # If DIE doesn't say PE, try pefile directly
+    # If DIE doesn't indicate PE (or die_output is empty), try pefile directly
     try:
         pefile.PE(file_path, fast_load=True)
         logger.info("pefile detected a PE file even though DIE did not.")
@@ -1862,6 +1881,110 @@ def is_autoit_file_from_output(die_output):
     if die_output and ("AutoIt" in die_output):
         logger.info("DIE output indicates a AutoIt file.")
         return True
+    return False
+
+def is_jsc_from_output(die_output: str) -> Optional[str]:
+    """
+    Detect JavaScript Compiled/Bytenode (.JSC) files from DIE output.
+
+    Requirements (case-sensitive):
+      - die_output must start with "Binary"
+      - must contain "Language: JavaScript"
+      - must contain "Format: JavaScript Compiled/Bytenode" or ".JSC"
+
+    Tries to extract:
+      - a Bytenode/JSC version like v9.4.146.24 (looks for "v\d+\.\d+\.\d+\.\d+")
+      - V8 Version occurrences like "V8 Version 9.4.146.24"
+      - architecture: "x86" or "x64" (looks for tokens near the version or anywhere in output)
+
+    Returns:
+      - e.g. "JSC v9.4.146.24 x64"  (best case: version + arch)
+      - e.g. "JSC (unknown version) x86" (if arch found but no explicit version)
+      - "JSC (unknown version)" (if format & language matched but no arch/version)
+      - None if detection requirements are not satisfied.
+    """
+    if not die_output:
+        return None
+
+    s = die_output.strip()
+
+    # require startswith Binary (case-sensitive)
+    if not s.startswith("Binary"):
+        return None
+
+    # require both tokens present (case-sensitive)
+    if "Language: JavaScript" not in s:
+        return None
+    if "Format: JavaScript Compiled/Bytenode" not in s and ".JSC" not in s:
+        return None
+
+    # Attempt to find a explicit bytenode-style version: (v9.4.146.24) or v9.4.146.24
+    version = None
+    # look for "(vX.Y.Z.W" or "vX.Y.Z.W" possibly followed by " x64"/" x86"
+    m = re.search(r'\(v(\d+\.\d+\.\d+\.\d+)\s*(x86|x64)?\)', s)
+    if m:
+        version = m.group(1)
+        arch_in_paren = m.group(2)
+    else:
+        m = re.search(r'\bv(\d+\.\d+\.\d+\.\d+)\b', s)
+        if m:
+            version = m.group(1)
+        # also check "V8 Version" occurrences
+        if not version:
+            m2 = re.search(r'V8 Version\s+(\d+\.\d+\.\d+\.\d+)', s)
+            if m2:
+                version = m2.group(1)
+
+    # Determine architecture: try to find x64/x86 near version first, else anywhere
+    arch = None
+    if version:
+        # search for "version ... x64" on the same line or within small window
+        # find position of version and scan nearby characters
+        pos = s.find(version)
+        if pos != -1:
+            window = s[max(0, pos - 60): pos + 60]
+            if "x64" in window:
+                arch = "x64"
+            elif "x86" in window:
+                arch = "x86"
+
+    # fallback: look anywhere in the output for common arch tokens
+    if not arch:
+        if " x64" in s or "x64)" in s or " x64 " in s:
+            arch = "x64"
+        elif " x86" in s or "x86)" in s or " x86 " in s:
+            arch = "x86"
+
+    # Build return string
+    if version and arch:
+        logger.info(f"DIE output indicates JavaScript Compiled/Bytenode (.JSC): v{version} {arch}.")
+        return f"JSC v{version} {arch}"
+    if version:
+        logger.info(f"DIE output indicates JavaScript Compiled/Bytenode (.JSC): v{version} (arch unknown).")
+        return f"JSC v{version} (arch unknown)"
+    if arch:
+        logger.info(f"DIE output indicates JavaScript Compiled/Bytenode (.JSC) {arch} (version unknown).")
+        return f"JSC (unknown version) {arch}"
+
+    logger.info("DIE output indicates JavaScript Compiled/Bytenode (.JSC) but no version/arch could be determined.")
+    return "JSC (unknown version)"
+
+def is_npm_from_output(die_output):
+    """
+    Case-sensitive check: return True if die_output contains the exact tokens
+    'Packer: npm', 'Language: JavaScript', and either 'PE32' or 'PE64' anywhere.
+    Otherwise return False.
+    """
+    if not die_output:
+        return False
+
+    s = die_output.strip()
+
+    if "Packer: npm" in s and "Language: JavaScript" in s and ("PE32" in s or "PE64" in s):
+        pe = "PE32" if "PE32" in s else "PE64"
+        logger.info(f"DIE output indicates {pe} packed with npm and Language: JavaScript.")
+        return True
+
     return False
 
 def is_asar_archive_from_output(die_output):
@@ -2147,15 +2270,22 @@ def is_file_fully_unknown(die_output: str) -> bool:
     else:
         return False
 
-
 def is_packed_from_output(die_output):
     """
     Check if the DIE output indicates a packed/protected binary.
-    Based on YARA rules for: UPX, ASPack, FSG, PECompact, Upack, PEtite, MEW, YZPack, MPRESS
-    Also detects generic "Packer:" indicator.
+    Case-sensitive checks; does NOT use startswith. Based on YARA-like signatures
+    (UPX, ASPack, FSG, PECompact, Upack, PEtite, MEW, YZPack, MPRESS) and a generic
+    "Packer:" indicator.
+
+    Returns:
+        - "PE64 Packed (<PACKER>)" or "PE32 Packed (<PACKER>)" if a PE marker and a packer are found,
+        - "Packed (<PACKER>)" if a packer is found but no PE marker,
+        - None if nothing matched or die_output is empty.
     """
     if not die_output:
         return None
+
+    s = die_output.strip()
 
     # Specific packer signatures based on your YARA rules only
     packer_signatures = {
@@ -2189,30 +2319,30 @@ def is_packed_from_output(die_output):
 
     detected_packer = None
 
-    # Check for "Packer:" indicator first
-    if 'Packer:' in die_output:
+    # Case-sensitive "Packer:" indicator first
+    if 'Packer:' in s:
         detected_packer = "GENERIC"
     else:
         # Check for specific packer signatures from your YARA rules
         for packer_name, signatures in packer_signatures.items():
             for signature in signatures:
-                if signature in die_output:
+                if signature in s:
                     detected_packer = packer_name
                     break
             if detected_packer:
                 break
 
-    # Return result based on architecture
+    # Return result based on presence of PE markers anywhere (no startswith)
     if detected_packer:
-        if die_output.startswith("PE64"):
+        if "PE64" in s:
             logger.info(f"DIE output indicates PE64 packed/protected binary: {detected_packer}")
             return f"PE64 Packed ({detected_packer})"
-        elif die_output.startswith("PE32"):
+        if "PE32" in s:
             logger.info(f"DIE output indicates PE32 packed/protected binary: {detected_packer}")
             return f"PE32 Packed ({detected_packer})"
-        else:
-            logger.info(f"DIE output indicates packed/protected binary: {detected_packer}")
-            return f"Packed ({detected_packer})"
+
+        logger.info(f"DIE output indicates packed/protected binary: {detected_packer}")
+        return f"Packed ({detected_packer})"
 
     return None
 
@@ -3630,91 +3760,12 @@ def load_website_data():
     logger.info("All domain and IP address CSV files loaded successfully!")
 
 # --------------------------------------------------------------------------
-# Check for Discord webhook URLs (including Canary)
-def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
-    """
-    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
-    For every detection, log a warning and immediately notify the user with an explicit unique heuristic
-    signature that depends on the flags provided.
-    """
-
-    # Define detection patterns and their corresponding signatures
-    detections = [
-        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord webhook URL", "Discord.Webhook"),
-        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord Canary webhook URL", "Discord.Canary.Webhook"),
-        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord CDN attachment URL", "Discord.CDNAttachment")
-    ]
-
-    # Check for Telegram (requires both token and keyword matches)
-    telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
-    telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
-
-    if telegram_token_matches and telegram_keyword_matches:
-        detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
-
-    # Get platform-specific suffix
-    def get_platform_suffix():
-        if flags.get('dotnet_flag'):
-            return "DotNET"
-        elif flags.get('nuitka_flag'):
-            return "Nuitka"
-        elif flags.get('nsis_flag'):
-            return "NSIS"
-        elif flags.get('pyc_flag'):
-            return "PYC.Python"
-        elif flags.get('androguard_flag'):
-            return "Android"
-        elif flags.get('asar_flag'):
-            return "Electron"
-        elif flags.get("registry_flag"):
-            return "Registry"
-        else:
-            return ""
-
-    # Process all detections
-    platform_suffix = get_platform_suffix()
-
-    for matches, description, signature_base in detections:
-        if matches:
-            # Build signature
-            signature = f"HEUR:Win32.Src.{signature_base}" + (f".{platform_suffix}" if platform_suffix else "")
-
-            # Log appropriate message
-            if signature_base == "Telegram.Bot":
-                logger.info(f"{description} detected in decompiled code: {matches}")
-            else:
-                platform_desc = {
-                    "DotNET": ".NET source code file",
-                    "Nuitka": "Nuitka compiled file",
-                    "NSIS": "NSIS script compiled file (.nsi)",
-                    "PYC.Python": "Python Compiled Module file",
-                    "Android": "Android APK file",
-                    "Electron": "Electron ASAR file",
-                    "Registry": "Registry"
-                }.get(platform_suffix, "decompiled code")
-
-                logger.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
-
-            notify_user_for_malicious_source_code(file_path, signature)
-
-# --------------------------------------------------------------------------
-# Helper function to check if domain/IP exists in CSV data with reference support
-def check_in_csv_data(target, csv_data):
-    """Check if target exists in CSV data and return reference if found"""
-    for entry in csv_data:
-        if entry['address'] == target:
-            return True, entry['reference']
-    return False, None
-
-# --------------------------------------------------------------------------
 # Helper function to generate platform-specific signatures
 def get_signature(base_signature, **flags):
     """Generate platform-specific signature based on flags."""
     platform_map = {
         'dotnet_flag': 'DotNET',
+        'jsc_flag': 'JavaScript.ByteCode.v8',
         'nuitka_flag': 'Nuitka',
         'nsis_flag': 'NSIS',
         'pyc_flag': 'PYC.Python',
@@ -3728,6 +3779,64 @@ def get_signature(base_signature, **flags):
             return f"HEUR:Win32.{platform}.{base_signature}"
 
     return f"HEUR:Win32.{base_signature}"
+
+# --------------------------------------------------------------------------
+# Check for Discord webhook URLs (including Canary)
+def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
+    """
+    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs,
+    or Telegram bot links. For every detection, log a warning and immediately
+    notify the user with an explicit unique heuristic signature that depends on the flags provided.
+    """
+    # Define detection patterns and their corresponding signatures
+    detections = [
+        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord webhook URL", "Discord.Webhook"),
+        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord Canary webhook URL", "Discord.Canary.Webhook"),
+        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE), "Discord CDN attachment URL", "Discord.CDNAttachment")
+    ]
+
+    # Check for Telegram (requires both token and keyword matches)
+    telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
+    telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
+    if telegram_token_matches and telegram_keyword_matches:
+        detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
+
+    # Process all detections
+    for matches, description, signature_base in detections:
+        if matches:
+            # Use the new get_signature helper
+            signature = get_signature(signature_base, **flags)
+
+            # Log appropriate message
+            if signature_base == "Telegram.Bot":
+                logger.info(f"{description} detected in decompiled code: {matches}")
+            else:
+                platform_desc_map = {
+                    "DotNET": ".NET source code file",
+                    "JavaScript.ByteCode.v8": "JavaScript ByteCode V8 file",
+                    "Nuitka": "Nuitka compiled file",
+                    "NSIS": "NSIS script compiled file (.nsi)",
+                    "PYC.Python": "Python Compiled Module file",
+                    "Android": "Android APK file",
+                    "Electron": "Electron ASAR file",
+                    "Registry": "Registry"
+                }
+                # Extract platform part from signature
+                platform_part = signature.split(".")[2] if len(signature.split(".")) > 2 else ""
+                platform_desc = platform_desc_map.get(platform_part, "decompiled code")
+                logger.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
+
+            # Notify the user
+            notify_user_for_malicious_source_code(file_path, signature)
+
+# --------------------------------------------------------------------------
+# Helper function to check if domain/IP exists in CSV data with reference support
+def check_in_csv_data(target, csv_data):
+    """Check if target exists in CSV data and return reference if found"""
+    for entry in csv_data:
+        if entry['address'] == target:
+            return True, entry['reference']
+    return False, None
 
 def notify_with_homepage(target, base_signature, threat_name, **flags):
     """Helper to handle both main signature and homepage signature notifications."""
@@ -9375,6 +9484,56 @@ def analyze_file_with_capa(file_path):
         logger.error(f"Error processing CAPA results for {file_path}: {ex}")
         return None
 
+def extract_npm_file(file_path):
+    """
+    Extracts a pkg-compiled Node.js application using pkg-unpacker
+    and scans all extracted files.
+
+    :param file_path: Path to the .pkg or .exe file
+    :return: List of extracted file paths
+    """
+    extracted_files = []
+    try:
+        file_path = Path(file_path)
+        logger.info(f"Detected npm/pkg binary: {file_path}")
+
+        # Create a unique numbered subdirectory under npm_pkg_extracted_dir
+        folder_number = 1
+        while os.path.exists(os.path.join(npm_pkg_extracted_dir, str(folder_number))):
+            folder_number += 1
+        output_dir = os.path.join(npm_pkg_extracted_dir, str(folder_number))
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Run pkg-unpacker CLI: npm start -i <file_path> -o <output_dir>
+        unpack_command = [
+            "npm", "start",
+            "-i", str(file_path),
+            "-o", output_dir
+        ]
+        subprocess.run(unpack_command, cwd=pkg_unpacker_dir, check=True)
+        logger.info(f"Pkg binary extracted to {output_dir}")
+
+        # Scan all extracted files
+        for root, _, files in os.walk(output_dir):
+            for file in files:
+                file_path_full = os.path.join(root, file)
+                extracted_files.append(file_path_full)
+                logger.info(f"Scanning file: {file_path_full}")
+
+                try:
+                    with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    scan_code_for_links(content, file_path_full, npm_flag=True)
+                except Exception as ex:
+                    logger.error(f"Error scanning file {file_path_full}: {ex}")
+
+    except subprocess.CalledProcessError as ex:
+        logger.error(f"pkg-unpacker extraction failed for {file_path}: {ex}")
+    except Exception as ex:
+        logger.error(f"Error processing npm/pkg file {file_path}: {ex}")
+
+    return extracted_files
+
 def extract_asar_file(file_path):
     """
     Extracts an Electron .asar archive using the 'asar' npm CLI
@@ -11111,6 +11270,73 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in ASAR analysis for {norm_path}: {e}")
 
+        def npm_analysis():
+            try:
+                if is_npm_from_output(die_output):
+                    logger.info(f"File {norm_path} is a valid npm package.")
+                    extracted_npm_files = extract_npm_file(norm_path)
+                    for extracted_file in extracted_npm_files:
+                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+            except Exception as e:
+                logger.error(f"Error in npm analysis for {norm_path}: {e}")
+
+        def jsc_analysis(die_output: str, norm_path: str):
+            """
+            If DIE output indicates a compiled JavaScript (Bytenode .JSC),
+            automatically decompile using View8 and scan the result.
+            """
+            try:
+                # Detect if it's a JSC file
+                jsc_result = is_jsc_from_output(die_output)
+                if not jsc_result:
+                    return  # Not a JSC file, skip
+
+                logger.info(f"-> File {norm_path} detected as {jsc_result} (Bytenode / .JSC).")
+
+                # Generate output file path
+                output_file = str(Path(decompiled_jsc_dir) / (Path(norm_path).stem + "_decompiled.js"))
+
+                # Run view8.py to decompile JSC -> JS
+                logger.info(f"-> Decompiling {norm_path} -> {output_file} using View8...")
+                cmd = [
+                    sys.executable,          # Use the same Python interpreter
+                    view8_script_path,       # Path to view8.py
+                    norm_path,               # Input JSC file
+                    output_file,             # Output JS file
+                    "--export_format", "decompiled"
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    logger.info(f"-> Successfully decompiled {norm_path} -> {output_file}")
+
+                    # Read the decompiled JS code
+                    try:
+                        with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+                            decompiled_code = f.read()
+                    except Exception as read_err:
+                        logger.error(f"-> Failed to read decompiled JS {output_file} -> {read_err}")
+                        return
+
+                    # Start scanning the decompiled JS file
+                    threading.Thread(
+                        target=scan_code_for_links,
+                        args=(decompiled_code, output_file),
+                        kwargs={"jsc_flag": True}
+                    ).start()
+
+                    threading.Thread(
+                        target=scan_and_warn,
+                        args=(output_file,),
+                    ).start()
+
+                else:
+                    logger.error(f"-> View8 decompilation failed for {norm_path} -> {result.stderr}")
+
+            except Exception as e:
+                logger.error(f"-> Error in JSC analysis for {norm_path} -> {e}")
+
         def installshield_analysis():
             try:
                 if is_installshield_file_from_output(die_output):
@@ -11182,6 +11408,7 @@ def scan_and_warn(file_path,
             threading.Thread(target=themida_detection),
             threading.Thread(target=autoit_analysis),
             threading.Thread(target=asar_analysis),
+            threading.Thread(target=jsc_analysis),
             threading.Thread(target=installshield_analysis),
             threading.Thread(target=advanced_installer_analysis),
             threading.Thread(target=apk_analysis),
@@ -14503,7 +14730,7 @@ class Worker(QThread):
             logger.shutdown()
 
             # Remove log files if they exist
-            log_files = [stdout_console_log_file, stderr_console_log_file, 
+            log_files = [stdout_console_log_file, stderr_console_log_file,
                          application_log_file]
 
             for log_file in log_files:

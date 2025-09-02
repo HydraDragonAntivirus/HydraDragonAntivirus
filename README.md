@@ -123,6 +123,8 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/SychicBoy/NETReactorSlayer
 - https://github.com/Veysel072/VMPUnpacker
 - https://github.com/MadMin3r/UnconfuserEx
+- https://github.com/LockBlock-dev/pkg-unpacker
+- https://github.com/j4k0xb/View8
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
