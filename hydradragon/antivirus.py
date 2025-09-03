@@ -953,9 +953,19 @@ HiJackThis_directory = os.path.join(script_dir, "HiJackThis")
 HiJackThis_exe = os.path.join(HiJackThis_directory, "HiJackThis.exe")
 HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
 
-# IPv4 and IPv6 patterns (improved)
-IPv4_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
-IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}::'
+# IPv4 patterns (standard and all variations)
+IPv4_pattern_standard = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+
+IPv4_pattern = (
+    r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'  # Standard
+    r'|(?:[0-9]{1,3}\.){3}[0-9]{1,3}'  # Non-standard (allows invalid ranges)
+    r'|[A-Za-z0-9+/]{8,24}={0,2}'  # Base64 encoded IPv4 (8-24 chars for typical IP encodings)
+    r'|[A-Z2-7]{8,40}={0,6}'  # Base32 encoded IPv4
+    r'|\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b'  # Reversed format (same structure)
+)
+
+# IPv6 patterns (standard and all variations)
+IPv6_pattern_standard = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}::'
 
 # Discord webhook patterns (normal, reversed, base64, base32)
 discord_webhook_pattern = (
@@ -1006,21 +1016,6 @@ telegram_keyword_pattern = (
     r'|margelet|nekot'
 )
 
-# URL patterns for various protocols (normal, reversed, base64, base32)
-URL_REGEX = re.compile(
-    r'https?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]'
-    r'|ftp://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]'
-    r'|aHR0cHM6Ly8[A-Za-z0-9+/]*={0,2}'
-    r'|aHR0cDovL[A-Za-z0-9+/]*={0,2}'
-    r'|ZnRwOi8v[A-Za-z0-9+/]*={0,2}'
-    r'|//:[a-z]{4,5}sptth'
-    r'|//:[a-z]{4}ptth'
-    r'|//:[a-z]{3}ptf'
-    r'|NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P[A-Z2-7]*={0,6}'
-    r'|NBXXK4TFMFZGKIDCMJUWC2LP[A-Z2-7]*={0,6}'
-    r'|MZXW6IDCMFZWK4Q=[A-Z2-7]*={0,6}'
-)
-
 # Discord webhook (standard)
 discord_webhook_pattern_standard = r'https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
 
@@ -1058,21 +1053,6 @@ CHAINED_JOIN = re.compile(
 
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
-
-# URL patterns for various protocols (normal, reversed, base64, base32)
-URL_REGEX = re.compile(
-    r'https?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]'
-    r'|ftp://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]'
-    r'|aHR0cHM6Ly8[A-Za-z0-9+/]*={0,2}'
-    r'|aHR0cDovL[A-Za-z0-9+/]*={0,2}'
-    r'|ZnRwOi8v[A-Za-z0-9+/]*={0,2}'
-    r'|//:[a-z]{4,5}sptth'
-    r'|//:[a-z]{4}ptth'
-    r'|//:[a-z]{3}ptf'
-    r'|NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P[A-Z2-7]*={0,6}'
-    r'|NBXXK4TFMFZGKIDCMJUWC2LP[A-Z2-7]*={0,6}'
-    r'|MZXW6IDCMFZWK4Q=[A-Z2-7]*={0,6}'
-)
 
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
@@ -4043,7 +4023,7 @@ def scan_ip_address_general(ip_address, **flags):
             logger.info(f"Unknown IPv6 address detected: {ip_address}")
 
         # IPv4 processing
-        elif re.match(IPv4_pattern, ip_address):
+        elif re.match(IPv4_pattern_standard, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
             logger.info(f"Scanning IPv4 address: {ip_address}")
 
@@ -4217,41 +4197,116 @@ def scan_html_content(html_content, html_content_file_path, **flags):
             scan_ip_address_general(ip, **flags)
 
 # --------------------------------------------------------------------------
-# Main scanner: combine all individual scans and pass the flags along
+# Helpers for decoding regex fragments
+def _dec(b64: str) -> str:
+    """Decode Base64-encoded ASCII/UTF-8 text fragments."""
+    return base64.b64decode(b64.encode()).decode("utf-8", errors="replace")
+
+def _dec32(b32: str) -> str:
+    """Decode Base32-encoded ASCII/UTF-8 text fragments."""
+    return base64.b32decode(b32.encode()).decode("utf-8", errors="replace")
+
+# --------------------------------------------------------------------------
+# Build URL regex at runtime
+def build_url_regex():
+    parts = [
+        # Normal protocols
+        r'https?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'ftp://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+
+        # Base64-obfuscated protocols
+        _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/]*={0,2}",   # https://
+        _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",   # http://
+        _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",    # ftp://
+
+        # Reversed/obfuscated
+        r'//:[a-z]{4,5}sptth',
+        r'//:[a-z]{4}ptth',
+        r'//:[a-z]{3}ptf',
+
+        # Base32 obfuscations
+        r'NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P[A-Z2-7]*={0,6}',
+        r'NBXXK4TFMFZGKIDCMJUWC2LP[A-Z2-7]*={0,6}',
+        r'MZXW6IDCMFZWK4Q=[A-Z2-7]*={0,6}',
+    ]
+    return re.compile(r'|'.join(parts))
+
+# --------------------------------------------------------------------------
+# Build IPv4/IPv6 regex at runtime
+def build_ip_patterns():
+    # IPv4
+    octet = r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
+    ipv4_standard = r'\b(?:(?:' + octet + r')\.){3}(?:' + octet + r')\b'
+    ipv4_nonstandard = r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}'
+    ipv4_base64 = r'[A-Za-z0-9+/]{8,24}={0,2}'
+    ipv4_base32 = r'[A-Z2-7]{8,40}={0,6}'
+    ipv4_reversed_like = r'\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b'
+
+    IPv4_pattern = r'|'.join([
+        ipv4_standard,
+        ipv4_nonstandard,
+        ipv4_base64,
+        ipv4_base32,
+        ipv4_reversed_like,
+    ])
+
+    # IPv6
+    h16 = r'[0-9a-fA-F]{1,4}'
+    full_ipv6 = r'\b(?:' + h16 + r':){7}' + h16 + r'\b'
+    compressed_leading = r'::(?:' + h16 + r':){0,6}' + h16
+    compressed_trailing = r'(?:' + h16 + r':){1,7}::'
+    various_compressed = r'(?:' + h16 + r':){1,6}:' + h16
+    flexible = r'[0-9a-fA-F:]{15,39}'
+    ipv6_base64 = r'[A-Za-z0-9+/]{16,64}={0,2}'
+    ipv6_base32 = r'[A-Z2-7]{16,64}={0,6}'
+    reversed_compressed_leading = r'::(?:[Ff][A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}'
+    reversed_compressed_trailing = r'(?:[A-Fa-f0-9]{1,4}:){1,7}::'
+
+    IPv6_pattern = r'|'.join([
+        full_ipv6,
+        compressed_leading,
+        compressed_trailing,
+        various_compressed,
+        flexible,
+        ipv6_base64,
+        ipv6_base32,
+        reversed_compressed_leading,
+        reversed_compressed_trailing,
+    ])
+
+    return [
+        (IPv4_pattern, 'IPv4'),
+        (IPv6_pattern, 'IPv6'),
+    ]
+
+# --------------------------------------------------------------------------
+# Main scanner
 def scan_code_for_links(decompiled_code, file_path, **flags):
     """
-    Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
-    general URLs, domains, and IP addresses. The provided flags are passed along
-    to each individual scanning function so that every detection scenario uses its unique
-    virus signature.
+    Scan the decompiled code for Discord-related URLs, general URLs, domains,
+    and IP addresses. The provided flags are passed along to each scanning function.
     """
 
-    # Call the Discord/Telegram scanner
+    # Scan for Discord/Telegram
     contains_discord_or_telegram_code(decompiled_code, file_path, **flags)
 
-    # Extract and scan URLs from the decompiled code
-    urls = set(URL_REGEX.findall(decompiled_code))
+    # Scan URLs
+    url_regex = build_url_regex()
+    urls = set(url_regex.findall(decompiled_code))
     for url in urls:
         html_content, html_content_file_path = fetch_html(url, return_file_path=True)
 
-        # Scan the fetched HTML content
         contains_discord_or_telegram_code(html_content, file_path, **flags)
         scan_html_content(html_content, html_content_file_path, **flags)
-
-        # Scan the URL itself
         scan_url_general(url, **flags)
         scan_domain_general(url, **flags)
         scan_spam_email_365_general(url, **flags)
 
-    # Extract and scan IP addresses (IPv4 and IPv6) - improved patterns
-    ip_patterns = [
-        (r'(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', 'IPv4'),
-        (r'(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}::', 'IPv6')
-    ]
-
+    # Scan IPs
+    ip_patterns = build_ip_patterns()
     for pattern, ip_type in ip_patterns:
-        ip_addresses = set(re.findall(pattern, decompiled_code))
-        for ip in ip_addresses:
+        for m in re.finditer(pattern, decompiled_code):
+            ip = m.group(0)
             scan_ip_address_general(ip, **flags)
 
 def extract_ascii_strings(data):
@@ -4681,8 +4736,8 @@ class RealTimeWebProtectionHandler:
 
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
-        ips = re.findall(IPv4_pattern, text)
-        ips += re.findall(IPv6_pattern, text)
+        ips = re.findall(IPv4_pattern_standard, text)
+        ips += re.findall(IPv6_pattern_standard, text)
         return ips
 
     def extract_urls(self, text):
@@ -7381,29 +7436,29 @@ def split_source_by_u_delimiter(source_code):
     Note: Never removes 'u' character, only splits by it while preserving URLs
     """
     logger.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
-    
+
     # Check if entire source is junk once
     if is_likely_junk(source_code.strip()):
         return
     else:
         # Split by 'u' until no 'u' left, but preserve URLs
         lines = [source_code]
-        
+
         while True:
             new_lines = []
             has_u_to_split = False
-            
+
             for line in lines:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                
+
                 # Check if line contains URL patterns - don't split these
-                if (re.search(r'https?://', stripped.lower()) or 
+                if (re.search(r'https?://', stripped.lower()) or
                     re.search(r'ftp://', stripped.lower())):
                     new_lines.append(stripped)
                     continue
-                
+
                 if 'u' in stripped:
                     has_u_to_split = True
                     parts = re.split('(u)', stripped)  # Keep 'u' in results
@@ -7412,47 +7467,47 @@ def split_source_by_u_delimiter(source_code):
                             new_lines.append(part.strip())
                 else:
                     new_lines.append(stripped)
-            
+
             lines = new_lines
-            
+
             if not has_u_to_split:
                 break
-        
+
         # Keep all lines
         filtered_lines = [line.strip() for line in lines if line.strip()]
-    
+
     logger.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
-    
+
     current_module_name = "initial_code"
     current_module_code = []
-    
+
     def save_module_file(name, code_lines):
         if not code_lines:
             return
-        
+
         safe_filename = name.replace('.', '_') + ".py"
         output_path = os.path.join(nuitka_source_code_dir, safe_filename)
-        
+
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
             logger.info(f"Reconstructed module saved to: {output_path}")
         except IOError as e:
             logger.error(f"Failed to write module file {output_path}: {e}")
-    
+
     module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
-    
+
     for line in filtered_lines:
         match = module_start_pattern.match(line)
         if match:
             if current_module_code:
                 save_module_file(current_module_name, current_module_code)
-            
+
             current_module_name = match.group(1)
             current_module_code = []
         else:
             current_module_code.append(line)
-    
+
     if current_module_code:
         save_module_file(current_module_name, current_module_code)
 
