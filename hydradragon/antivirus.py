@@ -7431,63 +7431,85 @@ def is_likely_junk(line):
 
 def split_source_by_u_delimiter(source_code):
     """
-    Parses a raw source code block by filtering lines based on junk detection
-    and then grouping them into module files.
-    Note: Never removes 'u' character, only splits by it while preserving URLs
+    Parses a raw source code block and splits lines by 'u', preserving
+    all protected fragments (URLs, IPs, Discord/Telegram/webhooks,
+    CDN attachments, Telegram tokens/keywords, obfuscations).
     """
     logger.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
 
-    # Check if entire source is junk once
     if is_likely_junk(source_code.strip()):
         return
-    else:
-        # Split by 'u' until no 'u' left, but preserve URLs
-        lines = [source_code]
 
-        while True:
-            new_lines = []
-            has_u_to_split = False
+    lines = [source_code]
 
-            for line in lines:
-                stripped = line.strip()
-                if not stripped:
-                    continue
+    # Core regex builders
+    url_regex = build_url_regex()
+    ip_patterns = build_ip_patterns()
 
-                # Check if line contains URL patterns - don't split these
-                if (re.search(r'https?://', stripped.lower()) or
-                    re.search(r'ftp://', stripped.lower())):
-                    new_lines.append(stripped)
-                    continue
+    # All your extended patterns
+    preserve_patterns = [
+        discord_webhook_pattern,
+        discord_canary_webhook_pattern,
+        cdn_attachment_pattern,
+        telegram_token_pattern,
+        telegram_keyword_pattern,
+        discord_webhook_pattern_standard,
+        discord_canary_webhook_pattern_standard,
+        cdn_attachment_pattern_standard,
+        telegram_pattern_standard,
+        UBLOCK_REGEX,
+        ZIP_JOIN,
+        CHAINED_JOIN,
+        B64_LITERAL,
+    ]
 
-                if 'u' in stripped:
-                    has_u_to_split = True
-                    parts = re.split('(u)', stripped)  # Keep 'u' in results
-                    for part in parts:
-                        if part.strip():
-                            new_lines.append(part.strip())
-                else:
-                    new_lines.append(stripped)
+    # Flatten all preserve regexes into one for matching
+    combined_preserve = re.compile(
+        '|'.join([p if isinstance(p, str) else p.pattern for p in preserve_patterns] +
+                 [url_regex.pattern] +
+                 [p[0] for p in ip_patterns])
+    )
 
-            lines = new_lines
+    new_lines = []
 
-            if not has_u_to_split:
-                break
+    for line in lines:
+        start = 0
+        for m in combined_preserve.finditer(line):
+            # Split unprotected text before this match
+            unprotected = line[start:m.start()]
+            if 'u' in unprotected:
+                parts = re.split(r'(u)', unprotected)
+                new_lines.extend([p for p in parts if p])
+            else:
+                if unprotected:
+                    new_lines.append(unprotected)
 
-        # Keep all lines
-        filtered_lines = [line.strip() for line in lines if line.strip()]
+            # Add the protected fragment as-is
+            new_lines.append(m.group(0))
+            start = m.end()
 
+        # Handle the tail after the last match
+        tail = line[start:]
+        if 'u' in tail:
+            parts = re.split(r'(u)', tail)
+            new_lines.extend([p for p in parts if p])
+        else:
+            if tail:
+                new_lines.append(tail)
+
+    # Strip empty segments
+    filtered_lines = [l.strip() for l in new_lines if l.strip()]
     logger.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
 
+    # Module reconstruction
     current_module_name = "initial_code"
     current_module_code = []
 
     def save_module_file(name, code_lines):
         if not code_lines:
             return
-
         safe_filename = name.replace('.', '_') + ".py"
         output_path = os.path.join(nuitka_source_code_dir, safe_filename)
-
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
@@ -7502,7 +7524,6 @@ def split_source_by_u_delimiter(source_code):
         if match:
             if current_module_code:
                 save_module_file(current_module_name, current_module_code)
-
             current_module_name = match.group(1)
             current_module_code = []
         else:
