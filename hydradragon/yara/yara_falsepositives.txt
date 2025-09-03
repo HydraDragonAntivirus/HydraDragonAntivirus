@@ -1,0 +1,603 @@
+2025-09-03 22:48:39 | C:\lazarus\components\aggpas\FreeMono.ttf | 0a808d26fcdecd5e21c069b37e83303a | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:49:02 | C:\lazarus\components\aggpas\FreeSans.ttf | 3eda10525f212de3a715071049d8ef6e | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:49:29 | C:\lazarus\components\aggpas\lazarus\example\AggPas_LCLDemo2_example\FreeSans.ttf | 3eda10525f212de3a715071049d8ef6e | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:49:57 | C:\lazarus\components\lazutils\lib\x86_64-win64\codepagesasian.o | 1c519d6c57cb8d2137195fa6b161f441 | n3ed_54921cc1cc000b32
+2025-09-03 22:51:27 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\cmp.exe | 0d00b9a89bfb6c9059c18b49a95b126a | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, Upx_123, ttp_pe_size_of_code_gt_filesize, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:27 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\diff.exe | 39737d6d7da0c9a0df6400237c886de4 | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, Upx_123, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:27 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\gdate.exe | 7cce5f517ed8d981a6470d173886a9ec | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, Upx_123, ttp_pe_size_of_code_gt_filesize, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:27 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\mv.exe | dcfe888e5f52e7c717506b0f6b2af7db | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, _Netopsystems_FEAD_Optimizer_1_, Upx_123, ttp_pe_size_of_code_gt_filesize, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:28 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\rm.exe | b2e31fe9cc7793a82e8f363cce94a840 | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, _Netopsystems_FEAD_Optimizer_1_, Upx_123, ttp_pe_size_of_code_gt_filesize, upx_antiunpack_pe, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:31 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\make.exe | 27992663f9f9d92293f909b7eb3853a8 | PEiD_02407_UPX____www_upx_sourceforge_net_, PEiD_02414_UPX_2_90__LZMA__, _UPX_290_LZMA__Markus_Oberhumer_Laszlo_Molnar__John_Reiser_, _UPX_290_LZMA_, capa_packed_with_UPX, UPX_2_90_rule__LZMA_____Markus_Oberhumer__Laszlo_Molnar___John_Reiser, SUSP_MinimalImports_LoadLibrary_and_GetProcAddress
+2025-09-03 22:51:36 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpcmake.exe | b4943fa3300804c6fd944895cbdd6bc8 | android_meterpreter_ren
+2025-09-03 22:51:40 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpcsubst.exe | c4ad3c71a8af24616f599605a1150d63 | android_meterpreter_ren
+2025-09-03 22:51:43 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\pas2jni.exe | 47b7438815ee6ce8738a8d0e68aad25b | android_meterpreter_ren
+2025-09-03 22:51:45 | C:\lazarus\fpc\3.2.2\source\packages\cocoaint\src\foundation\NSAppleScript.inc | 0efe34f7f7aac383f163041eddfcdac2 | Compile_After_Delivery
+2025-09-03 22:51:48 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpcres.exe | 352df0f8f785050f03a35be81d4ba172 | android_meterpreter_ren
+2025-09-03 22:51:49 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\cldrparser.exe | fe519175771fac9bcb66abff0e363b8e | android_meterpreter_ren
+2025-09-03 22:52:13 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\compileserver.exe | 51e2ffa3ee6092858969758476c67345 | _Trojan_Autorun__Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_26
+2025-09-03 22:52:16 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSans-BoldItalic.ttf | 09b9faedf75a7d8dc2edd32da92f6701 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:16 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSans-Italic.ttf | ae4ebf63714b0cecdc4e1d79120f9b02 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:16 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSerif-Bold.ttf | 4b73a82dc5deac9ad4629778d2d4c7c5 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:17 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSerif-Italic.ttf | fcdf9312f9dad73567b40005e8c1b943 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:17 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSerif-BoldItalic.ttf | e7a42c00ab241df4dd6b4da3c6d17fa4 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:18 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSerif-Regular.ttf | ff12ad264cc906880489f7544848edf4 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:18 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSans-Bold.ttf | 0e438c676ba336fb23d9cf3b374d438f | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:18 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\DejaVuSans-ExtraLight.ttf | 5213563f6868aea7a7b5dd9ab2581ec9 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:19 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\test\fonts\calibrib.ttf | 527c5ab608cab860a6aae8ce02e14b0e | n3e9_4116aba9c8000b12, n3e9_41e359eb4a800132
+2025-09-03 22:52:20 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\LiberationSans-Regular.ttf | bbbd0bdbfba093dec2ee4ca8b62e61f9 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:20 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\test\fonts\calibrii.ttf | 8f33f9ae4733a2dea9ad35612a5a42bb | n3e9_4116aba9c8000b12, n3e9_41e359eb4a800132
+2025-09-03 22:52:21 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\test\fonts\LiberationSerif-Regular.ttf | ff12ad264cc906880489f7544848edf4 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:21 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\test\fonts\calibriz.ttf | 12de6ef6d81809f5aaa8c8bcb04f70b7 | n3e9_4116aba9c8000b12, n3e9_41e359eb4a800132
+2025-09-03 22:52:21 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\test\fonts\calibri.ttf | 5d7c31b284ddb01fc1cbae0edc9ec210 | n3e9_4116aba9c8000b12, n3e9_41e359eb4a800132
+2025-09-03 22:52:23 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fppkg.exe | b7ee2026acb91b89854f1d418b5ed1a3 | _Trojan_Autorun__Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_26
+2025-09-03 22:52:23 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\DejaVuSans-BoldOblique.ttf | e5947ee873600dd1cae20e30cf80ee68 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:24 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\DejaVuSans-Oblique.ttf | 8723fc16d3649200d6179f391dd43f9f | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:24 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\DejaVuSans.ttf | 49c0f03ec2fa354df7002bcb6331e106 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:27 | C:\lazarus\fpc\3.2.2\source\packages\fcl-report\demos\fonts\DejaVuSans-Bold.ttf | 21546d802d508f3d358082d85bc0d9f1 | n3ed_4a1ac7e9c8800b12
+2025-09-03 22:52:57 | C:\lazarus\fpc\3.2.2\source\packages\hash\tests\testshmac.pas | 188446f5fac6697d7a5dbb5ade6b5f3b | TTP_contains_ETH_address
+2025-09-03 22:52:57 | C:\lazarus\fpc\3.2.2\source\packages\hash\examples\hsha1.pp | d1f767cf7ba2b534061548b93f490b7f | TTP_contains_ETH_address
+2025-09-03 22:53:21 | C:\lazarus\fpc\3.2.2\source\packages\libmicrohttpd\examples\event_and_thread.pp | 77671c8c652c37d515ede264a4fdeda1 | Process_Discovery
+2025-09-03 22:54:43 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\ppudump.exe | 8ad7c44161a5981968b9e7f8d1d9a5e3 | android_meterpreter_ren
+2025-09-03 22:55:08 | C:\lazarus\fpc\3.2.2\units\x86_64-win64\fcl-js\jssrcmap.o | 663950c261a0abc3b8255d6aa34a339a | m3e9_31b9e848c0000b32
+2025-09-03 22:55:53 | C:\lazarus\lazarus.exe | 8fa4ce9d75b1105ff5c71e185f0a1e4c | _Trojan_Autorun__Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_Dump_Generic_Dacic_19E38D3B_A_AAF775A0_Trojan_Autorun_26
+2025-09-03 22:57:24 | C:\lazarus\tools\updatepofiles.exe | cc49e305d8e4c7a797a1511aef9819b7 | n3ed_54921cc1cc000b32
+2025-09-03 22:57:29 | C:\lazarus\tools\lazres.exe | c009af7fd2ce702052f55b1f3954ce38 | android_meterpreter_ren
+2025-09-03 22:57:52 | C:\lazarus\tools\svn2revisioninc.exe | f27973608476f41a3840fc140f17a17a | android_meterpreter_ren
+2025-09-03 22:59:38 | C:\MinGW\libexec\mingw-get\guimain.exe | 63dd6168efccf34442141bc6a30ca4b5 | PEiD_01139_MinGW_GCC_3_x_, PEiD_02498_Video_Lan_Client_, MinGWGCC3x, _MinGW_GCC_3x_, MinGW_GCC_3x_additional, MinGW_GCC_3x, MinGW_GCC_3_x, MinGW_ren
+2025-09-03 23:00:42 | C:\msys64\mingw64\bin\elfedit.exe | d769c3da14128fb2e33b1365980408d1 | Hunting_exploit_logs_2
+2025-09-03 23:01:19 | C:\msys64\mingw64\bin\mingw32-make.exe | 36ca6dd155a0ba571d7d05d4e92ad3d7 | case_5087_3, android_meterpreter_ren
+2025-09-03 23:01:21 | C:\msys64\mingw64\lib\gcc\x86_64-w64-mingw32\15.1.0\install-tools\fixincl.exe | aadd7b375ee34730c1ea20ba4c77847b | case_5087_3, android_meterpreter_ren
+2025-09-03 23:01:52 | C:\msys64\ucrt64\bin\ngettext.exe | 4dfe9a32fd0e6c4d249047cc7cd456df | case_5087_3
+2025-09-03 23:01:53 | C:\msys64\mingw64\bin\dllwrap.exe | f8cb6c3e1a4d41d0b4244b1936264284 | Hunting_exploit_logs_2
+2025-09-03 23:02:57 | C:\msys64\mingw64\lib\gcc\x86_64-w64-mingw32\15.1.0\plugin\gengtype.exe | 21d5a132c2027c0c3593d286bf28945a | case_5087_3
+2025-09-03 23:04:37 | C:\msys64\ucrt64\bin\dllwrap.exe | abb69cd77698870581ab5772c37c7a2c | Hunting_exploit_logs_2
+2025-09-03 23:04:40 | C:\msys64\ucrt64\bin\elfedit.exe | abf2690191eb3c3595839415a03eced7 | Hunting_exploit_logs_2
+2025-09-03 23:05:09 | C:\MinGW\libexec\mingw-get\mingw-get-0.dll | 2188006826da68eeb29cb3f16f385263 | PEiD_02498_Video_Lan_Client_, deflate_copyright, SUSP_PE_References_Lua, MinGW_ren
+2025-09-03 23:05:25 | C:\msys64\mingw64\bin\libgmp-10.dll | b1a6aa7c02e0f676243e02500b8a75fa | android_meterpreter_ren
+2025-09-03 23:05:39 | C:\$SysReset\Scratch\winload.exe | 42382fb03e475d7a2376d014b534473c | SHA384__64_lil_AND_, SHA224__32_lil_AND_
+2025-09-03 23:05:55 | C:\msys64\mingw64\bin\readelf.exe | 0da2178abf9439fe53a67e705f3dc80a | PEiD_02215_tElock_v0_98b2_
+2025-09-03 23:05:55 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\ar.exe | 5e08111bea13719c8cb04d684edc9347 | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, Hunting_exploit_logs_2, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:06:13 | C:\msys64\usr\bin\autopoint | 56b460bf1480171bb9a7b143466396c7 | Hide_Artifacts
+2025-09-03 23:06:27 | C:\msys64\usr\bin\bashbug | c0c06c6760749434826908dd51622bdf | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_1_2_Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_2_2_Virus_Hijack_Gen_Tr_319
+2025-09-03 23:06:27 | C:\msys64\usr\bin\agetty.exe | 43a22b4c5f3efceefece1ae6a7640087 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360
+2025-09-03 23:06:28 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\windres.exe | 76018f37a4a696a0dd24994f931a4373 | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:06:30 | C:\msys64\usr\bin\ash.exe | c6867f2e92d4837821bc569ea8bda1bf | case_5087_3, android_meterpreter_ren
+2025-09-03 23:06:33 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\strip.exe | 26457d986dcd09625cecf33d07ad4f29 | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:06:38 | C:\msys64\ucrt64\bin\libgmp-10.dll | 188623bcc7e83e8b6eb8d6d43c3ba9fa | android_meterpreter_ren
+2025-09-03 23:06:39 | C:\msys64\usr\bin\chrt.exe | 24bb2f38cdc79db98cb45e3c9d4f4476 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:09:15 | C:\msys64\usr\bin\dash.exe | c6867f2e92d4837821bc569ea8bda1bf | case_5087_3, android_meterpreter_ren
+2025-09-03 23:09:18 | C:\msys64\mingw64\x86_64-w64-mingw32\bin\readelf.exe | 0da2178abf9439fe53a67e705f3dc80a | PEiD_02215_tElock_v0_98b2_
+2025-09-03 23:09:34 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\ld.exe | 1ec15d78c6ff7792170771506d12cc38 | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:09:34 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\as.exe | 1d6f657ddd7715eb007a155c7a04ac12 | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:09:44 | C:\msys64\usr\bin\curl.exe | 819e1df5c3d9421529c9afb001455e09 | case_5087_3
+2025-09-03 23:09:48 | C:\msys64\ucrt64\bin\readelf.exe | 1634e587c01f8ef2d911d246748d22bd | PEiD_02215_tElock_v0_98b2_, case_5087_3
+2025-09-03 23:09:53 | C:\msys64\usr\bin\gettextize | 92ff40a6c97b65bf25e839e492c594b3 | Hide_Artifacts
+2025-09-03 23:09:58 | C:\msys64\usr\bin\dirmngr-client.exe | 505cb9eee4e8bec8526c890eaf925c21 | case_5087_3
+2025-09-03 23:10:01 | C:\msys64\usr\bin\gzexe | 9996e1101105531963dd526656cb38e4 | Hide_Artifacts
+2025-09-03 23:10:07 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\objdump.exe | 5289ce4cc31c55861eca76bebb0b02ed | PEiD_02498_Video_Lan_Client_, BitRock_InstallBuilder, capa_compiled_with_MinGW_for_Windows
+2025-09-03 23:10:08 | C:\msys64\usr\bin\cygcheck.exe | 2a6bd452a7b3301ff5e72e56a95e846b | PEiD_01597_PEEncrypt_v4_0b__JunkCode__, case_5087_3
+2025-09-03 23:10:08 | C:\msys64\usr\bin\hardlink.exe | 0267c32716983a50dc371de5e62b7f97 | case_5087_3
+2025-09-03 23:10:09 | C:\msys64\usr\bin\gpgsplit.exe | 079498a94032b6f1550f50fdc82e8e70 | case_5087_3
+2025-09-03 23:10:12 | C:\msys64\usr\bin\ipcmk.exe | 0e2100f43f73058473a2ee61fa89d4db | case_5087_3
+2025-09-03 23:10:14 | C:\msys64\usr\bin\lzcmp | 684bb3b22fe90b6f160a212b148c5626 | Hide_Artifacts
+2025-09-03 23:10:15 | C:\msys64\usr\bin\lzdiff | 684bb3b22fe90b6f160a212b148c5626 | Hide_Artifacts
+2025-09-03 23:10:15 | C:\msys64\usr\bin\gpg-mail-tube.exe | d0891edb5b34fcf2ccd8b6c9661703b2 | case_5087_3
+2025-09-03 23:10:16 | C:\msys64\usr\bin\makepkg | badd4b408386b02bf5787fbe7404a9dd | Hide_Artifacts
+2025-09-03 23:10:16 | C:\msys64\usr\bin\ftp.exe | d59be51329d3176cbbb68587100ac5f7 | case_5087_3
+2025-09-03 23:10:18 | C:\msys64\usr\bin\gpg-connect-agent.exe | 29997d5a7ffb81eb3e29c46706caed9f | case_5087_3
+2025-09-03 23:10:19 | C:\msys64\usr\bin\gpgtar.exe | 2803472ec4af84760070e9a662f7d4f1 | case_5087_3
+2025-09-03 23:10:22 | C:\msys64\usr\bin\gpgconf.exe | 6e1cf054946c0cc921656b3769726a22 | case_5087_3
+2025-09-03 23:10:23 | C:\msys64\usr\bin\mkfs.bfs.exe | b70a982cbd7fc201d7c7d129cb67e692 | Virus_Hijack_Trojan_GenericKDZ_105924_207_1
+2025-09-03 23:10:32 | C:\msys64\usr\bin\gpg-wks-server.exe | 8812969b350416cd81dc0fa33ef41a09 | case_5087_3
+2025-09-03 23:10:34 | C:\msys64\usr\bin\gpg-wks-client.exe | 44ba8516709743f6cdf7dd456df78cff | case_5087_3
+2025-09-03 23:10:40 | C:\msys64\usr\bin\gpg-card.exe | 77a43ae582995489605bbae4bf839a4c | case_5087_3
+2025-09-03 23:10:41 | C:\msys64\usr\bin\install.exe | a9a1418fc27bcdad932e557a41c88948 | case_5087_3, INFO_MacOS_NamedPipe_mkfifo
+2025-09-03 23:10:43 | C:\msys64\usr\bin\gpgscm.exe | 8a74e31a55fb40aeaacf8c4e8794a79b | case_5087_3, android_meterpreter_ren
+2025-09-03 23:10:45 | C:\msys64\usr\bin\kbxutil.exe | a95d841970f1e17a901fc4366f8dd87d | case_5087_3
+2025-09-03 23:10:50 | C:\msys64\usr\bin\find.exe | 2f1b62b45eea53f17f23f375c7f3001e | _Virus_Autorun_Gen_Variant_Application_Barys_1471_Virus_Autorun_Gen_Variant_Application_Barys_1471_1_Virus_Autorun_Gen_Varia_188
+2025-09-03 23:10:59 | C:\msys64\usr\bin\msys-crypt-2.dll | ecedac8d8e6c9ef96d3605b85715a6ca | libntlm_DES_key_swap__32_big_64_
+2025-09-03 23:11:00 | C:\msys64\usr\bin\dirmngr.exe | 6841824b08e5eaf0ebf03df76ff5fd9b | gpg, case_5087_3
+2025-09-03 23:11:08 | C:\msys64\usr\bin\info.exe | 2cc1acf760ad2d0d61d2dc9e97064b97 | _Virus_Hijack_Gen_Trojan_ShellObject_e8W_a8TFxTj_3_2_Virus_Hijack_Gen_Trojan_ShellObject_fKX_aeBHSxm_1_2_135
+2025-09-03 23:11:15 | C:\msys64\usr\bin\gpg-agent.exe | 57a85a70dc3ae9c1b062ae1031669a3b | case_5087_3
+2025-09-03 23:11:17 | C:\msys64\usr\bin\awk.exe | aca34f8f2c0cab1cdf9253bd9bcd3fb7 | case_5087_3, android_meterpreter_ren
+2025-09-03 23:11:21 | C:\msys64\usr\bin\msys-hogweed-6.dll | 1257bec8962a46f0b9aba0d39efadd7c | ttp_lib_openssl_no_version_str_unsigned, android_meterpreter_ren
+2025-09-03 23:11:26 | C:\msys64\ucrt64\x86_64-w64-mingw32\bin\readelf.exe | 1634e587c01f8ef2d911d246748d22bd | PEiD_02215_tElock_v0_98b2_, case_5087_3
+2025-09-03 23:11:27 | C:\msys64\usr\bin\nologin.exe | 322836044eb106fd6b42b3edf2459798 | Virus_Hijack_Trojan_GenericKDZ_105924_203_1
+2025-09-03 23:11:27 | C:\msys64\usr\bin\pacdiff | 65cb8cf68ff1ff757cda04e6130e7eb3 | Hide_Artifacts
+2025-09-03 23:11:32 | C:\msys64\usr\bin\msys-gssapi-3.dll | e9bc978dd186ca69658c7cf68553edd3 | rfc3548_Base_32_Encoding__8_byt_ASC_32_
+2025-09-03 23:11:40 | C:\msys64\usr\bin\repo-elephant | 07cfe615c1ce0f0b1a6f972cff2c45fe | Hide_Artifacts
+2025-09-03 23:11:40 | C:\msys64\usr\bin\repo-add | 07cfe615c1ce0f0b1a6f972cff2c45fe | Hide_Artifacts
+2025-09-03 23:11:40 | C:\msys64\usr\bin\repo-remove | 07cfe615c1ce0f0b1a6f972cff2c45fe | Hide_Artifacts
+2025-09-03 23:11:43 | C:\msys64\usr\bin\rename.exe | 7e785dbdce522005cd9eee342eb3309d | Virus_Hijack_Gen_Trojan_ShellObject_f8Y_aSZtDuk_2_2
+2025-09-03 23:11:46 | C:\msys64\usr\bin\gpgv.exe | a8aca9d5561698313765a9d38d0e5841 | TTP_contains_ETH_address
+2025-09-03 23:11:48 | C:\msys64\usr\bin\bsdtar.exe | d0ed69886977612f5ed6fc3e8de00b05 | ttp_lib_openssl_no_version_str_unsigned, case_5087_3, INFO_MacOS_NamedPipe_mkfifo
+2025-09-03 23:11:51 | C:\msys64\usr\bin\msys-gettextsrc-0-22-5.dll | 6d4e1d5ff2f9f55cf35b4c152c5bf12b | android_meterpreter_ren
+2025-09-03 23:12:01 | C:\msys64\usr\bin\swaplabel.exe | 2e06e1334815dce8c515b1168e916cbb | Virus_Hijack_Trojan_GenericKDZ_105924_199_1
+2025-09-03 23:12:02 | C:\msys64\usr\bin\msys-nettle-8.dll | d96c54327be64a12ff5a80b4fd9c0930 | n3ed_35949399c2200b12, n3ed_35949cc1cc000b12
+2025-09-03 23:12:02 | C:\msys64\usr\bin\gpgsm.exe | 1f59127c17441f15f23a2502ca75e6b1 | TTP_contains_ETH_address
+2025-09-03 23:12:13 | C:\msys64\usr\bin\updatedb | 25573f5177e8b027ce20390d6ccf552d | Hide_Artifacts
+2025-09-03 23:12:14 | C:\msys64\usr\bin\updpkgsums | 14c23a39eee5fe6c432c6f30eeb98f1c | Hide_Artifacts
+2025-09-03 23:12:17 | C:\msys64\usr\bin\timeout.exe | d4e9b70cfe7eb75384d27e028be689ad | Virus_Hijack_Trojan_GenericKDZ_105924_220_1
+2025-09-03 23:12:21 | C:\msys64\usr\bin\xzcmp | 684bb3b22fe90b6f160a212b148c5626 | Hide_Artifacts
+2025-09-03 23:12:21 | C:\msys64\usr\bin\xzdiff | 684bb3b22fe90b6f160a212b148c5626 | Hide_Artifacts
+2025-09-03 23:16:42 | C:\msys64\usr\lib\gnupg\gpg-preset-passphrase.exe | 541fac9ff27c40c304ea47fc48e53736 | case_5087_3
+2025-09-03 23:16:42 | C:\msys64\usr\lib\gnupg\gpg-check-pattern.exe | acc7332996dcc3bb51b2f57577ddb7c6 | case_5087_3
+2025-09-03 23:17:04 | C:\msys64\usr\bin\msys-krb5-26.dll | 183ddade7440d398d3b2f18096465960 | android_meterpreter_ren
+2025-09-03 23:17:05 | C:\msys64\usr\bin\mintty.exe | 2247a8100887e3a452026a1130034108 | INDICATOR_SUSPICIOUS_EXE_RawGitHub_URL, dll_injection_hook_ren, cn_utf8_windows_terminal
+2025-09-03 23:17:09 | C:\msys64\usr\lib\gnupg\gpg-auth.exe | c268a615689051ab6a198b1eb2527995 | case_5087_3
+2025-09-03 23:17:11 | C:\msys64\usr\lib\gnupg\gpg-pair-tool.exe | 79bd7dcf89cc35fb6988b1924357a931 | case_5087_3
+2025-09-03 23:17:23 | C:\msys64\usr\bin\gawk.exe | aca34f8f2c0cab1cdf9253bd9bcd3fb7 | case_5087_3, android_meterpreter_ren
+2025-09-03 23:17:23 | C:\msys64\usr\bin\gawk-5.3.2.exe | aca34f8f2c0cab1cdf9253bd9bcd3fb7 | case_5087_3, android_meterpreter_ren
+2025-09-03 23:17:32 | C:\msys64\usr\bin\nano.exe | 20602679dc2c2afd017acdeb8d2551e6 | case_5087_3
+2025-09-03 23:17:34 | C:\msys64\usr\lib\perl5\core_perl\auto\Compress\Raw\Zlib\Zlib.dll | a920115c3e1437ed57f6c284f3ede844 | PEiD_02215_tElock_v0_98b2_
+2025-09-03 23:17:49 | C:\msys64\usr\lib\gnupg\gpg-protect-tool.exe | 27d1ae9d928743dc093a4a5a9dd1d474 | case_5087_3
+2025-09-03 23:17:56 | C:\msys64\usr\share\bash-completion\bash_completion | 165ff4bc4edc55ee156301f72c888336 | Process_Discovery
+2025-09-03 23:17:58 | C:\msys64\usr\share\bash-completion\completions\gdb | f0c83a1eff58c15c82146e5acb060986 | Process_Discovery
+2025-09-03 23:18:04 | C:\msys64\usr\lib\pkcs11\p11-kit-trust.dll | 216049bd83d177b91cdbc3bea9d292b4 | ttp_lib_openssl_no_version_str_unsigned
+2025-09-03 23:18:09 | C:\msys64\usr\share\doc\xz\NEWS | 950a00b9e2df3b8736349aed8b24de67 | Process_Discovery
+2025-09-03 23:18:10 | C:\msys64\usr\bin\xgettext.exe | 26fb8d2a1f3283741d2f4ab77a939b71 | case_5087_3, android_meterpreter_ren
+2025-09-03 23:18:10 | C:\msys64\usr\share\doc\xz\examples\00_README.txt | 94bae4d2947bc5736722f20a301412bb | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_4_2_Virus_Hijack_Gen_Tro_595
+2025-09-03 23:18:14 | C:\msys64\usr\libexec\getprocaddr32.exe | 6dd982610933bc96c34ac2925f4ffd12 | case_5087_3
+2025-09-03 23:18:16 | C:\msys64\usr\share\locale\da\LC_MESSAGES\util-linux.mo | e1eca98befb3c4b7d4c2ee8c93092e95 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:19 | C:\msys64\usr\share\locale\cs\LC_MESSAGES\util-linux.mo | 42a5fd854847332625117ba78bf09212 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:19 | C:\msys64\usr\share\locale\de\LC_MESSAGES\util-linux.mo | 54c5ba020fbcce1339ebd4d695b268a6 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:19 | C:\msys64\usr\bin\msys-unistring-5.dll | 3657fb42ba53c5b7264d571e9c9847be | android_meterpreter_ren
+2025-09-03 23:18:20 | C:\msys64\usr\share\locale\es\LC_MESSAGES\util-linux.mo | e6260d646a9d5f3d2460977a49479c8a | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:23 | C:\msys64\usr\share\locale\fr\LC_MESSAGES\util-linux.mo | 869f875b3f607d60fa0f5c58d511dca6 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:23 | C:\msys64\usr\bin\rnano.exe | 20602679dc2c2afd017acdeb8d2551e6 | case_5087_3
+2025-09-03 23:18:24 | C:\msys64\usr\share\locale\hr\LC_MESSAGES\util-linux.mo | f6914a3881b8af4ae033488b68ab64a2 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:24 | C:\msys64\usr\share\locale\ja\LC_MESSAGES\util-linux.mo | 5be0f7e5e63d9b4f7c5d8f2f29d2e05a | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360
+2025-09-03 23:18:27 | C:\msys64\usr\share\locale\ko\LC_MESSAGES\util-linux.mo | 3182171384bae091ebb7116ebee2005b | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:27 | C:\msys64\usr\share\locale\nl\LC_MESSAGES\util-linux.mo | 4d0dff5d7cfbe12ce872a0a2d003f3d9 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:28 | C:\msys64\usr\share\locale\pl\LC_MESSAGES\util-linux.mo | 9ad6cd197725272634e5a46b74c645c9 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:29 | C:\msys64\usr\share\locale\pt\LC_MESSAGES\util-linux.mo | d76d126ecb7a4176b5b3eee22dd8beef | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:29 | C:\msys64\usr\share\locale\pt_BR\LC_MESSAGES\util-linux.mo | 714953171442b646d4f2d6a093257a0b | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:30 | C:\msys64\usr\lib\gnupg\keyboxd.exe | 838f866d5e1624fb6de8d796d865ead0 | case_5087_3
+2025-09-03 23:18:30 | C:\msys64\usr\share\locale\ro\LC_MESSAGES\util-linux.mo | 4500abf9c6162b79440e077b25561e2f | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:32 | C:\msys64\usr\share\locale\tr\LC_MESSAGES\util-linux.mo | b737cdf4b3d11470ec6efa2b9c0e5e34 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:32 | C:\msys64\usr\share\locale\sv\LC_MESSAGES\util-linux.mo | 7d8d831397a8bffb4e9758d0fb779330 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:32 | C:\msys64\usr\share\locale\sr\LC_MESSAGES\util-linux.mo | 350cb993318e26c427fa0fd3707e0a19 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:32 | C:\msys64\usr\share\locale\vi\LC_MESSAGES\util-linux.mo | 7cbf9ecd7d2d101647da763787f50d21 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360
+2025-09-03 23:18:34 | C:\msys64\usr\share\locale\zh_CN\LC_MESSAGES\util-linux.mo | c5bbe8b1dc09b617a28e64f3717dcef5 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:34 | C:\msys64\usr\share\locale\uk\LC_MESSAGES\util-linux.mo | 4a2de82bd261734098210fd21a4ab864 | _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aCZnhbe_13_Virus_Hijack_Gen_Trojan_ShellObject_h8W_auCCoZb_11_2_360, _Virus_Hijack_Gen_Trojan_ShellObject_h8W_aqG68Ic_6_2_Virus_Hijack_Gen_Trojan_ShellObject_h8X_a0kuefc_5_2_VirusShareTrojanCli_482
+2025-09-03 23:18:47 | C:\msys64\usr\lib\perl5\core_perl\auto\XS\APItest\APItest.dll | 9bfdacc833d51db49f33a9a9201cb7ae | android_meterpreter_ren
+2025-09-03 23:19:34 | C:\msys64\usr\bin\msys-gettextlib-0-22-5.dll | a68935c9a645cc9f27e2a3fc72a793ca | android_meterpreter_ren
+2025-09-03 23:19:43 | C:\msys64\usr\bin\openssl.exe | 1ecd22d22dce81c7f91ce06db0b7dcc4 | ttp_lib_openssl_no_version_str_unsigned, case_5087_3, android_meterpreter_ren
+2025-09-03 23:19:52 | C:\msys64\usr\bin\tar.exe | d9435ee5af9a84cad601a80e3c74f9be | case_5087_3, INFO_MacOS_NamedPipe_mkfifo
+2025-09-03 23:20:01 | C:\msys64\usr\bin\wget.exe | 583d80fd08fa6d56828dcf435399d184 | ttp_lib_openssl_no_version_str_unsigned, blackcat_ransomware, case_5087_3, android_meterpreter_ren, rfc3548_Base_32_Encoding__8_byt_ASC_32_
+2025-09-03 23:20:06 | C:\Program Files\7-Zip\Formats\Asar.64.dll | bb18bcbca7d935b65ed6f3f548008f06 | n3e9_0b1215a1ca000b16, n3e9_1bc2948dee610b16, n3e9_1bc29498dee30b16, n3e9_1bc2949dee220b16, n3e9_1bc2b44bbe630b16, n3e9_2b2a93b9ca200932, n3e9_2b54ca98c2210b36, n3e9_2db21932dba31932, n3e9_2db35c92daf91932, n3e9_529913e9c8801912, n3e9_52993ec1cc001912, n3e9_529993e9c8801912, n3e9_529b33a9c8800912, n3e9_53d99ec1c4000b12
+2025-09-03 23:20:09 | C:\msys64\usr\bin\gpg.exe | 825516c8c615df3448a41798b86210c2 | TTP_contains_ETH_address
+2025-09-03 23:20:14 | C:\msys64\usr\lib\perl5\core_perl\auto\re\re.dll | 05f57899f70aef0b2ba3abb27fad9bb9 | android_meterpreter_ren
+2025-09-03 23:20:17 | C:\msys64\usr\bin\msys-gcrypt-20.dll | ee21f851bffa26f4887190e7b3cb5086 | TTP_contains_ETH_address
+2025-09-03 23:20:38 | C:\Program Files\Common Files\microsoft shared\MSEnv\msenvp.dll | 3ce5375b6f75fca87d7731363012cb19 | m3ed_1925273461a96b32, m3ed_45b65cd4d992d311, m3ed_45b65cd4ea208b12
+2025-09-03 23:20:42 | C:\Program Files\Common Files\microsoft shared\MSEnv\msenv80p.dll | 9836101a5b238ca36fd0aa2570efd2fa | m3ed_1925273461a96b32, m3ed_45b65cd4d992d311, m3ed_45b65cd4ea208b12
+2025-09-03 23:20:46 | C:\msys64\usr\lib\gnupg\scdaemon.exe | be7ab8b5b2ce0372f46928ebd5670400 | case_5087_3
+2025-09-03 23:21:04 | C:\Program Files\Common Files\microsoft shared\ink\InkObj.dll | 764384dcec15ed3a6fd289cb8cd8d3b5 | dll_injection_hook_ren
+2025-09-03 23:21:07 | C:\Program Files\Common Files\microsoft shared\MSI Tools\MergeMod.dll | 01a3e3d6031c250181a99e881c0fb236 | android_meterpreter_ren
+2025-09-03 23:21:09 | C:\Program Files\Common Files\System\Ole DB\sqloledb.dll | a9afe78668f9d9326986c2c2ba6be67c | TNS_filter_short_tns_max_bands_128__avcodec___8_byt_13_
+2025-09-03 23:21:10 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Components.dll | bdf307a5039ec6f6b0db705939e9cef9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:10 | C:\msys64\usr\bin\msys-ssl-3.dll | 15ebe6f5263a6fd570dc0a653a982fe0 | MAL_Nighthawk_bytes
+2025-09-03 23:21:12 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.DataProtection.dll | 8c16f74a3fa591e712238a96f75f664c | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:12 | C:\Program Files\dotnet\host\fxr\9.0.7\hostfxr.dll | fcda56b146fadb7ee705b77b515555d7 | n26ef_1b14a524a74f4b12
+2025-09-03 23:21:13 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Http.Connections.Common.dll | 694ce0da9b1a395bc1a644d737986dc4 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:13 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Http.Abstractions.dll | 65ce66cb7fffe39fe1cf270045e317fd | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:14 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Http.Connections.dll | 30ca213316ef9b28c3834b87272a66dc | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:15 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Http.dll | 909f2d97710cf6072bfb9a790dccb4ed | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:21:16 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Mvc.Razor.dll | 74cdb390a600eafa125b6df3f91f8e0a | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:17 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Mvc.TagHelpers.dll | 2380c2d2f87e619a40d9941e071180bd | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:18 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Mvc.Core.dll | 32b562e11839f8e4f7e7036c974868f0 | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:21:18 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Mvc.ViewFeatures.dll | 81e543768912c50c0a50153184d96f9d | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:21:20 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.WebSockets.dll | 11f1858fcb5c42202b0a6ebd1eac9905 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:20 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.WebUtilities.dll | 7fe22df9ae26ca42d91237ec2eedda24 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:20 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\8.0.18\ref\net8.0\Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll | 6850c47e873309d137d6c028f1fdbea6 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:27 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\analyzers\dotnet\cs\Microsoft.AspNetCore.App.Analyzers.dll | 3b6fd79a4e33ce71ff1f2205e6be7920 | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:21:29 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Components.dll | b4644c86ee4b951fef42a1cc0587805b | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:31 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Authorization.dll | 2fe8d2de60754a53e85679f33e3bdb59 | android_meterpreter_ren
+2025-09-03 23:21:32 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.DataProtection.dll | 3025bff0e7f1231122fd71e86b681100 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:32 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Hosting.dll | 6a7f09ca5a003d0998ae1fa561f690c4 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:32 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Http.Connections.Common.dll | ca6ff5abff8c7aa99eb71f93a468d3a9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:33 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Http.Abstractions.dll | 79f6966209012792bc47e87f2a2745ac | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:35 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.HostFiltering.dll | 7ed40b7dfa97c5145e7d7b7e768c31b7 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:37 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Mvc.TagHelpers.dll | 905748116c7200a616c75905d634fa61 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:38 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.RateLimiting.dll | ce81c4f7372d3cfd72acb81cd2f73f3e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:39 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Mvc.ViewFeatures.dll | eb326cc3e8ae5a799803d6e8aec49b7b | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:21:40 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll | 56fe426c0b0277b354f569ae49557d31 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:41 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.WebSockets.dll | 14a6b01060c1a11dd7ed0ee06133ec32 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:42 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.AspNetCore.WebUtilities.dll | bb0c3fcff92c4a0c19f97a0c0e33562f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:21:48 | C:\Program Files\dotnet\packs\Microsoft.AspNetCore.App.Ref\9.0.7\ref\net9.0\Microsoft.Net.Http.Headers.dll | 7d1452e6e4760681cb0ac05e683ff907 | android_meterpreter_ren
+2025-09-03 23:22:08 | C:\Program Files\Common Files\microsoft shared\MSInfo\msinfo32.exe | 8623055e2254240b4368bd6a73c8e185 | n26bb_5594ad49c0000932, n3e9_55945ec1c4000932
+2025-09-03 23:22:43 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-arm64\8.0.18\runtimes\win-arm64\native\singlefilehost.exe | ce2f175c1c047b3301f7517aec2fe011 | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:22:47 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-arm64\9.0.7\runtimes\win-arm64\native\singlefilehost.exe | 46ad8079fae9619b1a4a50b13c33a2db | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:22:52 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\8.0.18\runtimes\win-x64\native\singlefilehost.exe | 696d5ed5ac27b14e5613c7bd8c8ec666 | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:22:54 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Ref\9.0.7\ref\net9.0\System.ComponentModel.EventBasedAsync.dll | 359e7b5af6e8e603903e07ddae9556d7 | portscan0
+2025-09-03 23:22:55 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\9.0.7\runtimes\win-x64\native\singlefilehost.exe | 7f0186692912dbec574f08573226c5d8 | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:23:09 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x86\9.0.7\runtimes\win-x86\native\singlefilehost.exe | 57be5e1e5f7623444efa09c15312426b | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:23:12 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\8.0.18\analyzers\dotnet\zh-Hans\System.Windows.Forms.Analyzers.resources.dll | 636343a3e763bc9671a489397165106e | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:12 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\8.0.18\analyzers\dotnet\pt-BR\System.Windows.Forms.Analyzers.resources.dll | c4f9a1a8304bda39f9738918605c00fd | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:12 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\8.0.18\analyzers\dotnet\pl\System.Windows.Forms.Analyzers.resources.dll | 8c744d350316103fa10519b6e42e2739 | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:15 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\8.0.18\ref\net8.0\System.Drawing.Common.dll | 87ccf0269482dfaa744350f107a1ee35 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:15 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Ref\9.0.7\ref\net9.0\System.Security.Cryptography.dll | e3eec959c359b68d417aaba609e6f4f4 | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:23:18 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\9.0.7\analyzers\dotnet\cs\pl\System.Windows.Forms.Analyzers.CodeFixes.CSharp.resources.dll | f6991a4a947544de51e78ab653776549 | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:18 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\9.0.7\analyzers\dotnet\cs\ko\System.Windows.Forms.Analyzers.CodeFixes.CSharp.resources.dll | 4eece0a2b32bf5e6e3511e4d289559a3 | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:23 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\9.0.7\analyzers\dotnet\vb\pt-BR\System.Windows.Forms.Analyzers.CodeFixes.VisualBasic.resources.dll | 08dce584feeed69c6075438d0d6fe7b0 | j26bf_1896ec4ec6230b30
+2025-09-03 23:23:30 | C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\9.0.7\ref\net9.0\System.Drawing.Common.dll | 8811592b7a735feae684611cea638a1d | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:51 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.AspNetCore.DeveloperCertificates.XPlat.dll | 5685bed53f9b7fb82c463bde257c228c | Win_Trojan_Crypted_30
+2025-09-03 23:23:54 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.Extensions.Logging.dll | 9de4106d2b8896ce9d9dc0c67ad9b839 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:54 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.Extensions.DependencyModel.dll | 2fd17bc9a78d8ddbb6c84d89af316bcc | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:55 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.DotNet.TemplateLocator.dll | 2962b5cbecfbd7cab1fd75c833dc1e62 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:55 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.Extensions.Logging.Abstractions.dll | 691499f3e56da13b4f8898b1e6691062 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:56 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Abstractions.dll | b1bb681ca1fdd4b568f65d326c3b9b9e | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:23:56 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.NET.HostModel.dll | 1d26637038a886e959d6294c3a1a3da1 | Win_Trojan_Crypted_30
+2025-09-03 23:23:57 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.NET.Sdk.WorkloadManifestReader.dll | e37581b0e791878e0486978630904f67 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:58 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Utils.dll | b845da23d385df3cff51815cfb83018c | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:23:58 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.Build.Utilities.Core.dll | b22c1e4eef4b9c20cc425acd4db9c8da | Win_Trojan_Crypted_30
+2025-09-03 23:24:00 | C:\Program Files\Common Files\microsoft shared\VS7Debug\pdm.dll | 443b964b9c5e1c1df53747a32ff27f4d | bumblebee_win_generic
+2025-09-03 23:24:01 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.CodeCoverage.IO.dll | cb82d77a259eb02acdabce5a70586108 | Win_Trojan_Crypted_30
+2025-09-03 23:24:01 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.Build.Framework.dll | 8f5fe921621eec62d3fa7dbd4bae78b0 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:24:01 | C:\Program Files\dotnet\sdk\9.0.302\NuGet.DependencyResolver.Core.dll | 596a58a6cafe57059509d4181cf4dc52 | Win_Trojan_Crypted_30
+2025-09-03 23:24:02 | C:\Program Files\dotnet\sdk\9.0.302\System.Resources.Extensions.dll | b09f660147fd31739b834775f486b632 | android_meterpreter_ren
+2025-09-03 23:24:03 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.ApplicationInsights.dll | 868ab266f30c8d5b4264cc159d911563 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:24:03 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.VisualStudio.TestPlatform.Common.dll | f668efcb3f8aa2cff6061958c9031a3f | Win_Trojan_Crypted_30
+2025-09-03 23:24:03 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.VisualStudio.SolutionPersistence.dll | 1f94378ec8c5482d3ca1e14d1d1d9d4c | Win_Trojan_Crypted_30
+2025-09-03 23:27:23 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Orchestrator.RunnableProjects.dll | 9dee8e011cccbb00502611768b2d29e8 | Win_Trojan_Crypted_30, android_meterpreter_ren, INFO_PE_WebServer_References_nginx
+2025-09-03 23:27:23 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.VisualStudio.TestPlatform.ObjectModel.dll | e14063b3b6d39f98cbcad03a1a7ab02b | Win_Trojan_Crypted_30
+2025-09-03 23:27:24 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Edge.dll | f83a8ecf976f9ae8cf4963f9b7e8d20c | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:27:25 | C:\Program Files\dotnet\sdk\9.0.302\System.Security.Cryptography.Xml.dll | b5427bda5466eaf2b782c82aa90d1881 | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:27:26 | C:\Program Files\dotnet\sdk\9.0.302\NuGet.CommandLine.XPlat.dll | 2b758a6a4bb76d8a514a0e040b96b8db | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:27:27 | C:\Program Files\dotnet\sdk\9.0.302\System.Security.Cryptography.Pkcs.dll | 6c6a51de2bf5724ece7df9497600621f | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:27:27 | C:\Program Files\dotnet\sdk\9.0.302\MSBuild.dll | 426978e088edcbb909b4328a77019827 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:27:27 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\containerize.dll | 0cb880d60b285fd24743b26d166841de | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:27:28 | C:\Program Files\dotnet\sdk\9.0.302\testhost.dll | 9e2059d3eba9a0ec87ed6a5db88139df | Win_Trojan_Crypted_30
+2025-09-03 23:27:28 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\NuGet.ProjectModel.dll | caa361003a48d65a56486d0c762c2acf | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:27:29 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\Microsoft.Extensions.Logging.Abstractions.dll | 047b013d0cdc2fd90bc64309ebef0968 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:27:29 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\Microsoft.Extensions.Logging.dll | d790f08bb645b08b07eab1fbd0a34d8f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:27:41 | C:\Program Files\dotnet\sdk\9.0.302\System.Configuration.ConfigurationManager.dll | d6c49c8cf7a5409911c61fe4a81cc49c | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:27:44 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Cli.dll | 5f9aca741b317d221e822564f4a5c469 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:27:50 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\Microsoft.Extensions.DependencyModel.dll | 62f7e9d1475b5517dc888bd6cd6d6c80 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:26 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\NuGet.Protocol.dll | c823f3eedf8531a44d84a4fbb6415dea | SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:28:26 | C:\Program Files\dotnet\sdk\9.0.302\NuGet.Commands.dll | 287389e6aa86854bb83328bb79fbd8f9 | Win_Trojan_Crypted_30, Hunting_exploit_logs_2, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:28:29 | C:\Program Files\dotnet\sdk\9.0.302\Newtonsoft.Json.dll | 15c999be8328bf9db3a34627e0f13813 | Win_Trojan_Crypted_30
+2025-09-03 23:28:30 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft.TemplateEngine.Core.dll | 5fcfb8c80a49652a1a8b964af3678918 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:28:31 | C:\Program Files\dotnet\sdk\9.0.302\NuGet.Packaging.dll | 1ec704cd01d029cfa1f17d4c392022ce | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:28:40 | C:\Program Files\dotnet\sdk\9.0.302\NuGet.Protocol.dll | ca3b69ad5a60813eb61ac5383491e110 | Win_Trojan_Crypted_30, Hunting_exploit_logs_2, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:28:46 | C:\Program Files\dotnet\sdk\9.0.302\Containers\tasks\net9.0\Microsoft.NET.Build.Containers.dll | 5125701d5afd15f1841e9762daf262d0 | Win_Trojan_Crypted_30, Hunting_exploit_logs_2, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:28:47 | C:\Program Files\dotnet\sdk\9.0.302\cs\NuGet.CommandLine.XPlat.resources.dll | 8448f29af7f09ffdad7ad44ff4df4347 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:28:47 | C:\Program Files\dotnet\sdk\9.0.302\cs\Microsoft.TestPlatform.Build.resources.dll | 33caa559e5c43706b3c6ff623aa8e984 | j26bf_1896ec4ec6230b30
+2025-09-03 23:28:47 | C:\Program Files\dotnet\sdk\9.0.302\cs\Microsoft.TemplateSearch.Common.resources.dll | 490db9b57e65578d43da0706e60ecc29 | j26bf_1896ec4ec6230b30
+2025-09-03 23:28:47 | C:\Program Files\dotnet\sdk\9.0.302\cs\dotnet.resources.dll | e188b4bc4245e5eca3c696ce3b63b127 | android_meterpreter_ren
+2025-09-03 23:28:48 | C:\Program Files\dotnet\sdk\9.0.302\cs\NuGet.Commands.resources.dll | 3d02080ba7343e43d14623c942c7fc54 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:28:50 | C:\Program Files\dotnet\sdk\9.0.302\cs\NuGet.Versioning.resources.dll | d8ef0348f46a66a3056e951ef7377fab | _NET_executable_, NET_executable_, NET_executable, j26bf_1896ec4ec6230b30, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:28:53 | C:\Program Files\dotnet\packs\NETStandard.Library.Ref\2.1.0\ref\netstandard2.1\netstandard.dll | 5fea7a211eb6080e29e3ce1f563f901e | portscan0, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:28:54 | C:\Program Files\dotnet\sdk\9.0.302\Containers\tasks\net472\System.Collections.Immutable.dll | af7880a90c02c0115cd169c7182ab378 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:54 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\NuGet.Frameworks.dll | 81ea7f650c8bda4e7afaf5c0e1b153a9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:55 | C:\Program Files\dotnet\sdk\9.0.302\de\dotnet.resources.dll | fe0efce5701fe22d8931386a25a1fe36 | android_meterpreter_ren
+2025-09-03 23:28:55 | C:\Program Files\dotnet\sdk\9.0.302\de\NuGet.Commands.resources.dll | 7c66fa5a5e1e97b708eca9a03d691751 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:28:56 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.Extensions.Logging.dll | d790f08bb645b08b07eab1fbd0a34d8f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:56 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.Extensions.Logging.Abstractions.dll | 047b013d0cdc2fd90bc64309ebef0968 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:57 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\dotnet-format.dll | 2c7ea436e3fbfacc8046ae61e55559b3 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:28:57 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.CodeAnalysis.Scripting.dll | 6156d3718d62d962d54a042477b98404 | android_meterpreter_ren
+2025-09-03 23:28:58 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\System.CodeDom.dll | 5b85d77ffdf03f0ee68fcb24f6530cee | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:00 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Humanizer.dll | 292e27aa06f891645c2c04eebaf386e8 | android_meterpreter_ren
+2025-09-03 23:29:01 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.DiaSymReader.dll | 036f72a1a24b4b4cdd0346c104f65426 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:05 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.CodeAnalysis.VisualBasic.Workspaces.dll | 9a42933ea715dd80ebb6cc5c682e3821 | android_meterpreter_ren
+2025-09-03 23:29:05 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\BuildHost-netcore\System.Collections.Immutable.dll | f707e8dd2a3039762d4e2293fadb5d54 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:06 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\System.CommandLine.Rendering.dll | 8b88abf576ab8a9d845a131cb2c52c24 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:06 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\System.Security.Cryptography.Xml.dll | c0be9fdaa65f7ef9891d5dc6eca99178 | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:29:06 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\BuildHost-net472\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe | 64ae390d54026e5ba65a87750f44cffc | android_meterpreter_ren
+2025-09-03 23:29:07 | C:\Program Files\dotnet\sdk\9.0.302\Containers\tasks\net472\NuGet.Frameworks.dll | 2bc202b21d5f4803ed9ceb5b21245770 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:07 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\BuildHost-net472\System.Collections.Immutable.dll | 01a319c7cf409c69298b2874651053b9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:07 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.CodeAnalysis.VisualBasic.Features.dll | 95040c9190ef0c38b02d64deb6129926 | android_meterpreter_ren
+2025-09-03 23:29:12 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\Microsoft.Build.Tasks.Core.dll | b1dd877096e2a7e861fa97016a05a71d | warning_vb_autoopen, warning_vb_fileio, android_meterpreter_ren
+2025-09-03 23:29:13 | C:\Program Files\dotnet\sdk\9.0.302\vstest.console.dll | 3a02b1166fe07893c338ef9480de037d | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:29:21 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll | ecc34969c17fe21def3547b160b0fc7a | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:26 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-format\runtimes\win\lib\net9.0\System.Windows.Extensions.dll | b57eb5ded2ee13312c1a0225799e5204 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:27 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.CodeAnalysis.Scripting.dll | 6156d3718d62d962d54a042477b98404 | android_meterpreter_ren
+2025-09-03 23:29:28 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.Extensions.Logging.Abstractions.dll | 047b013d0cdc2fd90bc64309ebef0968 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:29 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.Extensions.DependencyModel.dll | 62f7e9d1475b5517dc888bd6cd6d6c80 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:29 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.Extensions.Logging.dll | d790f08bb645b08b07eab1fbd0a34d8f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:29 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.DiaSymReader.dll | 036f72a1a24b4b4cdd0346c104f65426 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:29 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Humanizer.dll | 292e27aa06f891645c2c04eebaf386e8 | android_meterpreter_ren
+2025-09-03 23:29:30 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-user-jwts\9.0.7-servicing.25317.2\tools\net9.0\any\Microsoft.Extensions.Configuration.Json.dll | 2a15e298a33ff26c67105567915dc846 | android_meterpreter_ren
+2025-09-03 23:29:30 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\NuGet.Frameworks.dll | 81ea7f650c8bda4e7afaf5c0e1b153a9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:31 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.DotNet.TemplateLocator.dll | f6b858b0dc65f2ece15a4ece113fbd85 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:31 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\System.CodeDom.dll | 5b85d77ffdf03f0ee68fcb24f6530cee | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:32 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-user-secrets\9.0.7-servicing.25317.2\tools\net9.0\any\Microsoft.Extensions.Configuration.Json.dll | 2a15e298a33ff26c67105567915dc846 | android_meterpreter_ren
+2025-09-03 23:29:33 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\NuGet.ProjectModel.dll | caa361003a48d65a56486d0c762c2acf | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:33 | C:\msys64\usr\bin\rebase.exe | cba45a17909785ec2f3f67cc14675e31 | case_5087_3
+2025-09-03 23:29:35 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\BuildHost-net472\System.Collections.Immutable.dll | 01a319c7cf409c69298b2874651053b9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:36 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\System.Security.Cryptography.Xml.dll | c0be9fdaa65f7ef9891d5dc6eca99178 | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:29:39 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.VisualStudio.SolutionPersistence.dll | fd46c38c912df017a603086a56326d5d | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:40 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\BuildHost-net472\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe | 64ae390d54026e5ba65a87750f44cffc | android_meterpreter_ren
+2025-09-03 23:29:41 | C:\msys64\usr\bin\msys-gnutls-30.dll | cbf841ba8d43d358d673b26f38058fe1 | ttp_lib_openssl_no_version_str_unsigned, android_meterpreter_ren
+2025-09-03 23:29:41 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\BuildHost-netcore\System.Collections.Immutable.dll | f707e8dd2a3039762d4e2293fadb5d54 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:42 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\cs\Microsoft.TemplateSearch.Common.resources.dll | 490db9b57e65578d43da0706e60ecc29 | j26bf_1896ec4ec6230b30
+2025-09-03 23:29:43 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.TemplateEngine.Utils.dll | ba016730189aed93832526f1e0b8d96a | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:43 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.TemplateEngine.Core.dll | add901657598536307e48d4c3bb94882 | android_meterpreter_ren
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\cs\dotnet.resources.dll | e188b4bc4245e5eca3c696ce3b63b127 | android_meterpreter_ren
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\NuGet.Protocol.dll | c823f3eedf8531a44d84a4fbb6415dea | SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.TemplateEngine.Orchestrator.RunnableProjects.dll | e3c032659669c38c583529f213f7d2f7 | android_meterpreter_ren, INFO_PE_WebServer_References_nginx
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\de\dotnet.resources.dll | fe0efce5701fe22d8931386a25a1fe36 | android_meterpreter_ren
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\NuGet.CommandLine.XPlat.dll | 48373e81efd719dc9ab6d63975fc7d83 | android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:29:44 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\Microsoft.TemplateEngine.Edge.dll | 7635e253289c2538c44c140e30dee3b6 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:45 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\dotnet-watch.dll | ba1afe1fa0b2522738c0c4561f33265d | android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:29:46 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\dotnet.dll | 75a75a402d7d474ab6c0ce0a11b5d344 | android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:29:47 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\es\Microsoft.TemplateEngine.Cli.resources.dll | 06bc732e0678891e9a16126a4f5d9dcb | android_meterpreter_ren
+2025-09-03 23:29:47 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\fr\dotnet.resources.dll | 70e014ea99fbe374c20c1e0bd0129c7e | android_meterpreter_ren
+2025-09-03 23:29:48 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\it\Microsoft.TemplateEngine.Core.resources.dll | dde600824fb5d4628ba2c120047b7bc4 | j26bf_1896ec4ec6230b30
+2025-09-03 23:29:48 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\it\dotnet.resources.dll | 4b6c0f945209c5d97b3b583882c14232 | android_meterpreter_ren
+2025-09-03 23:29:49 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\runtimes\win\lib\net9.0\System.Windows.Extensions.dll | b57eb5ded2ee13312c1a0225799e5204 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:50 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll | ecc34969c17fe21def3547b160b0fc7a | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:29:50 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\ja\dotnet.resources.dll | 3da395508f981b91dc5385684e4221c0 | android_meterpreter_ren
+2025-09-03 23:29:50 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\ko\dotnet.resources.dll | a5fe8d44706e195e0652cddc47671ece | android_meterpreter_ren
+2025-09-03 23:29:53 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\pl\dotnet.resources.dll | ae6c9f7badab82f8f853f9ae6bea420c | android_meterpreter_ren
+2025-09-03 23:29:53 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\es\dotnet.resources.dll | 39309ca6f712a0590a5e70d80c3b1f63 | android_meterpreter_ren
+2025-09-03 23:29:54 | C:\Program Files\dotnet\sdk\9.0.302\es\Microsoft.TemplateEngine.Cli.resources.dll | 06bc732e0678891e9a16126a4f5d9dcb | android_meterpreter_ren
+2025-09-03 23:29:56 | C:\Program Files\dotnet\sdk\9.0.302\es\dotnet.resources.dll | 39309ca6f712a0590a5e70d80c3b1f63 | android_meterpreter_ren
+2025-09-03 23:29:56 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\tr\dotnet.resources.dll | 9b60d328d6c75566d5c3b1bcf8f8fbda | android_meterpreter_ren
+2025-09-03 23:29:56 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\ru\dotnet.resources.dll | 6b0bd722c2694160a8ab1176a434c4e8 | android_meterpreter_ren
+2025-09-03 23:29:57 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\zh-Hans\dotnet.resources.dll | 39e1b5604d3a67acf26028c178673a82 | android_meterpreter_ren
+2025-09-03 23:29:57 | C:\Program Files\dotnet\sdk\9.0.302\Extensions\dump\DumpMinitool.arm64.exe | b0c156cce4ac9ee8d871ba9fbcbcf485 | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:29:59 | C:\Program Files\dotnet\sdk\9.0.302\Extensions\Microsoft.Diagnostics.NETCore.Client.dll | 5cc2d355e33e4fa0bfc72a44d1d65092 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:29:59 | C:\Program Files\dotnet\sdk\9.0.302\Extensions\Microsoft.VisualStudio.TestPlatform.Extensions.Trx.TestLogger.dll | dbfe29c74b1a7fcde5ed6a4ae0bb35ff | Win_Trojan_Crypted_30
+2025-09-03 23:29:59 | C:\Program Files\dotnet\sdk\9.0.302\es\NuGet.Commands.resources.dll | 8a4953c82fc3ed064bd7d3d8fb2c0b58 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:29:59 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\pt-BR\dotnet.resources.dll | 55d156c222d467499603d2f3f4a6e923 | android_meterpreter_ren
+2025-09-03 23:30:00 | C:\Program Files\dotnet\sdk\9.0.302\Extensions\dump\DumpMinitool.exe | c1b9d2012f5f092b1829a8b4d4acaa97 | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:30:00 | C:\Program Files\dotnet\sdk\9.0.302\Extensions\dump\DumpMinitool.x86.exe | bbecfef978f16dc9a71d4865cad4898c | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:30:01 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\zh-Hant\dotnet.resources.dll | 4f3196c6aa3f3366bc332d1195f89443 | android_meterpreter_ren
+2025-09-03 23:30:04 | C:\Program Files\dotnet\sdk\9.0.302\fr\dotnet.resources.dll | 70e014ea99fbe374c20c1e0bd0129c7e | android_meterpreter_ren
+2025-09-03 23:30:06 | C:\Program Files\dotnet\sdk\9.0.302\DotnetTools\dotnet-watch\9.0.302-servicing.25319.7\tools\net9.0\any\NuGet.Commands.dll | 430c491beefd1a47ca281afc34ed067a | android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:30:07 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\System.Resources.Extensions.dll | b09f660147fd31739b834775f486b632 | android_meterpreter_ren
+2025-09-03 23:30:07 | C:\Program Files\dotnet\sdk\9.0.302\fr\NuGet.Commands.resources.dll | 45bc5d4bd4dc02d79a398fbdc3a5cc76 | _NET_executable_, NET_executable_, NET_executable, android_meterpreter_ren
+2025-09-03 23:30:07 | C:\Program Files\dotnet\sdk\9.0.302\fr\NuGet.CommandLine.XPlat.resources.dll | 3583d7143df733e8bed7cf2129b4b244 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:07 | C:\Program Files\dotnet\sdk\9.0.302\fr\Microsoft.TestPlatform.Utilities.resources.dll | b84492ffd4c9e8ca8aa1c7465602b5c1 | j26bf_1896ec4ec6230b30
+2025-09-03 23:30:08 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\System.Security.Cryptography.Xml.dll | b5427bda5466eaf2b782c82aa90d1881 | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:30:10 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\Microsoft.Build.Utilities.Core.dll | b22c1e4eef4b9c20cc425acd4db9c8da | Win_Trojan_Crypted_30
+2025-09-03 23:30:10 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\System.Security.Cryptography.Pkcs.dll | 6c6a51de2bf5724ece7df9497600621f | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:30:12 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\Microsoft.Build.Framework.dll | 8f5fe921621eec62d3fa7dbd4bae78b0 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:30:13 | C:\Program Files\dotnet\sdk\9.0.302\it\Microsoft.TemplateEngine.Core.resources.dll | dde600824fb5d4628ba2c120047b7bc4 | j26bf_1896ec4ec6230b30
+2025-09-03 23:30:13 | C:\Program Files\dotnet\sdk\9.0.302\es\NuGet.Packaging.resources.dll | d70d835d0830dfb269704b13d08c4e62 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:13 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\System.Configuration.ConfigurationManager.dll | d6c49c8cf7a5409911c61fe4a81cc49c | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:30:14 | C:\Program Files\dotnet\sdk\9.0.302\it\dotnet.resources.dll | 4b6c0f945209c5d97b3b583882c14232 | android_meterpreter_ren
+2025-09-03 23:30:15 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll | 4a7cbfba1f11479336ed8f52de5169a8 | android_meterpreter_ren
+2025-09-03 23:30:17 | C:\Program Files\dotnet\sdk\9.0.302\ja\dotnet.resources.dll | 3da395508f981b91dc5385684e4221c0 | android_meterpreter_ren
+2025-09-03 23:30:18 | C:\Program Files\dotnet\sdk\9.0.302\it\NuGet.ProjectModel.resources.dll | c5d3f35bd92b942c061a662b61c7fc18 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:19 | C:\Program Files\dotnet\sdk\9.0.302\it\NuGet.Commands.resources.dll | db2994bb3ec06e5e42d1dd10ddc7a024 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:20 | C:\Program Files\dotnet\sdk\9.0.302\ko\dotnet.resources.dll | a5fe8d44706e195e0652cddc47671ece | android_meterpreter_ren
+2025-09-03 23:30:22 | C:\Program Files\dotnet\sdk\9.0.302\ja\NuGet.Versioning.resources.dll | 76ecf66402bccfce71301bcbd712fa34 | _NET_executable_, NET_executable_, NET_executable, j26bf_1896ec4ec6230b30, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:22 | C:\Program Files\dotnet\sdk\9.0.302\ko\NuGet.Credentials.resources.dll | 8366e5acc8a5b7cddd20cb605ca88505 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:22 | C:\Program Files\dotnet\sdk\9.0.302\ja\NuGet.Commands.resources.dll | c6efe4cb7f11ca4e097162caea8c86f7 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:22 | C:\Program Files\dotnet\sdk\9.0.302\ko\NuGet.Commands.resources.dll | f2dbd6fa10d15f159594d6eb7b5b43fe | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:24 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft\Microsoft.NET.Build.Extensions\net461\lib\System.Diagnostics.Tracing.dll | 60f59659db517c2f4dd4c5c583d43097 | SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:30:26 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft\Microsoft.NET.Build.Extensions\net461\lib\System.Data.Common.dll | d712a5a82a446086443ce00b610d8a5d | android_meterpreter_ren
+2025-09-03 23:30:26 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft\Microsoft.NET.Build.Extensions\net461\lib\System.Net.Http.dll | 665e355cbed5fe5f7bebc3cb23e68649 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:30:30 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft\Microsoft.NET.Build.Extensions\net461\lib\netstandard.dll | 0adf6f32f4d14f9b0be9aa94f7efb279 | capa_encrypt_data_using_AES_via__NET
+2025-09-03 23:30:30 | C:\Program Files\dotnet\sdk\9.0.302\Microsoft\Microsoft.NET.Build.Extensions\net471\lib\System.Net.Http.dll | 5a5e18c377228fdb1d3db74f1140c1bf | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:30:30 | C:\Program Files\dotnet\sdk\9.0.302\pl\dotnet.resources.dll | ae6c9f7badab82f8f853f9ae6bea420c | android_meterpreter_ren
+2025-09-03 23:30:33 | C:\Program Files\dotnet\sdk\9.0.302\pt-BR\dotnet.resources.dll | 55d156c222d467499603d2f3f4a6e923 | android_meterpreter_ren
+2025-09-03 23:30:34 | C:\Program Files\dotnet\sdk\9.0.302\pl\Microsoft.TestPlatform.Build.resources.dll | fa21e6524c5200cdb9663a86e7bab04c | j26bf_1896ec4ec6230b30
+2025-09-03 23:30:36 | C:\Program Files\dotnet\sdk\9.0.302\pl\NuGet.Commands.resources.dll | 9ae7895e61e9190050f2aa8cc7ce3661 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:37 | C:\Program Files\dotnet\sdk\9.0.302\pt-BR\NuGet.Build.Tasks.Console.resources.dll | ea72c6889b91b56cc2a1cf3801c28452 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:39 | C:\Program Files\dotnet\sdk\9.0.302\pt-BR\NuGet.Commands.resources.dll | ee83de77ebd6c5bb9890e3abad12a96e | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:40 | C:\Program Files\dotnet\sdk\9.0.302\FSharp\runtimes\win\lib\net9.0\System.Security.Cryptography.Pkcs.dll | f0596c96a4eb0eae97e689176de52bea | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:30:40 | C:\Program Files\dotnet\sdk\9.0.302\pt-BR\NuGet.Versioning.resources.dll | 50e386fbe059a0ec72b601e0680a4d3a | _NET_executable_, NET_executable_, NET_executable, j26bf_1896ec4ec6230b30, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:41 | C:\Program Files\dotnet\sdk\9.0.302\ref\mscorlib.dll | b54b6d8df08c55998780ff67eaf866f8 | capa_encrypt_data_using_AES_via__NET
+2025-09-03 23:30:42 | C:\Program Files\dotnet\sdk\9.0.302\ru\dotnet.resources.dll | 6b0bd722c2694160a8ab1176a434c4e8 | android_meterpreter_ren
+2025-09-03 23:30:44 | C:\Program Files\dotnet\sdk\9.0.302\runtimes\win\lib\net9.0\System.ServiceProcess.ServiceController.dll | 84bc9ada4208bb56dd902c9e901a5108 | android_meterpreter_ren
+2025-09-03 23:30:45 | C:\Program Files\dotnet\sdk\9.0.302\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll | 4a7cbfba1f11479336ed8f52de5169a8 | android_meterpreter_ren
+2025-09-03 23:30:45 | C:\Program Files\dotnet\sdk\9.0.302\ru\NuGet.Commands.resources.dll | f565d4ffb5c810b574be0e285088dd07 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:30:45 | C:\Program Files\dotnet\sdk\9.0.302\ru\NuGet.Frameworks.resources.dll | 318b230fae2429f443daea484d17780c | _NET_executable_, NET_executable_, NET_executable, j26bf_1896ec4ec6230b30, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:30:47 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.Build.Tasks.Git\tools\net\Microsoft.Build.Tasks.Git.dll | 74f01fd98169595f4aef641786139e9b | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:30:47 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.Build.Tasks.Git\tools\netframework\Microsoft.Build.Tasks.Git.dll | 68a5bc28ee53dff97cdadd3e04c4865d | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:30:48 | C:\Program Files\dotnet\sdk\9.0.302\runtimes\win\lib\net9.0\System.Security.Cryptography.Pkcs.dll | f0596c96a4eb0eae97e689176de52bea | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:30:50 | C:\Program Files\dotnet\sdk\9.0.302\ref\netstandard.dll | ba3408bebbcd7eb67ec979cee7b60498 | portscan0, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:30:57 | C:\Program Files\Common Files\System\wab32.dll | 589f11601c9221628b83f43c4e3808bc | SUSP_Export_Offset_Zero
+2025-09-03 23:30:58 | C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x86\8.0.18\runtimes\win-x86\native\singlefilehost.exe | a2d67ec8fca151cec10feed8e0ccb120 | DOTNET_SingleFileHost_Bundled_App, SingleFileHost_App_Bundle
+2025-09-03 23:31:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\codestyle\cs\Microsoft.CodeAnalysis.CSharp.CodeStyle.dll | 4779fb0dd555c2aeac7ae938c40bd520 | SharpUp
+2025-09-03 23:31:04 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\NuGet.Frameworks.dll | 2bc202b21d5f4803ed9ceb5b21245770 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:06 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\System.Collections.Immutable.dll | af7880a90c02c0115cd169c7182ab378 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:08 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\de\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | 332a73e41ca9a0f1cd9a0b193b131d27 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:09 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\cs\Microsoft.DotNet.PackageValidation.resources.dll | 3dae190c7eb00f2316b055a17dcb7512 | android_meterpreter_ren
+2025-09-03 23:31:09 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\ja\Microsoft.DotNet.PackageValidation.resources.dll | 01bd8913f87e6ef9683dcb7a51f3edc1 | android_meterpreter_ren
+2025-09-03 23:31:10 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\fr\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | 4165475706f482cd8381e73ab21bb281 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:10 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\it\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | 58fe6501fd728c879d28daff0dedbb46 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:10 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\ko\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | f82ddf6e41f551ff9c88b7c1c2e8bd69 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:11 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\Microsoft.Extensions.DependencyModel.dll | 9a4adebd143308bd060c47b3e38b4af9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:13 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\pt-BR\Microsoft.DotNet.PackageValidation.resources.dll | 7b844d744ce7f3cd180126a5c0ef5124 | android_meterpreter_ren
+2025-09-03 23:31:13 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\zh-Hans\Microsoft.DotNet.PackageValidation.resources.dll | ab6a50d10dbf43397511625dd5674bc3 | android_meterpreter_ren
+2025-09-03 23:31:13 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\System.Reflection.MetadataLoadContext.dll | 5f9ccc82572773b1693e341af6f019e6 | android_meterpreter_ren
+2025-09-03 23:31:14 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\System.Text.Json.dll | 737eb058766ebfa28ebc216101c4233b | android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:31:16 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.BlazorWebAssembly\tools\net9.0\Microsoft.NET.Sdk.BlazorWebAssembly.Tool.dll | 97f38c7d26486c035abfc10be0a39cc6 | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:31:18 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net9.0\pl\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | 06c376df2a142dbdf10a999582c186c1 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:20 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net9.0\zh-Hant\Microsoft.DotNet.ApiSymbolExtensions.resources.dll | 640c8b17a62caca50d8099701ecfd901 | j26bf_1896ec4ec6230b30
+2025-09-03 23:31:21 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\source-generators\System.Collections.Immutable.dll | f707e8dd2a3039762d4e2293fadb5d54 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:22 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tasks\net472\System.Collections.Immutable.dll | af7880a90c02c0115cd169c7182ab378 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:22 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tasks\net9.0\Microsoft.NET.Sdk.Razor.Tasks.dll | fa0405238ac3f1139583f2f65794761e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:23 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.StaticWebAssets\tasks\net472\System.Collections.Immutable.dll | af7880a90c02c0115cd169c7182ab378 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:23 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net9.0\Microsoft.NET.Build.Tasks.dll | 1810dfc9369e74c9b205d832eb592cb0 | Win_Trojan_Crypted_30
+2025-09-03 23:31:24 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Publish\tools\net472\System.Text.Json.dll | 737eb058766ebfa28ebc216101c4233b | android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:31:25 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tools\Microsoft.Css.Parser.dll | ad779ccd79b7e901a4853736e78bfe4f | Win_Trojan_Crypted_30
+2025-09-03 23:31:25 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tools\rzc.dll | 97e2ca3e2bdd4f9b5453eeb500ed87cd | Win_Trojan_Crypted_30
+2025-09-03 23:31:27 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.StaticWebAssets\tools\net9.0\Microsoft.NET.Sdk.StaticWebAssets.Tool.dll | 7a6c9fe0924ff95abd22dc74c8397454 | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:31:27 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk\tools\net472\NuGet.Protocol.dll | 64e670c7795d2e1cc776a576def0f90f | SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:31:29 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tasks\net472\Microsoft.NET.Sdk.Razor.Tasks.dll | 82d1172d8faeca699f3a89bfb2738fae | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:37 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.WindowsDesktop\tools\net472\System.Collections.Immutable.dll | 083d341e1ca39c85a3e8cc486155519c | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:38 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Publish\tools\net472\Microsoft.Web.Deployment.dll | f285e648cdea618f94d0ebb63b3b7cf0 | android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:31:38 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\tools\Newtonsoft.Json.dll | 15c999be8328bf9db3a34627e0f13813 | Win_Trojan_Crypted_30
+2025-09-03 23:31:39 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.WindowsDesktop\tools\net472\System.Reflection.Metadata.dll | 498ce0c85be304ed479ea64649264c6f | android_meterpreter_ren
+2025-09-03 23:31:41 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.WindowsDesktop\tools\net9.0\PresentationBuildTasks.dll | 955a9dbfcaa930d1a8a68d64d7f95a8e | Win_Trojan_Crypted_30, PEiD_01597_PEEncrypt_v4_0b__JunkCode__
+2025-09-03 23:31:45 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\datacollector.arm64.exe | f9fabc47a77110284051497fb7f787df | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:31:47 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\netstandard.dll | 0adf6f32f4d14f9b0be9aa94f7efb279 | capa_encrypt_data_using_AES_via__NET
+2025-09-03 23:31:49 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\System.Diagnostics.Tracing.dll | 60f59659db517c2f4dd4c5c583d43097 | SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:31:51 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\System.Collections.Immutable.dll | af7880a90c02c0115cd169c7182ab378 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:31:52 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\tr\NuGet.Build.Tasks.Pack.resources.dll | 0f69da35accfdaabfc780eb66e28ef0e | android_meterpreter_ren
+2025-09-03 23:31:54 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\zh-Hant\NuGet.Build.Tasks.Pack.resources.dll | 0e589fd6a677ce642f28146416c9511f | android_meterpreter_ren
+2025-09-03 23:31:55 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\cs\NuGet.Build.Tasks.Pack.resources.dll | 6d615c6033b1f961bd4fa015d61d8d67 | android_meterpreter_ren
+2025-09-03 23:31:56 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\System.Data.Common.dll | d712a5a82a446086443ce00b610d8a5d | android_meterpreter_ren
+2025-09-03 23:31:57 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\it\NuGet.Build.Tasks.Pack.resources.dll | bbfd0834d47d99c9cc2fe47ea2ee805e | android_meterpreter_ren
+2025-09-03 23:31:58 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\ru\NuGet.Build.Tasks.Pack.resources.dll | 71922c0e7e1b3d2388c05482f9c0048b | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\es\NuGet.Build.Tasks.Pack.resources.dll | c9af2994177f49a13f7e597eeba767c7 | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\pt-BR\NuGet.Build.Tasks.Pack.resources.dll | a6818e79a86265f6596ef7d1f2448b6a | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\ja\NuGet.Build.Tasks.Pack.resources.dll | ae8eb7a145a3c04d8dd9cf71152d1c20 | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\fr\NuGet.Build.Tasks.Pack.resources.dll | a9d5edf4d12a1c836cbc934a4f538d9f | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\ja\NuGet.Build.Tasks.Pack.resources.dll | 092174c18b140592df528b6b48e2e7b8 | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\it\NuGet.Build.Tasks.Pack.resources.dll | 03c74c8094afe1523c59c5bbc0c09755 | android_meterpreter_ren
+2025-09-03 23:31:59 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\pl\NuGet.Build.Tasks.Pack.resources.dll | 5b28e84eead58a2d3d05bf02fb4ff07b | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\ko\NuGet.Build.Tasks.Pack.resources.dll | 6b96941c3916098b3ee0ce1750e2e883 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\fr\NuGet.Build.Tasks.Pack.resources.dll | c24fd9acda872c2c992bbf04839d3df0 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\de\NuGet.Build.Tasks.Pack.resources.dll | 125ece475ba4739fcd403e5d670c4862 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\zh-Hans\NuGet.Build.Tasks.Pack.resources.dll | febdff0c2ce1bae86b498aa0fd41e0d5 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\datacollector.exe | 9059aa29fcbcc7447402e4ffbfcf9374 | k3f4_04968799c2200114, k3f4_131a8799c2200130, k3f4_13da8799c2200332, k3f4_23ee8799c2200114, k3f4_40928799c2200114
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\zh-Hant\NuGet.Build.Tasks.Pack.resources.dll | 55707fd2720a589955fabe8ed1596675 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\pt-BR\NuGet.Build.Tasks.Pack.resources.dll | 90327495190f374ddaae2a7628790167 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\de\NuGet.Build.Tasks.Pack.resources.dll | d10c3ce1aabf7b8f213d4ed30f9ade3f | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\CoreCLR\ko\NuGet.Build.Tasks.Pack.resources.dll | 79ec42eee12b7e2135b3d2871118b224 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\System.Net.Http.dll | 665e355cbed5fe5f7bebc3cb23e68649 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\cs\NuGet.Build.Tasks.Pack.resources.dll | a61683840431b3687fc60fdb424e4dfe | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\es\NuGet.Build.Tasks.Pack.resources.dll | 42ea5ee9a6a25d7459be53159cb9e254 | android_meterpreter_ren
+2025-09-03 23:32:00 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\pl\NuGet.Build.Tasks.Pack.resources.dll | 2ffe4e98ddc04f97927136538e084807 | android_meterpreter_ren
+2025-09-03 23:32:01 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\tr\NuGet.Build.Tasks.Pack.resources.dll | fd46a65482b43bb3a419030608ffdf8c | android_meterpreter_ren
+2025-09-03 23:32:01 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\zh-Hans\NuGet.Build.Tasks.Pack.resources.dll | 49a5d8efd50f0da9964f8c06c03c029e | android_meterpreter_ren
+2025-09-03 23:32:01 | C:\Program Files\dotnet\sdk\9.0.302\Sdks\NuGet.Build.Tasks.Pack\Desktop\ru\NuGet.Build.Tasks.Pack.resources.dll | 5414eb0c78e3d68b2ee24f88d681808e | android_meterpreter_ren
+2025-09-03 23:32:03 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\Microsoft.TestPlatform.CommunicationUtilities.dll | ebe3f1f0b478101bc2d77e71233a653b | SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:32:04 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\fr\Microsoft.TestPlatform.Utilities.resources.dll | b84492ffd4c9e8ca8aa1c7465602b5c1 | j26bf_1896ec4ec6230b30
+2025-09-03 23:32:05 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\testhost.x86.exe | be98aafa7056ce5eb103591e0a3dd333 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:32:06 | C:\Program Files\dotnet\sdk\9.0.302\tr\dotnet.resources.dll | 9b60d328d6c75566d5c3b1bcf8f8fbda | android_meterpreter_ren
+2025-09-03 23:32:07 | C:\Program Files\dotnet\sdk\9.0.302\TestHostNetFramework\Microsoft.TestPlatform.CrossPlatEngine.dll | d91ae291a869d96f67c1dd5a8bf88f37 | SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:32:08 | C:\Program Files\dotnet\sdk\9.0.302\zh-Hans\dotnet.resources.dll | 39e1b5604d3a67acf26028c178673a82 | android_meterpreter_ren
+2025-09-03 23:32:09 | C:\Program Files\dotnet\sdk\9.0.302\tr\NuGet.Frameworks.resources.dll | d3f4b4e6c11a90d15479152ac3d7e5f4 | _NET_executable_, NET_executable_, NET_executable, j26bf_1896ec4ec6230b30, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:32:09 | C:\Program Files\dotnet\sdk\9.0.302\tr\NuGet.CommandLine.XPlat.resources.dll | 52430c62fa371c8ce84c05a9dfae117b | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:32:10 | C:\Program Files\dotnet\sdk\9.0.302\tr\NuGet.Commands.resources.dll | e2f42370cd2641a3a75b51bce53fdd05 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:32:10 | C:\Program Files\dotnet\sdk\9.0.302\zh-Hant\dotnet.resources.dll | 4f3196c6aa3f3366bc332d1195f89443 | android_meterpreter_ren
+2025-09-03 23:32:11 | C:\Program Files\dotnet\sdk\9.0.302\zh-Hans\NuGet.Commands.resources.dll | 9aa74ef6e21c4dbfbf176e0c97a0b610 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:32:11 | C:\Program Files\dotnet\sdk\9.0.302\zh-Hant\NuGet.Commands.resources.dll | e00063d2d27441d70b1736f572f9a0f9 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET, android_meterpreter_ren
+2025-09-03 23:32:13 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Http.Connections.Common.dll | 42129896976c82be18786a1209b2a2a3 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:15 | C:\Program Files\dotnet\sdk\9.0.302\zh-Hant\Microsoft.TestPlatform.Build.resources.dll | a498ce0b7646fd97bd37ee581af62af9 | j26bf_1896ec4ec6230b30
+2025-09-03 23:32:17 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Http.dll | c67433858313f34249cb469c0bcf9f50 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:17 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Http.Abstractions.dll | 7bd99da29c6cbab350d4d1ff88d91810 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:18 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.DataProtection.dll | bdcd5e27f1c05c1ca9c89aaf64ae7843 | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:32:18 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Mvc.Razor.dll | 19cd6b532b0008c8b264a205752af3e5 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:19 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Diagnostics.dll | 2d92400b28a235fac361f78d77d2a3d0 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:19 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.WebSockets.dll | 7776a27ca68c40c78042ff52a1aa1cbd | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:19 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Mvc.TagHelpers.dll | a354dc17622e6ba230f182d54f0f33d0 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:22 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.dll | 51ab5f5beb46b710fda2cff92e2df5ea | Win_Trojan_Crypted_30
+2025-09-03 23:32:22 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Identity.dll | 9c2f5d3ce34d1f7fc4012b22687fbe92 | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:23 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Mvc.RazorPages.dll | 9cbff3a51b616ec841bea08f7f8273d0 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:24 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.WebUtilities.dll | b37220be66365fa510c4dba37f6089a4 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:24 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.Extensions.Hosting.dll | f639f04142b1850a69e69d7d61157c29 | android_meterpreter_ren
+2025-09-03 23:32:25 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Server.IIS.dll | 5820e955df4ca69360bb125cfcbc09d1 | Win_Trojan_Crypted_30, HardHatC2, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:26 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Authentication.BearerToken.dll | 7f76b87a6508ce94c454712b89b7960b | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:27 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Antiforgery.dll | 7ff73ebf21a5233a1298df0619612719 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:28 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.Extensions.Identity.Core.dll | b0794433b1ff5fb8712a229b52cf1386 | Win_Trojan_Crypted_30
+2025-09-03 23:32:28 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Authentication.OAuth.dll | 6a2981f835e9413ef6cf035be91c91cd | Win_Trojan_Crypted_30
+2025-09-03 23:32:29 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Components.Authorization.dll | c78b5442a4e7aa9e42e2a867ae551c41 | Win_Trojan_Crypted_30
+2025-09-03 23:32:30 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Routing.dll | 4fab3c0ff14740a666c54e1ad33b07d3 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:30 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.HostFiltering.dll | dcdf1f082e33e04a1ae96d32c6cfd82e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:31 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\System.Security.Cryptography.Xml.dll | ee933589355e4b37efb636b13ea4d583 | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:32:32 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Http.Connections.Common.dll | e89583483fd5b30c61e343276140ba5d | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:33 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Http.Results.dll | f2af832998030c7d1fc4500faec9a469 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:33 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Diagnostics.dll | 2a911b790258fc9f3cc8c69dc39441de | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:35 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Mvc.Razor.dll | 750362ef4096a72e930d8de673c487fa | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:35 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Hosting.dll | e4a3c237e95bec9fd6fe650e661b8e0c | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:35 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.WebSockets.dll | d3f004dc811e763b3775f7f06074d7a1 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:36 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\System.Security.Cryptography.Pkcs.dll | da207ed85fd76a1d3959e225f78841c6 | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:32:36 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.OutputCaching.dll | 4b7376afb9a3f8a0530a17ca9600ce34 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:37 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.RateLimiting.dll | cac7c0ef977b881d4ed0f62e3d7317c8 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:32:38 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Components.Endpoints.dll | 08a5161366bfe5a5f5c4d0e21c8b3d2d | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:38 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Identity.dll | b87d2b82efcb3eaf54469d6b5937854e | SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:32:38 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Mvc.RazorPages.dll | 59075fac66be5e8cafe6176711fcb407 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:19 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll | 7d95ece323a77891f5799e48038ff70d | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:21 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Mvc.Core.dll | 7129de5aa746b1d63c0f2260e2c366d5 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:23 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Http.Extensions.dll | ba9cb141f73a2fe604f93e15cd70fa46 | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:23 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.WebUtilities.dll | c4284b98c8a95bb01c81fe031c8e730e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:23 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.Extensions.Logging.dll | 3b5aa011f5f808859a237f9d82095cc7 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:24 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\8.0.18\Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll | 69cb6c917d43c582b73e428dc6bbdeb5 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:24 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.Extensions.Logging.Abstractions.dll | 4a2077b26470eb2cd0770241307bb7d4 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:25 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Mvc.ViewFeatures.dll | ca39eb82bb5cc7930a1718bd7808145a | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:25 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.Extensions.Options.dll | 7757b8325ee3218e8198f76a1fe21d5d | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:26 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.SignalR.Core.dll | 55aec680c16ebc14243fa5e1355512d3 | Win_Trojan_Crypted_30
+2025-09-03 23:35:26 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Server.IIS.dll | 2be4c8cf0542598e3c94b990f4b9dd01 | Win_Trojan_Crypted_30, HardHatC2, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:28 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.Extensions.Identity.Core.dll | ff13327fd97f441788be42c0fee16fa8 | Win_Trojan_Crypted_30
+2025-09-03 23:35:29 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.ComponentModel.Annotations.dll | f4e17982fcfe8b1f0d9c0909531b2543 | android_meterpreter_ren
+2025-09-03 23:35:30 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Collections.Concurrent.dll | 41afb52aa2199b25e8aab302e5bff2bb | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:31 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\System.Security.Cryptography.Xml.dll | 18a9375b12098903642a9f9af1057965 | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren
+2025-09-03 23:35:34 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\System.Security.Cryptography.Pkcs.dll | 9216080edc788f9910066f3a9a218edb | capa_encrypt_data_using_AES_via__NET, android_meterpreter_ren, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:35:38 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Formats.Asn1.dll | 20e22688374baa614373b69f8f716028 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:39 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.NetworkInformation.dll | ab12e03acd7bf49512ce06c4113fa727 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:39 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Formats.Tar.dll | eb2ce28616ceab753812f96455a0a76f | android_meterpreter_ren
+2025-09-03 23:35:41 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.IO.Pipes.dll | 201355ee6bae303e40a2ea049a4569a9 | android_meterpreter_ren
+2025-09-03 23:35:41 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Mvc.Core.dll | eefc93dae7f61e6150271d8fa0b8d27d | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:42 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.ComponentModel.TypeConverter.dll | 0e7fab8026363d80202978156c2b81ef | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:42 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.Extensions.Configuration.Ini.dll | 18b77b34b176b36a50018c4fe2ec657f | android_meterpreter_ren
+2025-09-03 23:35:43 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.Primitives.dll | 6c26813854661994c7e4b37bd4f28eae | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:44 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.WebSockets.Client.dll | 359de7fb08af63c8d57ba90a6b049054 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:44 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.Quic.dll | ad8da7607165764c26f945d8736d0df6 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:45 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Diagnostics.Process.dll | 2178b57df2602195ae3126e26f1df3a8 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:45 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.IO.IsolatedStorage.dll | 01909814d6956b30d2fc569b946e16c7 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:46 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.WebSockets.dll | 096f6a8b547e406160d2f40335b06939 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:46 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Private.Uri.dll | 77a22beda501ee3bcd7ed880a76478df | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:46 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.Mail.dll | 8222407f7d82c99fb3b57e6b8d0bd87d | android_meterpreter_ren
+2025-09-03 23:35:47 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Collections.Immutable.dll | 652a343bbe4fda5e0545fbc5504a94ed | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:47 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.Requests.dll | 263540e960b217b7f4b954690db91d24 | android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:47 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.HttpListener.dll | e1fe381c3d3ac6f7ac6cfbffe1b4d72b | android_meterpreter_ren, INFO_PE_HttpReceiveHttpRequest_API, INFO_PE_HttpSendHttpResponse_API, INFO_PE_HttpSendResponseEntityBody_API, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:50 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Reflection.Emit.Lightweight.dll | 0e6a4b00223e9f77c8db653af327b068 | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:35:50 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Mvc.TagHelpers.dll | 977a85903f36931adf773b41f3a05f0b | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:51 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Net.Ping.dll | 7ff51a21207677b7968e9fb55cc2b22b | capa_send_ICMP_echo_request, android_meterpreter_ren
+2025-09-03 23:35:52 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Text.Encodings.Web.dll | 5fa1300ebe7bd9377d0094ecbe8da83f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:52 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Web.HttpUtility.dll | ca08a1ca7d5f2df343f7ef3daffab046 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:35:54 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Linq.Parallel.dll | 78109952a75c9ad5e5d92c8404cb0f3a | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:35:57 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Components.Server.dll | 8ba174124200546bcbd22212284cd1f7 | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:35:59 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\Microsoft.Win32.Registry.dll | 4efcf95e2da107e791fecb7c42e81f79 | android_meterpreter_ren
+2025-09-03 23:36:01 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Collections.Concurrent.dll | 2ab075a40dea06e7840782d86d4046b9 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:01 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Text.Encoding.CodePages.dll | ab88b76f96980da7ddb9f9eb2d087479 | n3ed_54921cc1cc000b32
+2025-09-03 23:36:01 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Reflection.Metadata.dll | 5b38417d65b5a0d7d73f66e14604a697 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:02 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Http.Connections.dll | 4297ae830b686b161c8146f0d4d3951f | Win_Trojan_Crypted_30, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:36:03 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Security.Principal.Windows.dll | 813f6951093a447e18825e92e0494510 | android_meterpreter_ren
+2025-09-03 23:36:05 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.ComponentModel.Primitives.dll | 7bad692c2fa0ce600f668d2297c2e528 | android_meterpreter_ren
+2025-09-03 23:36:06 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.IO.IsolatedStorage.dll | 0c99355dc9bd8e914ec6e3802d7e08e3 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:06 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Text.RegularExpressions.dll | 84a575d2410e90d67cf19bac92024dc5 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:07 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Security.AccessControl.dll | 647e124edefa7c643fd010b14497e10e | android_meterpreter_ren
+2025-09-03 23:36:07 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Formats.Asn1.dll | 6ccdadaf066da4b0f9df6d0166ff7e7b | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:08 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Diagnostics.DiagnosticSource.dll | aaa37a338ed784907cc6d8f3328b0aba | android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:36:08 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Formats.Tar.dll | 8b9a1fed979d92abe0795309c1ebbb4a | android_meterpreter_ren
+2025-09-03 23:36:09 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.ComponentModel.TypeConverter.dll | 3abeabb4fc230704d6697768d5364fa5 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:10 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.IO.Pipelines.dll | f9706b367952691135ba96587f607769 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:10 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.NameResolution.dll | 43ca27870ea026d356f36df4ff7fd04e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:10 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.Http.Json.dll | 5f47025ce5aa316af60a5dbe43d1a376 | android_meterpreter_ren
+2025-09-03 23:36:10 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Collections.Immutable.dll | f1bcd3ffe2d147da344f8f1fd65954f0 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:10 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.NetworkInformation.dll | 1e54a553bcee09472a203f735fcbb137 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:11 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Collections.dll | 2a2028f251dbec51c36b14d7a9aeecbb | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:12 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Private.DataContractSerialization.dll | 8d4dcf375446a69fb3dccb333a002937 | android_meterpreter_ren
+2025-09-03 23:36:13 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Text.Json.dll | 50c3e3b25df57a6c8b7c7d481d3d1a6f | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload
+2025-09-03 23:36:13 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.ComponentModel.EventBasedAsync.dll | 71d3baeb29d5f37f498c4b488e08a20a | portscan0, android_meterpreter_ren
+2025-09-03 23:36:13 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\Microsoft.VisualBasic.Core.dll | 1c47b4d26c99f568e2a0696600031c84 | android_meterpreter_ren
+2025-09-03 23:36:13 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.Mail.dll | a96924aa9beee61dfca5b947a09b40c7 | android_meterpreter_ren
+2025-09-03 23:36:14 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.WebSockets.Client.dll | c80f52acf28fbb258d26aef58fb7932e | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:14 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.WebHeaderCollection.dll | 8e1a7480aaf2a03701a71e72d4dbd2df | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:14 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.HttpListener.dll | 1d0013321c44356687455a4a33edee70 | android_meterpreter_ren, INFO_PE_HttpReceiveHttpRequest_API, INFO_PE_HttpSendHttpResponse_API, INFO_PE_HttpSendResponseEntityBody_API, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:36:15 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.Requests.dll | 35d9166a5c93d9f58b6670a401f232d4 | android_meterpreter_ren, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:36:17 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.WebSockets.dll | 4d1e757a53d4f1623012a8ae06ef2c81 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:17 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.Security.dll | 1a56bfc10d3e109572e6c4308472fd9d | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:17 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Reflection.Emit.dll | ff09885fd18423d5196a7acc35c8e351 | Hunting_exploit_logs_2, android_meterpreter_ren
+2025-09-03 23:36:18 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.Security.Cryptography.dll | ecc98cfafbfd2616abbed236cb473b5c | Win_Trojan_Crypted_30, capa_encrypt_data_using_AES_via__NET, capa_reference_public_RSA_key, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload, RC2_tab_ebits_to_num__8_byt_256_
+2025-09-03 23:36:19 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Linq.Parallel.dll | 78ca89f68c64b279cc1fe9e268b6ebf6 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:20 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.IO.Pipes.dll | 9599b86c7d15c42335718da894422f32 | android_meterpreter_ren
+2025-09-03 23:36:21 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Threading.dll | 15c821eb8e173940a20687589bd5dca9 | android_meterpreter_ren
+2025-09-03 23:36:22 | C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App\9.0.7\Microsoft.AspNetCore.Server.HttpSys.dll | 28208860adb8f6b47806dd918311074a | Win_Trojan_Crypted_30, HardHatC2, INFO_PE_HttpReceiveHttpRequest_API, INFO_PE_HttpSendHttpResponse_API, INFO_PE_HttpSendResponseEntityBody_API, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:36:22 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Text.Encodings.Web.dll | 300f4be6e45764e0655e0aa2e096f6e0 | android_meterpreter_ren
+2025-09-03 23:36:24 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Private.Uri.dll | c2e3918b134ca53447be6ffd6e977d7f | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:24 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Runtime.Serialization.Formatters.dll | 55a6f53c0f5eb4e003bad84020765e21 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:25 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.IO.Compression.Native.dll | e62d09f5430354d6ab4dbd4ecb66be65 | android_meterpreter_ren
+2025-09-03 23:36:26 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Threading.Tasks.Dataflow.dll | 6dfa56ac3969ecfba643207d32d767e2 | android_meterpreter_ren
+2025-09-03 23:36:26 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Diagnostics.Process.dll | 9daa8626c8592b8c33e73d19ab3b2867 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:26 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.18\System.IO.Compression.Native.dll | 0157a266c67767e138cf4cb2b5253dc1 | android_meterpreter_ren
+2025-09-03 23:36:28 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\Microsoft.Win32.SystemEvents.dll | 47f15fe847c3f30b1584f40053e94438 | android_meterpreter_ren
+2025-09-03 23:36:29 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Text.Encoding.CodePages.dll | 68c5e565b660a5c4d03116ad6df6d67a | n3ed_54921cc1cc000b32
+2025-09-03 23:36:29 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Reflection.Metadata.dll | 721b38a1887c1a4a94407f5bf4bb1586 | Win_Trojan_Crypted_30, Hunting_exploit_logs_2, android_meterpreter_ren
+2025-09-03 23:36:30 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Net.Http.dll | 6dd70c41d6d42562581cdfc9b9c50a6c | Win_Trojan_Crypted_30, android_meterpreter_ren, SUSP_DotNet_Method_Param_Payload, SUSP_DotNet_Method_Param_HTTP
+2025-09-03 23:36:30 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\DirectWriteForwarder.dll | f336daae20dc4116517c153b70e28035 | Win_Trojan_Crypted_30
+2025-09-03 23:36:32 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\System.Diagnostics.PerformanceCounter.dll | 63a67af757d41ffd09806cf595cdf151 | SUSP_NET_Large_Static_Array_In_Small_File_Jan24
+2025-09-03 23:36:34 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Text.RegularExpressions.dll | e004839b0b72bc53f15c2a18ce214c79 | Win_Trojan_Crypted_30, android_meterpreter_ren
+2025-09-03 23:36:34 | C:\Program Files\dotnet\shared\Microsoft.NETCore.App\9.0.7\System.Xml.XmlSerializer.dll | 5e812f2bd784afb485020b5318bdfc7c | _NET_executable_, NET_executable_, NET_executable, Microsoft_Visual_C__v7_0___Basic__NET
+2025-09-03 23:36:35 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\System.Diagnostics.EventLog.dll | 7a6ae17a2a7568e654410355ac46bb92 | android_meterpreter_ren
+2025-09-03 23:36:35 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\System.IO.Packaging.dll | 677d27d101238a5899669de61a2a8caa | android_meterpreter_ren
+2025-09-03 23:36:36 | C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\8.0.18\System.CodeDom.dll | 2e382c96dca94765026c6573301030dd | Win_Trojan_Crypted_30, android_meterpreter_ren
