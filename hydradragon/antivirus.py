@@ -6502,11 +6502,163 @@ def is_zip_file(file_path):
         logger.error(f"Unexpected error checking ZIP: {e}")
         return False
 
-def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
-    """Scan file in real-time using multiple engines in parallel."""
+def scan_file_ml(
+    file_path: str,
+    *,
+    pe_file: bool = False,
+    signature_check: Optional[Dict[str, Any]] = None,
+    benign_threshold: float = 0.93,
+) -> Dict[str, Any]:
+    """
+    Perform ML-only scan and return structured result.
+
+    Returns a dict with the following keys:
+      - malware_found: bool            # True if ML declares malware
+      - virus_name: str                # malware name, "Benign", or "Clean"
+      - engine: str                    # "ML" when ML provided a result, else ""
+      - benign: bool                   # True when ML explicitly marks benign
+      - benign_score: Optional[float]  # score from ML (0.0 - 1.0) or None
+      - matched_rules: Optional[list]  # matched rule names or None
+      - error: Optional[str]           # error message if exception occurred
+    Notes:
+      - ML runs only if `pe_file` is True (consistent with previous behavior).
+      - signature_check may be a dict with "is_valid" key; if True, a ".SIG"
+        suffix will be appended to `virus_name` when malware is detected.
+      - `benign_threshold` controls what ML score counts as benign.
+    """
+    result = {
+        'malware_found': False,
+        'virus_name': 'Clean',
+        'engine': '',
+        'benign': False,
+        'benign_score': None,
+        'matched_rules': None,
+        'error': None,
+    }
+
+    try:
+        if not pe_file:
+            logger.debug("ML scan skipped: not a PE file: %s", file_path)
+            return result
+
+        # It should return:
+        # (is_malicious_machine_learning: bool, malware_definition: str,
+        #  benign_score: float, matched_rules: list)
+        ml_out = scan_file_with_machine_learning_ai(file_path)
+        if not isinstance(ml_out, (list, tuple)) or len(ml_out) < 4:
+            raise ValueError("scan_file_with_machine_learning_ai returned unexpected shape")
+
+        is_malicious_machine_learning, malware_definition, benign_score, matched_rules = ml_out
+
+        result['benign_score'] = benign_score
+        result['matched_rules'] = matched_rules
+        result['engine'] = 'ML'
+
+        sig_valid = bool(signature_check and signature_check.get("is_valid", False))
+
+        # ML reported something (could be malware or high-score benign)
+        if is_malicious_machine_learning:
+            # nil-safe clamp for benign_score
+            if benign_score is None:
+                benign_score = 0.0
+            # Decide malware vs benign using threshold
+            if benign_score < benign_threshold:
+                # ML -> malware
+                if sig_valid and isinstance(malware_definition, str):
+                    malware_definition = f"{malware_definition}.SIG"
+                result.update({
+                    'malware_found': True,
+                    'virus_name': malware_definition,
+                    'benign': False
+                })
+                logger.critical("Infected file detected (ML): %s - Virus: %s", file_path, malware_definition)
+            else:
+                # ML -> benign
+                result.update({
+                    'malware_found': False,
+                    'virus_name': 'Benign',
+                    'benign': True
+                })
+                logger.info("File marked benign by ML (score=%s): %s", benign_score, file_path)
+        else:
+            # ML had no opinion / clean
+            logger.info("No malware detected by ML: %s", file_path)
+
+        return result
+
+    except Exception as ex:
+        # Never raise here to keep worker wrappers simple - return error metadata
+        err_msg = f"ML scan error: {ex}"
+        logger.error(err_msg)
+        result['error'] = err_msg
+        # keep virus_name 'Clean' to avoid false positive on upstream
+        result['engine'] = 'ML'
+        return result
+
+def ml_fastpath_should_continue(
+    norm_path,
+    signature_check,
+    pe_file,
+    benign_threshold: float = 0.93
+) -> bool:
+    """
+    ML fast-path:
+      - Return False => ML marked benign -> EARLY EXIT (skip heavy scan)
+      - Return True  => proceed with full realtime scan
+        (this includes cases where ML found malware - we notify but still continue)
+    """
+    if not pe_file:
+        return True  # ML only applies to PE files; continue to full scan
+
+    try:
+        ml_res = scan_file_ml(norm_path, pe_file=True, signature_check=signature_check, benign_threshold=benign_threshold)
+    except Exception as e:
+        logger.warning("ML fast-path failed for %s: %s. Proceeding to full scan.", norm_path, e)
+        return True  # on error, do not block the full scan
+
+    # If ML explicitly marked benign -> early exit (skip heavy scan)
+    if ml_res.get("benign"):
+        logger.info("ML marked %s as benign (score=%s). Skipping full scan.", norm_path, ml_res.get("benign_score"))
+        return False
+
+    # If ML explicitly detected malware -> notify, but DO NOT early-exit; continue full scan
+    if ml_res.get("malware_found"):
+        virus_name = ml_res.get("virus_name", "Unknown")
+        if isinstance(virus_name, (list, tuple)):
+            virus_name = ''.join(virus_name)
+        logger.critical("ML detected malware in %s. Virus: %s (continuing to full scan)", norm_path, virus_name)
+
+        # spawn notification but continue
+        if virus_name.startswith("PUA."):
+            threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, "ML"), daemon=True).start()
+        else:
+            threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"), daemon=True).start()
+
+        # continue to full scan so other engines can confirm / collect more metadata
+        return True
+
+    # ML returned error metadata (log) or no opinion -> continue to full scan
+    if ml_res.get("error"):
+        logger.warning("ML returned error for %s: %s. Proceeding to full scan.", norm_path, ml_res.get("error"))
+
+    return True
+
+def scan_file_real_time(
+    file_path: str,
+    signature_check: dict,
+    file_name: str,
+    die_output,
+    pe_file: bool = False
+) -> Tuple[bool, str, str, Optional[str]]:
+    """
+    Scan file in real-time using multiple engines in parallel.
+    Runs ALL workers to completion (no short-circuit). First detection wins.
+
+    Returns: (malware_found: bool, virus_name: str, engine: str, vmprotect_path: Optional[str])
+    """
     logger.info(f"Started scanning file: {file_path}")
 
-    # Shared variables for results
+    # Shared results and synchronization primitive
     results = {
         'malware_found': False,
         'virus_name': 'Clean',
@@ -6514,38 +6666,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         'vmprotect_path': None
     }
 
-    # Lock for thread-safe access to shared variables
-    threads = []
-
-    def ml_scan_worker():
-        """Worker function for Machine Learning scan"""
-        try:
-            if pe_file:
-                # Scan the file
-                is_malicious_machine_learning, malware_definition, benign_score, matched_rules = scan_file_with_machine_learning_ai(file_path)
-
-                if is_malicious_machine_learning:
-                    # Log all matched rules
-                    logger.critical(f"Matched ML rules for {file_path}: {matched_rules}")
-
-                    if benign_score < 0.93:
-                        if signature_check.get("is_valid"):
-                            malware_definition = malware_definition + ".SIG"
-                        logger.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-
-                        with thread_lock:
-                            if not results['malware_found']:  # First detection wins
-                                results['malware_found'] = True
-                                results['virus_name'] = malware_definition
-                                results['engine'] = "ML"
-                        return
-                    elif benign_score >= 0.93:
-                        logger.info(f"File is clean based on ML benign score: {file_path}")
-                else:
-                    logger.info(f"No malware detected by Machine Learning in file: {file_path}")
-
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
+    thread_lock = threading.Lock()
+    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
     def pe_scan_worker():
         """Worker function for PE file analysis"""
@@ -6560,17 +6682,18 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         try:
             result = scan_file_with_clamav(file_path)
             if result not in ("Clean", "Error"):
-                if signature_check["is_valid"]:
-                    result = result + ".SIG"
+                if sig_valid:
+                    result = f"{result}.SIG"
                 logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
                 with thread_lock:
-                    if not results['malware_found']:  # First detection wins
+                    if not results['malware_found']:  # first detection wins
                         results['malware_found'] = True
                         results['virus_name'] = result
                         results['engine'] = "ClamAV"
-                return
-            logger.info(f"No malware detected by ClamAV in file: {file_path}")
+                # continue running other workers (no return that short-circuits outside of this worker)
+            else:
+                logger.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
 
@@ -6579,18 +6702,18 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         try:
             yara_match, yara_result, vmprotect_unpacked_path = scan_yara(file_path)
             if yara_match is not None and yara_match not in ("Clean", ""):
-                if signature_check["is_valid"]:
-                    yara_match = yara_match + ".SIG"
+                if sig_valid:
+                    yara_match = f"{yara_match}.SIG"
                 logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
 
                 with thread_lock:
-                    if not results['malware_found']:  # First detection wins
+                    if not results['malware_found']:
                         results['malware_found'] = True
                         results['virus_name'] = yara_match
                         results['engine'] = "YARA"
                         results['vmprotect_path'] = vmprotect_unpacked_path
-                return
-            logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+            else:
+                logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
@@ -6601,17 +6724,17 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 scan_result, virus_name = scan_tar_file(file_path)
                 if scan_result and virus_name not in ("Clean", "F", "", [], None):
                     virus_str = str(virus_name) if virus_name else "Unknown"
-                    if signature_check["is_valid"]:
-                        virus_name = virus_str + ".SIG"
+                    if sig_valid:
+                        virus_str = f"{virus_str}.SIG"
                     logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
 
                     with thread_lock:
-                        if not results['malware_found']:  # First detection wins
+                        if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_str
                             results['engine'] = "TAR"
-                    return
-                logger.info(f"No malware detected in TAR file: {file_path}")
+                else:
+                    logger.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
             logger.error(f"Permission error occurred while scanning TAR file: {file_path}")
         except FileNotFoundError:
@@ -6625,17 +6748,17 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if is_zip_file(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = virus_name + ".SIG"
+                    if sig_valid:
+                        virus_name = f"{virus_name}.SIG"
                     logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
 
                     with thread_lock:
-                        if not results['malware_found']:  # First detection wins
+                        if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
                             results['engine'] = "ZIP"
-                    return
-                logger.info(f"No malware detected in ZIP file: {file_path}")
+                else:
+                    logger.info(f"No malware detected in ZIP file: {file_path}")
         except PermissionError:
             logger.error(f"Permission error occurred while scanning ZIP file: {file_path}")
         except FileNotFoundError:
@@ -6649,17 +6772,17 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if is_7z_file_from_output(die_output):
                 scan_result, virus_name = scan_7z_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = virus_name + ".SIG"
+                    if sig_valid:
+                        virus_name = f"{virus_name}.SIG"
                     logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
 
                     with thread_lock:
-                        if not results['malware_found']:  # First detection wins
+                        if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
                             results['engine'] = "7z"
-                    return
-                logger.info(f"No malware detected in 7z file: {file_path}")
+                else:
+                    logger.info(f"No malware detected in 7z file: {file_path}")
         except PermissionError:
             logger.error(f"Permission error occurred while scanning 7Z file: {file_path}")
         except FileNotFoundError:
@@ -6668,9 +6791,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
 
     try:
-        # Create and start all threads
+        # Create and start all threads (no early-exit / cancel logic)
         workers = [
-            ml_scan_worker,
             pe_scan_worker,
             clamav_scan_worker,
             yara_scan_worker,
@@ -6679,29 +6801,26 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             sevenz_scan_worker
         ]
 
+        threads = []
         for worker in workers:
-            thread = threading.Thread(target=worker)
-            thread.start()
-            threads.append(thread)
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            threads.append(t)
 
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
+        # Wait for all threads to finish
+        for t in threads:
+            t.join()
 
-        # Return results based on what was found
+        # Final decision:
         if results['malware_found']:
-            if results['vmprotect_path']:
-                return results['malware_found'], results['virus_name'], results['engine'], results['vmprotect_path']
-            else:
-                return results['malware_found'], results['virus_name'], results['engine']
+            return True, results['virus_name'], results['engine'], results.get('vmprotect_path')
         else:
             logger.info(f"File is clean - no malware detected by any engine: {file_path}")
             return False, "Clean", "", None
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-
-    return False, "Clean", "", None  # Default to clean if no malware found
+        return False, "Error", "", None
 
 # Read the file and store the names in a list (ignoring empty lines)
 with open(system_file_names_path, "r") as f:
@@ -11319,6 +11438,14 @@ def scan_and_warn(file_path,
                         "is_valid": False,
                         "signature_status_issues": False
                     }
+
+
+            # Use the signature_check produced by the thread when calling ML fast-path
+            sig_for_ml = thread_results.get('signature_check', None)
+
+            # ML fast-path: if returns False -> ML marked benign => EARLY EXIT (do not start realtime thread)
+            if not ml_fastpath_should_continue(norm_path, sig_for_ml, pe_file):
+                return False
 
         def file_reading_thread():
             """Thread for reading file content as text"""
