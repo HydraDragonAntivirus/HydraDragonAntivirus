@@ -1,0 +1,6 @@
+2025-09-04 01:23:48 | C:\$Recycle.Bin\S-1-5-21-2645734294-958234700-230609095-1001\$RS394UJ.yrc | d310e5af339ae4e20963a501399552fc | ProcessInjector_Gen_RID2EA7
+2025-09-04 01:27:13 | C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fppkg.exe | b7ee2026acb91b89854f1d418b5ed1a3 | INFO_PE_Contains_404_Title
+2025-09-04 01:31:31 | C:\$SysReset\Scratch\winload.exe | 42382fb03e475d7a2376d014b534473c | SHA384__64_lil_AND_
+2025-09-04 01:56:37 | C:\msys64\usr\bin\msys-gcrypt-20.dll | ee21f851bffa26f4887190e7b3cb5086 | twofish_exp_to_poly__8_byt_492_, ElGamal_public_key_encryption__32_lil_152_, twofish_calc_sb_tbl__8_byt_512_, libntlm_DES_key_swap__32_lil_64_, libntlm_DES_weak_keys__8_byt_512_, Whirlpool_rc__64_lil_88_, libntlm_DES_weak_keys_chksum__8_byt_20_
+2025-09-04 02:00:53 | C:\Program Files\Common Files\microsoft shared\MSInfo\msinfo32.exe | 8623055e2254240b4368bd6a73c8e185 | maldoc_OLE_file_magic_number_ren
+2025-09-04 02:06:25 | C:\Program Files\dotnet\sdk\9.0.302\Containers\containerize\containerize.dll | 0cb880d60b285fd24743b26d166841de | k3f4_40928799c2200114
