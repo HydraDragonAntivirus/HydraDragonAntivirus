@@ -6533,18 +6533,18 @@ def scan_file_ml(
     pe_file: bool = False,
     signature_check: Optional[Dict[str, Any]] = None,
     benign_threshold: float = 0.93,
-) -> Tuple[bool, str, float, list]:
+) -> Tuple[bool, str, float]:
     """
     Perform ML-only scan and return simplified result.
-    Returns (malware_found, virus_name, benign_score, matched_rules)
+    Returns (malware_found, virus_name, benign_score)
     """
     try:
         if not pe_file:
             logger.debug("ML scan skipped: not a PE file: %s", os.path.basename(file_path))
-            return False, "Clean", 0.0, []
+            return False, "Clean", 0.0
 
-        # Unpack all 4 values
-        is_malicious_ml, malware_definition, benign_score, matched_rules = scan_file_with_machine_learning_ai(file_path)
+        # Unpack only the first 3 values (ignore matched_rules from ML)
+        is_malicious_ml, malware_definition, benign_score, _ = scan_file_with_machine_learning_ai(file_path)
 
         sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
@@ -6561,22 +6561,22 @@ def scan_file_ml(
                     os.path.basename(file_path),
                     malware_definition,
                 )
-                return True, malware_definition, benign_score, matched_rules
+                return True, malware_definition, benign_score
             else:
                 logger.info(
                     "File marked benign by ML (score=%s): %s",
                     benign_score,
                     os.path.basename(file_path),
                 )
-                return False, "Benign", benign_score, matched_rules
+                return False, "Benign", benign_score
         else:
             logger.info("No malware detected by ML: %s", os.path.basename(file_path))
-            return False, "Clean", benign_score, matched_rules
+            return False, "Clean", benign_score
 
     except Exception as ex:
         err_msg = f"ML scan error: {ex}"
         logger.error(err_msg)
-        return False, "Clean", 0.0, []
+        return False, "Clean", 0.0
 
 def ml_fastpath_should_continue(
     norm_path,
@@ -6593,7 +6593,7 @@ def ml_fastpath_should_continue(
         return True
 
     try:
-        malware_found, virus_name, benign_score, matched_rules = scan_file_ml(
+        malware_found, virus_name, benign_score = scan_file_ml(
             norm_path,
             pe_file=True,
             signature_check=signature_check,
