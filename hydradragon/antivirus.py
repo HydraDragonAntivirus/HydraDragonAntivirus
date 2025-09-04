@@ -1721,7 +1721,7 @@ def analyze_file_with_die(file_path):
 
         # Run native DIE scan
         result = die.scan_file(file_path, die.ScanFlags.RESULT_AS_JSON)
-        
+
         # Format output to match original plain text format
         if not result or 'detects' not in result:
             stdout_output = "Binary\n    Unknown: Unknown"
@@ -1734,20 +1734,20 @@ def analyze_file_with_die(file_path):
                         version = value.get('version', '')
                         type_info = value.get('type', '')
                         info = value.get('info', '')
-                        
+
                         if version:
                             line = f"    {type_info}: {name}({version})"
                         else:
                             line = f"    {type_info}: {name}"
-                        
+
                         if info:
                             line += f"[{info}]"
-                        
+
                         output_lines.append(line)
-            
+
             if len(output_lines) == 1:
                 output_lines.append("    Unknown: Unknown")
-            
+
             stdout_output = "\n".join(output_lines)
 
         # Save the plain text output
@@ -6533,51 +6533,22 @@ def scan_file_ml(
     pe_file: bool = False,
     signature_check: Optional[Dict[str, Any]] = None,
     benign_threshold: float = 0.93,
-) -> Dict[str, Any]:
+) -> Tuple[bool, str, float]:
     """
-    Perform ML-only scan and return structured result.
-
-    Returns a dict with the following keys:
-      - malware_found: bool            # True if ML declares malware
-      - virus_name: str                # malware name, "Benign", or "Clean"
-      - engine: str                    # "ML" when ML provided a result, else ""
-      - benign: bool                   # True when ML explicitly marks benign
-      - benign_score: Optional[float]  # score from ML (0.0 - 1.0) or None
-      - matched_rules: Optional[list]  # matched rule names or None
-      - error: Optional[str]           # error message if exception occurred
-    Notes:
-      - ML runs only if `pe_file` is True (consistent with previous behavior).
-      - signature_check may be a dict with "is_valid" key; if True, a ".SIG"
-        suffix will be appended to `virus_name` when malware is detected.
-      - `benign_threshold` controls what ML score counts as benign.
+    Perform ML-only scan and return simplified result.
+    Returns (malware_found, virus_name, benign_score)
     """
-    result = {
-        'malware_found': False,
-        'virus_name': 'Clean',
-        'engine': '',
-        'benign': False,
-        'benign_score': None,
-        'matched_rules': None,
-        'error': None,
-    }
-
     try:
         if not pe_file:
             logger.debug("ML scan skipped: not a PE file: %s", file_path)
-            return result
+            return False, 'Clean', 0.0
 
-        # It should return:
-        # (is_malicious_machine_learning: bool, malware_definition: str,
-        #  benign_score: float, matched_rules: list)
+        # Call ML function - it returns 3 values
         ml_out = scan_file_with_machine_learning_ai(file_path)
-        if not isinstance(ml_out, (list, tuple)) or len(ml_out) < 4:
+        if not isinstance(ml_out, (list, tuple)) or len(ml_out) != 3:
             raise ValueError("scan_file_with_machine_learning_ai returned unexpected shape")
 
-        is_malicious_machine_learning, malware_definition, benign_score, matched_rules = ml_out
-
-        result['benign_score'] = benign_score
-        result['matched_rules'] = matched_rules
-        result['engine'] = 'ML'
+        is_malicious_machine_learning, malware_definition, benign_score = ml_out
 
         sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
@@ -6591,34 +6562,21 @@ def scan_file_ml(
                 # ML -> malware
                 if sig_valid and isinstance(malware_definition, str):
                     malware_definition = f"{malware_definition}.SIG"
-                result.update({
-                    'malware_found': True,
-                    'virus_name': malware_definition,
-                    'benign': False
-                })
                 logger.critical("Infected file detected (ML): %s - Virus: %s", file_path, malware_definition)
+                return True, malware_definition, benign_score
             else:
                 # ML -> benign
-                result.update({
-                    'malware_found': False,
-                    'virus_name': 'Benign',
-                    'benign': True
-                })
                 logger.info("File marked benign by ML (score=%s): %s", benign_score, file_path)
+                return False, 'Benign', benign_score
         else:
             # ML had no opinion / clean
             logger.info("No malware detected by ML: %s", file_path)
-
-        return result
+            return False, 'Clean', benign_score
 
     except Exception as ex:
-        # Never raise here to keep worker wrappers simple - return error metadata
         err_msg = f"ML scan error: {ex}"
         logger.error(err_msg)
-        result['error'] = err_msg
-        # keep virus_name 'Clean' to avoid false positive on upstream
-        result['engine'] = 'ML'
-        return result
+        return False, 'Clean', 0.0
 
 def ml_fastpath_should_continue(
     norm_path,
@@ -6636,21 +6594,26 @@ def ml_fastpath_should_continue(
         return True  # ML only applies to PE files; continue to full scan
 
     try:
-        ml_res = scan_file_ml(norm_path, pe_file=True, signature_check=signature_check, benign_threshold=benign_threshold)
+        malware_found, virus_name, benign_score = scan_file_ml(
+            norm_path,
+            pe_file=True,
+            signature_check=signature_check,
+            benign_threshold=benign_threshold
+        )
     except Exception as e:
         logger.warning("ML fast-path failed for %s: %s. Proceeding to full scan.", norm_path, e)
         return True  # on error, do not block the full scan
 
     # If ML explicitly marked benign -> early exit (skip heavy scan)
-    if ml_res.get("benign"):
-        logger.info("ML marked %s as benign (score=%s). Skipping full scan.", norm_path, ml_res.get("benign_score"))
+    if not malware_found and virus_name == "Benign":
+        logger.info("ML marked %s as benign (score=%s). Skipping full scan.", norm_path, benign_score)
         return False
 
     # If ML explicitly detected malware -> notify, but DO NOT early-exit; continue full scan
-    if ml_res.get("malware_found"):
-        virus_name = ml_res.get("virus_name", "Unknown")
+    if malware_found:
         if isinstance(virus_name, (list, tuple)):
             virus_name = ''.join(virus_name)
+
         logger.critical("ML detected malware in %s. Virus: %s (continuing to full scan)", norm_path, virus_name)
 
         # spawn notification but continue
@@ -6659,13 +6622,9 @@ def ml_fastpath_should_continue(
         else:
             threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"), daemon=True).start()
 
-        # continue to full scan so other engines can confirm / collect more metadata
         return True
 
-    # ML returned error metadata (log) or no opinion -> continue to full scan
-    if ml_res.get("error"):
-        logger.warning("ML returned error for %s: %s. Proceeding to full scan.", norm_path, ml_res.get("error"))
-
+    # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
 
 def scan_file_real_time(
@@ -11597,13 +11556,13 @@ def scan_and_warn(file_path,
                 output_file = str(Path(decompiled_jsc_dir) / (Path(norm_path).stem + "_decompiled.js"))
 
                 logger.info(f"Decompiling {norm_path} to {output_file} using View8...")
-                
+
                 try:
                     # Decompile directly using view8 functions
                     all_func = disassemble(norm_path, False, None)
                     decompile(all_func)
                     export_to_file(output_file, all_func, ["decompiled"])
-                    
+
                     logger.info(f"Successfully decompiled {norm_path} to {output_file}")
 
                     # Read the decompiled JS code
