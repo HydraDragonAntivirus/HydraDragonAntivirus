@@ -30,28 +30,3 @@ def export_to_file(out_name, all_functions, format_list):
     with open(out_name, "w") as f:
         for function_name in list(all_functions)[::-1]:
             f.write(all_functions[function_name].export(export_v8code="v8_opcode" in format_list, export_translated="translated" in format_list, export_decompiled="decompiled" in format_list))
-            
-
-def main():
-    parser = argparse.ArgumentParser(description="View8: V8 cache decompiler.")
-    parser.add_argument('input_file', help="The input file name.")
-    parser.add_argument('output_file', help="The output file name.")
-    parser.add_argument('--path', '-p', help="Path to disassembler binary.", default=None)
-    parser.add_argument('--disassembled', '-d', action='store_true', help="Indicate if the input file is already disassembled.")
-    parser.add_argument('--export_format', '-e', nargs='+', choices=['v8_opcode', 'translated', 'decompiled'], 
-                        help="Specify the export format(s). Options are 'v8_opcode', 'translated', and 'decompiled'. Multiple options can be combined.", 
-                        default=['decompiled'])
-
-    args = parser.parse_args()
-    
-    if not os.path.isfile(args.input_file):
-        raise FileNotFoundError(f"The input file {args.input_file} does not exist.")
-
-    all_func = disassemble(args.input_file, args.disassembled, args.path)
-    decompile(all_func)
-    export_to_file(args.output_file, all_func, args.export_format)
-    print(f"Done.")
-
-
-if __name__ == "__main__":
-    main()
