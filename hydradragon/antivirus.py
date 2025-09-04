@@ -355,6 +355,10 @@ import capstone
 logger.info(f"capstone imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import die
+logger.info(f"die imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import nltk
 logger.info(f"nltk imported in {time.time() - start_time:.6f} seconds")
 
@@ -369,6 +373,10 @@ logger.info(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logger.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from View8.view8 import disassemble, decompile, export_to_file
+logger.info(f"view8.view8, disassemble, decompile, export_to_file modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pylingual.main import main as pylingual_main
@@ -452,8 +460,6 @@ un_confuser_ex_extracted_dir = os.path.join(script_dir, "UnConfuserEx_extracted"
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
-view8_dir = os.path.join(script_dir, "View8")
-view8_script_path = os.path.join(view8_dir, "view8.py")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
 FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
@@ -483,11 +489,11 @@ nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
 advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
+detectiteasy_db_dir = os.path.join(detectiteasy_dir, "db")
 detectiteasy_plain_text_dir = os.path.join(script_dir, "detectiteasy_plain_text")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
-detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
@@ -1701,7 +1707,7 @@ def advanced_installer_extractor(file_path):
 
 def analyze_file_with_die(file_path):
     """
-    Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
+    Runs native Detect It Easy (DIE) on the given file and returns the DIE output (plain text).
     The output is also saved to a unique .txt file and displayed to the user.
     """
     try:
@@ -1713,39 +1719,58 @@ def analyze_file_with_die(file_path):
         base_name = Path(file_path).with_suffix(".txt")
         txt_output_path = get_unique_output_path(output_dir, base_name)
 
-        # Run the DIE command once with the -p flag for plain output
-        result = subprocess.run(
-            [detectiteasy_console_path, "-p", file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
-        )
+        # Run native DIE scan
+        result = die.scan_file(file_path, die.ScanFlags.RESULT_AS_JSON)
+        
+        # Format output to match original plain text format
+        if not result or 'detects' not in result:
+            stdout_output = "Binary\n    Unknown: Unknown"
+        else:
+            output_lines = ["Binary"]
+            for detect in result['detects']:
+                if 'values' in detect:
+                    for value in detect['values']:
+                        name = value.get('name', 'Unknown')
+                        version = value.get('version', '')
+                        type_info = value.get('type', '')
+                        info = value.get('info', '')
+                        
+                        if version:
+                            line = f"    {type_info}: {name}({version})"
+                        else:
+                            line = f"    {type_info}: {name}"
+                        
+                        if info:
+                            line += f"[{info}]"
+                        
+                        output_lines.append(line)
+            
+            if len(output_lines) == 1:
+                output_lines.append("    Unknown: Unknown")
+            
+            stdout_output = "\n".join(output_lines)
 
         # Save the plain text output
         with open(txt_output_path, "w", encoding="utf-8") as txt_file:
-            txt_file.write(result.stdout)
+            txt_file.write(stdout_output)
 
         logger.info(f"Analysis result saved to {txt_output_path}")
 
         # Display the result using logging
-        if result.stdout.strip():
+        if stdout_output.strip():
             logger.info(f"{'='*60}")
             logger.info(f"DIE Analysis Result for: {Path(file_path).name}")
             logger.info(f"{'='*60}")
-            logger.info(result.stdout)
+            logger.info(stdout_output)
             logger.info(f"{'='*60}")
             logger.info(f"Result saved to: {txt_output_path}")
         else:
             logger.error(f"No DIE output for {Path(file_path).name}")
-            if result.stderr:
-                logger.error(f"DIE stderr output: {result.stderr}")
 
-        return result.stdout
+        return stdout_output
 
-    except subprocess.SubprocessError as ex:
-        error_msg = f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
-        logger.error(error_msg)
-        return None
     except Exception as ex:
-        error_msg = f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        error_msg = f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
         logger.error(error_msg)
         return None
 
@@ -11566,32 +11591,27 @@ def scan_and_warn(file_path,
                 if not jsc_result:
                     return  # Not a JSC file, skip
 
-                logger.info(f"-> File {norm_path} detected as {jsc_result} (Bytenode / .JSC).")
+                logger.info(f"File {norm_path} detected as {jsc_result} (Bytenode / .JSC).")
 
                 # Generate output file path
                 output_file = str(Path(decompiled_jsc_dir) / (Path(norm_path).stem + "_decompiled.js"))
 
-                # Run view8.py to decompile JSC -> JS
-                logger.info(f"-> Decompiling {norm_path} -> {output_file} using View8...")
-                cmd = [
-                    sys.executable,          # Use the same Python interpreter
-                    view8_script_path,       # Path to view8.py
-                    norm_path,               # Input JSC file
-                    output_file,             # Output JS file
-                    "--export_format", "decompiled"
-                ]
-
-                result = subprocess.run(cmd, capture_output=True, text=True)
-
-                if result.returncode == 0:
-                    logger.info(f"-> Successfully decompiled {norm_path} -> {output_file}")
+                logger.info(f"Decompiling {norm_path} to {output_file} using View8...")
+                
+                try:
+                    # Decompile directly using view8 functions
+                    all_func = disassemble(norm_path, False, None)
+                    decompile(all_func)
+                    export_to_file(output_file, all_func, ["decompiled"])
+                    
+                    logger.info(f"Successfully decompiled {norm_path} to {output_file}")
 
                     # Read the decompiled JS code
                     try:
                         with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
                             decompiled_code = f.read()
                     except Exception as read_err:
-                        logger.error(f"-> Failed to read decompiled JS {output_file} -> {read_err}")
+                        logger.error(f"Failed to read decompiled JS {output_file}: {read_err}")
                         return
 
                     # Start scanning the decompiled JS file
@@ -11606,11 +11626,11 @@ def scan_and_warn(file_path,
                         args=(output_file,),
                     ).start()
 
-                else:
-                    logger.error(f"-> View8 decompilation failed for {norm_path} -> {result.stderr}")
+                except Exception as decompile_err:
+                    logger.error(f"View8 decompilation failed for {norm_path}: {decompile_err}")
 
             except Exception as e:
-                logger.error(f"-> Error in JSC analysis for {norm_path} -> {e}")
+                logger.error(f"Error in JSC analysis for {norm_path}: {e}")
 
         def installshield_analysis():
             try:
@@ -11683,6 +11703,7 @@ def scan_and_warn(file_path,
             threading.Thread(target=themida_detection),
             threading.Thread(target=autoit_analysis),
             threading.Thread(target=asar_analysis),
+            threading.Thread(target=npm_analysis),
             threading.Thread(target=jsc_analysis),
             threading.Thread(target=installshield_analysis),
             threading.Thread(target=advanced_installer_analysis),
