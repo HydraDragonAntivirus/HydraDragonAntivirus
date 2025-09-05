@@ -7568,24 +7568,26 @@ def is_likely_junk(line):
         # On error be conservative: keep the line
         return False
 
-def split_source_by_u_delimiter(source_code):
+def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     """
-    Parses a raw source code block and splits lines by 'u', preserving
-    all protected fragments (URLs, IPs, Discord/Telegram/webhooks,
-    CDN attachments, Telegram tokens/keywords, obfuscations).
-    """
-    logger.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
+    Unified reconstruction of source code using 'u'-delimiter splitting.
 
-    if is_likely_junk(source_code.strip()):
+    Features combined from both versions:
+    - Preserves protected fragments (URLs, IPs, Discord/Telegram/webhooks, etc.)
+    - Splits other content on 'u', merging tokens properly
+    - Groups into modules by <module ...> markers
+    - Saves reconstructed modules
+    - Finally: removes all lines not starting with 'u' (case-insensitive)
+    """
+    logger.info("Reconstructing source code with unified 'u' delimiter logic...")
+
+    if not source_code or is_likely_junk(source_code.strip()):
         return
-
-    lines = [source_code]
 
     # Core regex builders
     url_regex = build_url_regex()
     ip_patterns = build_ip_patterns()
 
-    # All your extended patterns
     preserve_patterns = [
         discord_webhook_pattern,
         discord_canary_webhook_pattern,
@@ -7602,47 +7604,63 @@ def split_source_by_u_delimiter(source_code):
         B64_LITERAL,
     ]
 
-    # Flatten all preserve regexes into one for matching
     combined_preserve = re.compile(
         '|'.join([p if isinstance(p, str) else p.pattern for p in preserve_patterns] +
                  [url_regex.pattern] +
                  [p[0] for p in ip_patterns])
     )
 
-    new_lines = []
-
-    for line in lines:
+    # --- STEP 1: tokenize with preservation ---
+    tokens = []
+    for line in [source_code]:
         start = 0
         for m in combined_preserve.finditer(line):
-            # Split unprotected text before this match
             unprotected = line[start:m.start()]
             if 'u' in unprotected:
                 parts = re.split(r'(u)', unprotected)
-                new_lines.extend([p for p in parts if p])
+                tokens.extend([p for p in parts if p])
             else:
                 if unprotected:
-                    new_lines.append(unprotected)
-
-            # Add the protected fragment as-is
-            new_lines.append(m.group(0))
+                    tokens.append(unprotected)
+            tokens.append(m.group(0))
             start = m.end()
 
-        # Handle the tail after the last match
         tail = line[start:]
         if 'u' in tail:
             parts = re.split(r'(u)', tail)
-            new_lines.extend([p for p in parts if p])
+            tokens.extend([p for p in parts if p])
         else:
             if tail:
-                new_lines.append(tail)
+                tokens.append(tail)
 
-    # Strip empty segments
-    filtered_lines = [l.strip() for l in new_lines if l.strip()]
-    logger.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
+    # --- STEP 2: merge 'u' tokens ---
+    merged_tokens = []
+    i, n = 0, len(tokens)
+    while i < n:
+        t = tokens[i]
+        if t == 'u':
+            if i + 1 < n:
+                merged_tokens.append('u' + tokens[i + 1])
+                i += 2
+            else:
+                if merged_tokens:
+                    merged_tokens[-1] += 'u'
+                else:
+                    merged_tokens.append('u')
+                i += 1
+        else:
+            merged_tokens.append(t)
+            i += 1
 
-    # Module reconstruction
-    current_module_name = "initial_code"
+    # Strip empty
+    final_lines = [t.strip() for t in merged_tokens if t.strip()]
+
+    # --- STEP 3: group by module ---
+    module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
+
+    current_module_name = base_name
     current_module_code = []
+    modules = []
 
     def save_module_file(name, code_lines):
         if not code_lines:
@@ -7652,24 +7670,29 @@ def split_source_by_u_delimiter(source_code):
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
-            logger.info(f"Reconstructed module saved to: {output_path}")
+            logger.info(f"Reconstructed module saved: {output_path}")
         except IOError as e:
             logger.error(f"Failed to write module file {output_path}: {e}")
 
-    module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
-
-    for line in filtered_lines:
+    for line in final_lines:
         match = module_start_pattern.match(line)
         if match:
             if current_module_code:
-                save_module_file(current_module_name, current_module_code)
+                modules.append((current_module_name, current_module_code))
             current_module_name = match.group(1)
             current_module_code = []
-        else:
-            current_module_code.append(line)
+            continue
+        current_module_code.append(line)
 
     if current_module_code:
-        save_module_file(current_module_name, current_module_code)
+        modules.append((current_module_name, current_module_code))
+
+    # --- STEP 4: cleanup, only keep 'u'-starting lines ---
+    for name, code_lines in modules:
+        forced_lines = [l for l in code_lines if l.lower().startswith('u')]
+        save_module_file(name, forced_lines)
+
+    logger.info("Reconstruction complete (only 'u'-lines kept).")
 
 def scan_rsrc_files(file_paths):
     """
