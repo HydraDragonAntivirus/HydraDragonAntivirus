@@ -410,6 +410,21 @@ except Exception:
 # Create a set of English words for efficient lookup.
 ENGLISH_WORDS = set(words.words())
 
+# Precompute English words set and dynamic maximum length for words containing 'u'.
+# This runs once at import time for performance.
+try:
+    english_words_set = set(w.lower() for w in ENGLISH_WORDS)
+    u_word_lengths = [len(w) for w in english_words_set if 'u' in w]
+    if u_word_lengths:
+        max_u_len = max(u_word_lengths)
+    else:
+        # fallback to longest word length in the set, or 30 if set is empty
+        max_u_len = max((len(w) for w in english_words_set), default=30)
+except Exception as e:
+    logger.warning(f"Failed to prepare english words set: {e}")
+    english_words_set = set(w.lower() for w in (ENGLISH_WORDS or []))
+    max_u_len = 30
+
 # Initialize the accelerator and device
 accelerator = Accelerator()
 device = accelerator.device
@@ -7494,42 +7509,64 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
-
 def is_likely_junk(line):
     """
-    A line is considered JUNK based on specific rules for deletion.
-    Returns True for lines that should be DELETED.
+    Return True if the line should be considered JUNK (and therefore deleted).
 
-    - Rule 1: Lines WITHOUT 'u' are JUNK (delete).
-    - Rule 2: Lines WITH 'u' that form recognizable English words are JUNK (delete).
-    - Rule 3: Lines WITH 'u' that are meaningless strings are NOT JUNK (keep).
+    Rules:
+    - If the line does NOT contain 'u' -> JUNK (True).
+    - Only examine alphabetic tokens that CONTAIN 'u' (excluding the single token 'u').
+      * If any such token is longer than max_u_len -> treat as NOT JUNK (False).
+      * If any such token is NOT in english_words_set -> NOT JUNK (False).
+      * If at least one alphabetic 'u'-containing token exists AND all such tokens are
+        present in english_words_set and <= max_u_len -> JUNK (True).
+    - Single 'u' token is always NOT JUNK (False).
     """
-    line = line.strip()  # Clean whitespace
+    line = (line or "").strip()
+    if not line:
+        return True
 
-    # Rule 1: If a line does NOT contain 'u', it is JUNK.
+    # Rule 1: lines without 'u' are junk
     if 'u' not in line.lower():
-        return True  # JUNK, delete.
-
-    # If we are here, the line contains 'u'.
-    # Check if the line forms meaningful English words.
+        return True
 
     try:
-        # Tokenize the entire line
-        tokens = word_tokenize(line.lower())
+        # Normalize so 'u' becomes its own token for tokenization (prevents 'udef' being hidden)
+        normalized = re.sub(r'u', ' u ', line.lower())
+        tokens = word_tokenize(normalized)
 
-        # Check if ANY token with 'u' is NOT a meaningful English word
+        saw_u_alpha_token = False
+
         for token in tokens:
-            if 'u' in token and token.isalpha() and len(token) > 1:
-                if token not in ENGLISH_WORDS:
-                    return False  # NOT JUNK, found one meaningless string with 'u'
+            if token == 'u':
+                # single 'u' token: keep
+                continue
 
-        # Rule 2: If all tokens with 'u' are meaningful English words, it's JUNK
-        return True  # JUNK, delete
+            # Only consider alphabetic tokens that contain 'u' (and length > 1)
+            if 'u' in token and token.isalpha() and len(token) > 1:
+                saw_u_alpha_token = True
+
+                # If token is longer than known 'u' words -> treat as NOT JUNK
+                if len(token) > max_u_len:
+                    return False
+
+                # If token is not in the English words set -> NOT JUNK
+                if token not in english_words_set:
+                    return False
+
+                # otherwise token is a valid English word containing 'u' -> keep checking others
+
+        # If we saw at least one alphabetic 'u' token and all were valid English words, mark as JUNK
+        if saw_u_alpha_token:
+            return True
+
+        # No alphabetic 'u' tokens (only single 'u' tokens or non-alpha) -> NOT JUNK
+        return False
 
     except Exception as e:
-        logger.error(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
-        # On error, keep the line to be safe
-        return False  # NOT JUNK, keep
+        logger.warning(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
+        # On error be conservative: keep the line
+        return False
 
 def split_source_by_u_delimiter(source_code):
     """
@@ -8386,7 +8423,7 @@ def ransomware_alert(file_path):
             if file_path.startswith(sandboxie_log_folder):
                 ransomware_detection_count += 1
                 logger.critical(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.logger.gen")
                 logger.critical(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
 
             # Normal processing for all flagged files.
@@ -13646,7 +13683,7 @@ class MonitorMessageCommandLine:
             },
             "stopeventlog": {
                 "patterns": [r"sc(?:\.exe)?\s+(?:stop|delete)\s+eventlog"],
-                "virus_name": "HEUR:Win32.StopEventLog.gen"
+                "virus_name": "HEUR:Win32.StopEventlogger.gen"
             },
             "delete_av_services": {
                 "patterns": [
@@ -14676,7 +14713,7 @@ class Worker(QThread):
             path = run_and_copy_log(label="pre")
             pre_analysis_log_path = path
             pre_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Pre-analysis log captured. Don't forget to capture the post-analysis log.: {os.path.basename(path)}")
+            self.output_signal.emit(f"[+] Pre-analysis log captured. Don't forget to capture the post-analysis logger.: {os.path.basename(path)}")
         elif post_analysis_log_path is None:
             path = run_and_copy_log(label="post")
             post_analysis_log_path = path
@@ -15564,7 +15601,7 @@ class AntivirusApp(QWidget):
 
     def analyze_file(self):
         """Open file dialog and start file analysis."""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = QFileDialogger.getOpenFileName(
             self,
             "Select a file to analyze",
             "",
