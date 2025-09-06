@@ -844,29 +844,6 @@ gs = ["google-cloud-storage"]
 s3 = ["boto3 (>=1.34.0)"]
 
 [[package]]
-name = "cmd2"
-version = "2.0.0"
-description = "cmd2 - quickly build feature-rich and user-friendly interactive command line applications in Python"
-optional = false
-python-versions = ">=3.6"
-groups = ["main"]
-files = [
-    {file = "cmd2-2.0.0-py3-none-any.whl", hash = "sha256:10f94cc8cb0d4f540447f68c6e5c48a25f1ade6cff0c8ae3f027a7071a163f9f"},
-    {file = "cmd2-2.0.0.tar.gz", hash = "sha256:b92bab278dc9e787e2d38384aae3d5035e60d5e290cb01db1122757f6b469e42"},
-]
-
-[package.dependencies]
-attrs = ">=16.3.0"
-colorama = ">=0.3.7"
-pyperclip = ">=1.6"
-pyreadline3 = {version = "*", markers = "sys_platform == \"win32\" and python_version >= \"3.8\""}
-wcwidth = ">=0.1.7"
-
-[package.extras]
-dev = ["codecov", "doc8", "flake8", "invoke", "nox", "pytest (>=4.6)", "pytest-cov", "pytest-mock", "sphinx", "sphinx-autobuild", "sphinx-rtd-theme", "twine (>=1.11)"]
-test = ["codecov", "coverage", "gnureadline ; sys_platform == \"darwin\"", "pytest (>=4.6)", "pytest-cov", "pytest-mock"]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 description = "Cross-platform colored terminal text."
@@ -1635,47 +1612,6 @@ groups = ["main"]
 files = [
     {file = "funcy-2.0-py2.py3-none-any.whl", hash = "sha256:53df23c8bb1651b12f095df764bfb057935d49537a56de211b098f4c79614bb0"},
     {file = "funcy-2.0.tar.gz", hash = "sha256:3963315d59d41c6f30c04bc910e10ab50a3ac4a225868bfa96feed133df075cb"},
-]
-
-[[package]]
-name = "gnureadline"
-version = "8.2.13"
-description = "The standard Python readline extension statically linked against the GNU readline library."
-optional = false
-python-versions = "*"
-groups = ["main"]
-markers = "platform_system == \"Darwin\""
-files = [
-    {file = "gnureadline-8.2.13-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:0ca03501ce0939d7ecf9d075860d6f6ceb2f49f30331b4e96e4678ce03687bab"},
-    {file = "gnureadline-8.2.13-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:c28e33bfc56d4204693f213abeab927f65c505ce91f668a039720bc7c46b0353"},
-    {file = "gnureadline-8.2.13-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6472e3a780087eecd67c03e5455aecb209de51bcae74583222976f6b816f6192"},
-    {file = "gnureadline-8.2.13-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:94b143ea5d22b0c1ca4a591265afe135272c69b7757e968e34fbb47a7858d1ce"},
-    {file = "gnureadline-8.2.13-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:561a60b12f74ea7234036cc4fe558f3b46023be0dac5ed73541ece58cba2f88a"},
-    {file = "gnureadline-8.2.13-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:daa405028b9fe92bfbb93624e13e0674a242a1c5434b70ef61a04294502fdb65"},
-    {file = "gnureadline-8.2.13-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:576dac060887adc6067ee9d23fb2f0031fb2b3e560e07a6c9e666e05f0473af7"},
-    {file = "gnureadline-8.2.13-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:10fcaf561bc4ed6ab7075ab3ead188a18faaf4e6e92d916f81a09c0a670ce906"},
-    {file = "gnureadline-8.2.13-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:9c152a82613fa012ab4331bb9a0ffddb415e37561d376b910bf9e7d535607faf"},
-    {file = "gnureadline-8.2.13-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:85e362d2d0e85e45f0affae7bbfaf998b00167c55a78d31ee0f214de9ff429d2"},
-    {file = "gnureadline-8.2.13-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b69e6608cc94e110018b721a11718d480a6330e0b62cbab65a22880e84011205"},
-    {file = "gnureadline-8.2.13-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0cc77fc9c8a8fcf10e0a554e49ee763219683386b8f906b7e6ef07c9e40e8420"},
-    {file = "gnureadline-8.2.13-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:2d3e33d2e0dd694d623a2ca1fae6990b52f1d25955504b7293a9350fb9912940"},
-    {file = "gnureadline-8.2.13-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:6c550d08c4d2882a83293a724b14a262ee5078fd4fa7acdc78aa59cab26ae343"},
-    {file = "gnureadline-8.2.13-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a7d6e3f5d9fd0cf8a84fb382d4e3ad2914331be4d929f17d50da01f1571c4b03"},
-    {file = "gnureadline-8.2.13-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f59275168cae1b02ca1ec7586a9804bb04ce427df92f8582a80d16e96c846b78"},
-    {file = "gnureadline-8.2.13-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:59c5505026646da6d5ced6a5316d6d191d011e8be422cba4abce71730ef37dc6"},
-    {file = "gnureadline-8.2.13-cp36-cp36m-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3f1050ecf789f34d0ab0aacdb605f177725009a864e0038e70380614af92dc0d"},
-    {file = "gnureadline-8.2.13-cp36-cp36m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:23b43c8e9e2e6566cb3094749826181a86dba1d94b1e023b5f9923dc26e37876"},
-    {file = "gnureadline-8.2.13-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:4f5fc90af56a1ae6f88c9c7122fc76141c395b6c342a63800abed8c813f48b85"},
-    {file = "gnureadline-8.2.13-cp37-cp37m-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d708e8f655d3b556a138f13e9fcb2d8a10a6901e3125c04cad5ef7c883191fe8"},
-    {file = "gnureadline-8.2.13-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:265bcf6ef7082e130160fb34b9664284affb216a22c5bffcd518b35d02bcc4e9"},
-    {file = "gnureadline-8.2.13-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:07231f8191adb7f204010a86a91df9df9a80944981a16576a471f59304ad6a16"},
-    {file = "gnureadline-8.2.13-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:30cc1b6cb11d94554815cb91eb1dfa6a11887185aae50f253adaa393e91c6a86"},
-    {file = "gnureadline-8.2.13-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:50c40bfffffa82d4fcb0fde4940d4ff128ba2f876c1da09bae9d6d9ff770095e"},
-    {file = "gnureadline-8.2.13-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:dcfa601d95c00aa670ec5e4bf791caf6ba0bcf266de940fb54d44c278bd302fe"},
-    {file = "gnureadline-8.2.13-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:c7b8d3f2a2c9b7e6feaf1f20bdb6ebb8210e207b8c5360ffe407a47efeeb3fb8"},
-    {file = "gnureadline-8.2.13-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:811d85a70ac97cddeb1755282915e8a93c279dcf89513426f28617b8feff5aec"},
-    {file = "gnureadline-8.2.13-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4f57a3aa97c3379b2513c8bfbac0de2dfb41f695623c0b2ad337babb646b51a7"},
-    {file = "gnureadline-8.2.13.tar.gz", hash = "sha256:c9b9e1e7ba99a80bb50c12027d6ce692574f77a65bf57bc97041cf81c0f49bd1"},
 ]
 
 [[package]]
@@ -4443,17 +4379,6 @@ files = [
 diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
-name = "pyperclip"
-version = "1.9.0"
-description = "A cross-platform clipboard module for Python. (Only handles plain text for now.)"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "pyperclip-1.9.0.tar.gz", hash = "sha256:b7de0142ddc81bfc5c7507eea19da920b92252b548b96186caf94a5e2527d310"},
-]
-
-[[package]]
 name = "pyppmd"
 version = "1.2.0"
 description = "PPMd compression/decompression library"
@@ -4525,34 +4450,6 @@ check = ["check-manifest", "flake8", "flake8-black", "flake8-isort", "mypy (>=1.
 docs = ["sphinx", "sphinx_rtd_theme"]
 fuzzer = ["atheris", "hypothesis"]
 test = ["coverage[toml] (>=5.2)", "hypothesis", "pytest (>=6.0)", "pytest-benchmark", "pytest-cov", "pytest-timeout"]
-
-[[package]]
-name = "pyreadline"
-version = "2.1"
-description = "A python implmementation of GNU readline."
-optional = false
-python-versions = "*"
-groups = ["main"]
-markers = "platform_system == \"Windows\""
-files = [
-    {file = "pyreadline-2.1.zip", hash = "sha256:4530592fc2e85b25b1a9f79664433da09237c1a270e4d78ea5aa3a2c7229e2d1"},
-]
-
-[[package]]
-name = "pyreadline3"
-version = "3.5.4"
-description = "A python implementation of GNU readline."
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-markers = "sys_platform == \"win32\""
-files = [
-    {file = "pyreadline3-3.5.4-py3-none-any.whl", hash = "sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6"},
-    {file = "pyreadline3-3.5.4.tar.gz", hash = "sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7"},
-]
-
-[package.extras]
-dev = ["build", "flake8", "mypy", "pytest", "twine"]
 
 [[package]]
 name = "pyside6"
@@ -6282,42 +6179,6 @@ files = [
 test = ["capstone (==5.0.1) ; python_version <= \"3.7\"", "capstone (==6.0.0a2) ; python_version > \"3.7\""]
 
 [[package]]
-name = "unicorn-unipacker"
-version = "1.0.3b7"
-description = "Un{i}packer fork of Unicorn CPU emulator engine"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "unicorn-unipacker-1.0.3b7.tar.gz", hash = "sha256:99510635a98080477af47ae09b6fb8a36bd0aa946990e16d9a0b918a3f78956d"},
-    {file = "unicorn_unipacker-1.0.3b7-py2.py3-none-macosx_10_14_x86_64.whl", hash = "sha256:702d083e3132c9d7b3a2672ae0ead9023477b8c6e872d385a0725152cc4b1dd4"},
-    {file = "unicorn_unipacker-1.0.3b7-py2.py3-none-manylinux1_x86_64.whl", hash = "sha256:ed0794293c644c7e2b8784ff9615f333f9fc41828957345916d1b979fe928ee9"},
-    {file = "unicorn_unipacker-1.0.3b7-py2.py3-none-win32.whl", hash = "sha256:29c0aa263a794bf6f1ece9ecbd2fa51b9cc556a77ab1c11bd97587b0908c004b"},
-    {file = "unicorn_unipacker-1.0.3b7-py2.py3-none-win_amd64.whl", hash = "sha256:2d9028e7024bac3ece405519c8df199f476d2979b9775f2aa239aef4ea198ccf"},
-]
-
-[[package]]
-name = "unipacker"
-version = "1.0.8"
-description = "Automatic and platform-independent unpacker for Windows binaries based on emulation"
-optional = false
-python-versions = ">=3.10"
-groups = ["main"]
-files = [
-    {file = "unipacker-1.0.8-py3-none-any.whl", hash = "sha256:1f561e3790c3df765440f2d40d4b90946b387a9e6573bc32c7900573264fed09"},
-]
-
-[package.dependencies]
-capstone = "*"
-cmd2 = "2.0.0"
-colorama = "*"
-gnureadline = {version = "*", markers = "platform_system == \"Darwin\""}
-pefile = "*"
-pyreadline = {version = "*", markers = "platform_system == \"Windows\""}
-unicorn-unipacker = "1.0.3b7"
-yara-python = "*"
-
-[[package]]
 name = "urllib3"
 version = "2.5.0"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
@@ -7114,4 +6975,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "f1bf71d417390621f7b052ab61843739046e000afdb668281b5fd2ee3c9bfc45"
+content-hash = "9547352b966b1e113eb3039ac5bcf543b929a8db5190f8aee013cc329e5cdc15"
