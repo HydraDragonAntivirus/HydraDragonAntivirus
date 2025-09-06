@@ -48,7 +48,6 @@ dependencies = [
     "androguard",
     "nltk",
     "flare-capa",
-    "unipacker",
     "die-python",
 
     # Pylingual reverse-engineering dependencies
