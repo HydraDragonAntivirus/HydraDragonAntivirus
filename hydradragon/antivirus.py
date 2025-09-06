@@ -1968,7 +1968,7 @@ def is_jsc_from_output(die_output: str) -> Optional[str]:
       - must contain "Format: JavaScript Compiled/Bytenode" or ".JSC"
 
     Tries to extract:
-      - a Bytenode/JSC version like v9.4.146.24 (looks for "v\d+\.\d+\.\d+\.\d+")
+      - a Bytenode/JSC version like v9.4.146.24 (looks for "v\\d+\\.\\d+\\.\\d+\\.\\d+")
       - V8 Version occurrences like "V8 Version 9.4.146.24"
       - architecture: "x86" or "x64" (looks for tokens near the version or anywhere in output)
 
