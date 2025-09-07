@@ -40,6 +40,23 @@ logger.info(
 total_start_time = time.time()
 
 start_time = time.time()
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+                               QPushButton, QLabel, QTextEdit,
+                               QFrame, QStackedWidget, QLineEdit,
+                               QApplication, QButtonGroup, QGroupBox)
+logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
+logger.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
+                           QPainterPath, QRadialGradient, QIcon, QPixmap)
+logger.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import die
 logger.info(f"die imported in {time.time() - start_time:.6f} seconds")
 
@@ -87,23 +104,6 @@ logger.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import json
 logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QLabel, QTextEdit,
-                               QFrame, QStackedWidget, QLineEdit,
-                               QApplication, QButtonGroup, QGroupBox)
-logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
-logger.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
-                           QPainterPath, QRadialGradient, QIcon, QPixmap)
-logger.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
