@@ -57,10 +57,6 @@ from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
 logger.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import die
-logger.info(f"die imported in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import clamav
 logger.info(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
@@ -512,6 +508,7 @@ detectiteasy_plain_text_dir = os.path.join(script_dir, "detectiteasy_plain_text"
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
+detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
@@ -1725,7 +1722,7 @@ def advanced_installer_extractor(file_path):
 
 def analyze_file_with_die(file_path):
     """
-    Runs native Detect It Easy (DIE) on the given file and returns the DIE output (plain text).
+    Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
     The output is also saved to a unique .txt file and displayed to the user.
     """
     try:
@@ -1737,58 +1734,39 @@ def analyze_file_with_die(file_path):
         base_name = Path(file_path).with_suffix(".txt")
         txt_output_path = get_unique_output_path(output_dir, base_name)
 
-        # Run native DIE scan
-        result = die.scan_file(file_path, die.ScanFlags.RESULT_AS_JSON)
-
-        # Format output to match original plain text format
-        if not result or 'detects' not in result:
-            stdout_output = "Binary\n    Unknown: Unknown"
-        else:
-            output_lines = ["Binary"]
-            for detect in result['detects']:
-                if 'values' in detect:
-                    for value in detect['values']:
-                        name = value.get('name', 'Unknown')
-                        version = value.get('version', '')
-                        type_info = value.get('type', '')
-                        info = value.get('info', '')
-
-                        if version:
-                            line = f"    {type_info}: {name}({version})"
-                        else:
-                            line = f"    {type_info}: {name}"
-
-                        if info:
-                            line += f"[{info}]"
-
-                        output_lines.append(line)
-
-            if len(output_lines) == 1:
-                output_lines.append("    Unknown: Unknown")
-
-            stdout_output = "\n".join(output_lines)
+        # Run the DIE command once with the -p flag for plain output
+        result = subprocess.run(
+            [detectiteasy_console_path, "-p", file_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
+        )
 
         # Save the plain text output
         with open(txt_output_path, "w", encoding="utf-8") as txt_file:
-            txt_file.write(stdout_output)
+            txt_file.write(result.stdout)
 
         logger.info(f"Analysis result saved to {txt_output_path}")
 
         # Display the result using logging
-        if stdout_output.strip():
+        if result.stdout.strip():
             logger.info(f"{'='*60}")
             logger.info(f"DIE Analysis Result for: {Path(file_path).name}")
             logger.info(f"{'='*60}")
-            logger.info(stdout_output)
+            logger.info(result.stdout)
             logger.info(f"{'='*60}")
             logger.info(f"Result saved to: {txt_output_path}")
         else:
             logger.error(f"No DIE output for {Path(file_path).name}")
+            if result.stderr:
+                logger.error(f"DIE stderr output: {result.stderr}")
 
-        return stdout_output
+        return result.stdout
 
-    except Exception as ex:
+    except subprocess.SubprocessError as ex:
         error_msg = f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        logger.error(error_msg)
+        return None
+    except Exception as ex:
+        error_msg = f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
         logger.error(error_msg)
         return None
 
