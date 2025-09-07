@@ -254,7 +254,10 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used https://github.com/HydraDragonAntivirus/yarGen to create machinelearning.yar.
 
 **How many repositories did you look at for this project?**
-- For YARA and website signatures, I looked at many projects—possibly more than 1,000.
+- For YARA and website signatures, I looked at many projects-possibly more than 1,000.
+
+**Why doesn't the program open?**
+- Your installation might be broken. You can check the logs to determine the issue, because if the connection was lost during installation, it can affect the installation significantly. Try reinstalling to fix the problem.
 
 ### Credits:
 - All credits goes to Emirhan Uçan
