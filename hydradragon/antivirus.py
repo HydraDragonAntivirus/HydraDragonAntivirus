@@ -90,7 +90,7 @@ logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QLabel, QTextEdit, QFileDialog,
+                               QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox)
 logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
