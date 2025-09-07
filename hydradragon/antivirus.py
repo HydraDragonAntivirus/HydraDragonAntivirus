@@ -11,7 +11,6 @@ os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
 from hydra_logger import application_log_file, log_directory, script_dir, logger
-import clamav
 
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
@@ -39,6 +38,14 @@ logger.info(
 
 # Start timing total duration
 total_start_time = time.time()
+
+start_time = time.time()
+import die
+logger.info(f"die imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import clamav
+logger.info(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 # Measure and logger.info time taken for each import
 start_time = time.time()
@@ -353,10 +360,6 @@ logger.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_tim
 start_time = time.time()
 import capstone
 logger.info(f"capstone imported in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import die
-logger.info(f"die imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import nltk
