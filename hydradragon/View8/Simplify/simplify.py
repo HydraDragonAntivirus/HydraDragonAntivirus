@@ -1,5 +1,5 @@
 import re
-from Simplify.function_context_stack import function_context_stack
+from .function_context_stack import function_context_stack
 
 
 def get_block_type(idx, lines):
