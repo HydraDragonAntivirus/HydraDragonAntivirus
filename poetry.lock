@@ -1189,44 +1189,6 @@ files = [
 ]
 
 [[package]]
-name = "die-python"
-version = "0.4.0"
-description = "Python bindings for Detect It Easy (DIE)."
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "die_python-0.4.0-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:19c6a7bfd9ab275b77d5f4cc9ffa85fd597d43cbe84912948970b6dc45b548d5"},
-    {file = "die_python-0.4.0-cp310-cp310-manylinux_2_34_aarch64.whl", hash = "sha256:12a269f32650d2662ed8fe580cc0c033b661590bda08de58cfaa535902ee5bda"},
-    {file = "die_python-0.4.0-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:8a540b95aafba095b430b5eeda6518cc6be412bea97a1b4e4a3bb0a76bc7ec91"},
-    {file = "die_python-0.4.0-cp310-cp310-win_amd64.whl", hash = "sha256:ec5561f513dd9b4aae98253d09052f18e33dc31acf8f38868e1bb420c572ae02"},
-    {file = "die_python-0.4.0-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:93dd2ce1b252e131ef7e0454796d24c822e70a8ebd45fbd8d0378892a96ef908"},
-    {file = "die_python-0.4.0-cp311-cp311-manylinux_2_34_aarch64.whl", hash = "sha256:24a400c0a6850a5d1cd4730e09bf8ae28639f64e8689a8472f946dfa30764e43"},
-    {file = "die_python-0.4.0-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:d1d2784500f8a3d285d55592d4b0e703da14febb457515f00d4ff3c348cc1866"},
-    {file = "die_python-0.4.0-cp311-cp311-win_amd64.whl", hash = "sha256:6f02941353fb9839684582d5d9a4512bb75cac679b820ff4e270da6d7a1eaca7"},
-    {file = "die_python-0.4.0-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:6e10e47d6e08c5a3d76777285b1d94826ae99b086fb3ca7d818c78226fb7f7ec"},
-    {file = "die_python-0.4.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:9509702bd131c49c291bafec1c4be0f5b068b03222fe6d17320892526204ac90"},
-    {file = "die_python-0.4.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:429a9bab5cd47323b582ce836f2e21c88bda2ae579681c1bb6ca1ee968186f53"},
-    {file = "die_python-0.4.0-cp312-cp312-win_amd64.whl", hash = "sha256:1a998c0b4cab237ac4d5e95ec90faca2b290f1f35002969ec904c03c58b22957"},
-    {file = "die_python-0.4.0-cp313-abi3-macosx_13_0_x86_64.whl", hash = "sha256:bdb7b95f77f3c79752864aa5584a1951ac848a7e13b7740e2005963d471b648b"},
-    {file = "die_python-0.4.0-cp313-abi3-manylinux_2_34_aarch64.whl", hash = "sha256:9e47691bf648a4a88ce035a6b0c8239b92e4df945a6835a7ccd04414c4465f62"},
-    {file = "die_python-0.4.0-cp313-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:eb5a7d7d053b8d6238695fe2bfc080b44a31a3b8d101cdf12aee71ea32a94bcd"},
-    {file = "die_python-0.4.0-cp313-abi3-win_amd64.whl", hash = "sha256:9b28b623760126344d34df836a7d5ce688f4423b1c01d46191765e6f6f71462d"},
-    {file = "die_python-0.4.0-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:5aa56705ae9390e61cd626849aaff86260f451e238ba1975892aae654ac68160"},
-    {file = "die_python-0.4.0-cp39-cp39-manylinux_2_34_aarch64.whl", hash = "sha256:60b4c1f6ae386b3a252ad5edb1741377092a7e318762dac53133eeaca545a53e"},
-    {file = "die_python-0.4.0-cp39-cp39-manylinux_2_34_x86_64.whl", hash = "sha256:8175af9862655d9f681988932c2c98009d53fb3d06c39e91b6bc048c229e45e8"},
-    {file = "die_python-0.4.0-cp39-cp39-win_amd64.whl", hash = "sha256:612bbc0bf1ff67a5d7fe9a4d3c490b65e123e55caf53a2bdb11f51d361745bb7"},
-]
-
-[package.dependencies]
-nanobind = "*"
-setuptools = "*"
-wheel = "*"
-
-[package.extras]
-tests = ["beautifulsoup4", "black", "lxml", "pytest"]
-
-[[package]]
 name = "dill"
 version = "0.3.8"
 description = "serialize all of Python"
@@ -3001,18 +2963,6 @@ files = [
 
 [package.extras]
 test = ["pytest", "pytest-benchmark"]
-
-[[package]]
-name = "nanobind"
-version = "2.8.0"
-description = "nanobind: tiny and efficient C++/Python bindings"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "nanobind-2.8.0-py3-none-any.whl", hash = "sha256:80fd403cfe4c8553b237ba5fbb62971921e2c5d1e6eb4a2fd457c67f987ab56f"},
-    {file = "nanobind-2.8.0.tar.gz", hash = "sha256:94e7bf6aa1d7dff9566eddc15252aba94fdadbf67a99a169bfab34b708427cd8"},
-]
 
 [[package]]
 name = "networkx"
@@ -6338,21 +6288,6 @@ typer = ">=0.3.0,<1.0.0"
 wasabi = ">=0.9.1,<1.2.0"
 
 [[package]]
-name = "wheel"
-version = "0.45.1"
-description = "A built-package format for Python"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "wheel-0.45.1-py3-none-any.whl", hash = "sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248"},
-    {file = "wheel-0.45.1.tar.gz", hash = "sha256:661e1abd9198507b1409a20c02106d9670b2576e916d58f520316666abca6729"},
-]
-
-[package.extras]
-test = ["pytest (>=6.0.0)", "setuptools (>=65)"]
-
-[[package]]
 name = "win32-setctime"
 version = "1.2.0"
 description = "A small Python utility to set file creation time on Windows"
@@ -6975,4 +6910,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "a1dda21dd57023517d7d67cc6ad456e5c5fffb0cba449474d598a728e2c4e786"
+content-hash = "f4bb24a64060b12f33375b5e41358cf15e43f5579e1fb012a4e3d54ffecccf04"
