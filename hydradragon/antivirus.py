@@ -41,9 +41,9 @@ total_start_time = time.time()
 
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QLabel, QTextEdit,
+                               QPushButton, QLabel, QTextEdit, 
                                QFrame, QStackedWidget, QLineEdit,
-                               QApplication, QButtonGroup, QGroupBox)
+                               QApplication, QButtonGroup, QGroupBox, QFileDialog)
 logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -13587,10 +13587,6 @@ class MonitorMessageCommandLine:
         self.executor = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
 
-        # Store monitored paths
-        self.main_file_path = os.path.abspath(main_file_path)
-        self.sandboxie_folder = os.path.abspath(sandboxie_folder)
-
         # Patterns for window text content (dialog boxes, messages, etc.)
         self.known_malware_messages_text = {
             "classic": {
@@ -15585,7 +15581,7 @@ class AntivirusApp(QWidget):
 
     def analyze_file(self):
         """Open file dialog and start file analysis."""
-        file_path, _ = QFileDialogger.getOpenFileName(
+        file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select a file to analyze",
             "",
