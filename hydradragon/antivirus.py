@@ -10,7 +10,7 @@ main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
-from hydra_logger import application_log_file, log_directory, script_dir, logger
+from hydra_logger import application_log_file, log_directory, script_dir, logger, reinitialize_hydra_logger
 
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
@@ -621,12 +621,6 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
 # Windows event logs
 evtx_logs_path = os.path.join(system32_dir, "winevt\\Logs")
-
-# Setup logging
-logger.basicConfig(
-    level=logger.INFO,
-    format="[%(levelname)s] %(message)s"
-)
 
 # PE file format constants
 IMAGE_DOS_SIGNATURE = 0x5A4D  # MZ
@@ -15051,41 +15045,27 @@ class Worker(QThread):
 
     def reinitialize_logging(self):
         """
-        Reinitializes logging after cleanup.
+        Reinitializes logging after cleanup using hydra_logger.
+        Keeps stdout/stderr redirection.
         """
         try:
-            # Get the main script directory
             log_directory = os.path.join(script_dir, "log")
-
-            # Create log directory if it doesn't exist
-            if not os.path.exists(log_directory):
-                os.makedirs(log_directory)
+            os.makedirs(log_directory, exist_ok=True)
 
             # Define log file paths
             stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
             stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
-            application_log_file = os.path.join(log_directory, "antivirus.log")
 
-            # Configure logging for application log
-            logger.basicConfig(
-                filename=application_log_file,
-                level=logger.DEBUG,
-                format='%(asctime)s - %(levelname)s - %(message)s',
-                force=True  # This forces reconfiguration
-            )
+            # --- Reset Hydra logger via hydra_logger.py ---
+            reinitialize_hydra_logger()
 
-            # Redirect stdout to stdout console log
+            # --- Stdout/Stderr redirection ---
             sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
-
-            # Redirect stderr to stderr console log
             sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
 
-            # Log the reinitialization
+            # --- Log reinitialization event ---
             from datetime import datetime
-            logger.info(
-                "Logging reinitialized at %s",
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            )
+            logger.info("Logging reinitialized at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
             self.output_signal.emit("[+] Logging reinitialized successfully!")
 
