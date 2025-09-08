@@ -1,7 +1,7 @@
 
 import subprocess
 import os
-from Parser.sfi_file_parser import parse_file
+from .sfi_file_parser import parse_file
 
 
 def get_version(view8_dir, file_name):
