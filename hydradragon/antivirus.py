@@ -4659,11 +4659,20 @@ def scan_file_with_clamav(file_path):
 def is_related_to_critical_paths(file_path: str) -> bool:
     """
     Checks whether a file is part of critical paths.
-    Returns True if the file is inside sandboxie_folder or is the main file.
+    Returns True if:
+    - The file is inside sandboxie_folder
+    - The file is the main file
+    - The file has already been scanned (is in seen_files)
     """
     if not isinstance(file_path, str):
         return False
     norm_path = os.path.abspath(file_path)
+
+    # Check if file is in seen_files
+    if any(norm_path.lower() == path for path, _ in seen_files):
+        return True
+
+    # Check sandbox folder or main file
     return norm_path.startswith(sandboxie_folder) or norm_path == main_file_path
 
 # --- The RealTimeWebProtectionHandler Class ---
