@@ -1,5 +1,5 @@
-from Translate.translate_table import operands
-from Translate.jump_blocks import convert_jumps_to_logical_flow
+from .translate_table import operands
+from .jump_blocks import convert_jumps_to_logical_flow
 
 
 class Jump:

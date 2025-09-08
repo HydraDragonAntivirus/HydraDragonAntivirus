@@ -1,5 +1,5 @@
-from Translate.translate import translate_bytecode
-from Simplify.simplify import simplify_translated_bytecode
+from ..Translate.translate import translate_bytecode
+from ..Simplify.simplify import simplify_translated_bytecode
 
 
 class CodeLine:
