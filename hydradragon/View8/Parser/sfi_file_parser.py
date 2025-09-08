@@ -1,4 +1,4 @@
-from Parser.shared_function_info import SharedFunctionInfo, CodeLine
+from .Parser.shared_function_info import SharedFunctionInfo, CodeLine
 from parse import parse
 import re
 
