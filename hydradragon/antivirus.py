@@ -41,7 +41,7 @@ total_start_time = time.time()
 
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QLabel, QTextEdit, 
+                               QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox, QFileDialog)
 logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
@@ -913,6 +913,9 @@ HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJac
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
 version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
+
+# --- Global tracking sets ---
+seen_files = set()  # Tracks already-scanned (path, md5) tuples
 
 script_exts = {
     '.vbs', '.vbe', '.js', '.jse', '.bat', '.url',
@@ -4653,9 +4656,15 @@ def scan_file_with_clamav(file_path):
         logger.error(f"Error scanning file {file_path}: {ex}")
         return "Error"
 
-def is_related_to_critical_paths(file_path):
-    return file_path.startswith(sandboxie_folder) or file_path == main_file_path
-
+def is_related_to_critical_paths(file_path: str) -> bool:
+    """
+    Checks whether a file is part of critical paths.
+    Returns True if the file is inside sandboxie_folder or is the main file.
+    """
+    if not isinstance(file_path, str):
+        return False
+    norm_path = os.path.abspath(file_path)
+    return norm_path.startswith(sandboxie_folder) or norm_path == main_file_path
 
 # --- The RealTimeWebProtectionHandler Class ---
 
@@ -11291,6 +11300,8 @@ def scan_and_warn(file_path,
     Only does ransomware_alert and worm_alert once per unique file path.
     """
     try:
+        global seen_files  # <- Use the global set
+
         # Initialize variables
         perform_special_scan = False
         is_decompiled = False
@@ -11328,18 +11339,14 @@ def scan_and_warn(file_path,
         # Compute a quick MD5
         md5 = compute_md5(norm_path)
 
-        # Initialize our seen-set once, on the function object
-        if not hasattr(scan_and_warn, "_seen"):
-            scan_and_warn._seen = set()
-
         # If we've already scanned this exact (path, hash), skip immediately
         key = (norm_path.lower(), md5)
-        if key in scan_and_warn._seen:
+        if key in seen_files:
             logger.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})")
             return False
 
          # Mark it seen and proceed
-        scan_and_warn._seen.add(key)
+        seen_files.add(key)
 
         # SNAPSHOT the cache entry _once_ up front:
         initial_md5_in_cache = file_md5_cache.get(norm_path)
