@@ -1,8 +1,5 @@
-import argparse
 import os
 from Parser.parse_v8cache import parse_v8cache_file, parse_disassembled_file
-from Simplify.global_scope_replace import replace_global_scope
-
 
 def disassemble(in_file, input_is_disassembled, disassembler):
     out_name = 'disasm.tmp'
