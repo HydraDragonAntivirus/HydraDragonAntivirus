@@ -59,7 +59,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Setup file on release HydraDragonAntivirus.exe
 
 ## Logs
-- You must look at critical alerts in the logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragon\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
+- You must look at critical alerts in the logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragon\log\antivirus.log and C:\Sandbox\%userprofile%\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
 
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
