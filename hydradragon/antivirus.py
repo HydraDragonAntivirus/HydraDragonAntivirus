@@ -437,6 +437,7 @@ unlicense_x64_path  = os.path.join(script_dir, "unlicense-x64.exe")
 capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
+webcrack_javascript_deobfuscated_dir = os.path.join(script_dir, "webcrack_javascript_deobfuscated")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
 av_events_json_file_path = os.path.join(script_dir, "av_events.json")
@@ -974,14 +975,6 @@ HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
 # IPv4 patterns (standard and all variations)
 IPv4_pattern_standard = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
 
-IPv4_pattern = (
-    r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'  # Standard
-    r'|(?:[0-9]{1,3}\.){3}[0-9]{1,3}'  # Non-standard (allows invalid ranges)
-    r'|[A-Za-z0-9+/]{8,24}={0,2}'  # Base64 encoded IPv4 (8-24 chars for typical IP encodings)
-    r'|[A-Z2-7]{8,40}={0,6}'  # Base32 encoded IPv4
-    r'|\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b'  # Reversed format (same structure)
-)
-
 # IPv6 patterns (standard and all variations)
 IPv6_pattern_standard = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}::'
 
@@ -1083,7 +1076,7 @@ COMMON_DIRECTORIES = [
     advanced_installer_extracted_dir, processed_dir, python_source_code_dir,
     pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
-    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
+    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
     copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
 ]
@@ -1122,6 +1115,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
     (lambda fp: fp.startswith(capa_results_dir), "CAPA program capabilities extracted."),
     (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
+    (lambda fp: fp.startswith(webcrack_javascript_deobfuscated_dir), "JavaScript file deobfuscated with webcrack."),
     (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
     (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
@@ -1977,7 +1971,7 @@ def is_jsc_from_output(die_output: str) -> Optional[str]:
     m = re.search(r'\(v(\d+\.\d+\.\d+\.\d+)\s*(x86|x64)?\)', s)
     if m:
         version = m.group(1)
-        arch_in_paren = m.group(2)
+        # arch_in_paren = m.group(2)
     else:
         m = re.search(r'\bv(\d+\.\d+\.\d+\.\d+)\b', s)
         if m:
@@ -3820,6 +3814,7 @@ def get_signature(base_signature, **flags):
         'dotnet_flag': 'DotNET',
         'fernflower_flag': 'Java',
         'jsc_flag': 'JavaScript.ByteCode.v8',
+        'javascript_deobfuscated_flag': 'JavaScript',
         'nuitka_flag': 'Nuitka',
         'nsis_flag': 'NSIS',
         'pyc_flag': 'PYC.Python',
@@ -4014,7 +4009,7 @@ def scan_ip_address_general(ip_address, **flags):
             return False, ""
 
         # IPv6 processing
-        if re.match(IPv6_pattern, ip_address):
+        if re.match(IPv6_pattern_standard, ip_address):
             scanned_ipv6_addresses_general.append(ip_address)
             logger.info(f"Scanning IPv6 address: {ip_address}")
 
@@ -9877,6 +9872,44 @@ def extract_asar_file(file_path):
     except Exception as ex:
         logger.error(f"Error processing Asar file {file_path}: {ex}")
 
+def deobfuscate_webcrack_js(file_path) -> str:
+    """
+    Deobfuscates a JavaScript bundle using 'webcrack' CLI and returns
+    the output directory containing deobfuscated files.
+
+    :param file_path: Path to the JavaScript file (e.g., bundle.js)
+    :return: Path to the deobfuscated output directory
+    """
+    try:
+        logger.info(f"Detected JavaScript bundle: {file_path}")
+
+        # Create a unique numbered subdirectory under webcrack_javascript_deobfuscated_dir
+        folder_number = 1
+        while os.path.exists(os.path.join(webcrack_javascript_deobfuscated_dir, str(folder_number))):
+            folder_number += 1
+        js_output_dir = os.path.join(webcrack_javascript_deobfuscated_dir, str(folder_number))
+        os.makedirs(js_output_dir, exist_ok=True)
+
+        # Run webcrack deobfuscation command
+        webcrack_command = [
+            "webcrack",
+            file_path,
+            "-o",
+            js_output_dir
+        ]
+        subprocess.run(webcrack_command, check=True)
+        logger.info(f"JavaScript deobfuscated to {js_output_dir}")
+
+        # Return the path for later scanning
+        return js_output_dir
+
+    except subprocess.CalledProcessError as ex:
+        logger.error(f"webcrack deobfuscation failed for {file_path}: {ex}")
+        return ""
+    except Exception as ex:
+        logger.error(f"Error processing JavaScript file {file_path}: {ex}")
+        return ""
+
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
@@ -11309,8 +11342,6 @@ def scan_and_warn(file_path,
     Only does ransomware_alert and worm_alert once per unique file path.
     """
     try:
-        global seen_files  # <- Use the global set
-
         # Initialize variables
         perform_special_scan = False
         is_decompiled = False
@@ -11591,52 +11622,70 @@ def scan_and_warn(file_path,
 
         def jsc_analysis(die_output: str, norm_path: str):
             """
-            If DIE output indicates a compiled JavaScript (Bytenode .JSC),
-            automatically decompile using View8 and scan the result.
+            If DIE output indicates a compiled JavaScript (Bytenode .JSC or bundle.js),
+            first decode/decompile using View8, then optionally deobfuscate with Webcrack,
+            and finally scan the resulting files.
             """
             try:
-                # Detect if it's a JSC file
+                # Detect if it's a JSC or JS bundle file
                 jsc_result = is_jsc_from_output(die_output)
                 if not jsc_result:
                     return  # Not a JSC file, skip
 
-                logger.info(f"File {norm_path} detected as {jsc_result} (Bytenode / .JSC).")
+                logger.info(f"File {norm_path} detected as {jsc_result} (Bytenode / .JSC / JS bundle).")
 
-                # Generate output file path
-                output_file = str(Path(decompiled_jsc_dir) / (Path(norm_path).stem + "_decompiled.js"))
+                # Step 0: Create a unique subfolder for this decompiled JSC
+                folder_number = 1
+                while os.path.exists(os.path.join(decompiled_jsc_dir, str(folder_number))):
+                    folder_number += 1
+                file_decompiled_dir = os.path.join(decompiled_jsc_dir, str(folder_number))
+                os.makedirs(file_decompiled_dir, exist_ok=True)
 
-                logger.info(f"Decompiling {norm_path} to {output_file} using View8...")
-
+                # Step 1: Decode/Decompile using View8
                 try:
-                    # Decompile directly using view8 functions
-                    all_func = disassemble(norm_path, False, None)
+                    all_func = disassemble(norm_path, input_is_disassembled=False, disassembler=None)
+                    export_file_path = os.path.join(file_decompiled_dir, Path(norm_path).stem + "_decompiled.js")
                     decompile(all_func)
-                    export_to_file(output_file, all_func, ["decompiled"])
+                    export_to_file(export_file_path, all_func, ["decompiled"])
+                    logger.info(f"Successfully decompiled {norm_path} to {export_file_path}")
+                except Exception as decomp_err:
+                    logger.error(f"View8 decompilation failed for {norm_path}: {decomp_err}")
+                    return
 
-                    logger.info(f"Successfully decompiled {norm_path} to {output_file}")
+                # Step 2: Optionally deobfuscate with Webcrack
+                try:
+                    js_output_dir = deobfuscate_webcrack_js(export_file_path)
+                except Exception as deobf_err:
+                    logger.error(f"Webcrack deobfuscation failed for {export_file_path}: {deobf_err}")
+                    js_output_dir = export_file_path  # fallback: just scan the decompiled file
 
-                    # Read the decompiled JS code
+                # Step 3: Scan decompiled/deobfuscated files
+                scan_paths = []
+                if os.path.isdir(js_output_dir):
+                    for root, _, files in os.walk(js_output_dir):
+                        for file in files:
+                            scan_paths.append(os.path.join(root, file))
+                else:
+                    scan_paths.append(js_output_dir)
+
+                for file_path_full in scan_paths:
                     try:
-                        with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                            decompiled_code = f.read()
-                    except Exception as read_err:
-                        logger.error(f"Failed to read decompiled JS {output_file}: {read_err}")
-                        return
+                        with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
 
-                    # Start scanning the decompiled JS file
-                    threading.Thread(
-                        target=scan_code_for_links,
-                        args=(decompiled_code, output_file),
-                        kwargs={"jsc_flag": True}
-                    ).start()
+                        threading.Thread(
+                            target=scan_code_for_links,
+                            args=(content, file_path_full),
+                            kwargs={"jsc_flag": True}
+                        ).start()
 
-                    threading.Thread(
-                        target=scan_and_warn,
-                        args=(output_file,),
-                    ).start()
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(file_path_full,),
+                        ).start()
 
-                except Exception as decompile_err:
-                    logger.error(f"View8 decompilation failed for {norm_path}: {decompile_err}")
+                    except Exception as scan_err:
+                        logger.error(f"Error scanning file {file_path_full}: {scan_err}")
 
             except Exception as e:
                 logger.error(f"Error in JSC analysis for {norm_path}: {e}")
@@ -12069,6 +12118,43 @@ def scan_and_warn(file_path,
             # Wait for file reading to complete
             file_read_thread.join()
             lines = thread_results['file_lines']
+
+        # If file is a .js file, deobfuscate it first
+        if norm_path.lower().endswith(".js"):
+            try:
+                logger.info(f"Detected JavaScript file: {norm_path}, deobfuscating with Webcrack...")
+                output_dir = deobfuscate_webcrack_js(norm_path)
+
+                if output_dir and os.path.exists(output_dir):
+                    logger.info(f"Scanning deobfuscated JS files in: {output_dir}")
+
+                    for root, _, files in os.walk(output_dir):
+                        for file in files:
+                            file_path_full = os.path.join(root, file)
+                            logger.info(f"Scanning deobfuscated file: {file_path_full}")
+
+                            try:
+                                with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                                    content = f.read()
+
+                                # Scan for links, IPs, domains, Discord webhooks
+                                threading.Thread(
+                                    target=scan_code_for_links,
+                                    args=(content, file_path_full),
+                                    kwargs={"javascript_deobfuscated_flag": True}
+                                ).start()
+
+                                # Optional additional scanning/warnings
+                                threading.Thread(
+                                    target=scan_and_warn,
+                                    args=(file_path_full,),
+                                ).start()
+
+                            except Exception as scan_err:
+                                logger.error(f"Error scanning file {file_path_full}: {scan_err}")
+
+            except Exception as deobf_err:
+                logger.error(f"Webcrack deobfuscation failed for {norm_path}: {deobf_err}")
 
             # Homepage change processing (direct execution - needs early processing)
             if norm_path == homepage_change_path:

@@ -143,8 +143,17 @@ if %errorlevel% equ 0 (
     echo Failed to install 'asar' package.
 )
 
+rem 15. Install webcrack globally with npm
+echo Installing 'webcrack' npm package globally...
+"%NODEJS_PATH%\npm.cmd" install -g webcrack
+if %errorlevel% equ 0 (
+    echo 'webcrack' package installed successfully.
+) else (
+    echo Failed to install 'webcrack' package.
+)
+
 rem --------------------------------------------------------------------------
-rem 15. Navigate to HydraDragon pkg-unpacker folder and build npm project
+rem 16. Navigate to HydraDragon pkg-unpacker folder and build npm project
 if exist "%PKG_UNPACKER_DIR%" (
     echo Navigating to HydraDragon pkg-unpacker folder...
     cd /d "%PKG_UNPACKER_DIR%"
