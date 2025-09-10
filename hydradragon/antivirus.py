@@ -4221,18 +4221,120 @@ def _dec32(b32: str) -> str:
 
 # --------------------------------------------------------------------------
 # Build URL regex at runtime
+def detect_obfuscated_urls(text):
+    """
+    Detect and return both original obfuscated URLs and their decoded versions
+    """
+    import re
+
+    if not text:
+        return []
+
+    obfuscated_patterns = {
+        'hxxp': 'http',
+        'hxxps': 'https',
+        'fxp': 'ftp',
+        'h**p': 'http',
+        'h**ps': 'https',
+        'ht*p': 'http',
+        'ht*ps': 'https',
+        'htt*p': 'http',
+        'htt*s': 'https',
+        'h_t_t_p': 'http',
+        'h_t_t_p_s': 'https',
+    }
+
+    bracket_patterns = {
+        '[.]': '.',
+        '[dot]': '.',
+        '(.)': '.',
+        '(dot)': '.',
+        '{.}': '.',
+        '{dot}': '.',
+    }
+
+    results = []
+
+    # Find obfuscated URLs with protocols
+    obfuscated_url_pattern = re.compile(
+        r'(h[tx*_\s]{1,6}ps?|f[tx*_\s]{1,3}p)://[^\s<>"\'{}|\\^`]*',
+        re.IGNORECASE
+    )
+
+    for match in obfuscated_url_pattern.finditer(text):
+        original = match.group(0)
+        decoded = original.lower()
+
+        # Fix protocol
+        for obf, real in obfuscated_patterns.items():
+            if decoded.startswith(obf):
+                decoded = decoded.replace(obf, real, 1)
+                break
+
+        # Fix domain brackets
+        for bracket, dot in bracket_patterns.items():
+            decoded = decoded.replace(bracket, dot)
+
+        # Remove extra spaces and underscores from protocol
+        decoded = re.sub(r'h[\s_]*t[\s_]*t[\s_]*p[\s_]*s?[\s_]*:', 'https:', decoded)
+        decoded = re.sub(r'h[\s_]*t[\s_]*t[\s_]*p[\s_]*:', 'http:', decoded)
+        decoded = re.sub(r'f[\s_]*t[\s_]*p[\s_]*:', 'ftp:', decoded)
+
+        results.append({
+            'original': original,
+            'decoded': decoded,
+            'type': 'obfuscated_url'
+        })
+
+    # Find bracket-obfuscated domains without protocol
+    domain_pattern = re.compile(r'[a-zA-Z0-9-]+(?:\[[.\]dot\]|\(\.\)|\{[\.\]dot\})[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?')
+
+    for match in domain_pattern.finditer(text):
+        original = match.group(0)
+        decoded = original
+
+        for bracket, dot in bracket_patterns.items():
+            decoded = decoded.replace(bracket, dot)
+
+        results.append({
+            'original': original,
+            'decoded': decoded,
+            'type': 'obfuscated_domain'
+        })
+
+    return results
+
+# Also update your build_url_regex function with these additional patterns:
 def build_url_regex():
     parts = [
         # Normal protocols
         r'https?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
         r'ftp://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
 
-        # Base64-obfuscated protocols
+        # Obfuscated protocols (hxxps://, hxxp://, fxp://)
+        r'hxxps?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'fxp://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+
+        # X-obfuscated protocols (more variations)
+        r'h[tx]{2}ps?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'f[tx]p://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+
+        # Bracket-obfuscated domains (e.g., example[.]com, test[dot]com)
+        r'https?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'hxxps?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'h[tx]{2}ps?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+
+        # Specific bracket patterns for domains
+        r'[a-zA-Z0-9-]+\[[\.\]dot]\][a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
+        r'[a-zA-Z0-9-]+\(\.\)[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
+        r'[a-zA-Z0-9-]+\{[\.\]dot]\}[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
+
+        # Base64-obfuscated protocols (your existing code)
         _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/]*={0,2}",   # https://
         _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",   # http://
         _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",    # ftp://
 
-        # Reversed/obfuscated
+        # Reversed/obfuscated (your existing code)
         r'//:[a-z]{4,5}sptth',
         r'//:[a-z]{4}ptth',
         r'//:[a-z]{3}ptf',
@@ -4241,8 +4343,19 @@ def build_url_regex():
         r'NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P[A-Z2-7]*={0,6}',
         r'NBXXK4TFMFZGKIDCMJUWC2LP[A-Z2-7]*={0,6}',
         r'MZXW6IDCMFZWK4Q=[A-Z2-7]*={0,6}',
+
+        # Additional obfuscation patterns
+        r'h\*\*ps?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',  # h**ps://
+        r'ht\*ps?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',   # ht*ps://
+        r'htt\*s?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',   # htt*s://
+
+        # Protocol with underscores
+        r'h_t_t_p_s?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+
+        # Spaced protocols
+        r'h\s*t\s*t\s*p\s*s?\s*:\s*/\s*/[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
     ]
-    return re.compile(r'|'.join(parts))
+    return re.compile(r'|'.join(parts), re.IGNORECASE)
 
 # --------------------------------------------------------------------------
 # Build IPv4/IPv6 regex at runtime
@@ -4297,30 +4410,97 @@ def build_ip_patterns():
 def scan_code_for_links(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord-related URLs, general URLs, domains,
-    and IP addresses. The provided flags are passed along to each scanning function.
+    IP addresses, and obfuscated URLs. The provided flags are passed along to each scanning function.
     """
 
     # Scan for Discord/Telegram
     contains_discord_or_telegram_code(decompiled_code, file_path, **flags)
 
-    # Scan URLs
+    # Scan regular URLs
     url_regex = build_url_regex()
     urls = set(url_regex.findall(decompiled_code))
-    for url in urls:
-        html_content, html_content_file_path = fetch_html(url, return_file_path=True)
 
-        contains_discord_or_telegram_code(html_content, file_path, **flags)
-        scan_html_content(html_content, html_content_file_path, **flags)
-        scan_url_general(url, **flags)
-        scan_domain_general(url, **flags)
-        scan_spam_email_365_general(url, **flags)
+    # Scan for obfuscated URLs and add decoded versions to the URL set
+    obfuscated_results = []
+    try:
+        if 'detect_obfuscated_urls' in globals():
+            obfuscated_results = detect_obfuscated_urls(decompiled_code)
+            logger.info(f"Found {len(obfuscated_results)} obfuscated URLs/domains")
+
+            # Add both original and decoded URLs to scanning
+            for result in obfuscated_results:
+                urls.add(result['original'])
+                urls.add(result['decoded'])
+
+                # Log the obfuscated URL detection
+                logger.info(f"Obfuscated {result['type']}: {result['original']} -> {result['decoded']}")
+        else:
+            logger.warning("detect_obfuscated_urls function not available - skipping obfuscated URL detection")
+    except Exception as e:
+        logger.error(f"Error detecting obfuscated URLs: {e}")
+
+    # Process all URLs (regular + obfuscated)
+    processed_urls = 0
+    for url in urls:
+        if not url or len(url.strip()) < 7:  # Skip very short/empty URLs
+            continue
+
+        try:
+            logger.debug(f"Processing URL: {url}")
+            processed_urls += 1
+
+            # Fetch HTML content
+            html_content, html_content_file_path = fetch_html(url, return_file_path=True)
+
+            # Scan the fetched HTML content
+            if html_content:
+                contains_discord_or_telegram_code(html_content, file_path, **flags)
+                scan_html_content(html_content, html_content_file_path, **flags)
+
+            # Perform various URL scans
+            scan_url_general(url, **flags)
+            scan_domain_general(url, **flags)
+            scan_spam_email_365_general(url, **flags)
+
+        except Exception as e:
+            logger.error(f"Error processing URL {url}: {e}")
+            continue
+
+    logger.info(f"Processed {processed_urls} URLs (including {len(obfuscated_results)} obfuscated)")
 
     # Scan IPs
     ip_patterns = build_ip_patterns()
+    processed_ips = 0
     for pattern, ip_type in ip_patterns:
         for m in re.finditer(pattern, decompiled_code):
             ip = m.group(0)
-            scan_ip_address_general(ip, **flags)
+            try:
+                scan_ip_address_general(ip, **flags)
+                processed_ips += 1
+            except Exception as e:
+                logger.error(f"Error processing IP {ip}: {e}")
+                continue
+
+    logger.info(f"Processed {processed_ips} IP addresses")
+
+    # Save summary of obfuscated findings if any were found
+    if obfuscated_results and file_path:
+        try:
+            obfuscated_summary_path = file_path.replace('.txt', '_obfuscated_summary.txt')
+            with open(obfuscated_summary_path, 'w', encoding='utf-8') as f:
+                f.write("# Obfuscated URLs/Domains Found\n")
+                f.write(f"# Total found: {len(obfuscated_results)}\n")
+                f.write(f"# Scan date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+                for result in obfuscated_results:
+                    f.write(f"Type: {result['type']}\n")
+                    f.write(f"Original: {result['original']}\n")
+                    f.write(f"Decoded:  {result['decoded']}\n")
+                    f.write("-" * 50 + "\n")
+
+            logger.info(f"Obfuscated URL summary saved to: {obfuscated_summary_path}")
+        except Exception as e:
+            logger.error(f"Error saving obfuscated URL summary: {e}")
 
 def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
@@ -7565,6 +7745,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     - Splits other content on 'u', merging tokens properly
     - Groups into modules by <module ...> markers
     - Saves reconstructed modules
+    - Creates separate file with extracted links/webhooks/tokens
     - Finally: removes all lines not starting with 'u' (case-insensitive)
     """
     logger.info("Reconstructing source code with unified 'u' delimiter logic...")
@@ -7598,8 +7779,10 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                  [p[0] for p in ip_patterns])
     )
 
-    # --- STEP 1: tokenize with preservation ---
+    # --- STEP 1: tokenize with preservation and extract links ---
     tokens = []
+    extracted_links = []  # Store all detected links/webhooks/tokens
+
     for line in [source_code]:
         start = 0
         for m in combined_preserve.finditer(line):
@@ -7610,7 +7793,12 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
             else:
                 if unprotected:
                     tokens.append(unprotected)
-            tokens.append(m.group(0))
+
+            # Extract the protected content (links, webhooks, etc.)
+            protected_content = m.group(0)
+            tokens.append(protected_content)
+            extracted_links.append(protected_content)  # Add to links collection
+
             start = m.end()
 
         tail = line[start:]
@@ -7643,7 +7831,106 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     # Strip empty
     final_lines = [t.strip() for t in merged_tokens if t.strip()]
 
-    # --- STEP 3: group by module ---
+    # --- STEP 3: Save extracted links to separate file ---
+    def save_links_file(links, base_filename):
+            if not links:
+                logger.info("No links/webhooks/tokens found to save.")
+                return
+
+            links_filename = f"{base_filename}_extracted_links.txt"
+            links_path = os.path.join(nuitka_source_code_dir, links_filename)
+
+            # Try to detect obfuscated URLs if function exists
+            obfuscated_results = []
+            try:
+                obfuscated_results = detect_obfuscated_urls(source_code)
+            except Exception as e:
+                logger.warning(f"Error detecting obfuscated URLs: {e}")
+                obfuscated_results = []
+
+            try:
+                with open(links_path, "w", encoding="utf-8") as f:
+                    total_items = len(links) + len(obfuscated_results)
+                    f.write("# Extracted Links, Webhooks, Tokens, and Protected Content\n")
+                    f.write(f"# Generated from: {base_filename}\n")
+                    f.write(f"# Total items found: {total_items}\n\n")
+
+                    # Group similar items together
+                    discord_webhooks = []
+                    telegram_tokens = []
+                    urls = []
+                    obfuscated_urls = []
+                    ips = []
+                    other_content = []
+
+                    for link in links:
+                        link_lower = link.lower()
+                        if 'discord' in link_lower and 'webhook' in link_lower:
+                            discord_webhooks.append(link)
+                        elif 'telegram' in link_lower or 'bot' in link_lower:
+                            telegram_tokens.append(link)
+                        elif (link.startswith(('http://', 'https://', 'ftp://')) or
+                            link.startswith(('hxxp://', 'hxxps://', 'fxp://')) or
+                            'h**p' in link or '[.]' in link or '(.)' in link):
+                            urls.append(link)
+                        elif re.match(r'\d+\.\d+\.\d+\.\d+', link):
+                            ips.append(link)
+                        else:
+                            other_content.append(link)
+
+                    # Add obfuscated URLs to the list
+                    for result in obfuscated_results:
+                        obfuscated_urls.append(f"{result['original']} -> {result['decoded']} ({result['type']})")
+
+                    # Write categorized content
+                    if discord_webhooks:
+                        f.write("## Discord Webhooks\n")
+                        for webhook in discord_webhooks:
+                            f.write(f"{webhook}\n")
+                        f.write("\n")
+
+                    if telegram_tokens:
+                        f.write("## Telegram Tokens/Content\n")
+                        for token in telegram_tokens:
+                            f.write(f"{token}\n")
+                        f.write("\n")
+
+                    if urls:
+                        f.write("## URLs\n")
+                        for url in urls:
+                            f.write(f"{url}\n")
+                        f.write("\n")
+
+                    if obfuscated_urls:
+                        f.write("## Obfuscated URLs (Original -> Decoded)\n")
+                        for obf_url in obfuscated_urls:
+                            f.write(f"{obf_url}\n")
+                        f.write("\n")
+
+                    if ips:
+                        f.write("## IP Addresses\n")
+                        for ip in ips:
+                            f.write(f"{ip}\n")
+                        f.write("\n")
+
+                    if other_content:
+                        f.write("## Other Protected Content\n")
+                        for content in other_content:
+                            f.write(f"{content}\n")
+                        f.write("\n")
+
+                logger.info(f"Links file saved: {links_path} ({total_items} items)")
+
+                # Also call scan_code_for_links if needed
+                scan_code_for_links(source_code, links_path, nuitka_flag=True)
+
+            except IOError as e:
+                logger.error(f"Failed to write links file {links_path}: {e}")
+
+    # Save the extracted links
+    save_links_file(extracted_links, base_name)
+
+    # --- STEP 4: group by module ---
     module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
 
     current_module_name = base_name
@@ -7675,12 +7962,13 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     if current_module_code:
         modules.append((current_module_name, current_module_code))
 
-    # --- STEP 4: cleanup, only keep 'u'-starting lines ---
+    # --- STEP 5: cleanup, only keep 'u'-starting lines ---
     for name, code_lines in modules:
         forced_lines = [l for l in code_lines if l.lower().startswith('u')]
         save_module_file(name, forced_lines)
 
     logger.info("Reconstruction complete (only 'u'-lines kept).")
+    logger.info(f"Extracted {len(extracted_links)} links/webhooks/tokens to separate file.")
 
 def scan_rsrc_files(file_paths):
     """
@@ -7747,7 +8035,6 @@ def scan_rsrc_files(file_paths):
                     lines = f.readlines()
                 cleaned_source_code = [clean_text(line.rstrip()) for line in lines]
                 decompiled_code = "\n".join(cleaned_source_code)
-                scan_code_for_links(decompiled_code, largest_file, nuitka_flag=True)
             except Exception as ex:
                 logger.error(f"Error processing largest file {largest_file}: {ex}")
         else:
