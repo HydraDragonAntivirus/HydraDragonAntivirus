@@ -4423,19 +4423,16 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     # Scan for obfuscated URLs and add decoded versions to the URL set
     obfuscated_results = []
     try:
-        if 'detect_obfuscated_urls' in globals():
-            obfuscated_results = detect_obfuscated_urls(decompiled_code)
-            logger.info(f"Found {len(obfuscated_results)} obfuscated URLs/domains")
+        obfuscated_results = detect_obfuscated_urls(decompiled_code)
+        logger.info(f"Found {len(obfuscated_results)} obfuscated URLs/domains")
 
-            # Add both original and decoded URLs to scanning
-            for result in obfuscated_results:
-                urls.add(result['original'])
-                urls.add(result['decoded'])
+        # Add both original and decoded URLs to scanning
+        for result in obfuscated_results:
+            urls.add(result['original'])
+            urls.add(result['decoded'])
 
-                # Log the obfuscated URL detection
-                logger.info(f"Obfuscated {result['type']}: {result['original']} -> {result['decoded']}")
-        else:
-            logger.warning("detect_obfuscated_urls function not available - skipping obfuscated URL detection")
+            # Log the obfuscated URL detection
+            logger.info(f"Obfuscated {result['type']}: {result['original']} -> {result['decoded']}")
     except Exception as e:
         logger.error(f"Error detecting obfuscated URLs: {e}")
 
