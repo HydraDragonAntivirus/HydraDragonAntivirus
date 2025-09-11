@@ -451,6 +451,7 @@ upx_path = os.path.join(upx_dir, "upx.exe")
 upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
 inno_unpack_path = os.path.join(inno_unpack_dir, "innounp.exe")
 inno_setup_unpacked_dir = os.path.join(script_dir, "inno_setup_unpacked")
+themida_unpacked_dir = os.path.join(script_dir, "themida_unpacked")
 decompiled_dir = os.path.join(script_dir, "decompiled")
 assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAVLogo.png")
@@ -1067,7 +1068,7 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
-    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir,
+    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir,
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
@@ -1117,6 +1118,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
     (lambda fp: fp.startswith(webcrack_javascript_deobfuscated_dir), "JavaScript file deobfuscated with webcrack."),
     (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
+    (lambda fp: fp.startswith(themida_unpacked_dir), "Themida unpacked."),
     (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
     (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
@@ -11566,7 +11568,8 @@ def run_themida_unlicense(file_path, x64=False):
     """
     Runs Themida/WinLicense unpacker inside Sandboxie.
     Uses unlicense.exe (x86) or unlicense-x64.exe (x64) based on arch.
-    The unpacker creates a new file with 'unpacked_' prefix in the same directory.
+    The unpacker creates a new file with 'unpacked_' prefix in the same directory,
+    which we then move into themida_unpacked_dir for consistency.
     """
     if not os.path.isfile(file_path):
         logger.error(f"Invalid input file: {file_path}")
@@ -11592,15 +11595,28 @@ def run_themida_unlicense(file_path, x64=False):
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
         logger.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
 
-        # Construct expected unpacked filename
+        # Expected unpacked file in same directory
         unpacked_path = os.path.join(
             os.path.dirname(file_path),
             "unpacked_" + os.path.basename(file_path)
         )
 
         if os.path.isfile(unpacked_path):
-            logger.info(f"Unpacked file created: {unpacked_path}")
-            return unpacked_path
+            # Move unpacked file into themida_unpacked_dir with unique name
+            final_path = os.path.join(
+                themida_unpacked_dir,
+                "unpacked_" + os.path.basename(file_path)
+            )
+            if os.path.exists(final_path):
+                base, ext = os.path.splitext(final_path)
+                counter = 1
+                while os.path.exists(f"{base}_{counter}{ext}"):
+                    counter += 1
+                final_path = f"{base}_{counter}{ext}"
+
+            shutil.move(unpacked_path, final_path)
+            logger.info(f"Unpacked file moved to: {final_path}")
+            return final_path
         else:
             logger.error(f"Unpacker finished but no unpacked file found for {file_path}")
             return None
@@ -11904,7 +11920,7 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in npm analysis for {norm_path}: {e}")
 
-        def jsc_analysis(die_output: str, norm_path: str):
+        def jsc_analysis():
             """
             If DIE output indicates a compiled JavaScript (Bytenode .JSC or bundle.js),
             first decode/decompile using View8, then optionally deobfuscate with Webcrack,
