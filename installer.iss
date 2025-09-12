@@ -37,6 +37,7 @@ InfoBeforeFile=C:\Users\victim\Documents\HydraDragonAntivirus\README.md
 OutputDir=C:\Users\victim\Documents\output
 OutputBaseFilename=HydraDragonAntivirus
 SetupIconFile=C:\Users\victim\Documents\HydraDragonAntivirus\hydradragon\assets\HydraDragonAV.ico
+UninstallDisplayIcon={app}\hydradragon\assets\HydraDragonAV.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
