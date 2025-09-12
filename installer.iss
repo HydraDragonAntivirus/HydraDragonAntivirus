@@ -68,7 +68,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.1
 ; Node.js 22.18.0 (x64) MSI
 Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.2.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.3.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
@@ -137,7 +137,7 @@ Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags:
 Filename: "{tmp}\npcap-1.83.exe"; Flags: shellexec waituntilterminated
 
 ; Sandboxie Classic
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.71.2.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.71.3.exe"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
