@@ -1,294 +1,316 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#This script can identify and remove duplicate rules (based on rule name) from YARA files contained within a directory.
-#Duplicate rules are logged to duplicate.log in the current directory.
-#Rule names are echoed to standard out.
-#Be sure to backup your data before using the remove option.
-
-#Copyright (c) 2020 Ryan Boyle randomrhythm@rhythmengineering.com.
-#All rights reserved.
-
-#This program is free software: you can redistribute it and/or modify
-#it under the terms of the GNU General Public License as published by
-#the Free Software Foundation, either version 3 of the License, or
-#(at your option) any later version.
-
-#This program is distributed in the hope that it will be useful,
-#but WITHOUT ANY WARRANTY; without even the implied warranty of
-#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#GNU General Public License for more details.
-
-#You should have received a copy of the GNU General Public License
-#along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+"""
+Split YARA file into clean / problematic based on yarac duplicated-identifier errors.
+Default: keep first occurrence (file order) and move later duplicates.
+If --remove-first is used: remove the first occurrence(s) and keep later ones.
+"""
 
 import os
-from optparse import OptionParser
 import sys
-import datetime
+import argparse
+import subprocess
+import tempfile
 import re
 
 def build_cli_parser():
-    parser = OptionParser(usage="%prog [options]", description="Find duplicate YARA rules in a directory")
-    parser.add_option("-r", "--remove", help="Remove duplicate rules", action="store_true")
-    parser.add_option("-d", "--directory", action="store", default=None, dest="YARA_Directory_Path",
-                      help="Folder path to directory containing YARA files")
-    parser.add_option("-c", "--consolidate", action="store", default=None, dest="YARA_File_Path",
-                      help="File path for consolidated YARA file")
-    parser.add_option("-m", "--modify", help="Modify the file to rename duplicate rules", action="store_true")
-    parser.add_option("-i", "--index", action="store", default=None, dest="YARA_Index_Path",
-                      help="Create an index of YARA files") 
-    parser.add_option("-t", "--type", action="store", default=None, dest="YARA_Index_Type",
-                      help="Index YARA files based on parent folder match.") 
-    parser.add_option("-b", "--BaseDirectory", action="store", default=None, dest="Base_Folder_Path",
-                      help="Base folder to mark as current directory ./") 
-    parser.add_option("-s", "--subdirectories", help="Recurse into subdirectories", action="store_true")
-    parser.add_option("-v", "--verboselog", help="log all rules and the associated file", action="store_true")
+    parser = argparse.ArgumentParser(
+        description="Split YARA rules using yarac duplicated-identifier results."
+    )
+    parser.add_argument("--input-file", dest="input_rules", required=True, help="Input YARA rules file to check.")
+    parser.add_argument("-y", "--yarac", dest="yarac_path", default="yarac64.exe", help="Path to yarac64.exe (default: yarac64.exe).")
+    parser.add_argument("--clean-file", dest="clean_file", default="clean_rules.yar", help="Output file for clean (non-problematic) rules.")
+    parser.add_argument("--problematic-file", dest="slow_file", default="bad_rules.yar", help="Output file for problematic rules (default: bad_rules.yar).")
+    parser.add_argument("--compiled-output", dest="compiled_output", default=None, help="Save the compiled YARA output to this file.")
+    parser.add_argument("--save-warnings", dest="save_warnings", default=None, help="Save all yarac stdout/stderr to a text file.")
+    parser.add_argument("-v", "--verbose", action="store_true", dest="verbose", help="Verbose output for debugging.")
+    parser.add_argument("--remove-first", action="store_true", dest="remove_first",
+                        help="Reverse mode: remove (move) the first occurrence(s) reported by yarac; keep later ones.")
     return parser
 
-def ProcessRule(lstRuleFile, strYARApath, strOutPath):
-    strYARAout = ""
-    strLogOut = ""
-    boolOverwrite = False
-    if strOutPath == "":
-        strOutPath = strYARApath
+def run_yarac(yarac_path, input_file, compiled_output, verbose=False):
+    """Run yarac and return (stdout, stderr, returncode). Exits if yarac not found."""
+    tmp_created = False
+    if not compiled_output:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".yrc", dir=".")
+        compiled_output = tmp.name
+        tmp.close()
+        tmp_created = True
 
-    current_rule_lines = []
-    current_rule_name = None
-    current_metadata = []
-    current_strings = []
-    current_condition = []
-    in_metadata = in_strings = in_condition = False
+    cmd = [yarac_path, input_file, compiled_output]
+    if verbose:
+        print(f"[yarac] Running: {' '.join(cmd)}")
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+    except FileNotFoundError:
+        print(f"Error: yarac executable not found at '{yarac_path}'.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error running yarac: {e}")
+        sys.exit(1)
 
-    # Store non-rule lines at the top of the file
-    pre_rule_lines = []
-    first_rule_found = False
+    if tmp_created:
+        try:
+            os.remove(compiled_output)
+        except Exception:
+            pass
 
-    # Dictionary to store unique rules based on strings + condition
-    dictRuleKey = {}
-    processed_rules = []
+    return res.stdout or "", res.stderr or "", res.returncode
 
-    for strRuleLine in lstRuleFile + ["\nENDRULE\n"]:
-        stripped = strRuleLine.strip()
-        if stripped.startswith("rule ") or stripped.startswith("private rule ") or stripped == "ENDRULE":
-            if current_rule_name:
-                # Build a key using strings + condition
-                key = "\n".join([s.strip() for s in current_strings]) + "\n" + "\n".join([c.strip() for c in current_condition])
+def parse_yarac_for_duplicated_identifiers(stdout, stderr, verbose=False):
+    """
+    Parse yarac output for duplicated identifier errors.
+    Returns a set of identifier names (strings) found.
+    """
+    dup_set = set()
+    combined = (stdout or "") + "\n" + (stderr or "")
+    p_quoted = re.compile(r'duplicat(?:e|ed)\s+identifier\s*"([^"]+)"', re.IGNORECASE)
+    p_unquoted = re.compile(r'duplicat(?:e|ed)\s+identifier\s+([A-Za-z_]\w*)', re.IGNORECASE)
 
-                if key in dictRuleKey:
-                    # Duplicate detected: merge only hash values
-                    idx = dictRuleKey[key]["index"]
-                    existing_rule = processed_rules[idx]
+    for line in combined.splitlines():
+        if 'duplicat' not in line.lower():
+            continue
+        if verbose:
+            print(f"[yarac parse] checking line: {line}")
+        m = p_quoted.search(line)
+        if m:
+            ident = m.group(1).strip()
+            if ident:
+                dup_set.add(ident)
+                if verbose:
+                    print(f"[yarac parse] found duplicated identifier (quoted): {ident}")
+            continue
+        m2 = p_unquoted.search(line)
+        if m2:
+            ident = m2.group(1).strip()
+            if ident:
+                dup_set.add(ident)
+                if verbose:
+                    print(f"[yarac parse] found duplicated identifier (unquoted): {ident}")
+    return dup_set
 
-                    # Collect existing hash values
-                    existing_hashes = []
-                    new_meta = []
-                    in_meta_section = False
-                    for line in existing_rule["lines"]:
-                        stripped_line = line.strip()
-                        if stripped_line.startswith("meta:"):
-                            in_meta_section = True
-                            new_meta.append(line)
-                        elif in_meta_section and stripped_line.startswith("hash"):
-                            match = re.match(r'hash\d*\s*=\s*"([^"]+)"', stripped_line)
-                            if match:
-                                existing_hashes.append(match.group(1))
-                        else:
-                            new_meta.append(line)
+def simple_split_rules(content):
+    """
+    Split YARA content into header + list of (rule_name, rule_text).
+    Returns (header, rules_list). rules_list items are (name_or_None, full_text).
+    """
+    parts = re.split(r'(\n\s*(?:private\s+|global\s+)?rule\s+)', content, flags=re.IGNORECASE)
+    if len(parts) <= 1:
+        return None
 
-                    # Extract new hash values from current rule
-                    for line in current_metadata:
-                        if line.strip().startswith("hash"):
-                            match = re.match(r'hash\d*\s*=\s*"([^"]+)"', line.strip())
-                            if match:
-                                val = match.group(1)
-                                if val not in existing_hashes:
-                                    existing_hashes.append(val)
-
-                    # Rebuild meta section with numbered hashes
-                    rebuilt_lines = []
-                    inserted_hashes = False
-                    for line in new_meta:
-                        rebuilt_lines.append(line)
-                        if line.strip().startswith("meta:") and not inserted_hashes:
-                            for i, hval in enumerate(existing_hashes, 1):
-                                rebuilt_lines.append(f'      hash{i} = "{hval}"\n')
-                            inserted_hashes = True
-
-                    existing_rule["lines"] = rebuilt_lines
-                    strLogOut += f"Removed duplicate rule {current_rule_name} from {strYARApath}, merged new hashes into {existing_rule['name']}\n"
-                    boolOverwrite = True
-
-                else:
-                    # First occurrence: store rule
-                    rule_data = {
-                        "name": current_rule_name,
-                        "metadata": current_metadata.copy(),
-                        "strings": current_strings.copy(),
-                        "condition": current_condition.copy(),
-                        "lines": current_rule_lines.copy()
-                    }
-                    dictRuleKey[key] = {"index": len(processed_rules)}
-                    processed_rules.append(rule_data)
-
-            # Reset for next rule
-            if stripped != "ENDRULE":
-                current_rule_lines = [strRuleLine]
-                current_metadata = []
-                current_strings = []
-                current_condition = []
-                in_metadata = in_strings = in_condition = False
-                match = re.findall(r'rule\s+(\w+)', stripped)
-                if match:
-                    current_rule_name = match[0]
-                    first_rule_found = True
-            else:
-                current_rule_name = None
-
+    header = parts[0]
+    rules = []
+    i = 1
+    while i < len(parts):
+        if i + 1 < len(parts):
+            decl = parts[i]
+            body = parts[i + 1]
+            full = decl + body
+            bn = body.lstrip()
+            m = re.match(r'^([A-Za-z_]\w*)', bn)
+            name = m.group(1) if m else None
+            rules.append((name, full))
+            i += 2
         else:
-            # Collect top-of-file non-rule lines
-            if not first_rule_found:
-                pre_rule_lines.append(strRuleLine)
-            current_rule_lines.append(strRuleLine)
-            if stripped.startswith("meta:") or stripped.startswith("metadata:"):
-                in_metadata = True
-                in_strings = in_condition = False
-            elif stripped.startswith("strings:"):
-                in_strings = True
-                in_metadata = in_condition = False
-            elif stripped.startswith("condition:"):
-                in_condition = True
-                in_metadata = in_strings = False
-            elif in_metadata and stripped != "":
-                current_metadata.append(strRuleLine)
-            elif in_strings and stripped != "":
-                current_strings.append(strRuleLine)
-            elif in_condition and stripped != "":
-                current_condition.append(strRuleLine)
+            i += 1
+    return header, rules
 
-    # Build final output with pre-rule lines + processed rules
-    strYARAout = "".join(pre_rule_lines)
-    for rule in processed_rules:
-        strYARAout += "".join(rule["lines"])
+def split_based_on_yarac(input_file, duplicated_identifiers, clean_file, problematic_file, remove_first=False, verbose=False):
+    """
+    Splits the input file into clean/problematic based ONLY on duplicated_identifiers (from yarac).
+    - Default (remove_first=False): keep first occurrence, move later duplicates.
+    - If remove_first=True: move the first occurrence(s) and keep later ones.
+    """
+    try:
+        with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"Error: input file '{input_file}' not found.")
+        sys.exit(1)
 
-    # Write consolidated file
-    if strOutPath != strYARApath:
-        strYARAout += "\n"
-        logToFile(strOutPath, strYARAout, False, "a")
-    elif boolOverwrite:
-        logToFile(strYARApath, strYARAout, True, "w")
+    if not duplicated_identifiers:
+        if verbose:
+            print("[split] no duplicated identifiers from yarac; copying entire input to clean file.")
+        try:
+            with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
+                f.write(content)
+            open(problematic_file, 'w', encoding='utf-8', errors='ignore').close()
+            print(f"Wrote clean file: {clean_file} (no duplicates detected)")
+            print(f"Wrote problematic file (empty): {problematic_file}")
+        except Exception as e:
+            print(f"Error writing outputs: {e}")
+        return
 
-    if strLogOut:
-        strLogOut = "-------------\n" + strLogOut
-        logToFile(strCurrentDirectory + "/duplicate.log", strLogOut, False, "a")
+    parsed = simple_split_rules(content)
+    if not parsed:
+        if verbose:
+            print("[split] no rules found; copying entire input to clean file.")
+        try:
+            with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
+                f.write(content)
+            open(problematic_file, 'w', encoding='utf-8', errors='ignore').close()
+            print(f"Wrote clean file: {clean_file} (no rules found)")
+            return
+        except Exception as e:
+            print(f"Error writing outputs: {e}")
+            return
 
-def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
-    with open(strfilePathOut, strWriteMode, encoding='utf-8', errors='ignore') as target:
-      if boolDeleteFile == True:
-        target.truncate()
-      target.write(strDataToLog)
+    header, rules = parsed
+    if verbose:
+        print(f"[split] parsed {len(rules)} rules from input.")
 
+    clean_parts = [header]
+    prob_parts = [header]
+    clean_count = 0
+    prob_count = 0
 
-def createIndexFile(boolNew, strFilePath, yaraPath, baseDir): # if index creation is not working on Windows check that you are escaping backslashes
-  includePath = ""
-  if boolNew == True:
-    logToFile(strFilePath, "/*\n", False, "a")
-    logToFile(strFilePath, "Generated by YARA_Rules_Util\n", False, "a")
-    logToFile(strFilePath, "On " + str(datetime.date.today()) + "\n", False, "a")
-    logToFile(strFilePath, "*/\n", False, "a")
-  if "\\" in yaraPath or "/" in yaraPath: #windows or nix directory
-    if "\\" in yaraPath:
-      splitChar = "\\"
-    else:
-      splitChar = "/"
-    arrayPath = yaraPath.split(splitChar) #need to determine the relative path between strFilePath and yaraPath. If different then use full file path. If same then truncate appropriatly
-    for i in range(len(arrayPath),0, -1):
-      if includePath == "":
-        includePath = arrayPath[i -1]
-      else:
-        includePath = arrayPath[i -1] + "/" + includePath
-      if arrayPath[i -2] == baseDir:
-        break
-    if i != 1:
-      includePath = "./" + includePath
-    else:
-      includePath = yaraPath
-    includeStatement = "include \"" + includePath + "\""
-    logToFile(strFilePath, includeStatement + "\n", False, "a")
+    # Build regex patterns only for yarac-listed identifiers
+    ident_patterns = {}
+    for ident in duplicated_identifiers:
+        pattern = re.compile(r'(?<!\w){}\b|\${}(?=\W|$)'.format(re.escape(ident), re.escape(ident)))
+        ident_patterns[ident] = pattern
 
-def fast_scandir(dirname): #https://stackoverflow.com/questions/973473/getting-a-list-of-all-subdirectories-in-the-current-directory/38245063
-    subfolders= [f.path for f in os.scandir(dirname) if f.is_dir()]
-    for dirname in list(subfolders):
-        subfolders.extend(fast_scandir(dirname))
-    return subfolders
+    seen_rule_names = set()
+    seen_identifiers = set()
 
-boolRemoveDuplicate = False
-boolRename = False
-boolRecurse = False
-boolLogging = False
-folderMatch = ""
-indexPath = ""
-outputPath = ""
-baseDirectory = ""
-strCurrentDirectory = os.getcwd()
-strYARADirectory = os.getcwd()
-parser = build_cli_parser()
-opts, args = parser.parse_args(sys.argv[1:])
-if opts.remove:
-  boolRemoveDuplicate = True
-if opts.subdirectories:  
-  boolRecurse = True
-  print("recusing subdirectories")
-if opts.verboselog:
-  boolLogging = True
-if opts.YARA_Index_Path:
-  indexPath = opts.YARA_Index_Path
-  print("creating index file: " + indexPath)
-  boolNewIndex = True
-if opts.YARA_Index_Type:
-  folderMatch = opts.YARA_Index_Type
-if opts.Base_Folder_Path:
-  baseDirectory = opts.Base_Folder_Path
-if opts.YARA_Directory_Path:
-  strYARADirectory = opts.YARA_Directory_Path
-else:
-  print ("Missing required parameter argument")
-  exit()
-if opts.modify:
-  boolRename = True
-if opts.YARA_File_Path:
-  outputPath = opts.YARA_File_Path
-dictRuleName = dict()
-dictRuleKey = dict()
+    for idx, (rule_name, rule_text) in enumerate(rules, 1):
+        if verbose:
+            print(f"[split] processing rule #{idx}: {rule_name or '<unnamed>'}")
 
-print (strYARADirectory)
-logToFile(strCurrentDirectory + "\\duplicate.log","Started " + str(datetime.datetime.now()) + "\n", False, "a")
+        # Collect which yarac-reported idents appear in this rule
+        idents_found = set()
+        for ident, pat in ident_patterns.items():
+            if pat.search(rule_text):
+                idents_found.add(ident)
 
-if boolRecurse == True:
-  parentDir = fast_scandir(strYARADirectory)
-  parentDir.append(strYARADirectory)
-  parentDir.sort()
-else:
-  parentDir = {strYARADirectory}
-print(parentDir)
-for scanDirs in parentDir:
-  for i in os.listdir(scanDirs):
-    if i.endswith(".yar") or i.endswith(".yara"): 
-      if opts.YARA_File_Path != '' and folderMatch != '': # File path for consolidated YARA file and folderMatch both provided
-        if not scanDirs.endswith(folderMatch): # Not the file type specified so move to next file
-          continue
-      if indexPath == "":
-        print (i)
-        with open(scanDirs + '/' + i, encoding='utf-8', errors='ignore') as f:
-          lines = f.readlines()
-          ProcessRule(lines, scanDirs + '/' + i, outputPath)
-      else: # create index
-        # dictExclude check removed — index every matching file (still respect folderMatch)
-        if folderMatch != "" and not scanDirs.endswith(folderMatch):
-          continue
-        createIndexFile(boolNewIndex, indexPath,  scanDirs + '/' + i, baseDirectory)
-        boolNewIndex = False
-        #print("indexing file: " +  scanDirs + '/' + i)
-    else:
-        continue
-logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")
+        # If rule name itself is a duplicated identifier, include it
+        if rule_name and rule_name in duplicated_identifiers:
+            idents_found.add(rule_name)
+
+        # Quick check: does this rule contain any relevant identifiers at all?
+        has_relevant = bool(idents_found)
+
+        name_conflict = (rule_name is not None and rule_name in seen_rule_names)
+        ident_conflict = any((ident in seen_identifiers) for ident in idents_found)
+
+        if remove_first:
+            # Reverse mode: move first occurrences, keep later ones.
+            # Only act if the rule contains relevant identifiers.
+            if has_relevant:
+                # If none of the identifiers/names have been seen yet -> this is first occurrence -> move it.
+                if (not name_conflict) and (not ident_conflict):
+                    prob_parts.append(rule_text)
+                    prob_count += 1
+                    # Mark them as seen so later ones can be kept
+                    if rule_name:
+                        seen_rule_names.add(rule_name)
+                    if idents_found:
+                        seen_identifiers.update(idents_found)
+                    if verbose:
+                        print(f"[split][remove-first] MOVED (first occurrence): name={rule_name}, idents={sorted(idents_found)}")
+                else:
+                    # At least one of them was seen -> this is a later occurrence -> keep it
+                    clean_parts.append(rule_text)
+                    clean_count += 1
+                    if rule_name:
+                        seen_rule_names.add(rule_name)
+                    if idents_found:
+                        seen_identifiers.update(idents_found)
+                    if verbose:
+                        print(f"[split][remove-first] KEEP (later occurrence): name={rule_name}, idents={sorted(idents_found)}")
+            else:
+                # No relevant identifiers -> keep
+                clean_parts.append(rule_text)
+                clean_count += 1
+                if verbose:
+                    print(f"[split][remove-first] KEEP (no relevant idents): {rule_name or '<unnamed>'}")
+        else:
+            # Default mode: keep first occurrence, move later ones
+            # If rule name already seen OR any ident already seen -> move to problematic (later duplicate)
+            if name_conflict or ident_conflict:
+                prob_parts.append(rule_text)
+                prob_count += 1
+                if verbose:
+                    reasons = []
+                    if name_conflict:
+                        reasons.append(f"rule name '{rule_name}' seen before")
+                    if ident_conflict:
+                        seen_list = [i for i in idents_found if i in seen_identifiers]
+                        reasons.append(f"identifier(s) {seen_list} seen before")
+                    print(f"[split] MOVED to problematic: {', '.join(reasons)}")
+            else:
+                clean_parts.append(rule_text)
+                clean_count += 1
+                if rule_name:
+                    seen_rule_names.add(rule_name)
+                if idents_found:
+                    seen_identifiers.update(idents_found)
+                if verbose and idents_found:
+                    print(f"[split] KEEP and mark seen: {sorted(idents_found)}")
+
+    # Write outputs
+    try:
+        with open(clean_file, 'w', encoding='utf-8', errors='ignore') as f:
+            f.write(''.join(clean_parts))
+        with open(problematic_file, 'w', encoding='utf-8', errors='ignore') as f:
+            f.write(''.join(prob_parts))
+    except Exception as e:
+        print(f"Error writing output files: {e}")
+        return
+
+    print(f"Clean rules written: {clean_count}")
+    print(f"Problematic rules written: {prob_count}")
+
+def main():
+    parser = build_cli_parser()
+    args = parser.parse_args()
+
+    if not os.path.exists(args.input_rules):
+        print(f"Error: Input file '{args.input_rules}' not found.")
+        sys.exit(1)
+
+    mode = "remove-first (move first occurrences)" if args.remove_first else "default (keep first occurrences)"
+    print(f"--- Running yarac duplicate-identifier based split ({mode}) ---")
+
+    stdout, stderr, rc = run_yarac(args.yarac_path, args.input_rules, args.compiled_output, verbose=args.verbose)
+
+    if args.save_warnings:
+        try:
+            with open(args.save_warnings, 'w', encoding='utf-8', errors='ignore') as fw:
+                fw.write("--- STDOUT ---\n")
+                fw.write(stdout)
+                fw.write("\n--- STDERR ---\n")
+                fw.write(stderr)
+            if args.verbose:
+                print(f"[main] saved yarac output to {args.save_warnings}")
+        except Exception as e:
+            print(f"Warning: could not write warnings file: {e}")
+
+    if args.verbose:
+        print(f"[main] yarac return code: {rc}")
+        if stdout.strip():
+            print(f"[main] yarac stdout:\n{stdout}")
+        if stderr.strip():
+            print(f"[main] yarac stderr:\n{stderr}")
+
+    dup_ids = parse_yarac_for_duplicated_identifiers(stdout, stderr, verbose=args.verbose)
+    print(f"Found {len(dup_ids)} duplicated identifier(s) reported by yarac.")
+    if dup_ids and args.verbose:
+        print("[main] duplicated identifiers:")
+        for d in sorted(dup_ids):
+            print(f"  - {d}")
+
+    # Split file based ONLY on yarac results and chosen mode
+    split_based_on_yarac(args.input_rules, dup_ids, args.clean_file, args.slow_file, remove_first=args.remove_first, verbose=args.verbose)
+
+    print("\n=== SUMMARY ===")
+    print(f"yarac return code: {rc}")
+    print(f"Duplicated identifiers detected (from yarac): {len(dup_ids)}")
+    print(f"Mode: {mode}")
+    print(f"Clean file: {args.clean_file}")
+    print(f"Problematic file: {args.slow_file}")
+    if args.save_warnings:
+        print(f"Saved yarac output: {args.save_warnings}")
+
+if __name__ == "__main__":
+    main()

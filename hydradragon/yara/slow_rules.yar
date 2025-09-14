@@ -6,6 +6,111 @@ import "dotnet"
 import "math"
 import "time"
 
+rule RopGadgetHunting
+{
+    meta:
+        author = "Daniel Mayer (daniel@stairwell.com)"
+        description = "An experimental rule for detecting ROP gadget hunting"
+        version = "1.0"
+        date = "2023-02-24"
+        reference1="https://github.com/LloydLabs/ntqueueapcthreadex-ntdll-gadget-injection"
+    strings:
+        // matches on IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE flag comparison
+        $flag_hunt = {      
+            25 20 00 00 20  // and     eax, 20000020h
+            3D 20 00 00 20  // cmp     eax, 20000020h
+            }
+        // matches on comparison between a given byte and the ret opcode
+        $ret_cmp = { 
+            80 [1-2] C3     //cmp [eax + ?], 0C3h
+            } 
+    condition:
+        uint16(0) == 0x5A4D and all of them
+}
+
+rule GreedyAntd
+{
+	meta:
+		copyright = "Intezer Labs"
+		author = "Intezer Labs"
+		reference = "https://www.intezer.com"
+	strings:
+		$a0 = { 66 ?? ?? ?? ?? 49 ?? ?? ?? 66 ?? ?? ?? ?? ?? ?? ?? 66 ?? ?? ?? ?? ?? ?? ?? ?? 66 ?? ?? ?? ?? 4C ?? ?? 66 ?? ?? ?? ?? 66 ?? ?? ?? ?? 48 ?? ?? ?? 0F 1F [0-128] F3 ?? ?? ?? ?? ?? F3 ?? ?? ?? ?? ?? 66 ?? ?? ?? ?? 66}
+		$a2 = { E8 ?? ?? ?? ?? BE ?? ?? ?? ?? 48 ?? ?? E8 ?? ?? ?? ?? 48 ?? ?? E8 ?? ?? ?? ?? 85 ?? 74 [0-128] 31 ?? BA ?? ?? ?? ?? 48 ?? ?? E8 ?? ?? ?? ?? 48 ?? ?? 4C ?? ?? E8 ?? ?? ?? ?? BE ?? ?? ?? ?? 48 ?? ?? E8 ?? ?? ?? ?? 48 ?? ?? E8 ?? ?? ?? ?? 85 ?? 74 }
+		$a3  = { 8B ?? ?? ?? BE ?? ?? ?? ?? 48 ?? ?? B9 ?? ?? ?? ?? 66 ?? ?? ?? 83 ?? ?? B8 ?? ?? ?? ?? 45 ?? ?? ?? ?? ?? 0F 45 ?? 48 ?? ?? ?? 45 ?? ?? ?? ?? ?? 48 ?? ?? ?? ?? B8 ?? ?? ?? ?? F3 ?? 48 ?? ?? ?? 89 ?? ?? 48 ?? ?? ?? 48 ?? ?? ?? ?? 44 ?? ?? ?? 48 }
+	condition:
+		any of them
+}
+
+rule Powershell_Case
+{
+    meta:
+        author         = "InQuest Labs"
+        description    = "This signature detects suspicious letter casing used on PowerShell commands to evade detection. While PowerShell is generally case-insensitive, some malware authors will use unusual spacing on malicious PowerShell payloads to obfuscate them or to attempt to evade detection."
+        created_date   = "2022-03-15"
+        updated_date   = "2022-03-15"
+        blog_reference = "http://www.danielbohannon.com/blog-1/2017/3/12/powershell-execution-argument-obfuscation-how-it-can-make-detection-easier"
+        labs_reference = "https://labs.inquest.net/dfi/sha256/94c06f59af1a350c23df036aeae29e25dc7a0ccf9df5a0384e6dd2c05a62cc25"
+        labs_pivot     = "N/A"
+        samples        = "1c4972aaf29928e7d2e58ccdbfca23ad4f48c332cf7b63e8e55427ed0d2e7d6c"
+
+	strings:
+	$magic1 = "INQUEST-PII"
+	        $ps_normal1 = /(powershell|POWERSHELL|Powershell|PowerShell|powerShell)/ fullword
+        	$ps_normal2 = /(p.o.w.e.r.s.h.e.l.l|P.O.W.E.R.S.H.E.L.L|P.o.w.e.r.s.h.e.l.l|P.o.w.e.r.S.h.e.l.l|p.o.w.e.r.S.h.e.l.l)/ fullword
+	        $ps_wide1   = "powershell" fullword nocase
+        	$ps_wide2   = /p.o.w.e.r.s.h.e.l.l/ fullword nocase
+	condition:
+	        (($ps_wide1 and not $ps_normal1) or ($ps_wide2 and not $ps_normal2)) and not ($magic1 in (filesize-30 .. filesize))
+}
+
+rule upx_antiunpack_pe {
+     meta:
+        description = "Anti-UPX Unpacking technique about section renaming and zero padding against upx reference structure"
+        author = "hackeT"
+
+    strings:
+        $mz = "MZ"
+
+        $upx0 = {55 50 58 30 00 00 00}  //section name UPX0
+        $upx1 = {55 50 58 31 00 00 00}  //section name UPX1
+        $upx_sig = "UPX!"               //UPX_MAGIC_LE32
+        $upx_sig2 = {A1 D8 D0 D5}       //UPX_MAGIC2_LE32
+        $zero = {00 00 00 00}
+
+    condition:
+        $mz at 0 and ( $upx_sig at 992 or $upx_sig2 at 992 )
+        and 
+        ( 
+          not ($upx0 in (248..984) or $upx1 in (248..984)) // section renaming: 248 is the minimum offset after pe optional header.
+        or 
+          $zero in (992..1024)                             // zero padding against upx reference structure: pe header ends offset 1024.
+        )
+}
+
+rule Detect_Interrupt: AntiDebug {
+    meta: 
+        description = "Detect Interrupt instruction"
+        author = "Unprotect"
+        comment = "Experimental rule / the rule can be slow to use"
+    strings:
+        $int3 = { CC }
+        $intCD = { CD }
+        $int03 = { 03 }
+        $int2D = { 2D }
+        $ICE = { F1 }
+    condition:   
+       uint16(0) == 0x5A4D and filesize < 1000KB and any of them
+}rule Detect_OllyDBG_BadFormatTrick: AntiDebug {
+    meta: 
+        description = "Detect bad format not handled by Ollydbg"
+        author = "Unprotect"
+        comment = "Experimental rule"
+    strings:
+        $1 = "%s%s.exe" fullword ascii
+    condition:   
+       $1
+}
 
 rule ROKRAT_loader : TAU DPRK APT
 
@@ -51,7 +156,7 @@ strings:
 
 	$b2 = /\xB9.{3}\x00\x81\xE9?.{3}\x00/ //subtraction for encoded data offset 
 
-  //the above regex could slow down scanning
+  	//the above regex could slow down scanning
 
 	$b3 = {03 F1 83 C6 02} //Fix up position
 
