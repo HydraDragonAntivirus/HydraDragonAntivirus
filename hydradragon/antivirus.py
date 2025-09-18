@@ -7737,22 +7737,22 @@ def is_likely_junk(line):
 
 def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     """
-    Unified reconstruction of source code using 'u'-delimiter splitting.
+    Reconstructs source code using 'u'-delimiter splitting.
 
-    Features combined from both versions:
-    - Preserves protected fragments (URLs, IPs, Discord/Telegram/webhooks, etc.)
-    - Splits other content on 'u', merging tokens properly
+    Features:
+    - Preserves protected fragments (URLs, IPs, Discord/Telegram/webhooks)
+    - Splits content on 'u', merging tokens safely
     - Groups into modules by <module ...> markers
     - Saves reconstructed modules
     - Creates separate file with extracted links/webhooks/tokens
-    - Finally: removes all lines not starting with 'u' (case-insensitive)
+    - Keeps only lines starting with 'u' (case-insensitive)
     """
     logger.info("Reconstructing source code with unified 'u' delimiter logic...")
 
     if not source_code or is_likely_junk(source_code.strip()):
         return
 
-    # Core regex builders
+    # Build regex patterns for URLs and IPs
     url_regex = build_url_regex()
     ip_patterns = build_ip_patterns()
 
@@ -7778,9 +7778,9 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                  [p[0] for p in ip_patterns])
     )
 
-    # --- STEP 1: tokenize with preservation and extract links ---
+    # --- STEP 1: Tokenize and extract protected links ---
     tokens = []
-    extracted_links = []  # Store all detected links/webhooks/tokens
+    extracted_links = []
 
     for line in [source_code]:
         start = 0
@@ -7793,10 +7793,10 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                 if unprotected:
                     tokens.append(unprotected)
 
-            # Extract the protected content (links, webhooks, etc.)
+            # Add preserved/protected content
             protected_content = m.group(0)
             tokens.append(protected_content)
-            extracted_links.append(protected_content)  # Add to links collection
+            extracted_links.append(protected_content)
 
             start = m.end()
 
@@ -7808,133 +7808,93 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
             if tail:
                 tokens.append(tail)
 
-    # --- STEP 2: merge 'u' tokens ---
+    # --- STEP 2: Merge 'u' tokens safely ---
     merged_tokens = []
     i, n = 0, len(tokens)
     while i < n:
         t = tokens[i]
         if t == 'u':
             if i + 1 < n:
-                merged_tokens.append('u' + tokens[i + 1])
-                i += 2
-            else:
-                if merged_tokens:
-                    merged_tokens[-1] += 'u'
+                next_token = tokens[i + 1]
+                # Merge only if next token is likely valid code/URL
+                if next_token.startswith(('"', "'", 'http')):
+                    merged_tokens.append('u' + next_token)
                 else:
                     merged_tokens.append('u')
+                i += 2
+            else:
+                merged_tokens.append('u')
                 i += 1
         else:
             merged_tokens.append(t)
             i += 1
 
-    # Strip empty
     final_lines = [t.strip() for t in merged_tokens if t.strip()]
 
     # --- STEP 3: Save extracted links to separate file ---
     def save_links_file(links, base_filename):
-            if not links:
-                logger.info("No links/webhooks/tokens found to save.")
-                return
+        if not links:
+            logger.info("No links/webhooks/tokens found to save.")
+            return
 
-            links_filename = f"{base_filename}_extracted_links.txt"
-            links_path = os.path.join(nuitka_source_code_dir, links_filename)
+        links_filename = f"{base_filename}_extracted_links.txt"
+        links_path = os.path.join(nuitka_source_code_dir, links_filename)
 
-            # Try to detect obfuscated URLs if function exists
-            obfuscated_results = []
-            try:
-                obfuscated_results = detect_obfuscated_urls(source_code)
-            except Exception as e:
-                logger.warning(f"Error detecting obfuscated URLs: {e}")
-                obfuscated_results = []
+        obfuscated_results = []
+        try:
+            obfuscated_results = detect_obfuscated_urls(source_code)
+        except Exception as e:
+            logger.warning(f"Error detecting obfuscated URLs: {e}")
 
-            try:
-                with open(links_path, "w", encoding="utf-8") as f:
-                    total_items = len(links) + len(obfuscated_results)
-                    f.write("# Extracted Links, Webhooks, Tokens, and Protected Content\n")
-                    f.write(f"# Generated from: {base_filename}\n")
-                    f.write(f"# Total items found: {total_items}\n\n")
+        try:
+            with open(links_path, "w", encoding="utf-8") as f:
+                total_items = len(links) + len(obfuscated_results)
+                f.write(f"# Extracted Links/Webhooks/Tokens ({total_items} items)\n")
+                f.write(f"# From: {base_filename}\n\n")
 
-                    # Group similar items together
-                    discord_webhooks = []
-                    telegram_tokens = []
-                    urls = []
-                    obfuscated_urls = []
-                    ips = []
-                    other_content = []
+                discord_webhooks, telegram_tokens, urls, obfuscated_urls, ips, other_content = [], [], [], [], [], []
 
-                    for link in links:
-                        link_lower = link.lower()
-                        if 'discord' in link_lower and 'webhook' in link_lower:
-                            discord_webhooks.append(link)
-                        elif 'telegram' in link_lower or 'bot' in link_lower:
-                            telegram_tokens.append(link)
-                        elif (link.startswith(('http://', 'https://', 'ftp://')) or
-                            link.startswith(('hxxp://', 'hxxps://', 'fxp://')) or
-                            'h**p' in link or '[.]' in link or '(.)' in link):
-                            urls.append(link)
-                        elif re.match(r'\d+\.\d+\.\d+\.\d+', link):
-                            ips.append(link)
-                        else:
-                            other_content.append(link)
+                for link in links:
+                    l = link.lower()
+                    if 'discord' in l and 'webhook' in l:
+                        discord_webhooks.append(link)
+                    elif 'telegram' in l or 'bot' in l:
+                        telegram_tokens.append(link)
+                    elif link.startswith(('http://', 'https://', 'ftp://', 'hxxp://', 'hxxps://')):
+                        urls.append(link)
+                    elif re.match(r'\d+\.\d+\.\d+\.\d+', link):
+                        ips.append(link)
+                    else:
+                        other_content.append(link)
 
-                    # Add obfuscated URLs to the list
-                    for result in obfuscated_results:
-                        obfuscated_urls.append(f"{result['original']} -> {result['decoded']} ({result['type']})")
+                for r in obfuscated_results:
+                    obfuscated_urls.append(f"{r['original']} -> {r['decoded']} ({r['type']})")
 
-                    # Write categorized content
-                    if discord_webhooks:
-                        f.write("## Discord Webhooks\n")
-                        for webhook in discord_webhooks:
-                            f.write(f"{webhook}\n")
-                        f.write("\n")
+                # Write categorized content
+                if discord_webhooks:
+                    f.write("## Discord Webhooks\n" + "\n".join(discord_webhooks) + "\n\n")
+                if telegram_tokens:
+                    f.write("## Telegram Tokens\n" + "\n".join(telegram_tokens) + "\n\n")
+                if urls:
+                    f.write("## URLs\n" + "\n".join(urls) + "\n\n")
+                if obfuscated_urls:
+                    f.write("## Obfuscated URLs\n" + "\n".join(obfuscated_urls) + "\n\n")
+                if ips:
+                    f.write("## IPs\n" + "\n".join(ips) + "\n\n")
+                if other_content:
+                    f.write("## Other Protected Content\n" + "\n".join(other_content) + "\n\n")
 
-                    if telegram_tokens:
-                        f.write("## Telegram Tokens/Content\n")
-                        for token in telegram_tokens:
-                            f.write(f"{token}\n")
-                        f.write("\n")
+            logger.info(f"Links file saved: {links_path} ({total_items} items)")
+            scan_code_for_links(source_code, links_path, nuitka_flag=True)
 
-                    if urls:
-                        f.write("## URLs\n")
-                        for url in urls:
-                            f.write(f"{url}\n")
-                        f.write("\n")
+        except IOError as e:
+            logger.error(f"Failed to write links file {links_path}: {e}")
 
-                    if obfuscated_urls:
-                        f.write("## Obfuscated URLs (Original -> Decoded)\n")
-                        for obf_url in obfuscated_urls:
-                            f.write(f"{obf_url}\n")
-                        f.write("\n")
-
-                    if ips:
-                        f.write("## IP Addresses\n")
-                        for ip in ips:
-                            f.write(f"{ip}\n")
-                        f.write("\n")
-
-                    if other_content:
-                        f.write("## Other Protected Content\n")
-                        for content in other_content:
-                            f.write(f"{content}\n")
-                        f.write("\n")
-
-                logger.info(f"Links file saved: {links_path} ({total_items} items)")
-
-                # Also call scan_code_for_links if needed
-                scan_code_for_links(source_code, links_path, nuitka_flag=True)
-
-            except IOError as e:
-                logger.error(f"Failed to write links file {links_path}: {e}")
-
-    # Save the extracted links
     save_links_file(extracted_links, base_name)
 
-    # --- STEP 4: group by module ---
+    # --- STEP 4: Group lines into modules ---
     module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
-
-    current_module_name = base_name
-    current_module_code = []
-    modules = []
+    current_module_name, current_module_code, modules = base_name, [], []
 
     def save_module_file(name, code_lines):
         if not code_lines:
@@ -7944,7 +7904,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
-            logger.info(f"Reconstructed module saved: {output_path}")
+            logger.info(f"Module saved: {output_path}")
         except IOError as e:
             logger.error(f"Failed to write module file {output_path}: {e}")
 
@@ -7955,13 +7915,13 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                 modules.append((current_module_name, current_module_code))
             current_module_name = match.group(1)
             current_module_code = []
-            continue
-        current_module_code.append(line)
+        else:
+            current_module_code.append(line)
 
     if current_module_code:
         modules.append((current_module_name, current_module_code))
 
-    # --- STEP 5: cleanup, only keep 'u'-starting lines ---
+    # --- STEP 5: Keep only 'u'-starting lines and save ---
     for name, code_lines in modules:
         forced_lines = [l for l in code_lines if l.lower().startswith('u')]
         save_module_file(name, forced_lines)
