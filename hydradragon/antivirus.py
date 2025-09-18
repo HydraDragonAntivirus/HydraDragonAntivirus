@@ -981,11 +981,11 @@ IPv6_pattern_standard = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|::(?:[0-9
 
 # Discord webhook patterns (normal, reversed, base64, base32)
 discord_webhook_pattern = (
-    r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-    r'|aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3Mv[A-Za-z0-9+/]+'
+    r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+(?=[\s\'"<>/\x00]|$)'
+    r'|aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3Mv[A-Za-z0-9+/]+(?=[\s\'"<>/\x00]|$)'
     r'|/skoohbew/ipa/moc\.drocsid//:sptth'
-    r'|NBXXK4TFMFZGKIDCNFZGKIDDN5WGS33VEAQHS6LUNFXGO4TFMF2GKIDCNFZGKIDCNFXW4IDJNZQWY3DPEB2HI4DTHIXS653XO4XG64Q='
-    r'|=Q4G6X4O35X6SHIHDT4IH2BEPD3YWQZNJDI4WXFNCDIKGZFNCDIKGF2MT4OGXFNUL6SHAQUEEVS33SGW5NDDIKGZFNCDIKGZFMT4TKXXBN'
+    r'|NBXXK4TFMFZGKIDCNFZGKIDDN5WGS33VEAQHS6LUNFXGO4TFMF2GKIDCNFZGKIDCNFXW4IDJNZQWY3DPEB2HI4DTHIXS653XO4XG64Q=(?=[\s\'"<>/\x00]|$)'
+    r'|=Q4G6X4O35X6SHIHDT4IH2BEPD3YWQZNJDI4WXFNCDIKGZFNCDIKGF2MT4OGXFNUL6SHAQUEEVS33SGW5NDDIKGZFNCDIKGZFMT4TKXXBN(?=[\s\'"<>/\x00]|$)'
 )
 
 # Discord Canary webhook patterns (normal, reversed, base64, base32)
@@ -1029,10 +1029,14 @@ telegram_keyword_pattern = (
 )
 
 # Discord webhook (standard)
-discord_webhook_pattern_standard = r'https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
+discord_webhook_pattern_standard = (
+    r'https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+(?=[\s\'"<>/\x00]|$)'
+)
 
 # Discord Canary webhook (standard)
-discord_canary_webhook_pattern_standard = r'https://canary\.discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
+discord_canary_webhook_pattern_standard = (
+    r'https://canary\.discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+(?=[\s\'"<>/\x00]|$)'
+)
 
 # Discord CDN attachments (standard)
 cdn_attachment_pattern_standard = re.compile(
