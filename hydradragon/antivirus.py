@@ -12147,16 +12147,6 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error during extraction of {norm_path}: {e}")
 
-            def enigma_thread():
-                try:
-                    if is_enigma1_virtual_box(die_output):
-                        extracted_path = try_unpack_enigma1(norm_path)
-                        if extracted_path:
-                            logger.info(f"Unpack succeeded. Files are in: {extracted_path}")
-                            threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
-                except Exception as e:
-                    logger.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
-
             def upx_thread():
                 try:
                     if is_packer_upx_output(die_output):
@@ -12228,7 +12218,6 @@ def scan_and_warn(file_path,
             # Start binary processing threads
             binary_threads = [
                 threading.Thread(target=extraction_thread),
-                threading.Thread(target=enigma_thread),
                 threading.Thread(target=unipacker_thread),
                 threading.Thread(target=upx_thread),
                 threading.Thread(target=inno_setup_thread),
@@ -12330,6 +12319,16 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in AutoHotkey extraction for {norm_path}: {e}")
 
+            def enigma1_virtual_box_thread():
+                try:
+                    if is_enigma1_virtual_box(die_output):
+                        extracted_path = try_unpack_enigma1(norm_path)
+                        if extracted_path:
+                            logger.info(f"Unpack succeeded. Files are in: {extracted_path}")
+                            threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
+                except Exception as e:
+                    logger.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
+
             def debloat_thread():
                 try:
                     if not flag_debloat:
@@ -12351,6 +12350,7 @@ def scan_and_warn(file_path,
                 threading.Thread(target=pe_section_thread),
                 threading.Thread(target=resource_extraction_thread),
                 threading.Thread(target=autohotkey_thread),
+                threading.Thread(target=enigma1_virtual_box_thread),
                 threading.Thread(target=debloat_thread)
             ]
 
