@@ -13824,12 +13824,17 @@ def is_window_valid(hwnd):
 def _load_uia_types():
     """Safely load UIAutomation types when needed."""
     try:
-        # Try to import existing generated module first
+        # Import comtypes at the start of the function
+        import comtypes
         import comtypes.gen.UIAutomationClient
         return comtypes.gen.UIAutomationClient
     except (ImportError, SyntaxError):
         # Clear corrupted cache and regenerate
         try:
+            # Import comtypes for cache operations
+            import comtypes
+            import comtypes.client
+            
             # Clear the comtypes cache
             gen_dir = comtypes.client._code_cache._find_gen_dir()
             if gen_dir and os.path.exists(gen_dir):
