@@ -12186,23 +12186,6 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
-            def autohotkey_thread(norm_path, die_output):
-                """
-                Thread to handle AutoHotkey EXE decompilation and scanning.
-                """
-                try:
-                    if is_compiled_autohotkey_from_output(die_output):
-                        rc_path = decompile_ahk_exe(norm_path)
-                        if rc_path:
-                            logger.info(f"Decompiled RCData.rc at {rc_path}. Scanning...")
-                            threading.Thread(target=scan_and_warn, args=(rc_path,)).start()
-                        else:
-                            logger.warning(f"No RCData extracted from {norm_path}")
-                    else:
-                        logger.info(f"{norm_path} is not a compiled AutoHotkey executable.")
-                except Exception as e:
-                    logger.error(f"Error in AutoHotkey extraction for {norm_path}: {e}")
-
             def go_garble_thread():
                 try:
                     if is_go_garble_from_output(die_output):
@@ -12249,7 +12232,6 @@ def scan_and_warn(file_path,
                 threading.Thread(target=unipacker_thread),
                 threading.Thread(target=upx_thread),
                 threading.Thread(target=inno_setup_thread),
-                threading.Thread(target=autohotkey_thread),
                 threading.Thread(target=go_garble_thread),
                 threading.Thread(target=pyc_thread),
                 threading.Thread(target=nsis_thread)
@@ -12331,6 +12313,23 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in resource extraction for {norm_path}: {e}")
 
+            def autohotkey_thread(norm_path, die_output):
+                """
+                Thread to handle AutoHotkey EXE decompilation and scanning.
+                """
+                try:
+                    if is_compiled_autohotkey_from_output(die_output):
+                        rc_path = decompile_ahk_exe(norm_path)
+                        if rc_path:
+                            logger.info(f"Decompiled RCData.rc at {rc_path}. Scanning...")
+                            threading.Thread(target=scan_and_warn, args=(rc_path,)).start()
+                        else:
+                            logger.warning(f"No RCData extracted from {norm_path}")
+                    else:
+                        logger.info(f"{norm_path} is not a compiled AutoHotkey executable.")
+                except Exception as e:
+                    logger.error(f"Error in AutoHotkey extraction for {norm_path}: {e}")
+
             def debloat_thread():
                 try:
                     if not flag_debloat:
@@ -12351,6 +12350,7 @@ def scan_and_warn(file_path,
                 threading.Thread(target=decompile_thread),
                 threading.Thread(target=pe_section_thread),
                 threading.Thread(target=resource_extraction_thread),
+                threading.Thread(target=autohotkey_thread),
                 threading.Thread(target=debloat_thread)
             ]
 
