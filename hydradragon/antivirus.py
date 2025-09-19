@@ -450,6 +450,7 @@ upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
 upx_path = os.path.join(upx_dir, "upx.exe")
 upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
 inno_unpack_path = os.path.join(inno_unpack_dir, "innounp.exe")
+autohotkey_decompiled_dir = os.path.join(script_dir, "autohotkey_decompiled")
 inno_setup_unpacked_dir = os.path.join(script_dir, "inno_setup_unpacked")
 themida_unpacked_dir = os.path.join(script_dir, "themida_unpacked")
 decompiled_dir = os.path.join(script_dir, "decompiled")
@@ -1068,7 +1069,7 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
-    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir,
+    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
@@ -1118,6 +1119,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
     (lambda fp: fp.startswith(webcrack_javascript_deobfuscated_dir), "JavaScript file deobfuscated with webcrack."),
     (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
+    (lambda fp: fp.startswith(autohotkey_decompiled_dir), "AutoHotkey script decompiled."),
     (lambda fp: fp.startswith(themida_unpacked_dir), "Themida unpacked."),
     (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
@@ -3818,6 +3820,8 @@ def get_signature(base_signature, **flags):
         'jsc_flag': 'JavaScript.ByteCode.v8',
         'javascript_deobfuscated_flag': 'JavaScript',
         'nuitka_flag': 'Nuitka',
+        'inno_setup_flag': 'Inno Setup',
+        'autohotkey_flag': 'AutoHotkey',
         'nsis_flag': 'NSIS',
         'pyc_flag': 'PYC.Python',
         'androguard_flag': 'Android',
@@ -11094,13 +11098,6 @@ def extract_inno_setup(file_path):
         # Run innounp-2 to extract files
         cmd = [
             inno_unpack_path,
-            "-e",                # extract files
-            file_path,
-            "-d", output_dir     # output directory
-        ]
-        # Improved innounp command for extraction
-        cmd = [
-            inno_unpack_path,
             "-x",               # extract files with full paths
             "-b",               # batch mode (non-interactive)
             "-u",               # use UTF-8 output (for filenames with unicode)
@@ -11123,6 +11120,17 @@ def extract_inno_setup(file_path):
             for filename in files:
                 extracted_paths.append(os.path.join(root, filename))
 
+        # --- Added: scan the first extracted .iss file ---
+        if extracted_paths:
+            first_file = extracted_paths[0]
+            if os.path.splitext(first_file)[1].lower() == ".iss":
+                try:
+                    with open(first_file, "r", encoding="utf-8", errors="ignore") as f:
+                        source_code = f.read()
+                    scan_code_for_links(source_code, first_file, inno_setup_flag=True)
+                except Exception as ex:
+                    logger.error(f"Failed to read/scan .iss file {first_file}: {ex}")
+
         return extracted_paths
 
     except Exception as ex:
@@ -11140,6 +11148,85 @@ def is_inno_setup_archive_from_output(die_output):
        "Data: Inno Setup Installer data" in die_output and \
        "Installer: Inno Setup Module" in die_output:
         logger.info("DIE output indicates an Inno Setup installer.")
+        return True
+
+    return False
+
+def decompile_ahk_exe(file_path):
+    """
+    Decompile an AutoHotkey EXE using pefile.
+    Extracts RCData resource to a unique subdirectory under autohotkey_decompiled_dir,
+    then scans its source code with scan_code_for_links(autohotkey_flag=True).
+
+    :param file_path: Path to compiled AutoHotkey EXE
+    :return: Path to RCData.rc or None if failed
+    """
+    try:
+        if not os.path.isfile(file_path):
+            logger.error(f"File not found: {file_path}")
+            return None
+
+        # Create a unique subdirectory for this decompile
+        folder_number = 1
+        while os.path.exists(f"{autohotkey_decompiled_dir}_{folder_number}"):
+            folder_number += 1
+        output_dir = f"{autohotkey_decompiled_dir}_{folder_number}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        rc_output_path = os.path.join(output_dir, "RCData.rc")
+        logger.info(f"Starting AHK decompilation: {file_path} -> {output_dir}")
+
+        # Load EXE with pefile
+        pe = pefile.PE(file_path)
+        resource_extracted = False
+
+        if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
+            for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                if entry.name and entry.name.decode(errors="ignore") == "RCData":
+                    for res in entry.directory.entries:
+                        data_rva = res.directory.entries[0].data.struct.OffsetToData
+                        size = res.directory.entries[0].data.struct.Size
+                        data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+                        with open(rc_output_path, "wb") as f:
+                            f.write(data)
+                        resource_extracted = True
+                        logger.info(f"Extracted RCData to {rc_output_path}")
+                        break
+
+        if not resource_extracted:
+            logger.warning("No RCData resource found in EXE")
+            return None
+
+        # Read RCData.rc and scan it
+        try:
+            with open(rc_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                source_code = f.read()
+            logger.info(f"Scanning RCData.rc for links")
+            scan_code_for_links(source_code, rc_output_path, autohotkey_flag=True)
+        except Exception as ex:
+            logger.error(f"Failed to read/scan RCData.rc {rc_output_path}: {ex}")
+
+        logger.info("AHK decompilation finished")
+        return rc_output_path
+
+    except Exception as ex:
+        logger.error(f"Failed to decompile AHK EXE {file_path}: {ex}")
+        return None
+
+def is_compiled_autohotkey_from_output(die_output):
+    """
+    Check if the DIE output indicates a compiled AutoHotkey executable.
+
+    A file is considered a compiled AutoHotkey binary if the output contains:
+      - "Format: Compiled AutoHotKey"
+    Optionally, the version string in parentheses may also be present,
+    e.g. "Format: Compiled AutoHotKey(1.1.00.00)".
+    """
+    if not die_output:
+        return False
+
+    if "Format: Compiled AutoHotKey" in die_output:
+        logger.info("DIE output indicates a compiled AutoHotkey executable.")
         return True
 
     return False
@@ -12099,6 +12186,23 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
+            def autohotkey_thread(norm_path, die_output):
+                """
+                Thread to handle AutoHotkey EXE decompilation and scanning.
+                """
+                try:
+                    if is_compiled_autohotkey_from_output(die_output):
+                        rc_path = decompile_ahk_exe(norm_path)
+                        if rc_path:
+                            logger.info(f"Decompiled RCData.rc at {rc_path}. Scanning...")
+                            threading.Thread(target=scan_and_warn, args=(rc_path,)).start()
+                        else:
+                            logger.warning(f"No RCData extracted from {norm_path}")
+                    else:
+                        logger.info(f"{norm_path} is not a compiled AutoHotkey executable.")
+                except Exception as e:
+                    logger.error(f"Error in AutoHotkey extraction for {norm_path}: {e}")
+
             def go_garble_thread():
                 try:
                     if is_go_garble_from_output(die_output):
@@ -12145,6 +12249,7 @@ def scan_and_warn(file_path,
                 threading.Thread(target=unipacker_thread),
                 threading.Thread(target=upx_thread),
                 threading.Thread(target=inno_setup_thread),
+                threading.Thread(target=autohotkey_thread),
                 threading.Thread(target=go_garble_thread),
                 threading.Thread(target=pyc_thread),
                 threading.Thread(target=nsis_thread)
