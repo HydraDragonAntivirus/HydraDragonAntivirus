@@ -7786,7 +7786,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     tokens = []
     extracted_links = []
 
-    for line in [source_code]:
+    for line in source_code.splitlines():
         start = 0
         for m in combined_preserve.finditer(line):
             unprotected = line[start:m.start()]
@@ -7925,9 +7925,19 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     if current_module_code:
         modules.append((current_module_name, current_module_code))
 
-    # --- STEP 5: Keep only 'u'-starting lines and save ---
+    # --- STEP 5: Keep only 'u'-starting lines and save, remove only first 'upython.exe' ---
     for name, code_lines in modules:
-        forced_lines = [l for l in code_lines if l.lower().startswith('u')]
+        forced_lines = []
+        first_upython_removed = False
+
+        for l in code_lines:
+            line_strip = l.strip()
+            if line_strip == "upython.exe" and not first_upython_removed:
+                first_upython_removed = True
+                continue  # skip only the first occurrence
+            if l.lower().startswith('u'):
+                forced_lines.append(l)
+
         save_module_file(name, forced_lines)
 
     logger.info("Reconstruction complete (only 'u'-lines kept).")
