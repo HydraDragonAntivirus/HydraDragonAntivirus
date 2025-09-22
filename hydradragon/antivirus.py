@@ -444,7 +444,7 @@ av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
 network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
-enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
+enigma1_extracted_dir = os.path.join(script_dir, "enigma1_extracted")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
 upx_dir = os.path.join(script_dir, "upx-5.0.2-win64")
 upx_path = os.path.join(upx_dir, "upx.exe")
@@ -517,8 +517,8 @@ pycdas_path = os.path.join(script_dir, "pycdas.exe")
 ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
 installshield_extracted_dir = os.path.join(script_dir, "installshield_extracted")
 autoit_extracted_dir = os.path.join(script_dir, "autoit_extracted")
-pd64_path = os.path.join(script_dir, "pd64.exe")
-pd64_extracted_dir = os.path.join(script_dir, "pd64_extracted")
+hydra_dragon_dumper_path = os.path.join(script_dir, "HydraDragonDumper.exe")
+hydra_dragon_dumper_extracted_dir = os.path.join(script_dir, "HydraDragonDumper_extracted")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
 digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
 digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
@@ -1069,7 +1069,7 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
-    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
+    hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
@@ -1110,8 +1110,8 @@ for make_directory in MANAGED_DIRECTORIES:
 
 # Directory conditions and their corresponding logging messages
 DIRECTORY_MESSAGES = [
-    (lambda fp: fp.startswith(pd64_extracted_dir), "Process Dump x64 output extracted."),
-    (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
+    (lambda fp: fp.startswith(hydra_dragon_dumper_extracted_dir), "Hydra Dragon Dumper (Mega Dumper Fork) output extracted."),
+    (lambda fp: fp.startswith(enigma1_extracted_dir), "Enigma Virtual Box extracted."),
     (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
     (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
     (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
@@ -1223,7 +1223,7 @@ def try_unpack_enigma1(input_exe: str) -> str | None:
 
     for version, flags in PACKER_FLAGS.items():
         # Create a subdir for this version attempt: <exe_name>_v<version>
-        version_dir = os.path.join(enigma_extracted_dir, f"{exe_name}_v{version}")
+        version_dir = os.path.join(enigma1_extracted_dir, f"{exe_name}_v{version}")
         os.makedirs(version_dir, exist_ok=True)
 
         cmd = ["evbunpack"] + flags + [input_exe, version_dir]
@@ -4536,6 +4536,22 @@ def run_pd64_db_gen(quick=False):
         logger.error(f"Failed to generate clean.hashes: {e}")
         return False
 
+def extract_with_pd64(pid: str, output_dir: str) -> bool:
+    """Run pd64.exe to dump suspicious modules from a process PID."""
+    try:
+        subprocess.run([
+            pd64_path,
+            "-pid",
+            pid,
+            "-o",
+            output_dir
+        ], check=True)
+        logger.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"pd64 extraction failed for PID {pid}: {e}")
+        return False
+
 def extract_with_unipacker(file_path):
     """
     Extract packed binary using Unipacker library.
@@ -4594,22 +4610,6 @@ def extract_with_unipacker(file_path):
     except Exception as e:
         logger.error(f"Unipacker extraction failed for {file_path}: {e}")
         return None
-
-def extract_with_pd64(pid: str, output_dir: str) -> bool:
-    """Run pd64.exe to dump suspicious modules from a process PID."""
-    try:
-        subprocess.run([
-            pd64_path,
-            "-pid",
-            pid,
-            "-o",
-            output_dir
-        ], check=True)
-        logger.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"pd64 extraction failed for PID {pid}: {e}")
-        return False
 
 # Global variables for worm detection
 worm_alerted_files = []
@@ -12814,7 +12814,7 @@ def remove_log_file(json_file_path: str):
     except Exception as e:
         logger.error(f"An unexpected error occurred during file removal: {e}")
 
-def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
+def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
     Analyze a specific process using pd64 to dump suspicious modules.
 
