@@ -4514,42 +4514,86 @@ def save_extracted_strings(output_filename, extracted_strings):
     with open(output_filename, 'w', encoding='utf-8') as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
 
-def run_pd64_db_gen(quick=False):
-    """Run pd64 -db gen or pd64 -db genquick to create/update clean.hashes in script_dir.
+def run_hydra_whitelist(whitelist_path: Optional[str] = None) -> bool:
+    """
+    Run HydraDragonDumper.exe with the --whitelist argument to generate/update the whitelist
+    file. If whitelist_path is provided, it will be passed as the next CLI argument and the
+    parent directory will be created if necessary.
+
+    Mirrors the CLI behavior:
+      Mega_Dumper.exe --whitelist [OptionalOutputFilePath.txt]
 
     Args:
-        quick (bool): If True, runs 'pd64 -db genquick' instead of 'pd64 -db gen'.
+        whitelist_path: Optional path to write the whitelist (defaults to 'whitelist_hashes.txt'
+                        in script_dir if None).
 
     Returns:
-        bool: True if command succeeded, False otherwise.
+        bool: True on success, False on failure.
     """
-    cmd = [pd64_path, "-db"]
-    if quick:
-        cmd.append("genquick")
+    # Default filename if none provided
+    if not whitelist_path:
+        whitelist_path = os.path.join(script_dir, "whitelist_hashes.txt")
     else:
-        cmd.append("gen")
+        # If user provided a relative path, make it relative to script_dir for consistency
+        if not os.path.isabs(whitelist_path):
+            whitelist_path = os.path.join(script_dir, whitelist_path)
+
+    # Ensure parent directory exists
+    parent_dir = os.path.dirname(whitelist_path)
+    if parent_dir:
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to create directory for whitelist path '{parent_dir}': {e}")
+            return False
+
+    # Build command: pass --whitelist and optionally the output path (only if it's not another flag)
+    cmd = [hydra_dragon_dumper_path, "--whitelist", whitelist_path]
 
     try:
         subprocess.run(cmd, check=True)
+        logger.info(f"HydraDragonDumper: whitelist generated at {whitelist_path}")
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to generate clean.hashes: {e}")
+        logger.error(f"HydraDragonDumper failed to generate whitelist: {e}")
+        return False
+    except FileNotFoundError:
+        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
         return False
 
-def extract_with_pd64(pid: str, output_dir: str) -> bool:
-    """Run pd64.exe to dump suspicious modules from a process PID."""
+def extract_with_hydra(pid: str, output_dir: str) -> bool:
+    """
+    Run HydraDragonDumper (Mega Dumper CLI) to dump suspicious modules from a process PID.
+
+    Args:
+        pid: PID of the target process (as string).
+        output_dir: Directory where the dumper will place extracted files.
+
+    Returns:
+        bool: True if extraction succeeded, False otherwise.
+    """
     try:
-        subprocess.run([
-            pd64_path,
-            "-pid",
-            pid,
-            "-o",
-            output_dir
-        ], check=True)
-        logger.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
+        # HydraDragonDumper (Mega Dumper CLI) expected arguments:
+        #   -pid <PID> -o <output_dir>
+        # If the Hydra CLI has different switches, update accordingly.
+        subprocess.run(
+            [
+                hydra_dragon_dumper_path,
+                "-pid",
+                pid,
+                "-o",
+                output_dir
+            ],
+            check=True
+        )
+        logger.info(f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}")
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"pd64 extraction failed for PID {pid}: {e}")
+        logger.error(f"HydraDragonDumper extraction failed for PID {pid}: {e}")
+        return False
+    except FileNotFoundError:
+        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
         return False
 
 def extract_with_unipacker(file_path):
@@ -11211,7 +11255,7 @@ def decompile_ahk_exe(file_path):
         try:
             with open(rc_output_path, "r", encoding="utf-8", errors="ignore") as f:
                 source_code = f.read()
-            logger.info(f"Scanning RCData.rc for links")
+            logger.info("Scanning RCData.rc for links")
             scan_code_for_links(source_code, rc_output_path, autohotkey_flag=True)
         except Exception as ex:
             logger.error(f"Failed to read/scan RCData.rc {rc_output_path}: {ex}")
@@ -12816,12 +12860,14 @@ def remove_log_file(json_file_path: str):
 
 def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
-    Analyze a specific process using pd64 to dump suspicious modules.
+    Analyze a specific process by name or path. Uses HydraDragonDumper (Mega Dumper CLI)
+    to dump suspicious modules and then scans the extracted files. Extracted ASCII
+    strings are saved into memory_dir.
 
-    :param process_name_or_path: Process name (e.g., 'guloader.exe') or full path
-    :param memory_dir: Directory where string output is saved.
-    :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
-    :return: Path to the extracted ASCII strings text file, or None if an error occurred.
+    Args:
+        process_name_or_path: Process name (e.g., 'guloader.exe') or full path.
+    Returns:
+        Path to the extracted ASCII strings text file, or None if an error occurred.
     """
     try:
         # Extract process name from path if needed
@@ -12831,8 +12877,8 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         matching_processes = []
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                if proc.info['name'].lower() == process_name.lower():
-                    matching_processes.append((proc.info['pid'], proc.info['exe']))
+                if proc.info['name'] and proc.info['name'].lower() == process_name.lower():
+                    matching_processes.append((proc.info['pid'], proc.info.get('exe')))
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -12847,23 +12893,19 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         target_pid, target_exe = matching_processes[0]
         logger.info(f"Found target process: {target_exe} (PID: {target_pid})")
 
-        # Ensure output directories exist
-        os.makedirs(memory_dir, exist_ok=True)
-        os.makedirs(pd64_extracted_dir, exist_ok=True)
-
         extracted_strings = []
 
-        # Run pd64 on the process PID to dump suspicious modules
-        logger.info(f"Running pd64 on process PID: {target_pid}")
-        pid_pd64_dir = os.path.join(pd64_extracted_dir, f"pid_{target_pid}")
-        os.makedirs(pid_pd64_dir, exist_ok=True)
+        # Run HydraDragonDumper (Mega Dumper CLI) on the process PID to dump suspicious modules
+        logger.info(f"Running HydraDragonDumper on process PID: {target_pid}")
+        pid_hydra_dir = os.path.join(hydra_dragon_dumper_extracted_dir, f"pid_{target_pid}")
+        os.makedirs(pid_hydra_dir, exist_ok=True)
 
         try:
-            if extract_with_pd64(str(target_pid), pid_pd64_dir):
-                logger.info(f"pd64 successfully extracted from PID {target_pid}")
+            if extract_with_hydra(str(target_pid), pid_hydra_dir):
+                logger.info(f"HydraDragonDumper successfully extracted from PID {target_pid}")
 
                 # Scan all extracted files
-                for root, _, files in os.walk(pid_pd64_dir):
+                for root, _, files in os.walk(pid_hydra_dir):
                     for fname in files:
                         full_path = os.path.join(root, fname)
 
@@ -12874,12 +12916,11 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                                 logger.info(f"Skipping large file: {full_path} ({file_size} bytes)")
                                 continue
 
-                            logger.info(f"Scanning pd64 extracted file: {full_path}")
+                            logger.info(f"Scanning HydraDragonDumper extracted file: {full_path}")
 
-                            # Extract strings from pd64 results
+                            # Extract strings from extracted file
                             try:
                                 with open(full_path, 'rb') as f:
-                                    # Read in chunks to prevent memory issues
                                     chunk_size = 1024 * 1024  # 1MB chunks
                                     file_strings = []
 
@@ -12889,18 +12930,17 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                                             break
                                         chunk_strings = extract_ascii_strings(chunk)
                                         if chunk_strings:
-                                            file_strings.extend(chunk_strings[:100])  # Limit strings per chunk
+                                            file_strings.extend(chunk_strings[:100])  # Limit per chunk
 
-                                        # Limit total strings to prevent memory overflow
                                         if len(file_strings) > 1000:
                                             break
 
                                     if file_strings:
-                                        extracted_strings.append(f"pd64 extracted file {fname} Strings:")
-                                        extracted_strings.extend(file_strings[:500])  # Limit total strings per file
+                                        extracted_strings.append(f"HydraDragonDumper extracted file {fname} Strings:")
+                                        extracted_strings.extend(file_strings[:500])  # Limit total per file
 
                             except Exception as file_ex:
-                                logger.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+                                logger.error(f"Could not read extracted file {full_path}: {file_ex}")
 
                             # Scan the extracted file for threats
                             scan_and_warn(full_path)
@@ -12910,11 +12950,11 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                             continue
 
             else:
-                logger.error(f"pd64 extraction failed for PID {target_pid}")
+                logger.error(f"HydraDragonDumper extraction failed for PID {target_pid}")
                 return None
 
-        except Exception as pd64_ex:
-            logger.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
+        except Exception as hydra_ex:
+            logger.error(f"Error during HydraDragonDumper extraction for PID {target_pid}: {hydra_ex}")
             return None
 
         # Save extracted ASCII strings to file if we got any
@@ -13080,7 +13120,7 @@ class SafeProcessMonitor:
 
             return True, "Ready for analysis"
 
-    def _submit_analysis_task(self, proc_info: ProcessInfo, memory_dir: str, pd64_extracted_dir: str) -> None:
+    def _submit_analysis_task(self, proc_info) -> None:
         """Submit memory analysis task to thread pool"""
         if self._stop_requested.is_set():
             return
@@ -13098,9 +13138,9 @@ class SafeProcessMonitor:
 
                 logger.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
 
-                # Call the external analysis function
+                # Call the external analysis function (uses HydraDragonDumper internally)
                 result_file = analyze_specific_process(
-                    proc_info.name, memory_dir, pd64_extracted_dir
+                    proc_info.name
                 )
 
                 if self._stop_requested.is_set():
@@ -13165,8 +13205,7 @@ class SafeProcessMonitor:
 
         logger.info("Memory monitor shutdown complete")
 
-    def monitor_processes(self, change_threshold_bytes: int, memory_dir: str,
-                         pd64_extracted_dir: str, sleep_interval: float = 0.1) -> None:
+    def monitor_processes(self, change_threshold_bytes: int, sleep_interval: float = 0.1) -> None:
         """Main monitoring loop"""
         logger.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
         logger.info(f"Monitoring main file: {self.main_file_path}")
@@ -13200,7 +13239,7 @@ class SafeProcessMonitor:
 
                         if should_analyze:
                             logger.info(f"Analyzing process {proc_info.pid}: {reason}")
-                            self._submit_analysis_task(proc_info, memory_dir, pd64_extracted_dir)
+                            self._submit_analysis_task(proc_info)
 
                     # Cleanup stale tracking data every 100 iterations
                     if iteration_count % 100 == 0:
@@ -13233,14 +13272,14 @@ def monitor_memory_changes(
 ) -> None:
     """
     Continuously monitor processes in sandbox and main file for RSS memory changes and trigger analysis.
-    Uses pd64 extraction methods with robust error handling and resource management.
+
+    Uses HydraDragonDumper extraction methods with robust error handling and resource management.
 
     :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     :param stop_callback: Function that returns True when monitoring should stop
-    :param memory_dir: Directory for memory dumps
-    :param pd64_extracted_dir: Directory for pd64 extracted data
     """
-
+    # These globals/objects must exist in the environment where this function is used:
+    # SafeProcessMonitor, sandboxie_folder, main_file_path
     monitor = SafeProcessMonitor(sandboxie_folder, main_file_path)
 
     # Set up stop callback integration
@@ -13255,8 +13294,6 @@ def monitor_memory_changes(
                     try:
                         monitor.monitor_processes(
                             change_threshold_bytes,
-                            memory_dir,
-                            pd64_extracted_dir,
                             sleep_interval=0.1
                         )
                         break  # Normal exit
@@ -13278,7 +13315,7 @@ def monitor_memory_changes(
                 monitor_thread.join(timeout=30)
         else:
             # Run directly in current thread
-            monitor.monitor_processes(change_threshold_bytes, memory_dir, pd64_extracted_dir)
+            monitor.monitor_processes(change_threshold_bytes)
 
     except KeyboardInterrupt:
         logger.info("Memory monitoring interrupted")
@@ -13844,7 +13881,7 @@ def _load_uia_types():
             # Import comtypes for cache operations
             import comtypes
             import comtypes.client
-            
+
             # Clear the comtypes cache
             gen_dir = comtypes.client._code_cache._find_gen_dir()
             if gen_dir and os.path.exists(gen_dir):
@@ -15173,14 +15210,13 @@ class Worker(QThread):
             logger.error(error_message)
             return None, None
 
-    def generate_clean_db(self):
-        success = run_pd64_db_gen()
-        msg = "[+] clean.hashes generated." if success else "[!] Failed to generate clean.hashes."
-        self.output_signal.emit(msg)
-
-    def quick_generate_clean_db_task(self):
-        success = run_pd64_db_gen(quick=True)
-        msg = "[+] clean.hashes generated." if success else "[!] Failed to generate clean.hashes."
+    def generate_whitelist_db(self, optional_path: Optional[str] = None):
+        """
+        Wrapper to generate whitelist from within a class (emits UI signal).
+        If optional_path is provided, it will be used as the output file for the whitelist.
+        """
+        success = run_hydra_whitelist(optional_path)
+        msg = "[+] whitelist (clean.hashes) generated." if success else "[!] Failed to generate whitelist (clean.hashes)."
         self.output_signal.emit(msg)
 
     def capture_analysis_logs(self):
@@ -15884,8 +15920,7 @@ class Worker(QThread):
                 "capture_analysis_logs": self.capture_analysis_logs,
                 "compare_analysis_logs": self.compare_analysis_logs,
                 "update_defs": self.update_definitions,
-                "quick_generate_clean_db_task": self.quick_generate_clean_db_task,
-                "generate_clean_db": self.generate_clean_db,
+                "generate_whitelist_db": self.generate_whitelist_db,
                 "rootkit_scan": self.perform_rootkit_scan,
                 "cleanup_environment": self.perform_cleanup,
                 "load_meta_llama_1b_model": self.load_meta_llama_1b_model,
@@ -15932,8 +15967,6 @@ class AntivirusApp(QWidget):
             #page_subtitle { font-size: 16px; color: #A3BE8C; }
             #version_label { font-size: 13px; color: #81A1C1; }
             #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
-            #action_button_secondary { background-color: #D08770; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
-            #action_button_secondary:hover { background-color: #EBCB8B; }
             #action_button:hover { background-color: #81A1C1; }
             #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
             #action_button_danger:hover { background-color: #d08770; }
@@ -16294,28 +16327,22 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         return page
 
-    def create_generate_clean_db_page(self):
+    def create_generate_whitelist_db_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        title = QLabel("Generate Clean DB")
+        title = QLabel("Generate Whitelist DB")
         title.setObjectName("page_title")
         layout.addWidget(title)
 
-        # Main Generate Clean DB button
-        generate_button = QPushButton("Run Generate Clean DB (Recommended)")
+        # Main Generate Whitelist DB button
+        generate_button = QPushButton("Run Generate Whitelist DB (Recommended)")
         generate_button.setObjectName("action_button")
-        generate_button.clicked.connect(lambda: self.start_worker("generate_clean_db"))
+        generate_button.clicked.connect(lambda: self.start_worker("generate_whitelist_db"))
         layout.addWidget(generate_button)
 
-        # Quick Clean DB button (secondary option)
-        quick_button = QPushButton("Run Quick Clean DB")
-        quick_button.setObjectName("action_button_secondary")
-        quick_button.clicked.connect(lambda: self.start_worker("quick_generate_clean_db_task"))
-        layout.addWidget(quick_button)
-
-        log_output = QTextEdit("Generate Clean DB logs will appear here...")
+        log_output = QTextEdit("Generate Whitelist DB logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
@@ -16381,7 +16408,7 @@ class AntivirusApp(QWidget):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
         self.main_stack.addWidget(self.create_task_page("Update ClamAV Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_generate_clean_db_page())
+        self.main_stack.addWidget(self.create_generate_whitelist_db_page())
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
         self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
