@@ -15216,7 +15216,7 @@ class Worker(QThread):
         If optional_path is provided, it will be used as the output file for the whitelist.
         """
         success = run_hydra_whitelist(optional_path)
-        msg = "[+] whitelist (clean.hashes) generated." if success else "[!] Failed to generate whitelist (clean.hashes)."
+        msg = "[+] whitelist (whitelist_hashes.txt) generated." if success else "[!] Failed to generate whitelist (whitelist_hashes.txt)."
         self.output_signal.emit(msg)
 
     def capture_analysis_logs(self):
