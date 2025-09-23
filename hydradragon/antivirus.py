@@ -6777,8 +6777,8 @@ def scan_file_ml(
             logger.debug("ML scan skipped: not a PE file: %s", os.path.basename(file_path))
             return False, "Clean", 0.0
 
-        # Unpack only the first 3 values (ignore matched_rules from ML)
-        is_malicious_ml, malware_definition, benign_score, _ = scan_file_with_machine_learning_ai(file_path)
+        # Unpack only the first 3 values
+        is_malicious_ml, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
 
         sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
