@@ -98,8 +98,8 @@ import re
 logger.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import json
-logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
+import ijson
+logger.info(f"ijson module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
@@ -7324,238 +7324,225 @@ load_antivirus_list()
 antivirus_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "Antivirus digital signatures")
 goodsign_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "UnHackMe digital signatures")
 
-# Load ML definitions
+# ---------------------------
+# Helper functions
+# ---------------------------
+def to_float(x, default=0.0):
+    try:
+        if x is None:
+            return float(default)
+        return float(x)
+    except Exception:
+        return float(default)
 
-def load_ml_definitions(filepath: str) -> bool:
+def safe_len(x):
+    try:
+        return len(x) if x is not None else 0
+    except Exception:
+        return 0
+
+def section_entropy_stats(section_characteristics):
+    entropies = []
+    try:
+        if isinstance(section_characteristics, dict):
+            for v in section_characteristics.values():
+                e = v.get('entropy') if isinstance(v, dict) else None
+                if e is not None:
+                    try:
+                        entropies.append(float(e))
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+    if not entropies:
+        return 0.0, 0.0, 0.0
+    mean = sum(entropies) / len(entropies)
+    return float(mean), float(min(entropies)), float(max(entropies))
+
+def reloc_summary(relocs):
+    try:
+        total = 0
+        blocks = 0
+        if isinstance(relocs, list):
+            for r in relocs:
+                blocks += 1
+                try:
+                    total += int(r.get('summary', {}).get('total_entries', 0))
+                except Exception:
+                    continue
+        return total, blocks
+    except Exception:
+        return 0, 0
+
+def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
+    if not isinstance(entry, dict):
+        entry = {}
+
+    size_of_optional_header = to_float(entry.get("SizeOfOptionalHeader", 0))
+    major_linker = to_float(entry.get("MajorLinkerVersion", 0))
+    minor_linker = to_float(entry.get("MinorLinkerVersion", 0))
+    size_of_code = to_float(entry.get("SizeOfCode", 0))
+    size_of_init_data = to_float(entry.get("SizeOfInitializedData", 0))
+    size_of_uninit_data = to_float(entry.get("SizeOfUninitializedData", 0))
+    address_of_entry = to_float(entry.get("AddressOfEntryPoint", 0))
+    image_base = to_float(entry.get("ImageBase", 0))
+    subsystem = to_float(entry.get("Subsystem", 0))
+    dll_characteristics = to_float(entry.get("DllCharacteristics", 0))
+    size_of_stack_reserve = to_float(entry.get("SizeOfStackReserve", 0))
+    size_of_heap_reserve = to_float(entry.get("SizeOfHeapReserve", 0))
+    checksum = to_float(entry.get("CheckSum", 0))
+    num_rva_and_sizes = to_float(entry.get("NumberOfRvaAndSizes", 0))
+    size_of_image = to_float(entry.get("SizeOfImage", 0))
+
+    imports_count = safe_len(entry.get("imports", []))
+    exports_count = safe_len(entry.get("exports", []))
+    resources_count = safe_len(entry.get("resources", []))
+    sections_count = safe_len(entry.get("sections", []))
+
+    overlay = entry.get("overlay", {}) or {}
+    overlay_exists = int(bool(overlay.get("exists")))
+    overlay_size = to_float(overlay.get("size", 0))
+
+    sec_char = entry.get("section_characteristics", {}) or {}
+    sec_entropy_mean, sec_entropy_min, sec_entropy_max = section_entropy_stats(sec_char)
+
+    sec_disasm = entry.get("section_disassembly", {}) or {}
+    overall = sec_disasm.get("overall_analysis", {}) or {}
+    total_instructions = to_float(overall.get("total_instructions", 0))
+    total_adds = to_float(overall.get("add_count", 0))
+    total_movs = to_float(overall.get("mov_count", 0))
+    is_likely_packed = int(bool(overall.get("is_likely_packed")))
+
+    add_mov_ratio = (total_adds / (total_movs + 1.0)) if (total_movs is not None) else 0.0
+    instrs_per_kb = 0.0
+    try:
+        instrs_per_kb = total_instructions / ((size_of_image / 1024.0) + 1e-6)
+    except Exception:
+        instrs_per_kb = 0.0
+
+    tls = entry.get("tls_callbacks", {}) or {}
+    tls_callbacks_list = tls.get("callbacks", []) if isinstance(tls, dict) else []
+    num_tls_callbacks = safe_len(tls_callbacks_list)
+
+    delay_imports_list = entry.get("delay_imports", []) or []
+    num_delay_imports = safe_len(delay_imports_list)
+
+    relocs = entry.get("relocations", []) or []
+    num_reloc_entries, num_reloc_blocks = reloc_summary(relocs)
+
+    bound_imports = entry.get("bound_imports", []) or []
+    num_bound_imports = safe_len(bound_imports)
+
+    debug_entries = entry.get("debug", []) or []
+    num_debug_entries = safe_len(debug_entries)
+    cert_info = entry.get("certificates", {}) or {}
+    cert_size = to_float(cert_info.get("size", 0))
+
+    rich_header = entry.get("rich_header", {}) or {}
+    has_rich = int(bool(rich_header))
+
+    numeric = [
+        size_of_optional_header,
+        major_linker,
+        minor_linker,
+        size_of_code,
+        size_of_init_data,
+        size_of_uninit_data,
+        address_of_entry,
+        image_base,
+        subsystem,
+        dll_characteristics,
+        size_of_stack_reserve,
+        size_of_heap_reserve,
+        checksum,
+        num_rva_and_sizes,
+        size_of_image,
+        float(imports_count),
+        float(exports_count),
+        float(resources_count),
+        float(overlay_exists),
+        float(sections_count),
+        float(sec_entropy_mean),
+        float(sec_entropy_min),
+        float(sec_entropy_max),
+        float(total_instructions),
+        float(total_adds),
+        float(total_movs),
+        float(is_likely_packed),
+        float(add_mov_ratio),
+        float(instrs_per_kb),
+        float(overlay_size),
+        float(num_tls_callbacks),
+        float(num_delay_imports),
+        float(num_reloc_entries),
+        float(num_reloc_blocks),
+        float(num_bound_imports),
+        float(num_debug_entries),
+        float(cert_size),
+        float(has_rich)
+    ]
+
+    filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
+    return numeric, filename
+
+# ---------------------------
+# Recommended two-pass streaming loader (memory-efficient)
+# ---------------------------
+def load_ml_definitions_stream(filepath: str) -> bool:
     """
-    Load ML definitions from a JSON file and populate global numeric feature lists.
-    This version understands the extended feature set produced by PEFeatureExtractor
-    (section_disassembly, section_characteristics, overlay size, relocations, TLS callbacks, etc.)
-    and is defensive about missing or unexpected types.
+    Stream-parse a large JSON file with top-level 'malicious' and 'benign' arrays.
+    Two streaming passes (malicious, benign) using ijson.items to avoid loading whole file.
     """
     global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
 
-    def to_float(x, default=0.0):
-        try:
-            if x is None:
-                return float(default)
-            return float(x)
-        except Exception:
-            return float(default)
-
-    def safe_len(x):
-        try:
-            return len(x) if x is not None else 0
-        except Exception:
-            return 0
-
-    def section_entropy_stats(section_characteristics):
-        # section_characteristics may be a dict keyed by section name with 'entropy' values
-        entropies = []
-        try:
-            if isinstance(section_characteristics, dict):
-                for v in section_characteristics.values():
-                    e = v.get('entropy') if isinstance(v, dict) else None
-                    if e is not None:
-                        try:
-                            entropies.append(float(e))
-                        except Exception:
-                            continue
-        except Exception:
-            pass
-        if not entropies:
-            return 0.0, 0.0, 0.0  # mean, min, max
-        mean = sum(entropies) / len(entropies)
-        return float(mean), float(min(entropies)), float(max(entropies))
-
-    def reloc_summary(relocs):
-        # relocs is expected to be a list of relocation blocks with 'summary':{'total_entries':N}
-        try:
-            total = 0
-            blocks = 0
-            if isinstance(relocs, list):
-                for r in relocs:
-                    blocks += 1
-                    try:
-                        total += int(r.get('summary', {}).get('total_entries', 0))
-                    except Exception:
-                        continue
-            return total, blocks
-        except Exception:
-            return 0, 0
-
-    def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
-        if not isinstance(entry, dict):
-            entry = {}
-
-        # Core header values (kept from your original vector)
-        size_of_optional_header = to_float(entry.get("SizeOfOptionalHeader", 0))
-        major_linker = to_float(entry.get("MajorLinkerVersion", 0))
-        minor_linker = to_float(entry.get("MinorLinkerVersion", 0))
-        size_of_code = to_float(entry.get("SizeOfCode", 0))
-        size_of_init_data = to_float(entry.get("SizeOfInitializedData", 0))
-        size_of_uninit_data = to_float(entry.get("SizeOfUninitializedData", 0))
-        address_of_entry = to_float(entry.get("AddressOfEntryPoint", 0))
-        image_base = to_float(entry.get("ImageBase", 0))
-        subsystem = to_float(entry.get("Subsystem", 0))
-        dll_characteristics = to_float(entry.get("DllCharacteristics", 0))
-        size_of_stack_reserve = to_float(entry.get("SizeOfStackReserve", 0))
-        size_of_heap_reserve = to_float(entry.get("SizeOfHeapReserve", 0))
-        checksum = to_float(entry.get("CheckSum", 0))
-        num_rva_and_sizes = to_float(entry.get("NumberOfRvaAndSizes", 0))
-        size_of_image = to_float(entry.get("SizeOfImage", 0))
-
-        # Counts
-        imports_count = safe_len(entry.get("imports", []))
-        exports_count = safe_len(entry.get("exports", []))
-        resources_count = safe_len(entry.get("resources", []))
-        sections_count = safe_len(entry.get("sections", []))
-
-        # Overlay info
-        overlay = entry.get("overlay", {}) or {}
-        overlay_exists = int(bool(overlay.get("exists")))
-        overlay_size = to_float(overlay.get("size", 0))
-
-        # Section characteristics entropy stats (mean, min, max)
-        sec_char = entry.get("section_characteristics", {}) or {}
-        sec_entropy_mean, sec_entropy_min, sec_entropy_max = section_entropy_stats(sec_char)
-
-        # Capstone disassembly overall numbers (if available)
-        sec_disasm = entry.get("section_disassembly", {}) or {}
-        overall = sec_disasm.get("overall_analysis", {}) or {}
-        total_instructions = to_float(overall.get("total_instructions", 0))
-        total_adds = to_float(overall.get("add_count", 0))
-        total_movs = to_float(overall.get("mov_count", 0))
-        is_likely_packed = int(bool(overall.get("is_likely_packed")))
-
-        # Derived ratios (guard divide-by-zero)
-        add_mov_ratio = (total_adds / (total_movs + 1.0)) if (total_movs is not None) else 0.0
-        instrs_per_kb = 0.0
-        try:
-            instrs_per_kb = total_instructions / ((size_of_image / 1024.0) + 1e-6)
-        except Exception:
-            instrs_per_kb = 0.0
-
-        # TLS callbacks
-        tls = entry.get("tls_callbacks", {}) or {}
-        tls_callbacks_list = tls.get("callbacks", []) if isinstance(tls, dict) else []
-        num_tls_callbacks = safe_len(tls_callbacks_list)
-
-        # Delay imports
-        delay_imports_list = entry.get("delay_imports", []) or []
-        num_delay_imports = safe_len(delay_imports_list)
-
-        # Relocations
-        relocs = entry.get("relocations", []) or []
-        num_reloc_entries, num_reloc_blocks = reloc_summary(relocs)
-
-        # Bound imports
-        bound_imports = entry.get("bound_imports", []) or []
-        num_bound_imports = safe_len(bound_imports)
-
-        # Debug / certs
-        debug_entries = entry.get("debug", []) or []
-        num_debug_entries = safe_len(debug_entries)
-        cert_info = entry.get("certificates", {}) or {}
-        cert_size = to_float(cert_info.get("size", 0))
-
-        # Delay / other counts
-        num_delay_imports = safe_len(delay_imports_list)
-
-        # Rich header info (presence)
-        rich_header = entry.get("rich_header", {}) or {}
-        has_rich = int(bool(rich_header))
-
-        # relocations count already computed above
-        # bound imports count above
-
-        # Build the numeric vector (order matters - keep consistent)
-        numeric = [
-            # original fields (keep these in same order for backwards compatibility)
-            size_of_optional_header,
-            major_linker,
-            minor_linker,
-            size_of_code,
-            size_of_init_data,
-            size_of_uninit_data,
-            address_of_entry,
-            image_base,
-            subsystem,
-            dll_characteristics,
-            size_of_stack_reserve,
-            size_of_heap_reserve,
-            checksum,
-            num_rva_and_sizes,
-            size_of_image,
-
-            # counts (originally present)
-            float(imports_count),
-            float(exports_count),
-            float(resources_count),
-            float(overlay_exists),
-
-            # new / extended features
-            float(sections_count),
-            float(sec_entropy_mean),
-            float(sec_entropy_min),
-            float(sec_entropy_max),
-            float(total_instructions),
-            float(total_adds),
-            float(total_movs),
-            float(is_likely_packed),
-            float(add_mov_ratio),
-            float(instrs_per_kb),
-
-            float(overlay_size),
-            float(num_tls_callbacks),
-            float(num_delay_imports),
-            float(num_reloc_entries),
-            float(num_reloc_blocks),
-            float(num_bound_imports),
-            float(num_debug_entries),
-            float(cert_size),
-            float(has_rich)
-        ]
-
-        filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
-        return numeric, filename
-
-    # --- main loader body ---
     if not os.path.exists(filepath):
         logger.error(f"Machine learning definitions file not found: {filepath}. ML scanning will be disabled.")
         return False
 
+    malicious_numeric_features = []
+    malicious_file_names = []
+    benign_numeric_features = []
+    benign_file_names = []
+
     try:
-        with open(filepath, 'r', encoding='utf-8-sig') as results_file:
-            ml_defs = json.load(results_file)
+        # Pass 1: malicious array (stream items)
+        with open(filepath, 'rb') as f:
+            for entry in ijson.items(f, 'malicious.item'):
+                try:
+                    numeric, filename = entry_to_numeric(entry)
+                    malicious_numeric_features.append(numeric)
+                    malicious_file_names.append(filename)
+                except Exception:
+                    logger.debug("Skipped a malformed malicious entry during streaming loader.", exc_info=True)
+                    continue
 
-        # Malicious section
-        malicious_entries = ml_defs.get("malicious", []) or []
-        malicious_numeric_features = []
-        malicious_file_names = []
-        for entry in malicious_entries:
-            numeric, filename = entry_to_numeric(entry)
-            malicious_numeric_features.append(numeric)
-            malicious_file_names.append(filename)
+        # Pass 2: benign array (stream items)
+        with open(filepath, 'rb') as f:
+            for entry in ijson.items(f, 'benign.item'):
+                try:
+                    numeric, filename = entry_to_numeric(entry)
+                    benign_numeric_features.append(numeric)
+                    benign_file_names.append(filename)
+                except Exception:
+                    logger.debug("Skipped a malformed benign entry during streaming loader.", exc_info=True)
+                    continue
 
-        # Benign section
-        benign_entries = ml_defs.get("benign", []) or []
-        benign_numeric_features = []
-        benign_file_names = []
-        for entry in benign_entries:
-            numeric, filename = entry_to_numeric(entry)
-            benign_numeric_features.append(numeric)
-            benign_file_names.append(filename)
+        if malicious_numeric_features:
+            vec_len = len(malicious_numeric_features[0])
+        elif benign_numeric_features:
+            vec_len = len(benign_numeric_features[0])
+        else:
+            vec_len = 'N/A'
 
-        logger.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions (vectors length = {len(malicious_numeric_features[0]) if malicious_numeric_features else 'N/A'}).")
+        logger.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions (vectors length = {vec_len}).")
         return True
 
-    except (json.JSONDecodeError, IOError) as e:
-        logger.error(f"Failed to load or parse ML definitions from {filepath}: {e}. ML scanning will be disabled.")
+    except Exception as e:
+        logger.exception(f"Failed to stream-parse ML definitions: {e}")
         return False
 
 try:
-    success = load_ml_definitions(machine_learning_results_json)
+    success = load_ml_definitions_stream(machine_learning_results_json)
     if not success:
         logger.error("ML definitions could not be loaded properly.")
 except Exception as ex:
