@@ -31,7 +31,7 @@ sys.stderr = open(
 )
 
 # Logging for application initialization
-logger.info(
+logger.debug(
     "Application started at %s",
     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 )
@@ -44,130 +44,130 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox, QFileDialog)
-logger.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect)
-logger.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
-logger.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import clamav
-logger.info(f"clamav imported in {time.time() - start_time:.6f} seconds")
+logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
-# Measure and logger.info time taken for each import
+# Measure and logger.debug time taken for each import
 start_time = time.time()
 import hashlib
-logger.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import io
-logger.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import webbrowser
-logger.info(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from uuid import uuid4 as uniquename
-logger.info(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import shutil
-logger.info(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import subprocess
-logger.info(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import threading
-logger.info(f"threading module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from concurrent.futures import ThreadPoolExecutor
-logger.info(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
-logger.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import json
-logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pickle
-logger.info(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
-logger.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import traceback
-logger.info(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
-logger.info(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
-logger.info(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara
-logger.info(f"yara module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"yara module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara_x
-logger.info(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
-logger.info(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from notifypy import Notify
-logger.info(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.observers import Observer
-logger.info(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.events import FileSystemEventHandler
-logger.info(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32file
-logger.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32con
-logger.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32service
-logger.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32serviceutil
-logger.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import wmi
-logger.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import numpy as np
-logger.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 
@@ -176,238 +176,238 @@ from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.sendrecv import sniff
 
-logger.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import comtypes
-logger.info(f"comtypes modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"comtypes modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import comtypes.client
-logger.info(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes import cast, GUID
-logger.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
 
 from comtypes.automation import POINTER
-logger.info(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes.client import CreateObject
-logger.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import atexit
-logger.info(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
-logger.info(f"ast module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"ast module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
-logger.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from ctypes import wintypes
-logger.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32gui
-logger.info(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
-logger.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from urllib.parse import urlparse
-logger.info(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import spacy
-logger.info(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import csv
-logger.info(f"csv module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
-logger.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import lzma
-logger.info(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from importlib.util import MAGIC_NUMBER
-logger.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import string
-logger.info(f"string module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"string module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import chardet
-logger.info(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import difflib
-logger.info(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zlib
-logger.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import marshal
-logger.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base64
-logger.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base32_crockford
-logger.info(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import binascii
-logger.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from accelerate import Accelerator
-logger.info(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import py7zr
-logger.info(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import inspect
-logger.info(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
-logger.info(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.elf.elffile import ELFFile
-logger.info(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.common.exceptions import ELFError
-logger.info(f"elftools.common.exceptions, ELFFError module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"elftools.common.exceptions, ELFFError module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.MachO
-logger.info(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
-logger.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from dataclasses import dataclass
-logger.info(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union, Callable
-logger.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union, Callable module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union, Callable module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from androguard.misc import AnalyzeAPK
-logger.info(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
-logger.info(f"types module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"types module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-logger.info(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import debloat.processor
-logger.info(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from Crypto.Cipher import AES
-logger.info(f"Crpyto.Cipher.AES module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"Crpyto.Cipher.AES module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from Crypto.Util import Counter
-logger.info(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pathlib import Path, WindowsPath
-logger.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import requests
-logger.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"requests module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from functools import wraps
-logger.info(f"functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from xdis.unmarshal import load_code
-logger.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import capstone
-logger.info(f"capstone imported in {time.time() - start_time:.6f} seconds")
+logger.debug(f"capstone imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import nltk
-logger.info(f"nltk imported in {time.time() - start_time:.6f} seconds")
+logger.debug(f"nltk imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from nltk.corpus import words
-logger.info(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
+logger.debug(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from nltk.tokenize import word_tokenize
-logger.info(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
+logger.debug(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
-logger.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from View8.view8 import disassemble, decompile, export_to_file
-logger.info(f"view8.view8, disassemble, decompile, export_to_file modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"view8.view8, disassemble, decompile, export_to_file modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pylingual.main import main as pylingual_main
-logger.info(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from unipacker.core import Sample, UnpackerEngine, SimpleClient
-logger.info(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
 
-# Calculate and logger.info total time
+# Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
-logger.info(f"Total time for all imports: {total_duration:.6f} seconds")
+logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
-logger.info("spaCy model 'en_core_web_md' loaded successfully")
+logger.debug("spaCy model 'en_core_web_md' loaded successfully")
 
 try:
     nltk.data.find('tokenizers/punkt')
 except Exception:
-    logger.info("NLTK 'punkt' resource not found. Downloading...")
+    logger.debug("NLTK 'punkt' resource not found. Downloading...")
     nltk.download('punkt', quiet=True)
 
 try:
     nltk.data.find('corpora/words')
 except Exception:
-    logger.info("NLTK 'words' resource not found. Downloading...")
+    logger.debug("NLTK 'words' resource not found. Downloading...")
     nltk.download('words', quiet=True)
 
 # Create a set of English words for efficient lookup.

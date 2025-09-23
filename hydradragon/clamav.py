@@ -101,7 +101,7 @@ def load_clamav(libpath):
             lib.cl_strerror.argtypes = (c_int,)
             lib.cl_strerror.restype = c_char_p
 
-        logger.info(f"Loaded libclamav: {libpath}")
+        logger.debug(f"Loaded libclamav: {libpath}")
         return lib
 
     except Exception as e:
@@ -149,7 +149,7 @@ class Scanner:
             logger.error("Failed to load ClamAV database")
             return
 
-        logger.info("Scanner initialized successfully")
+        logger.debug("Scanner initialized successfully")
 
     @staticmethod
     def def_engine_options():
@@ -179,8 +179,8 @@ class Scanner:
             logger.error("libclamav is not loaded, cannot load DB.")
             return False
 
-        logger.info("Loading ClamAV database...")
-        
+        logger.debug("Loading ClamAV database...")
+
         # Free existing engine
         if self.engine:
             try:
@@ -235,7 +235,7 @@ class Scanner:
             logger.error(f"Exception during cl_engine_compile: {e}")
             return False
 
-        logger.info(f"ClamAV database loaded successfully. Signatures: {signo.value}")
+        logger.debug(f"ClamAV database loaded successfully. Signatures: {signo.value}")
         return True
 
     def scanFile(self, filepath):
