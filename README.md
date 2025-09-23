@@ -125,6 +125,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/MadMin3r/UnconfuserEx
 - https://github.com/LockBlock-dev/pkg-unpacker
 - https://github.com/j4k0xb/View8
+- https://github.com/HydraDragonAntivirus/MegaDumper
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
@@ -173,11 +174,6 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Note 12:**
 - Inno Setup version 6.5.1
-
-**Note 13:**
-- Surprisingly, when I dump the process using this method (with pymem and psutil), the GuLoader malware fails to detect the virtual machine and proceeds to install the malware as if it's running on a real system. It behaves just like it would on a physical machine. This is likely an unexpected anti-anti-VM side effect.
-
-- Tool used: https://github.com/glmcdona/Process-Dump/releases/tag/v2.1.1
 
 ## Tips
 
