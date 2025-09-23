@@ -70,6 +70,10 @@ import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import tempfile
+logger.debug(f"tempfile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import webbrowser
 logger.debug(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -240,6 +244,10 @@ logger.debug(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import lzma
 logger.debug(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import importlib
+logger.debug(f"importlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from importlib.util import MAGIC_NUMBER
@@ -12353,7 +12361,7 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in resource extraction for {norm_path}: {e}")
 
-            def autohotkey_thread(norm_path, die_output):
+            def autohotkey_thread():
                 """
                 Thread to handle AutoHotkey EXE decompilation and scanning.
                 """
@@ -13864,55 +13872,198 @@ def find_child_windows(parent_hwnd):
 def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
-# --- UIA loader (ensures type library is generated before import) ---
-def _load_uia_types():
-    """Safely load UIAutomation types when needed."""
+# comtypes imports (local import protected inside functions where appropriate)
+# module-level lock to avoid concurrent type-generation races
+_uia_lock = threading.Lock()
+
+def _find_comtypes_gen_dir() -> Optional[str]:
     try:
-        # Import comtypes at the start of the function
+        import comtypes.gen as cg
+        gen_paths = getattr(cg, "__path__", None)
+        if gen_paths:
+            return gen_paths[0]
+    except Exception:
+        pass
+    try:
         import comtypes
-        import comtypes.gen.UIAutomationClient
-        return comtypes.gen.UIAutomationClient
-    except (ImportError, SyntaxError):
-        # Clear corrupted cache and regenerate
-        try:
-            # Import comtypes for cache operations
-            import comtypes
-            import comtypes.client
+        candidate = os.path.join(os.path.dirname(comtypes.__file__), "gen")
+        if os.path.exists(candidate):
+            return candidate
+    except Exception:
+        pass
+    return None
 
-            # Clear the comtypes cache
-            gen_dir = comtypes.client._code_cache._find_gen_dir()
-            if gen_dir and os.path.exists(gen_dir):
-                shutil.rmtree(gen_dir)
-                os.makedirs(gen_dir)
-                # Recreate __init__.py
-                init_file = os.path.join(gen_dir, '__init__.py')
-                with open(init_file, 'w') as f:
-                    f.write('# comtypes generated packages\n')
-
-            # Regenerate the type library
-            from comtypes.client import GetModule
-            GetModule("UIAutomationCore.dll")
-            import comtypes.gen.UIAutomationClient
-            return comtypes.gen.UIAutomationClient
-
-        except Exception as e:
-            logger.error("Failed to load UIAutomationClient types: %s", e)
-            return None
+def _remove_dir_safe(path: str) -> bool:
+    if not os.path.exists(path):
+        return True
+    try:
+        shutil.rmtree(path)
+        return True
     except Exception as e:
-        logger.error("Failed to load UIAutomationClient types: %s", e)
+        logger.warning("rmtree failed for %s: %s. Attempting backup-rename.", path, e)
+        try:
+            backup = tempfile.mkdtemp(prefix="comtypes_gen_backup_")
+            target_backup = os.path.join(backup, os.path.basename(path))
+            os.rename(path, target_backup)
+            try:
+                shutil.rmtree(backup)
+            except Exception:
+                logger.info("Left backup at %s", backup)
+            return True
+        except Exception as e2:
+            logger.error("Backup-rename also failed for %s: %s", path, e2)
+            return False
+
+def _load_uia_types(retries: int = 3, retry_delay: float = 0.5):
+    """
+    Load/generate comtypes.gen.UIAutomationClient in a robust, serialized way.
+    Returns the imported module (comtypes.gen.UIAutomationClient) or None on failure.
+    """
+    try:
+        import comtypes
+    except ImportError:
+        logger.error("comtypes not installed.")
+        return None
+
+    # Fast path — already generated
+    try:
+        import comtypes.gen.UIAutomationClient as uiac
+        return uiac
+    except Exception:
+        pass
+
+    with _uia_lock:
+        # double-check inside the lock
+        try:
+            import comtypes.gen.UIAutomationClient as uiac
+            return uiac
+        except Exception:
+            pass
+
+        gen_dir = _find_comtypes_gen_dir()
+        target_pkg_dir = os.path.join(gen_dir, "UIAutomationClient") if gen_dir else None
+
+        if target_pkg_dir and os.path.exists(target_pkg_dir):
+            ok = _remove_dir_safe(target_pkg_dir)
+            if not ok:
+                logger.warning("Could not remove existing UIAutomationClient package; generation may fail.")
+
+        if gen_dir and not os.path.exists(gen_dir):
+            try:
+                os.makedirs(gen_dir, exist_ok=True)
+                init_file = os.path.join(gen_dir, "__init__.py")
+                if not os.path.exists(init_file):
+                    with open(init_file, "w", encoding="utf-8") as f:
+                        f.write("# comtypes generated packages\n")
+            except Exception as e:
+                logger.debug("Failed to create gen dir: %s", e)
+
+        # Build full path to UIAutomationCore.dll in System32 (64-bit OS)
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        uia_dll = os.path.join(windir, "System32", "UIAutomationCore.dll")
+
+        try:
+            from comtypes.client import GetModule
+        except Exception as e:
+            logger.error("Failed to import comtypes.client.GetModule: %s", e)
+            return None
+
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            try:
+                logger.info("Generating UIAutomation types (attempt %d/%d) using '%s' ...", attempt, retries, uia_dll)
+                GetModule(uia_dll)
+                importlib.invalidate_caches()
+                import comtypes.gen.UIAutomationClient as uiac
+                logger.info("UIAutomationClient types loaded successfully.")
+                return uiac
+            except Exception as e:
+                last_exc = e
+                logger.warning("GetModule attempt %d failed: %s", attempt, e)
+                time.sleep(retry_delay)
+
+        logger.error("Failed to load UIAutomationClient types after %d attempts: %s", retries, last_exc)
         return None
 
 @atexit.register
 def cleanup_com():
-    import comtypes.client
+    try:
+        import comtypes.client
+    except Exception:
+        return
     try:
         comtypes.client._shutdown()
+    except Exception as e:
+        logger.debug("comtypes shutdown raised: %s", e)
+
+# ---------- Helper functions for extraction ----------
+
+# cache TrueCondition to avoid repeated creation
+_true_condition = None
+_true_condition_lock = threading.Lock()
+
+def _get_true_condition(uia) -> Optional[Any]:
+    global _true_condition
+    if _true_condition is None:
+        with _true_condition_lock:
+            if _true_condition is None:
+                try:
+                    _true_condition = uia.CreateTrueCondition()
+                except Exception as e:
+                    logger.debug("Could not cache TrueCondition: %s", e)
+                    try:
+                        return uia.CreateTrueCondition()
+                    except Exception as e2:
+                        logger.debug("CreateTrueCondition fallback failed: %s", e2)
+                        return None
+    return _true_condition
+
+def _get_pattern(element, pattern_id, iface):
+    """
+    Safely acquire a pattern interface from 'element'.
+    Tries QueryInterface, comtypes.cast, then comtypes.client.CastTo.
+    """
+    try:
+        unk = element.GetCurrentPattern(pattern_id)
+        if not unk:
+            return None
+    except Exception as e:
+        logger.debug("GetCurrentPattern(%s) failed: %s", pattern_id, e)
+        return None
+
+    # Try QueryInterface first
+    try:
+        if hasattr(unk, "QueryInterface"):
+            try:
+                return unk.QueryInterface(iface)
+            except Exception:
+                pass
     except Exception:
-        # Ignore shutdown errors caused by already-released COM objects
         pass
 
-def _extract_uia_text(hwnd: int, uia, UIA):
-    """Internal: Extract UIA text with robust error handling and no pythoncom."""
+    # Try comtypes.cast
+    try:
+        from comtypes import cast, POINTER
+        return cast(unk, POINTER(iface))
+    except Exception:
+        pass
+
+    # Fallback CastTo (name-based)
+    try:
+        from comtypes.client import CastTo
+        return CastTo(unk, iface.__name__)
+    except Exception:
+        pass
+
+    logger.debug("Pattern cast attempts failed for id %s", pattern_id)
+    return None
+
+def _extract_uia_text(hwnd: int, uia, UIA) -> List[str]:
+    """
+    Internal: Extract UIA text for a window handle.
+    Returns a list of unique, non-empty strings (ordered).
+    Note: caller thread should be COM-initialized (use @com_init if calling from worker threads).
+    """
     try:
         try:
             elem = uia.ElementFromHandle(hwnd)
@@ -13922,23 +14073,15 @@ def _extract_uia_text(hwnd: int, uia, UIA):
             logger.debug("Failed to get element from handle %s: %s", hwnd, e)
             return []
 
-        all_texts = []
-
-        # Helper to cast patterns safely
-        def _get_pattern(element, pattern_id, iface):
-            try:
-                unk = element.GetCurrentPattern(pattern_id)
-                if not unk:
-                    return None
-                return cast(unk, POINTER(iface))
-            except Exception:
-                return None
+        all_texts: List[str] = []
 
         # 1) CurrentName
         try:
-            name = elem.CurrentName
-            if name and name.strip():
-                all_texts.append(name.strip())
+            name = getattr(elem, "CurrentName", None)
+            if name:
+                s = str(name).strip()
+                if s:
+                    all_texts.append(s)
         except Exception as e:
             logger.debug("Failed to get CurrentName: %s", e)
 
@@ -13946,11 +14089,19 @@ def _extract_uia_text(hwnd: int, uia, UIA):
         try:
             vp = _get_pattern(elem, UIA.UIA_ValuePatternId, UIA.IUIAutomationValuePattern)
             if vp:
-                value = vp.CurrentValue
-                if value is not None:
-                    s = str(value).strip()
-                    if s:
-                        all_texts.append(s)
+                try:
+                    value = getattr(vp, "CurrentValue", None)
+                    if value is None:
+                        try:
+                            value = vp.CurrentValue()
+                        except Exception:
+                            value = None
+                    if value is not None:
+                        s = str(value).strip()
+                        if s:
+                            all_texts.append(s)
+                except Exception as e:
+                    logger.debug("ValuePattern read failed: %s", e)
         except Exception as e:
             logger.debug("Failed to get ValuePattern: %s", e)
 
@@ -13958,13 +14109,20 @@ def _extract_uia_text(hwnd: int, uia, UIA):
         try:
             tp = _get_pattern(elem, UIA.UIA_TextPatternId, UIA.IUIAutomationTextPattern)
             if tp:
-                doc_range = tp.DocumentRange
-                if doc_range:
-                    text = doc_range.GetText(-1)
-                    if text:
-                        s = text.strip()
-                        if s:
-                            all_texts.append(s)
+                try:
+                    doc_range = getattr(tp, "DocumentRange", None)
+                    if doc_range:
+                        text = None
+                        try:
+                            text = doc_range.GetText(-1)
+                        except Exception:
+                            text = None
+                        if text:
+                            s = str(text).strip()
+                            if s:
+                                all_texts.append(s)
+                except Exception as e:
+                    logger.debug("TextPattern read failed: %s", e)
         except Exception as e:
             logger.debug("Failed to get TextPattern: %s", e)
 
@@ -13973,15 +14131,15 @@ def _extract_uia_text(hwnd: int, uia, UIA):
             lap = _get_pattern(elem, UIA.UIA_LegacyIAccessiblePatternId, UIA.IUIAutomationLegacyIAccessiblePattern)
             if lap:
                 try:
-                    n = lap.CurrentName
+                    n = getattr(lap, "CurrentName", None)
                     if n:
-                        s = n.strip()
+                        s = str(n).strip()
                         if s:
                             all_texts.append(s)
                 except Exception:
                     pass
                 try:
-                    v = lap.CurrentValue
+                    v = getattr(lap, "CurrentValue", None)
                     if v is not None:
                         s = str(v).strip()
                         if s:
@@ -13996,7 +14154,12 @@ def _extract_uia_text(hwnd: int, uia, UIA):
             rvp = _get_pattern(elem, UIA.UIA_RangeValuePatternId, UIA.IUIAutomationRangeValuePattern)
             if rvp:
                 try:
-                    v = rvp.CurrentValue
+                    v = getattr(rvp, "CurrentValue", None)
+                    if v is None:
+                        try:
+                            v = rvp.CurrentValue()
+                        except Exception:
+                            v = None
                     if v is not None:
                         s = str(v).strip()
                         if s and s.lower() != "none":
@@ -14013,13 +14176,14 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                 try:
                     selection = sp.GetCurrentSelection()
                     if selection and getattr(selection, "Length", 0) > 0:
-                        for i in range(selection.Length):
+                        L = getattr(selection, "Length", 0)
+                        for i in range(L):
                             try:
                                 item = selection.GetElement(i)
                                 if item:
-                                    nm = item.CurrentName
+                                    nm = getattr(item, "CurrentName", None)
                                     if nm:
-                                        s = nm.strip()
+                                        s = str(nm).strip()
                                         if s:
                                             all_texts.append(s)
                             except Exception as e:
@@ -14031,27 +14195,28 @@ def _extract_uia_text(hwnd: int, uia, UIA):
 
         # 7) Child elements (limit to 50)
         try:
-            condition = uia.CreateTrueCondition()
-            children = elem.FindAll(UIA.TreeScope_Children, condition)
-            if children and hasattr(children, "Length"):
-                max_children = min(50, children.Length)
-                for i in range(max_children):
-                    try:
-                        child = children.GetElement(i)
-                        if child:
-                            cn = child.CurrentName
-                            if cn:
-                                s = cn.strip()
-                                if s:
-                                    all_texts.append(s)
-                    except Exception as e:
-                        logger.debug("Failed to get child element %s: %s", i, e)
+            condition = _get_true_condition(uia)
+            if condition is not None:
+                children = elem.FindAll(UIA.TreeScope_Children, condition)
+                if children and getattr(children, "Length", 0) > 0:
+                    max_children = min(50, getattr(children, "Length", 0))
+                    for i in range(max_children):
+                        try:
+                            child = children.GetElement(i)
+                            if child:
+                                cn = getattr(child, "CurrentName", None)
+                                if cn:
+                                    s = str(cn).strip()
+                                    if s:
+                                        all_texts.append(s)
+                        except Exception as e:
+                            logger.debug("Failed to get child element %s: %s", i, e)
         except Exception as e:
             logger.debug("Failed to enumerate child elements: %s", e)
 
         # Deduplicate while preserving order
         seen = set()
-        unique = []
+        unique: List[str] = []
         for t in all_texts:
             try:
                 if t and t not in seen:
@@ -14061,38 +14226,69 @@ def _extract_uia_text(hwnd: int, uia, UIA):
                 continue
 
         return unique
+
     except Exception as e:
         logger.error("_extract_uia_text failed: %s", e, exc_info=True)
         return []
 
-def get_uia_text(hwnd: int):
-   """Public API: returns list of unique, non-empty text strings for a window handle."""
-   try:
-       if not is_window_valid(hwnd):
-           return []
+# A tiny helper to check a HWND (pure ctypes)
+def is_window_valid(hwnd: int) -> bool:
+    try:
+        return bool(ctypes.windll.user32.IsWindow(hwnd))
+    except Exception:
+        return False
 
-       UIA = _load_uia_types()
-       if UIA is None:
-           return []
+# Decorator to ensure COM is initialized on the thread
+def com_init(func: Callable[..., Any]) -> Callable[..., Any]:
+    from functools import wraps
+    import comtypes
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            comtypes.CoInitialize()
+        except Exception:
+            # ignore if already initialized
+            pass
+        try:
+            return func(*args, **kwargs)
+        finally:
+            try:
+                comtypes.CoUninitialize()
+            except Exception:
+                pass
+    return wrapper
 
-       try:
-           # Use ProgID first, fallback to CLSID if needed
-           try:
-               uia = CreateObject("UIAutomation.CUIAutomation", interface=UIA.IUIAutomation)
-           except Exception:
-               # CLSID form (safe fallback)
-               CLSID_CUIAutomation = GUID("{FF48DBA4-60EF-4201-AA87-54103EEF594E}")
-               uia = CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
+# Public API
+@com_init
+def get_uia_text(hwnd: int) -> List[str]:
+    """Public API: returns list of unique, non-empty text strings for a window handle."""
+    try:
+        if not is_window_valid(hwnd):
+            return []
 
-       except Exception as e:
-           logger.error("Failed to create UI Automation object: %s", e, exc_info=True)
-           return []
+        UIA = _load_uia_types()
+        if UIA is None:
+            return []
 
-       return _extract_uia_text(hwnd, uia, UIA)
+        try:
+            from comtypes.client import CreateObject
+            # Try ProgID creation first
+            try:
+                uia = CreateObject("CUIAutomation", interface=UIA.IUIAutomation)
+            except Exception:
+                # Fallback to CLSID constructor if ProgID fails
+                from comtypes import GUID
+                CLSID_CUIAutomation = GUID("{FF48DBA4-60EF-4201-AA87-54103EEF594E}")
+                uia = CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
+        except Exception as e:
+            logger.error("Failed to create UI Automation object: %s", e, exc_info=True)
+            return []
 
-   except Exception as e:
-       logger.error("get_uia_text failed: %s", e, exc_info=True)
-       return []
+        return _extract_uia_text(hwnd, uia, UIA)
+
+    except Exception as e:
+        logger.error("get_uia_text failed: %s", e, exc_info=True)
+        return []
 
 # ----------------------------------------------------
 # Advanced enumeration-based capture
