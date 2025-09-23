@@ -1,5 +1,6 @@
 import hashlib
 import json
+import pickle
 import os
 import pefile
 import logging
@@ -704,17 +705,230 @@ class PEFeatureExtractor:
                 logging.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
 class DataProcessor:
-    def __init__(self, malicious_dir: str = 'datamaliciousorder', benign_dir: str = 'data2'):
+    def __init__(self,
+                 malicious_dir: str = 'datamaliciousorder',
+                 benign_dir: str = 'data2',
+                 out_dir_prefix: str = 'pe_features',
+                 bin_path: str = 'ml_vectors.bin',
+                 index_path: str = 'ml_index.jsonl',
+                 pickle_path: str = 'results.pkl'):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
         self.pe_extractor = PEFeatureExtractor()
         self.problematic_dir = Path('problematic_files')
         self.duplicates_dir = Path('duplicate_files')
-        self.output_dir = Path(f"pe_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        self.bin_path = Path(bin_path)
+        self.index_path = Path(index_path)
+        self.pickle_path = Path(pickle_path)
 
         for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
 
+        # Ensure store exists and preload seen md5s (resume support)
+        self._init_store()
+        self.seen = self._load_seen_md5s()
+
+    # --------------------------
+    # Storage init / index helpers
+    # --------------------------
+    def _init_store(self):
+        # touch bin and index files if not present
+        if not self.bin_path.exists():
+            self.bin_path.parent.mkdir(parents=True, exist_ok=True)
+            self.bin_path.write_bytes(b'')  # create empty file
+        if not self.index_path.exists():
+            self.index_path.parent.mkdir(parents=True, exist_ok=True)
+            self.index_path.write_text('', encoding='utf-8')
+        # ensure pickle exists (create empty file if missing)
+        if not self.pickle_path.exists():
+            self.pickle_path.parent.mkdir(parents=True, exist_ok=True)
+            self.pickle_path.write_bytes(b'')
+
+    def _load_seen_md5s(self) -> set:
+        seen = set()
+        try:
+            with open(self.index_path, 'r', encoding='utf-8') as idxf:
+                for line in idxf:
+                    if not line.strip():
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        md5 = obj.get('md5')
+                        if md5:
+                            seen.add(md5)
+                    except Exception:
+                        continue
+        except FileNotFoundError:
+            pass
+        logging.info(f"Resuming: {len(seen)} md5s preloaded from index.")
+        return seen
+
+    # --------------------------
+    # Numeric conversion (same schema used previously)
+    # --------------------------
+    def features_to_numeric(self, entry: dict):
+        """Convert features dict to numpy float32 vector (keeps same order as before)."""
+        # replicate the same mapping you used previously — kept concise but identical semantics
+        def to_float(x, default=0.0):
+            try:
+                if x is None:
+                    return float(default)
+                return float(x)
+            except Exception:
+                return float(default)
+
+        def safe_len(x):
+            try:
+                return len(x) if x is not None else 0
+            except Exception:
+                return 0
+
+        def section_entropy_stats(section_characteristics):
+            entropies = []
+            try:
+                if isinstance(section_characteristics, dict):
+                    for v in section_characteristics.values():
+                        e = v.get('entropy') if isinstance(v, dict) else None
+                        if e is not None:
+                            try:
+                                entropies.append(float(e))
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+            if not entropies:
+                return 0.0, 0.0, 0.0
+            mean = sum(entropies) / len(entropies)
+            return float(mean), float(min(entropies)), float(max(entropies))
+
+        def reloc_summary(relocs):
+            try:
+                total = 0
+                blocks = 0
+                if isinstance(relocs, list):
+                    for r in relocs:
+                        blocks += 1
+                        try:
+                            total += int(r.get('summary', {}).get('total_entries', 0))
+                        except Exception:
+                            continue
+                return total, blocks
+            except Exception:
+                return 0, 0
+
+        # use provided entry safe-guards
+        if not isinstance(entry, dict):
+            entry = {}
+
+        size_of_optional_header = to_float(entry.get("SizeOfOptionalHeader", 0))
+        major_linker = to_float(entry.get("MajorLinkerVersion", 0))
+        minor_linker = to_float(entry.get("MinorLinkerVersion", 0))
+        size_of_code = to_float(entry.get("SizeOfCode", 0))
+        size_of_init_data = to_float(entry.get("SizeOfInitializedData", 0))
+        size_of_uninit_data = to_float(entry.get("SizeOfUninitializedData", 0))
+        address_of_entry = to_float(entry.get("AddressOfEntryPoint", 0))
+        image_base = to_float(entry.get("ImageBase", 0))
+        subsystem = to_float(entry.get("Subsystem", 0))
+        dll_characteristics = to_float(entry.get("DllCharacteristics", 0))
+        size_of_stack_reserve = to_float(entry.get("SizeOfStackReserve", 0))
+        size_of_heap_reserve = to_float(entry.get("SizeOfHeapReserve", 0))
+        checksum = to_float(entry.get("CheckSum", 0))
+        num_rva_and_sizes = to_float(entry.get("NumberOfRvaAndSizes", 0))
+        size_of_image = to_float(entry.get("SizeOfImage", 0))
+
+        imports_count = safe_len(entry.get("imports", []))
+        exports_count = safe_len(entry.get("exports", []))
+        resources_count = safe_len(entry.get("resources", []))
+        sections_count = safe_len(entry.get("sections", []))
+
+        overlay = entry.get("overlay", {}) or {}
+        overlay_exists = int(bool(overlay.get("exists")))
+        overlay_size = to_float(overlay.get("size", 0))
+
+        sec_char = entry.get("section_characteristics", {}) or {}
+        sec_entropy_mean, sec_entropy_min, sec_entropy_max = section_entropy_stats(sec_char)
+
+        sec_disasm = entry.get("section_disassembly", {}) or {}
+        overall = sec_disasm.get("overall_analysis", {}) or {}
+        total_instructions = to_float(overall.get("total_instructions", 0))
+        total_adds = to_float(overall.get("add_count", 0))
+        total_movs = to_float(overall.get("mov_count", 0))
+        is_likely_packed = int(bool(overall.get("is_likely_packed")))
+
+        add_mov_ratio = (total_adds / (total_movs + 1.0)) if (total_movs is not None) else 0.0
+        instrs_per_kb = 0.0
+        try:
+            instrs_per_kb = total_instructions / ((size_of_image / 1024.0) + 1e-6)
+        except Exception:
+            instrs_per_kb = 0.0
+
+        tls = entry.get("tls_callbacks", {}) or {}
+        tls_callbacks_list = tls.get("callbacks", []) if isinstance(tls, dict) else []
+        num_tls_callbacks = safe_len(tls_callbacks_list)
+
+        delay_imports_list = entry.get("delay_imports", []) or []
+        num_delay_imports = safe_len(delay_imports_list)
+
+        relocs = entry.get("relocations", []) or []
+        num_reloc_entries, num_reloc_blocks = reloc_summary(relocs)
+
+        bound_imports = entry.get("bound_imports", []) or []
+        num_bound_imports = safe_len(bound_imports)
+
+        debug_entries = entry.get("debug", []) or []
+        num_debug_entries = safe_len(debug_entries)
+        cert_info = entry.get("certificates", {}) or {}
+        cert_size = to_float(cert_info.get("size", 0))
+
+        rich_header = entry.get("rich_header", {}) or {}
+        has_rich = int(bool(rich_header))
+
+        numeric = [
+            size_of_optional_header,
+            major_linker,
+            minor_linker,
+            size_of_code,
+            size_of_init_data,
+            size_of_uninit_data,
+            address_of_entry,
+            image_base,
+            subsystem,
+            dll_characteristics,
+            size_of_stack_reserve,
+            size_of_heap_reserve,
+            checksum,
+            num_rva_and_sizes,
+            size_of_image,
+            float(imports_count),
+            float(exports_count),
+            float(resources_count),
+            float(overlay_exists),
+            float(sections_count),
+            float(sec_entropy_mean),
+            float(sec_entropy_min),
+            float(sec_entropy_max),
+            float(total_instructions),
+            float(total_adds),
+            float(total_movs),
+            float(is_likely_packed),
+            float(add_mov_ratio),
+            float(instrs_per_kb),
+            float(overlay_size),
+            float(num_tls_callbacks),
+            float(num_delay_imports),
+            float(num_reloc_entries),
+            float(num_reloc_blocks),
+            float(num_bound_imports),
+            float(num_debug_entries),
+            float(cert_size),
+            float(has_rich)
+        ]
+        return np.asarray(numeric, dtype=np.float32)
+
+    # --------------------------
+    # File move helper (unchanged)
+    # --------------------------
     def _move(self, file_path: Path, dest_root: Path) -> None:
         """
         Move a file to dest_root robustly on Windows:
@@ -758,6 +972,9 @@ class DataProcessor:
             logging.error(f"Unhandled error moving {file_path} -> {dest}: {ex}", exc_info=True)
             return
 
+    # --------------------------
+    # Worker wrapper (unchanged)
+    # --------------------------
     def _process_one(self, args: Tuple) -> Optional[Dict[str, Any]]:
         """
         Worker function to process a single file. `args` expected to be (file_path, rank, is_malicious).
@@ -798,45 +1015,146 @@ class DataProcessor:
             except Exception:
                 logging.debug(f"Failed to close mmap for {file_path}", exc_info=True)
 
+    # --------------------------
+    # Append vector bytes + index line + pickle the full features dict
+    # --------------------------
+    def _append_vector_and_index(self, features: dict) -> dict:
+        """
+        Append numeric vector (float32) to bin file, add one JSONL index entry,
+        AND append the full features dict to a streaming pickle file (results.pkl).
+        Returns the index entry dict.
+        """
+        fi = features.get('file_info', {})
+        md5 = fi.get('md5')
+        filename = fi.get('filename')
+        path = fi.get('path')
+        size = fi.get('size')
+        label = "malicious" if fi.get('is_malicious') else "benign"
+
+        vec = self.features_to_numeric(features)
+        vec_bytes = vec.tobytes()
+        vec_bytes_len = len(vec_bytes)
+        dtype_name = str(vec.dtype)
+
+        # append to bin and index atomically-ish (open files and write)
+        with open(self.bin_path, 'ab') as bf:
+            offset = bf.tell()
+            bf.write(vec_bytes)
+
+        index_entry = {
+            'md5': md5,
+            'label': label,
+            'filename': filename,
+            'path': path,
+            'size': size,
+            'offset': offset,
+            'vec_bytes_len': vec_bytes_len,
+            'dtype': dtype_name,
+            'vec_len': int(vec.size),
+            'timestamp': datetime.now().isoformat()
+        }
+
+        # append index line
+        with open(self.index_path, 'a', encoding='utf-8') as idxf:
+            idxf.write(json.dumps(index_entry, ensure_ascii=False) + '\n')
+
+        # additionally append full features dict to results.pkl (streaming)
+        try:
+            with open(self.pickle_path, 'ab') as pf:
+                # write the raw features dict as one pickle record
+                pickle.dump(features, pf, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            logging.exception(f"Failed to append pickled features for {path}: {e}")
+
+        return index_entry
+
+    # --------------------------
+    # process_dir: uses ProcessPoolExecutor; writes binary store + pickle stream
+    # --------------------------
     def process_dir(self, directory: Path, is_malicious: bool):
         # collect all files regardless of extension
         files = [f for f in directory.rglob('*') if f.is_file()]
         tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
 
-        results = []
-        seen = set()
+        inserted = 0
+        # use a pool for CPU-bound extraction (workers produce feature dicts)
         with ProcessPoolExecutor() as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks), desc=f"Processing {'malicious' if is_malicious else 'benign'}"):
-                if feats:
-                    md5 = feats['file_info']['md5']
-                    if md5 in seen:
-                        try:
-                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
-                        except Exception as e:
-                            logging.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
-                    else:
-                        seen.add(md5)
-                        results.append(feats)
-        return results
+            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks),
+                              desc=f"Processing {'malicious' if is_malicious else 'benign'}"):
+                if not feats:
+                    continue
 
+                md5 = feats['file_info']['md5']
+                if md5 in self.seen:
+                    try:
+                        self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                    except Exception as e:
+                        logging.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
+                    continue
+
+                # mark as seen
+                self.seen.add(md5)
+
+                # write numeric vector + index + pickle
+                try:
+                    self._append_vector_and_index(feats)
+                    inserted += 1
+                except Exception as e:
+                    logging.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
+                    # optionally move to problematic_dir
+                    try:
+                        self._move(Path(feats['file_info']['path']), self.problematic_dir)
+                    except Exception:
+                        pass
+
+        logging.info(f"Finished processing {directory}: inserted {inserted} unique records into binary store and pickle.")
+        return inserted
+
+    # --------------------------
+    # process whole dataset
+    # --------------------------
     def process_dataset(self):
         logging.info("Processing malicious files...")
-        malicious_features = self.process_dir(Path(self.malicious_dir), True)
+        malicious_count = self.process_dir(Path(self.malicious_dir), True)
 
         logging.info("Processing benign files...")
-        benign_features = self.process_dir(Path(self.benign_dir), False)
+        benign_count = self.process_dir(Path(self.benign_dir), False)
 
-        results = {
+        summary = {
             'timestamp': datetime.now().isoformat(),
-            'malicious_count': len(malicious_features),
-            'benign_count': len(benign_features),
-            'malicious': malicious_features,
-            'benign': benign_features
+            'malicious_count': malicious_count,
+            'benign_count': benign_count,
+            'bin_path': str(self.bin_path),
+            'index_path': str(self.index_path),
+            'pickle_path': str(self.pickle_path)
         }
-        output_file = self.output_dir / 'results.json'
-        with open(output_file, 'w') as f:
-            json.dump(results, f, indent=2)
-        logging.info(f"Saved output to {output_file}")
+
+        output_file = self.output_dir / 'summary.json'
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+
+        logging.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, pickle at {self.pickle_path}")
+
+    # --------------------------
+    # Helper: stream-read all pickled records (if needed)
+    # --------------------------
+    def load_all_pickled(self):
+        """
+        Stream-read results.pkl and yield each features dict.
+        Use this to avoid loading entire pickle into memory at once.
+        """
+        if not self.pickle_path.exists():
+            return
+        with open(self.pickle_path, 'rb') as pf:
+            while True:
+                try:
+                    obj = pickle.load(pf)
+                    yield obj
+                except EOFError:
+                    break
+                except Exception:
+                    logging.exception("Error reading pickled file; stopping.")
+                    break
 
 def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')

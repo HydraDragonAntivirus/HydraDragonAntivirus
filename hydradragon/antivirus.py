@@ -98,8 +98,8 @@ import re
 logger.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import ijson
-logger.info(f"ijson module loaded in {time.time() - start_time:.6f} seconds")
+import json
+logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
@@ -523,7 +523,7 @@ deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
 digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
 digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
 machine_learning_dir = os.path.join(script_dir, "machine_learning")
-machine_learning_results_json = os.path.join(machine_learning_dir, "results.json")
+machine_learning_pickle_path = os.path.join(machine_learning_dir, "ml_definitions.pkl")
 resource_extractor_dir = os.path.join(script_dir, "resources_extracted")
 ungarbler_dir = os.path.join(script_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
@@ -4704,7 +4704,7 @@ def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
         return None
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
-    """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
+    """Scan a file for malicious activity using machine learning definitions loaded from pickle."""
     malware_definition = "Unknown"
     logger.info(f"Starting machine learning scan for file: {file_path}")
 
@@ -7486,17 +7486,18 @@ def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
     return numeric, filename
 
 # ---------------------------
-# Recommended two-pass streaming loader (memory-efficient)
+# Pickle-based loader
 # ---------------------------
-def load_ml_definitions_stream(filepath: str) -> bool:
+def load_ml_definitions_pickle(filepath: str) -> bool:
     """
-    Stream-parse a large JSON file with top-level 'malicious' and 'benign' arrays.
-    Two streaming passes (malicious, benign) using ijson.items to avoid loading whole file.
+    Load ML definitions from a pickle file.
+    Expected format: a dict with keys 'malicious' and 'benign', each containing a list of entries.
+    Each entry is a dict compatible with `entry_to_numeric()`.
     """
     global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
 
     if not os.path.exists(filepath):
-        logger.error(f"Machine learning definitions file not found: {filepath}. ML scanning will be disabled.")
+        logger.error(f"Pickle ML definitions file not found: {filepath}. ML scanning will be disabled.")
         return False
 
     malicious_numeric_features = []
@@ -7505,27 +7506,28 @@ def load_ml_definitions_stream(filepath: str) -> bool:
     benign_file_names = []
 
     try:
-        # Pass 1: malicious array (stream items)
         with open(filepath, 'rb') as f:
-            for entry in ijson.items(f, 'malicious.item'):
-                try:
-                    numeric, filename = entry_to_numeric(entry)
-                    malicious_numeric_features.append(numeric)
-                    malicious_file_names.append(filename)
-                except Exception:
-                    logger.debug("Skipped a malformed malicious entry during streaming loader.", exc_info=True)
-                    continue
+            data = pickle.load(f)  # Expecting dict: {'malicious': [...], 'benign': [...]}
 
-        # Pass 2: benign array (stream items)
-        with open(filepath, 'rb') as f:
-            for entry in ijson.items(f, 'benign.item'):
-                try:
-                    numeric, filename = entry_to_numeric(entry)
-                    benign_numeric_features.append(numeric)
-                    benign_file_names.append(filename)
-                except Exception:
-                    logger.debug("Skipped a malformed benign entry during streaming loader.", exc_info=True)
-                    continue
+        # Load malicious entries
+        for entry in data.get('malicious', []):
+            try:
+                numeric, filename = entry_to_numeric(entry)
+                malicious_numeric_features.append(numeric)
+                malicious_file_names.append(filename)
+            except Exception:
+                logger.debug("Skipped a malformed malicious entry during pickle loader.", exc_info=True)
+                continue
+
+        # Load benign entries
+        for entry in data.get('benign', []):
+            try:
+                numeric, filename = entry_to_numeric(entry)
+                benign_numeric_features.append(numeric)
+                benign_file_names.append(filename)
+            except Exception:
+                logger.debug("Skipped a malformed benign entry during pickle loader.", exc_info=True)
+                continue
 
         if malicious_numeric_features:
             vec_len = len(malicious_numeric_features[0])
@@ -7538,11 +7540,15 @@ def load_ml_definitions_stream(filepath: str) -> bool:
         return True
 
     except Exception as e:
-        logger.exception(f"Failed to stream-parse ML definitions: {e}")
+        logger.exception(f"Failed to load ML definitions from pickle: {e}")
         return False
 
+
+# ---------------------------
+# Usage
+# ---------------------------
 try:
-    success = load_ml_definitions_stream(machine_learning_results_json)
+    success = load_ml_definitions_pickle(machine_learning_pickle_path)
     if not success:
         logger.error("ML definitions could not be loaded properly.")
 except Exception as ex:
