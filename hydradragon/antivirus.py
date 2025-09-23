@@ -13903,8 +13903,8 @@ def cleanup_com():
     import comtypes.client
     try:
         comtypes.client._shutdown()
-    except (ValueError, AttributeError):
-        # ignore shutdown errors due to released or invalid COM objects
+    except Exception:
+        # Ignore shutdown errors caused by already-released COM objects
         pass
 
 def _extract_uia_text(hwnd: int, uia, UIA):
