@@ -102,6 +102,10 @@ import json
 logger.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import pickle
+logger.info(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pefile
 logger.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
