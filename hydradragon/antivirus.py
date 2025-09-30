@@ -311,12 +311,8 @@ from androguard.misc import AnalyzeAPK
 logger.debug(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from androguard.core.bytecodes.apk import APK
-logger.debug(f"androguard.core.bytecodes.apk.APK module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from androguard.core.bytecodes.dvm import DalvikVMFormat
-logger.debug(f"androguard.core.bytecodes.dvm.DalvikVMFormat module loaded in {time.time() - start_time:.6f} seconds")
+from androguard.core.apk import APK
+logger.debug(f"androguard.core.apk.APK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
@@ -1934,13 +1930,13 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
 def is_apk_file_from_output(
     die_output: str,
     file_path: str
-) -> Union[bool, str, Tuple[APK, Optional[DalvikVMFormat], Optional[object]]]:
+) -> Union[bool, str, Tuple[object, list, object]]:
     """
     Determines whether the given file is an APK by checking DIE's detection result,
     then validating it via Androguard (AnalyzeAPK).
 
     Returns:
-        (APK, d, dx)   - if analysis succeeds
+        (a, d, dx)     - if analysis succeeds
         True           - if only APK validity check succeeds
         "Broken APK"   - if DIE claimed APK but Androguard failed
         False          - otherwise
@@ -1955,14 +1951,13 @@ def is_apk_file_from_output(
     try:
         a, d, dx = AnalyzeAPK(file_path)
 
-        if not a or not isinstance(a, APK):
+        if not a:
             logger.error("AnalyzeAPK returned no APK object.")
             return "Broken APK"
 
         if a.is_valid_APK():
             logger.info("Androguard confirms this is a valid APK.")
-
-            # Return full details (APK, DalvikVMFormat, Analysis)
+            # Return full details (APK object, list of DEX objects, Analysis object)
             return a, d, dx
         else:
             logger.warning("AnalyzeAPK parsed but validity failed.")
@@ -1971,7 +1966,7 @@ def is_apk_file_from_output(
     except Exception as e:
         logger.error(f"AnalyzeAPK crashed: {e}")
 
-        # Fallback: try a lighter APK parse, at least get APK object
+        # Fallback: try a lighter APK parse
         try:
             apk = APK(file_path)
             if apk.is_valid_APK():
