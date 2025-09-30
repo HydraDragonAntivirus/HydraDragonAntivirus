@@ -1879,3 +1879,7 @@ libntlm_DES_key_swap__32_lil_64_
 libntlm_DES_weak_keys__8_byt_512_
 Whirlpool_rc__64_lil_88_
 libntlm_DES_weak_keys_chksum__8_byt_20_
+self_inject
+capa_inject_APC
+Sandboxie_Detection 
+SUSP_PE_RSRCs_Name_Strings_64_and_32_Refs
