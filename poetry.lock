@@ -1259,14 +1259,14 @@ pefile = ">=2019.4.18"
 
 [[package]]
 name = "evbunpack"
-version = "0.2.4"
+version = "0.2.5"
 description = "Enigma Virtual Box Unpacker / 解包工具"
 optional = false
 python-versions = ">=3.0"
 groups = ["main"]
 files = [
-    {file = "evbunpack-0.2.4-py3-none-any.whl", hash = "sha256:de00a4aac3426ded0aa96fabcc643e59a440c00edafa0cd5b59ee0b4ba0f28d6"},
-    {file = "evbunpack-0.2.4.tar.gz", hash = "sha256:a0db5350c2a79836ecf0a99a3f8444aa383162e0eccc80d4130bcc00b6347e3d"},
+    {file = "evbunpack-0.2.5-py3-none-any.whl", hash = "sha256:07e5ce81bd5bfb9c25f00840c5e4cab0cf815d4605d1135bc2c2cefa14bce368"},
+    {file = "evbunpack-0.2.5.tar.gz", hash = "sha256:3bceb6772294f1efd61a97582230e0624cae9300317c786950f819f29c07b6f4"},
 ]
 
 [package.dependencies]
@@ -2739,6 +2739,17 @@ files = [
     {file = "msgpack-1.0.8-cp39-cp39-win32.whl", hash = "sha256:f9af38a89b6a5c04b7d18c492c8ccf2aee7048aff1ce8437c4683bb5a1df893d"},
     {file = "msgpack-1.0.8-cp39-cp39-win_amd64.whl", hash = "sha256:ed59dd52075f8fc91da6053b12e8c89e37aa043f8986efd89e61fae69dc1b011"},
     {file = "msgpack-1.0.8.tar.gz", hash = "sha256:95c02b0e27e706e48d0e5426d1710ca78e0f0628d6e89d5b5a5b91a5f12274f3"},
+]
+
+[[package]]
+name = "msgpack-python"
+version = "0.5.6"
+description = "MessagePack (de)serializer."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "msgpack-python-0.5.6.tar.gz", hash = "sha256:378cc8a6d3545b532dfd149da715abae4fda2a3adb6d74e525d0d5e51f46909b"},
 ]
 
 [[package]]
@@ -5652,6 +5663,89 @@ files = [
 ]
 
 [[package]]
+name = "tgcrypto-pyrofork"
+version = "1.2.7"
+description = "Fast and Portable Cryptography Extension Library for Pyrofork"
+optional = false
+python-versions = "~=3.9"
+groups = ["main"]
+files = [
+    {file = "TgCrypto-pyrofork-1.2.7.tar.gz", hash = "sha256:1b91bbd14bac6e661912719efdac2446d48fec9b9bcb7980069a1a94fd622ff9"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:3b2025a3baf5150ab8af1966f25b7a78794709c2ac581d2464b187218cf40ffd"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:1aadad584bf397aef0f374eeada9b14f922a2700365719bbc630c8470b1b11c6"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:9334ee34c525f9f92a414f088ffd7b8fa5273b9b69bc8dd1d8c8276d9dd40b10"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cd8b4282b15b30f71ee2f6f28dcac57c3a53cd6b2d672525970ba522159b7afc"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e6db331b4e51459434362f1da1893d876288eb5b3f0856653712198c1519352d"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:2765fe8e9c24001ca5a5a9219661d53acf01126226a4ce15b6b3fd99070ecc92"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:06f79351fbc726d1f83adf4700f2a3056ee5fdaaf3792aa85483895c0f193649"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-musllinux_1_2_i686.whl", hash = "sha256:dba640ef9a142b3f026fe6ad0af2252f794a1c7b9f88797987f239725c20b155"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:b4b5a3ac380dd94198ce78edcd69a1afc9720965d93691772f61158a831d68df"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-win32.whl", hash = "sha256:1fecb418f8b563e5692f2b0ac2cbab75c883d2dfcffdec6b5a9641ca2bbe6b6b"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp310-cp310-win_amd64.whl", hash = "sha256:73eb1a703106a97d5ee9d3542cc2f2a20b882e01ddb0954b46e7c721752904a7"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:fcd9f944654c4cdca3668958d4dc924f630637be5160055eb7657a0f9a0b2596"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:2432165d919f93eaac4daa1b6667d9c577228247b5d85bb230694e43144bf400"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:7656564eb908b6e3969acf75d3857b8244ee61807edb8a126cd66d7caea99fa2"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6a8a4f5b3940cd5fe0d7cd6c4e72eb58e2ff75cd39b0649e5b158c21e231cb2e"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1ce233272a62f395c947ac2a028290277af7ef0c96f242ade85028a5e0283aa5"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:30cb3e27bd683869f38e53360a6ca473ee10c16e4f415b4a8dae69f6d024d7e6"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:640104e8b859729469db6de8234975a52988a06c3362ad6c8b46edd92ac543c0"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:e9c04ac61999c6f01298aceb09c98396a5294e8802edfabf617ed71088602d6d"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:24ca953fddade3b2e420cd595e44234c0aef72628f02fcb0c01ecdb14b59e575"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-win32.whl", hash = "sha256:3264b2ee060be4363c7f46d82320e2b65d944598de2dc192d4f395a3ba33ee27"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp311-cp311-win_amd64.whl", hash = "sha256:fbff80b2099e6d42ab680bd2cf01de4aa003ac6acf4928b659d8aaa082ea7b72"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:001387678fcf979261b2c3a5dc02ae0d53cac4c1087dc2e3723df67643baa196"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:3afd9375c7809d1088c5c483e0c6641e58b84146b39e2ab77a85e65ffdc51dcb"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:d43e52df7e991814d17d3f988b65e0b5dbbb85af7cd3b0b7372c6b4d70bf65fa"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4a8d67d3065a9e35e92bbacbac8676b014acefbb7d77adf980f2efeaedeee7a3"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b56979e9613114b7d1deecdb93cd76888515e1af9d9de559f4dd1c0512aaecf1"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:d74655a04a9e30d779bdf4492d0f188a7c4d9771ce413c5b40f7b388bc48ad65"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:0a750d23e714a7da9bf5ff14900e62fcfd704592a68b52b9859426b153f7e325"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:90e85211b3225d5236109e6f78c2d89c38773220e37244488e778a43e77009c7"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:8d0a83c279595d82ff9ae89b2b8313f41d1e0fba8cd9201ab6ff8c65f3e3aca2"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-win32.whl", hash = "sha256:7bf3d77fe040a6d498487d595335d10778ed22dad403b63c7527432910b6c256"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp312-cp312-win_amd64.whl", hash = "sha256:7b158ae63e74a09cf42920f818e937919a57b495d61bc3616fffb2b92a3b21f7"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:feebc1facc90e96adb1c949dd3b278734c960f7c8ae32c994197204127e824f8"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:275b6df7e1992c639133d0dd10795dcd4ae7981e3f0f19db28a2f22a4fd0da07"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:5fe9c7d08be14510b98b92da74398220358f13a2d33c8ce53da08c3f4aeaf99a"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d8d627bd0ffc26f9919db3fa31c7618060b1b728041bd4aec80f114f0d82cf13"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6a99abf73e1b777c0e00c7ccde51324b3cb73286f1c6669b85a775fe8da33abd"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:821e9103a61ab4c197015015a8a807313e34977d07e1279eb625aab3b56d0c69"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:dd3cbd29f92f9f01c52deab22be7febe80aaa085d46b7c8f2cc2a7969434a96f"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:45f21990f64f5774affca46d6b7ff44fb051e1f23e1594821e77a4e8f8449d77"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:f865d5f0f41e0c34f1ba2573dbc664086f1f5259ec09d24cca8992b5fa261982"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-win32.whl", hash = "sha256:9974ba74bac28074776a1c16ef66026ca0448665876b568c70011bddbd9c33b2"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp313-cp313-win_amd64.whl", hash = "sha256:5dd7251a43990216790590ec22f56169b4be3ba87c8d3591c56111d5f94f0898"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-macosx_10_9_universal2.whl", hash = "sha256:9e547c70e4f9fb28b5f3d48461f2e34295ee107dec122097f702138461373210"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:ceee84ce066438bc494145289150955efa84c3d550ecaaefef20b16e1eac1c41"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:f30ff864c94349bfd879d1f7e6deaf563d9cc8da1754132eec0502e92e899c3b"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2b9ff14080fa0ecf94dc710f47a15703e249edf14968478dc93f05185223cd0d"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e8b3f30d807d4fb36c1dce713cdd7117f969476cabaecfb9df0eed6710e79be3"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1c64ea582a87eb59df103281b1c4d694c8d00c5beac770e70a7eb63e5e527802"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:8c9e71b3e6a2d7c25de0a4f80f861955e9e699dff54552e3144b8cd6dd53bcaa"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-musllinux_1_2_i686.whl", hash = "sha256:97d082d4ac14637cb73963b353e2945cbf79f3a64dd1dd1154ca8a6b3d73029f"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:cae90f91c9843fdfd28dd58e635c01d524a156293402f594d2f26a86df2c443f"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-win32.whl", hash = "sha256:e982c67df4d693e5db8682ba79e73e2aabc042492c6acc3738185887aad4beb9"},
+    {file = "TgCrypto_pyrofork-1.2.7-cp39-cp39-win_amd64.whl", hash = "sha256:5e487e9d67d6605649cddc3aa3fac1d0a3ff5affa1abf94293ea1cdada3ffd13"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:2a7c45796c93f164bdd6aa6d34c8b7409686ba6cd892694fc155704f3a6a7fcb"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:a42207dcb35f362aa6b3229f07ec727dbb7329930bdf846975a33baaa96d671a"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1b7195fd1ae6b705a05512c636e94f1b78dae7bf7c80dad6deac1414fec4cef3"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ee38d3260dc5cf7f6fdc4658f121362d375221dd62fd49df0da38a19109bcb0d"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:27ae7827b9b0265a64f9ea8f3d3e3e2de05f8245b709a88c66f4b9f0e62b33e7"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:0d44149f628b31a098f44dee93e7e1bc13dafe7e77f5fae65f2881a20cfda8dd"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-macosx_10_15_x86_64.whl", hash = "sha256:2c7c5084c2b80be98d23a3f2b5b2f9308e65b864b1f3a044d97de702d046c76a"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-macosx_11_0_arm64.whl", hash = "sha256:14dbb8922b66c2e2b86689ca93bd97b5197e978468ad0b2485682553cdc9df22"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6daa354c84ff67f75b4304df8896859e3beb39840866d2ac95751e5719d4463a"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:192ca3226e36c48eb0b2e5416e04b35dc461b2c59a8722012a93849d05046702"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:a8fd90cf7022a4fdca3e26f817295258f23b5a0ceaa7ad00d19da3396eb27d17"},
+    {file = "TgCrypto_pyrofork-1.2.7-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:13d3f25e49ea6cc746502cf543c9ffc420c0f4f5524ddd5329fcf76a0362445a"},
+    {file = "tgcrypto_pyrofork-1.2.7-cp310-cp310-win_arm64.whl", hash = "sha256:fa9c01d188897de235e0a95a8060d1668d2b37c66beaf4f1d523af2d6849b623"},
+    {file = "tgcrypto_pyrofork-1.2.7-cp311-cp311-win_arm64.whl", hash = "sha256:ac1463f0fb079928660149c0f7d2224d6b02315ec0596adcf52c05ab4b0eccf9"},
+    {file = "tgcrypto_pyrofork-1.2.7-cp312-cp312-win_arm64.whl", hash = "sha256:e9e84d2dccb71626c9ed2910485b71bb48c4d1a1f77fdcf3c0e7ff71f3aaa223"},
+    {file = "tgcrypto_pyrofork-1.2.7-cp313-cp313-win_arm64.whl", hash = "sha256:8e7fbda182d0fcdcfad002903ae8c139dbb796cd3f595d447edcb42255b65e81"},
+    {file = "tgcrypto_pyrofork-1.2.7-cp39-cp39-win_arm64.whl", hash = "sha256:6a64c313c19a3e5b5a91abf8ba3df00297888d3e257a1df249c76f95c569c618"},
+]
+
+[[package]]
 name = "thinc"
 version = "8.3.6"
 description = "A refreshing functional take on deep learning, compatible with your favorite libraries"
@@ -7049,4 +7143,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "33deaf4765be115e04003d5008e5a2cff64c9959e8e5add981c5070b6954bb7e"
+content-hash = "29e604b21b68871a5fb250714fbc1268c28aba93871fb73ac6be1f6389681c9b"

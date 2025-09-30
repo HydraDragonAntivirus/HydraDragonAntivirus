@@ -11,7 +11,7 @@
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
 
 ; Owlyshield definitions
-#define OwlyshieldVersion "1.1.0"
+#define OwlyshieldVersion "1.1.1"
 #define AgentName "Owlyshield Service"
 #define FsFilter "OwlyshieldRansomFilter"
 
@@ -41,7 +41,7 @@ UninstallDisplayIcon={app}\hydradragon\assets\HydraDragonAV.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-DiskSpanning=yes
+DiskSpanning=no
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
@@ -66,6 +66,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-8.0.0-windivert-1-6
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u461-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.18-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.9-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Node.js 22.18.0 (x64) MSI
 Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -109,6 +110,9 @@ Filename: "bcdedit.exe"; Parameters: "/set testsigning on"; Flags: runhidden
 
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2501-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
+
+; .NET Runtime 9.0.9 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-9.0.9-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; .NET Desktop Runtime 8.0.18 (silent, no restart)
 Filename: "{tmp}\windowsdesktop-runtime-8.0.18-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated

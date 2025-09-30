@@ -183,25 +183,6 @@ from scapy.sendrecv import sniff
 logger.debug(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import comtypes
-logger.debug(f"comtypes modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import comtypes.client
-logger.debug(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes import cast, GUID
-logger.debug(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
-
-from comtypes.automation import POINTER
-logger.debug(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes.client import CreateObject
-logger.debug(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import atexit
 logger.debug(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -330,6 +311,14 @@ from androguard.misc import AnalyzeAPK
 logger.debug(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from androguard.core.bytecodes.apk import APK
+logger.debug(f"androguard.core.bytecodes.apk.APK module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from androguard.core.bytecodes.dvm import DalvikVMFormat
+logger.debug(f"androguard.core.bytecodes.dvm.DalvikVMFormat module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import types
 logger.debug(f"types module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -397,6 +386,14 @@ start_time = time.time()
 from unipacker.core import Sample, UnpackerEngine, SimpleClient
 logger.debug(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
+logger.debug(f"sourcedefender.unprotect_sourcedefender_file and is_sourcedefender_file, get_sourcedefender_info modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from advancedInstallerExtractor import AdvancedInstallerReader
+logger.debug(f"advancedInstallerExtractor.AddvancedInstallerReader module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -444,8 +441,9 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
-unlicense_path  = os.path.join(script_dir, "unlicense.exe")
-unlicense_x64_path  = os.path.join(script_dir, "unlicense-x64.exe")
+unlicense_dir = os.path.join(script_dir, "unlicense")
+unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
+unlicense_x64_path  = os.path.join(unlicense_dir, "unlicense-x64.exe")
 capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
@@ -622,7 +620,7 @@ scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
 APP_NAME = "HydraDragon Antivirus"
-APP_VERSION = "v0.1 (Beta 5)"
+APP_VERSION = "v0.1 (Beta 5.1)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
 
 # Resolve system drive path
@@ -1491,209 +1489,6 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
     return candidate
 
-#inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
-#with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc)
-#licence: public domain
-# https://gist.github.com/KasparNagu/9ee02cb62d81d9e4c7a833518a710d6e
-
-class AdvancedInstallerFileInfo:
-    def __init__(self, name, size, offset, xorSize):
-        self.name = name
-        self.size = size
-        self.offset = offset
-        self.xorSize = xorSize
-
-    def __repr__(self):
-        return "[%s size=%d offset=%d]" % (self.name, self.size, self.offset)
-
-
-class AdvancedInstallerFileReader:
-    def __init__(self, filehandle, size, keepOpen, xorLength):
-        self.filehandle = filehandle
-        self.size = size
-        self.xorLength = xorLength
-        self.pos = 0
-        self.keepOpen = keepOpen
-
-    def xorFF(self, block):
-        if isinstance(block, str):
-            return "".join([chr(ord(i) ^ 0xff) for i in block])
-        else:
-            return bytes([i ^ 0xff for i in block])
-
-    def read(self, size=None):
-        if size is None:
-            return self.read(self.size - self.pos)
-        if self.pos < self.xorLength:
-            xorLen = min(self.xorLength - self.pos, size)
-            xorBlock = self.filehandle.read(xorLen)
-            xorLenEffective = len(xorBlock)
-            self.pos += xorLenEffective
-            xorBlock = self.xorFF(xorBlock)
-            if xorLenEffective < size:
-                return xorBlock + self.read(size - xorLenEffective)
-            return xorBlock
-        blk = self.filehandle.read(min(size, self.size - self.pos))
-        self.pos += len(blk)
-        return blk
-
-    def close(self):
-        if not self.keepOpen:
-            self.filehandle.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.close()
-
-
-class AdvancedInstallerReader:
-    def __init__(self, filename, debug=None):
-        self.filename = filename
-        self.filehandle = open(filename, "rb")
-        self.search_back = 10000
-        self.xorSize = 0x200
-        self.footer_position = None
-        self.debug = debug
-        self.threadsafeReopen = False
-        self.files = []
-
-    def close(self):
-        self.filehandle.close()
-
-    def search_footer(self):
-        for i in range(0, 10000):
-            self.filehandle.seek(-i, os.SEEK_END)
-            magic = self.filehandle.read(10)
-            if magic == b"ADVINSTSFX":
-                self.footer_position = i + 0x48 - 12
-                break
-        if self.footer_position is None:
-            logger.error("ADVINSTSFX not found")
-
-    def read_footer(self):
-        if self.footer_position is None:
-            self.search_footer()
-        self.filehandle.seek(-self.footer_position, os.SEEK_END)
-        footer = self.filehandle.read(0x48)
-
-        if self.debug:
-            self.debug.write("Footer data (%d bytes): %s\n" % (len(footer), footer.hex()))
-
-        # Try different unpacking strategies based on actual footer structure
-        try:
-            # Original format - try first
-            offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _, name = struct.unpack(
-                "<llllll32sl12s", footer)
-        except struct.error:
-            try:
-                # Alternative format without the last name field
-                data = struct.unpack("<llllll32sl", footer[:60])
-                offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _ = data
-                name = footer[60:] if len(footer) > 60 else b""
-            except struct.error:
-                try:
-                    # Simplified format - just the essential fields
-                    data = struct.unpack("<llllll", footer[:24])
-                    offset, self.nfiles, _, offset1, self.info_off, file_off = data
-                    hexhash = footer[24:56] if len(footer) > 56 else b""
-                    name = footer[56:] if len(footer) > 56 else b""
-                except struct.error:
-                    # Last resort - extract what we can
-                    if len(footer) >= 8:
-                        offset, self.nfiles = struct.unpack("<ll", footer[:8])
-                        offset1 = 0
-                        self.info_off = struct.unpack("<l", footer[16:20])[0] if len(footer) >= 20 else 0
-                        file_off = struct.unpack("<l", footer[20:24])[0] if len(footer) >= 24 else 0
-                    else:
-                        logger.error("Footer too short to parse")
-                    hexhash = b""
-                    name = b""
-
-        if self.debug:
-            self.debug.write(
-                "offset=%d files=%d offset1=%d  info_off=%d file_off=%d hexhash=%s name=%s\n" % (offset, self.nfiles,
-                                                                                                 offset1, self.info_off,
-                                                                                                 file_off, hexhash,
-                                                                                                 name))
-
-    def read_info(self):
-        self.read_footer()
-        self.files = []
-        self.filehandle.seek(self.info_off, os.SEEK_SET)
-        for i in range(0, self.nfiles):
-            info = self.filehandle.read(24)
-            if len(info) < 24:
-                if self.debug:
-                    self.debug.write("Warning: incomplete info block for file %d\n" % i)
-                break
-            _, _, xor_flag, size, offset, namesize = struct.unpack("<llllll", info)
-            if self.debug:
-                self.debug.write(
-                    " size=%d offset=%d namesize=%d xor_flag=0x%x\n" % (size, offset, namesize, xor_flag))
-            if 0 < namesize < 0xFFFF:
-                name_data = self.filehandle.read(namesize * 2)
-                if len(name_data) == namesize * 2:
-                    try:
-                        name = name_data.decode("UTF-16LE")
-                        # Remove null terminator if present
-                        name = name.rstrip('\x00')
-                    except UnicodeDecodeError:
-                        # Fallback to UTF-16BE or raw bytes
-                        try:
-                            name = name_data.decode("UTF-16BE")
-                            name = name.rstrip('\x00')
-                        except UnicodeDecodeError:
-                            name = "file_%d.bin" % i
-                    if self.debug:
-                        self.debug.write("  name=%s\n" % name)
-                    self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if xor_flag == 2 else 0))
-                else:
-                    if self.debug:
-                        self.debug.write("Warning: incomplete name data for file %d\n" % i)
-            elif namesize == 0:
-                # Handle files with no name
-                name = "unnamed_file_%d.bin" % i
-                if self.debug:
-                    self.debug.write("  name=%s (unnamed)\n" % name)
-                self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if xor_flag == 2 else 0))
-            else:
-                if self.debug:
-                    self.debug.write("Warning: Invalid name size %d for file %d\n" % (namesize, i))
-                # Skip this file or use a default name
-                continue
-
-    def open(self, infoFile):
-        if isinstance(infoFile, AdvancedInstallerFileInfo):
-            if self.threadsafeReopen:
-                fh = open(self.filename, "rb")
-            else:
-                fh = self.filehandle
-            fh.seek(infoFile.offset, os.SEEK_SET)
-            return AdvancedInstallerFileReader(fh, infoFile.size, not self.threadsafeReopen, infoFile.xorSize)
-        else:
-            if not self.files:
-                self.read_info()
-            for f in self.files:
-                if f.name == infoFile:
-                    return self.open(f)
-        return None
-
-    def infolist(self):
-        if not self.files:
-            self.read_info()
-        return self.files
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.close()
-
-    def __repr__(self):
-        return "[path=%s footer=%s nFiles=%d]" % (self.filename, self.footer_position, len(self.files))
-
 def advanced_installer_extractor(file_path):
         """
         Extract files from Advanced Installer archive.
@@ -1706,7 +1501,7 @@ def advanced_installer_extractor(file_path):
         """
         extracted_files = []
 
-        with AdvancedInstallerReader(file_path) as ar:
+        with AdvancedInstallerReader(file_path, debug=logger) as ar:
                 for f in ar.infolist():
                         logger.debug(f)
                         path = f.name.replace("\\","/")
@@ -2136,39 +1931,55 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
     except (ELFError, IOError, ValueError):
         return False
 
-def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
+def is_apk_file_from_output(
+    die_output: str,
+    file_path: str
+) -> Union[bool, str, Tuple[APK, Optional[DalvikVMFormat], Optional[object]]]:
     """
-    Determines whether the given file is an APK by first checking DIE's detection
-    result and, if positive, validating it via Androguard.
-
-    Args:
-        die_output: The raw output string from DIE (Detect It Easy).
-        file_path:  The path to the file under test.
+    Determines whether the given file is an APK by checking DIE's detection result,
+    then validating it via Androguard (AnalyzeAPK).
 
     Returns:
-        True           - if Androguard confirms a valid APK.
-        "Broken APK"   - if DIE claimed "APK" but Androguard failed to parse it.
-        False          - otherwise.
+        (APK, d, dx)   - if analysis succeeds
+        True           - if only APK validity check succeeds
+        "Broken APK"   - if DIE claimed APK but Androguard failed
+        False          - otherwise
     """
+
     if die_output:
         logger.info(f"DIE output: {die_output.strip()}")
 
-    # Only continue if DIE flagged the file as APK
-    if not die_output or not die_output.strip().upper().startswith("APK"):
+    if not die_output or "APK" not in die_output.upper():
         return False
 
-    # Try Androguard validation
     try:
         a, d, dx = AnalyzeAPK(file_path)
+
+        if not a or not isinstance(a, APK):
+            logger.error("AnalyzeAPK returned no APK object.")
+            return "Broken APK"
+
         if a.is_valid_APK():
             logger.info("Androguard confirms this is a valid APK.")
-            return True
+
+            # Return full details (APK, DalvikVMFormat, Analysis)
+            return a, d, dx
         else:
-            logger.error("Androguard opened the file but it failed APK validity checks.")
+            logger.warning("AnalyzeAPK parsed but validity failed.")
             return "Broken APK"
 
     except Exception as e:
-        logger.error(f"Androguard failed to parse APK: {e}")
+        logger.error(f"AnalyzeAPK crashed: {e}")
+
+        # Fallback: try a lighter APK parse, at least get APK object
+        try:
+            apk = APK(file_path)
+            if apk.is_valid_APK():
+                logger.info("Fallback: APK structure looks valid.")
+                return True
+        except Exception as inner_e:
+            logger.error(f"Fallback APK parse also failed: {inner_e}")
+
         return "Broken APK"
 
 def is_enigma1_virtual_box(die_output):
@@ -5365,10 +5176,10 @@ def scan_yara(file_path):
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
 
-        # Helper function to extract detailed match info for regular YARA
         def extract_match_details(match, rule_source):
+            """Robust extraction for yara-python style matches (tuples or objects)."""
             match_info = {
-                'rule_name': match.rule,
+                'rule_name': getattr(match, 'rule', None),
                 'rule_source': rule_source,
                 'strings': [],
                 'tags': getattr(match, 'tags', []),
@@ -5376,70 +5187,166 @@ def scan_yara(file_path):
                 'namespace': getattr(match, 'namespace', None)
             }
 
-            # Extract string matches with offsets
-            if hasattr(match, 'strings'):
-                for string_match in match.strings:
-                    string_info = {
-                        'identifier': string_match.identifier,
-                        'instances': []
-                    }
+            if not hasattr(match, 'strings'):
+                return match_info
 
-                    for instance in string_match.instances:
+            for string_match in match.strings:
+                # string_match can be a tuple like (offset, identifier, data)
+                # or an object with .identifier and .instances
+                string_info = {'identifier': None, 'instances': []}
+
+                if isinstance(string_match, (tuple, list)):
+                    # Try to unpack common tuple shapes:
+                    # (offset, identifier, data)  OR  (offset, data)
+                    if len(string_match) >= 3:
+                        offset, identifier, data = string_match[:3]
+                    elif len(string_match) == 2:
+                        offset, data = string_match
+                        identifier = None
+                    else:
+                        continue
+
+                    matched_data = data if isinstance(data, (bytes, bytearray)) else (
+                        data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
+                    )
+                    length = len(matched_data)
+
+                    instance_info = {
+                        'offset': offset,
+                        'length': length,
+                        'matched_data': matched_data
+                    }
+                    try:
+                        instance_info['matched_text'] = matched_data.decode('utf-8', errors='ignore')
+                    except Exception:
+                        instance_info['matched_text'] = None
+                    instance_info['matched_hex'] = matched_data.hex()
+                    string_info['identifier'] = identifier
+                    string_info['instances'].append(instance_info)
+
+                else:
+                    # Assume object-like: string_match.identifier and string_match.instances (or .matches)
+                    identifier = getattr(string_match, 'identifier', getattr(string_match, 'name', None))
+                    instances = getattr(string_match, 'instances', getattr(string_match, 'matches', []))
+                    string_info['identifier'] = identifier
+
+                    for inst in instances:
+                        # inst can be tuple/list or object
+                        if isinstance(inst, (tuple, list)):
+                            # common tuple forms: (offset, length, data) or (offset, data)
+                            if len(inst) >= 3:
+                                off, length, data = inst[:3]
+                            elif len(inst) == 2:
+                                off, data = inst
+                                length = len(data) if isinstance(data, (bytes, bytearray)) else 0
+                            else:
+                                continue
+
+                            matched_data = data if isinstance(data, (bytes, bytearray)) else (
+                                data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
+                            )
+
+                        else:
+                            # object: try typical attributes
+                            off = getattr(inst, 'offset', getattr(inst, 'start', None))
+                            length = getattr(inst, 'length', None)
+                            matched_data = getattr(inst, 'data', None) or getattr(inst, 'matched_data', None) or getattr(inst, 'value', None)
+
+                            if matched_data is None and off is not None:
+                                # Fall back to slicing the file content if we have offset and length
+                                if length is not None:
+                                    matched_data = data_content[off: off + length]
+                                else:
+                                    # No length available - try to take a small slice (best-effort)
+                                    matched_data = data_content[off: off + 64]
+
+                            if isinstance(matched_data, str):
+                                matched_data = matched_data.encode('utf-8', errors='ignore')
+
+                        length = length if (length is not None) and isinstance(length, int) else (len(matched_data) if matched_data is not None else 0)
                         instance_info = {
-                            'offset': instance.offset,
-                            'length': instance.length,
-                            'matched_data': data_content[instance.offset:instance.offset + instance.length]
+                            'offset': off,
+                            'length': length,
+                            'matched_data': matched_data or b''
                         }
-                        # Convert bytes to hex for binary data, or decode as text if possible
                         try:
                             instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
-                        except:
+                        except Exception:
                             instance_info['matched_text'] = None
-
-                        instance_info['matched_hex'] = instance_info['matched_data'].hex()
+                        instance_info['matched_hex'] = (instance_info['matched_data'] or b'').hex()
                         string_info['instances'].append(instance_info)
 
-                    match_info['strings'].append(string_info)
+                match_info['strings'].append(string_info)
 
             return match_info
 
-        # Fixed helper function for YARA-X matches
+
         def extract_yarax_match_details(rule, rule_source):
+            """Robust extraction for YARA-X style rule/pattern matches."""
             match_info = {
-                'rule_name': rule.identifier,
+                'rule_name': getattr(rule, 'identifier', None),
                 'rule_source': rule_source,
                 'strings': [],
                 'tags': list(rule.tags) if hasattr(rule, 'tags') else [],
                 'meta': dict(rule.metadata) if hasattr(rule, 'metadata') else {},
-                'namespace': rule.namespace if hasattr(rule, 'namespace') else None
+                'namespace': getattr(rule, 'namespace', None)
             }
 
-            # YARA-X string pattern extraction
-            if hasattr(rule, 'patterns'):
-                for pattern in rule.patterns:
-                    string_info = {
-                        'identifier': pattern.identifier,
-                        'instances': []
+            # Patterns may be an iterable; each pattern may expose .identifier and .matches
+            if not hasattr(rule, 'patterns'):
+                return match_info
+
+            for pattern in rule.patterns:
+                string_info = {
+                    'identifier': getattr(pattern, 'identifier', getattr(pattern, 'name', None)),
+                    'instances': []
+                }
+
+                matches_iter = getattr(pattern, 'matches', []) or getattr(pattern, 'instances', [])
+
+                for m in matches_iter:
+                    # match object may have .offset and optionally .length or may be a tuple
+                    if isinstance(m, (tuple, list)):
+                        if len(m) >= 3:
+                            offset, length, data = m[:3]
+                        elif len(m) == 2:
+                            offset, data = m
+                            length = len(data) if isinstance(data, (bytes, bytearray)) else 0
+                        else:
+                            continue
+
+                        matched_data = data if isinstance(data, (bytes, bytearray)) else (
+                            data.encode('utf-8', errors='ignore') if isinstance(data, str) else b''
+                        )
+
+                    else:
+                        offset = getattr(m, 'offset', getattr(m, 'start', None))
+                        length = getattr(m, 'length', None)
+                        matched_data = getattr(m, 'data', None) or getattr(m, 'matched_data', None) or None
+
+                        if matched_data is None and offset is not None:
+                            if length is not None:
+                                matched_data = data_content[offset: offset + length]
+                            else:
+                                matched_data = data_content[offset: offset + 64]
+
+                        if isinstance(matched_data, str):
+                            matched_data = matched_data.encode('utf-8', errors='ignore')
+
+                    length = length if (isinstance(length, int) and length >= 0) else (len(matched_data) if matched_data is not None else 0)
+                    instance_info = {
+                        'offset': offset,
+                        'length': length,
+                        'matched_data': matched_data or b''
                     }
+                    try:
+                        instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
+                    except Exception:
+                        instance_info['matched_text'] = None
+                    instance_info['matched_hex'] = (instance_info['matched_data'] or b'').hex()
+                    string_info['instances'].append(instance_info)
 
-                    # Get matches for this pattern
-                    for match in pattern.matches:
-                        instance_info = {
-                            'offset': match.offset,
-                            'length': match.length,
-                            'matched_data': data_content[match.offset:match.offset + match.length]
-                        }
-
-                        # Convert bytes to text/hex
-                        try:
-                            instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
-                        except:
-                            instance_info['matched_text'] = None
-
-                        instance_info['matched_hex'] = instance_info['matched_data'].hex()
-                        string_info['instances'].append(instance_info)
-
-                    match_info['strings'].append(string_info)
+                match_info['strings'].append(string_info)
 
             return match_info
 
@@ -9590,7 +9497,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     sandbox_inner_execs.parent.mkdir(parents=True, exist_ok=True)
 
     sandboxie_exe = str(sandboxie_path)
-    python_exe = str(sys.executable)
+    python_exe = str(python_path)
     script_path = str(transformed_path)
 
     shell_cmd = (
@@ -9848,9 +9755,16 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
 def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
-    Detects whether the payload is Exela v2 or generic.
+    Detects whether the payload is Exela v2, SourceDefender, or generic.
     """
     try:
+        # First check if it's a SourceDefender protected file
+        if is_sourcedefender_file(output_file):
+            logger.info("[*] Detected SourceDefender protected file.")
+            process_sourcedefender_payload(output_file)
+            return
+
+        # If not SourceDefender, read content for other checks
         with open(output_file, 'r', encoding='utf-8') as file:
             content = file.read()
 
@@ -9875,6 +9789,40 @@ def process_decompiled_code(output_file):
 
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
+
+def process_sourcedefender_payload(output_file):
+    """
+    Process SourceDefender protected files by attempting to decrypt them.
+    """
+    try:
+        logger.info(f"[*] Processing SourceDefender file: {output_file}")
+
+        # Get file info (we already know it's SourceDefender, so just get details)
+        file_info = get_sourcedefender_info(output_file)
+        logger.info(f"[+] SourceDefender file info - Size: {file_info['file_size']} bytes, Lines: {file_info['line_count']}")
+
+        # Attempt to unprotect the file
+        result = unprotect_sourcedefender_file(output_file)
+
+        if result['success']:
+            logger.info(f"[+] Successfully decrypted SourceDefender {result['version']} protected file.")
+            logger.info(f"[+] Decrypted file saved as: {result['output_file']}")
+
+            # Add to deobfuscated paths list for further processing
+            deobfuscated_saved_paths.append(result['output_file'])
+
+            # Log SourceDefender decryption success but don't flag as suspicious
+            logger.info(f"[+] SourceDefender {result['version']} file successfully decrypted and available for analysis.")
+
+            # Re-process the decrypted file through the main pipeline
+            logger.info("[*] Re-analyzing decrypted SourceDefender content...")
+            process_decompiled_code(result['output_file'])
+
+        else:
+            logger.error(f"[!] SourceDefender decryption failed: {result['error']}")
+
+    except Exception as ex:
+        logger.error(f"[!] Error processing SourceDefender payload: {ex}")
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -9919,8 +9867,7 @@ def decompile_apk_file(file_path):
         # Build the command:
         #   python -m androguard decompile -o <output_dir> <apk>
         cmd = [
-            sys.executable,
-            "-m", "androguard",
+            "androguard",
             "decompile",
             "-o", output_dir,
             file_path
@@ -12116,16 +12063,36 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
-        def apk_analysis():
+        def apk_analysis(norm_path, apk_result):
+            """
+            Analyze and decompile an APK, then scan decompiled files in threads.
+            """
             try:
-                if apk_result:
-                    logger.info(f"File {norm_path} is a valid APK file.")
-                    decompile_apk_files = decompile_apk_file(norm_path)
-                    if decompile_apk_files:
-                        for decompiled_apk_file in decompile_apk_files:
-                            threading.Thread(target=scan_and_warn, args=(decompiled_apk_file,)).start()
+                if not apk_result:
+                    logger.warning(f"{norm_path} is not a valid APK (skipping).")
+                    return
+
+                logger.info(f"File {norm_path} is a valid APK file.")
+
+                decompiled_files = decompile_apk_file(norm_path)
+
+                if not decompiled_files:
+                    logger.error(f"Failed to decompile {norm_path} (no files returned).")
+                    return
+
+                logger.debug(f"Decompiled {len(decompiled_files)} files from {norm_path}.")
+
+                threads = []
+                for f in decompiled_files:
+                    t = threading.Thread(
+                        target=scan_and_warn,
+                        args=(f,),
+                    )
+                    t.start()
+                    threads.append(t)
+
             except Exception as e:
-                logger.error(f"Error in APK analysis for {norm_path}: {e}")
+                logger.exception(f"Error in APK analysis for {norm_path}: {e}")
 
         def dotnet_analysis():
             try:

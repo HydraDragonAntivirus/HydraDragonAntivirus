@@ -50,7 +50,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then change based on your installed folder of HydraDragonAntivirus. After compiling Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
 
 ## Ghidra Source Code
-- I now using 11.4.1: https://ghidra-sre.org/
+- I now using 11.4.2: https://ghidra-sre.org/
 
 ## Java Development Kit
 - Just look at https://www.oracle.com/java/technologies/downloads/#jdk21-windows
@@ -68,7 +68,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_projects
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
- # Sigma-HQ - Hayabusa
+ ## Sigma-HQ - Hayabusa
  - https://github.com/Yamato-Security/hayabusa
 
  ## IMPORTANT
@@ -125,12 +125,14 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/MadMin3r/UnconfuserEx
 - https://github.com/LockBlock-dev/pkg-unpacker
 - https://github.com/j4k0xb/View8
-- https://github.com/HydraDragonAntivirus/MegaDumper
+- https://github.com/HydraDragonAntivirus/MegaDumper 
+- https://github.com/GuardianN06/SourceUndefender
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
 - https://github.com/starhopp3r/ML-Antivirus
 - https://huggingface.co/meta-llama/Llama-3.2-1B
+- https://github.com/HydraDragonAntivirus/yarGen
 
 - I used these projects for AI.
 
@@ -173,7 +175,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - vcpkg integrate install
 
 **Note 12:**
-- Inno Setup version 6.5.1
+- Inno Setup version 6.5.4
 
 ## Tips
 
@@ -246,8 +248,8 @@ See the [LICENSE](./LICENSE) file for more information.
 **Why don't you use NictaSoft, GridinSoft and Bitdefender cloud?**
 - It could significantly boost my antivirus. However, there are some problems. These services are not open source unless you pay. We're not only focused on detection, but also committed to maintaining open-source principles.
 
-**Other related repositories?**
-- I used https://github.com/HydraDragonAntivirus/yarGen to create machinelearning.yar.
+**Other related things?**
+- I used yarGen to create machinelearning.yar.
 
 **How many repositories did you look at for this project?**
 - For YARA and website signatures, I looked at many projects-possibly more than 1,000.
