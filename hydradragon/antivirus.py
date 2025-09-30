@@ -4985,13 +4985,19 @@ class RealTimeWebProtectionObserver:
 web_protection_observer = RealTimeWebProtectionObserver()
 
 def scan_yara(file_path):
-    """Scan file with multiple YARA rule sets in parallel using threads."""
+    """Scan file with multiple YARA rule sets in parallel using threads.
+
+    Change: when a VMProtect unpacking indicator is matched, we do NOT
+    attempt to unpack the PE or write any metadata file. Instead we set
+    a boolean flag `is_vmprotect` which is returned as the third
+    return value.
+    """
 
     # Shared variables for results
     results = {
         'matched_rules': [],
         'matched_results': [],
-        'vmprotect_unpacked_file': None
+        'is_vmprotect': False
     }
 
     # Lock for thread-safe access to shared variables
@@ -5186,39 +5192,24 @@ def scan_yara(file_path):
                     matches = clean_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
-                    local_vmprotect_file = None
+                    local_is_vmprotect = False
 
                     for match in matches or []:
+                        # Detect VMProtect even if excluded
+                        if match.rule == "INDICATOR_EXE_Packed_VMProtect":
+                            local_is_vmprotect = True
+
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
                             match_details = extract_match_details(match, 'clean_rules')
                             local_matched_results.append(match_details)
 
-                        # VMProtect unpacking
-                        if match.rule == "INDICATOR_EXE_Packed_VMProtect":
-                            try:
-                                with open(file_path, 'rb') as f:
-                                    packed_data = f.read()
-                                unpacked_data = unpack_pe(packed_data)
-                                if unpacked_data:
-                                    base_name, ext = os.path.splitext(os.path.basename(file_path))
-                                    unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
-                                    unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
-
-                                    with open(unpacked_path, 'wb') as f:
-                                        f.write(unpacked_data)
-
-                                    local_vmprotect_file = unpacked_path
-                                    logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-                            except Exception as e:
-                                logger.error(f"Error unpacking after VMProtect indicator: {e}")
-
                     # Update shared results
                     with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
-                        if local_vmprotect_file:
-                            results['vmprotect_unpacked_file'] = local_vmprotect_file
+                        if local_is_vmprotect:
+                            results['is_vmprotect'] = True
                 else:
                     logger.error("clean_rules is not defined.")
             except Exception as e:
@@ -5344,10 +5335,10 @@ def scan_yara(file_path):
         for thread in threads:
             thread.join()
 
-        # Return results
+        # Return results (third value is a boolean `is_vmprotect`)
         return (results['matched_rules'] if results['matched_rules'] else None,
                 results['matched_results'] if results['matched_results'] else None,
-                results['vmprotect_unpacked_file'])
+                results['is_vmprotect'])
 
     except Exception as ex:
         logger.error(f"An error occurred during YARA scan: {ex}")
@@ -6659,22 +6650,32 @@ def scan_file_real_time(
             logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
 
     def yara_scan_worker():
-        """Worker function for YARA scan"""
+        """Worker function for YARA scan (minimal: set is_vmprotect boolean only)."""
         try:
-            yara_match, yara_result, vmprotect_unpacked_path = scan_yara(file_path)
+            # scan_yara -> (matched_rules, matched_results, is_vmprotect)
+            yara_match, yara_result, is_vmprotect = scan_yara(file_path)
+
             if yara_match is not None and yara_match not in ("Clean", ""):
                 if sig_valid:
                     yara_match = f"{yara_match}.SIG"
-                logger.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
+                logger.critical(
+                    f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
+                )
 
                 with thread_lock:
-                    if not results['malware_found']:
+                    if not results.get('malware_found'):
                         results['malware_found'] = True
                         results['virus_name'] = yara_match
                         results['engine'] = "YARA"
-                        results['vmprotect_path'] = vmprotect_unpacked_path
+                    # minimal change: set boolean flag only
+                    results['is_vmprotect'] = bool(is_vmprotect)
             else:
                 logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+                with thread_lock:
+                    results.setdefault('malware_found', False)
+                    # still set the boolean flag in the clean case too
+                    results['is_vmprotect'] = bool(is_vmprotect)
+
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
@@ -6773,11 +6774,11 @@ def scan_file_real_time(
             t.join()
 
         # Final decision:
-        if results['malware_found']:
-            return True, results['virus_name'], results['engine'], results.get('vmprotect_path')
+        if results.get('malware_found'):
+            return True, results.get('virus_name', ""), results.get('engine', ""), bool(results.get('is_vmprotect', False))
         else:
             logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-            return False, "Clean", "", None
+            return False, "Clean", "", bool(results.get('is_vmprotect', False))
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
@@ -11518,7 +11519,8 @@ def scan_and_warn(file_path,
                   flag_fernflower=False,
                   nsis_flag=False,
                   ntdll_dropped=False,
-                  flag_confuserex=False):
+                  flag_confuserex=False,
+                  flag_vmprotect=False):
     """
     Scans a file for potential issues with comprehensive threading for performance.
     Only does ransomware_alert and worm_alert once per unique file path.
@@ -11535,6 +11537,8 @@ def scan_and_warn(file_path,
         }
         die_output = ""
         plain_text_flag = False
+
+        already_vmprotect_unpacked = False
 
         # Convert WindowsPath to string if necessary
         if isinstance(file_path, WindowsPath):
@@ -11732,6 +11736,10 @@ def scan_and_warn(file_path,
             Attempts to unpack if detected and logs PE32/PE64 type.
             """
             try:
+                # Skip if flag_vmprotect is already set
+                if flag_vmprotect:
+                    return
+
                 if is_vm_protect_from_output(die_output):  # Use the VMProtect checker
                     # Attempt to unpack
                     try:
@@ -11750,7 +11758,9 @@ def scan_and_warn(file_path,
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
                             # Optional: further scanning/warning in a thread
-                            threading.Thread(target=scan_and_warn, args=(unpacked_path,)).start()
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), kwargs={"flag_vmprotect": True}).start()
+
+                            already_vmprotect_unpacked = True
 
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file '{file_path}': {e}")
@@ -12475,7 +12485,7 @@ def scan_and_warn(file_path,
         # Real-time malware scan thread (CPU intensive)
         def realtime_malware_thread():
             try:
-                is_malicious, virus_names, engine_detected, vmprotect_unpacked_path = scan_file_real_time(
+                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time(
                     norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
                 if is_malicious:
@@ -12486,8 +12496,34 @@ def scan_and_warn(file_path,
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
                     else:
                         threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected)).start()
-                if vmprotect_unpacked_path:
-                    threading.Thread(target=scan_and_warn, args=(vmprotect_unpacked_path,)).start()
+
+                if already_vmprotect_unpacked:
+                    return
+
+                # Now unpack here if VMProtect was detected
+                if is_vmprotect:
+                    try:
+                        logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
+
+                        with open(norm_path, 'rb') as f:
+                            packed_data = f.read()
+
+                        unpacked_data = unpack_pe(packed_data)
+
+                        if unpacked_data:
+                            base_name, ext = os.path.splitext(os.path.basename(norm_path))
+                            unpacked_path = os.path.join(tempfile.gettempdir(), f"{base_name}_vmprotect_unpacked{ext}")
+
+                            with open(unpacked_path, 'wb') as f:
+                                f.write(unpacked_data)
+
+                            logger.info(f"Unpacked VMProtect file saved to: {unpacked_path}")
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,)).start()
+                        else:
+                            logger.warning(f"Unpacking VMProtect failed for {norm_path}")
+                    except Exception as e:
+                        logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
+
             except Exception as e:
                 logger.error(f"Error in real-time malware scan for {norm_path}: {e}")
 
