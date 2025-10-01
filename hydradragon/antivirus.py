@@ -6160,11 +6160,15 @@ def scan_zip_file(file_path):
       - Single entry text files containing"Password:" (HEUR:Win32.Susp.Encrypted.Zip.SingleEntry)
 
     Returns:
-      (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
+      (success: bool, payload: str or List)
+      - Returns (False, "Clean") when clean
+      - Returns (True, "virus_name") when malware detected
+      - Returns (True, entries) when suspicious patterns found (for heuristic processing)
     """
     try:
         zip_size = os.path.getsize(file_path)
         entries = []
+        malware_detected = False
 
         with pyzipper.ZipFile(file_path, 'r') as zf:
             for info in zf.infolist():
@@ -6185,6 +6189,7 @@ def scan_zip_file(file_path):
                     virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.ZIP.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.ZIP.gen"
 
                     notify_susp_archive_file_name_warning(file_path, "ZIP", virus)
+                    malware_detected = True
 
                 # Record metadata
                 entries.append((info.filename, info.file_size, encrypted))
@@ -6193,6 +6198,7 @@ def scan_zip_file(file_path):
                 if zip_size < 20 * 1024 * 1024 and info.file_size > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.ZIP" if encrypted else "HEUR:Win32.Susp.Size.ZIP"
                     notify_size_warning(file_path, "ZIP", virus)
+                    malware_detected = True
 
         # Single-entry password logic
         if len(entries) == 1:
@@ -6202,15 +6208,20 @@ def scan_zip_file(file_path):
                     snippet = zf.open(fname).read(4096)
                 if is_plain_text(snippet) and 'Password:' in snippet.decode('utf-8', errors='ignore'):
                     notify_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
+                    malware_detected = True
 
-        return True, entries
+        # Return based on detection status
+        if malware_detected:
+            return True, entries
+        else:
+            return False, "Clean"
 
     except pyzipper.zipfile.BadZipFile:
         logger.error(f"Not a valid ZIP archive: {file_path}")
-        return False, []
+        return False, "Clean"
     except Exception as ex:
         logger.error(f"Error scanning zip file: {file_path} {ex}")
-        return False, []
+        return False, "Clean"
 
 
 def scan_7z_file(file_path):
@@ -6221,11 +6232,15 @@ def scan_7z_file(file_path):
       - Single entry text files containing"Password:" (HEUR:Win32.Susp.Encrypted.7z.SingleEntry)
 
     Returns:
-      (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
+      (success: bool, payload: str or List)
+      - Returns (False, "Clean") when clean
+      - Returns (True, "virus_name") when malware detected
+      - Returns (True, entries) when suspicious patterns found (for heuristic processing)
     """
     try:
         archive_size = os.path.getsize(file_path)
         entries = []
+        malware_detected = False
 
         with py7zr.SevenZipFile(file_path, mode='r') as archive:
             for entry in archive.list():
@@ -6247,6 +6262,7 @@ def scan_7z_file(file_path):
                     virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.7z.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.7z.gen"
 
                     notify_susp_archive_file_name_warning(file_path, "7z", virus)
+                    malware_detected = True
 
                 # Record metadata
                 entries.append((filename, entry.uncompressed, encrypted))
@@ -6255,6 +6271,7 @@ def scan_7z_file(file_path):
                 if archive_size < 20 * 1024 * 1024 and entry.uncompressed > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.7z" if encrypted else "HEUR:Win32.Susp.Size.7z"
                     notify_size_warning(file_path, "7z", virus)
+                    malware_detected = True
 
         # Single-entry password logic
         if len(entries) == 1:
@@ -6264,15 +6281,20 @@ def scan_7z_file(file_path):
                 snippet = data_map.get(fname, b'')[:4096]
                 if is_plain_text(snippet) and 'Password:' in snippet.decode('utf-8', errors='ignore'):
                     notify_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
+                    malware_detected = True
 
-        return True, entries
+        # Return based on detection status
+        if malware_detected:
+            return True, entries
+        else:
+            return False, "Clean"
 
     except py7zr.exceptions.Bad7zFile:
         logger.error(f"Not a valid 7z archive: {file_path}")
-        return False, []
+        return False, "Clean"
     except Exception as ex:
         logger.error(f"Error scanning 7z file: {file_path} {ex}")
-        return False, []
+        return False, "Clean"
 
 def is_7z_file_from_output(die_output: str) -> bool:
     """
