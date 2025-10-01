@@ -127,6 +127,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/j4k0xb/View8
 - https://github.com/HydraDragonAntivirus/MegaDumper 
 - https://github.com/GuardianN06/SourceUndefender
+- https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 

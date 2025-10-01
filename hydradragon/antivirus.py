@@ -383,6 +383,10 @@ from pylingual.main import main as pylingual_main
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from oneshot import shot
+logger.debug(f"oneshot.shot module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
 logger.debug(f"sourcedefender.unprotect_sourcedefender_file and is_sourcedefender_file, get_sourcedefender_info modules loaded in {time.time() - start_time:.6f} seconds")
 
