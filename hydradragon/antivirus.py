@@ -383,8 +383,8 @@ from pylingual.main import main as pylingual_main
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from oneshot import shot
-logger.debug(f"oneshot.shot module loaded in {time.time() - start_time:.6f} seconds")
+from oneshot.shot import decrypt_process, general_aes_ctr_decrypt, RuntimeInfo, detect_process
+logger.debug(f"oneshot.shot.decrypt_process, general_aes_ctr_decrypt, RuntimeInfo, detect_process module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
@@ -472,6 +472,7 @@ assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAVLogo.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
 pyinstaller_extracted_dir = os.path.join(script_dir, "pyinstaller_extracted")
+pyarmor8_and_9_extracted_dir = os.path.join(script_dir, "pyarmor8_and_9_extracted")
 cx_freeze_extracted_dir = os.path.join(script_dir, "cx_freeze_extracted")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
@@ -916,7 +917,7 @@ COMMON_DIRECTORIES = [
     hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
-    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
     commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir,
     seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
     advanced_installer_extracted_dir, processed_dir, python_source_code_dir,
@@ -977,6 +978,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
     (lambda fp: fp.startswith(un_confuser_ex_extracted_dir), ".NET file deobfuscated with UnConfuserEx."),
     (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
+    (lambda fp: fp.startswith(pyarmor8_and_9_extracted_dir), "PyArmor 8 and 9 extracted."),
     (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
     (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
     (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
@@ -1468,6 +1470,12 @@ def is_pyc_file_from_output(die_output):
         logger.info("DIE output indicates a Python compiled module.")
         return True
     return False
+
+def is_pyarmor_archive_from_output(data: bytes) -> bool:
+    """
+    Returns True if the file content is a PyArmor-protected .pyc file, False otherwise.
+    """
+    return data.startswith(b'PY00') and b'__pyarmor__' in data
 
 def is_themida_from_output(die_output):
     """
@@ -9705,6 +9713,59 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths, output_dir
 
+def extract_and_return_pyarmor(file_path: str, runtime_path: str = None) -> Tuple[List[str], str]:
+    """
+    Extract PyArmor-protected .pyc files and return decrypted outputs.
+
+    Returns:
+        pyarmor_files: list of paths to all extracted files
+        main_decrypted_output: path to the main decrypted file (if any)
+    """
+    pyarmor_files: List[str] = []
+    main_decrypted_output: str = None
+
+    # Prepare runtimes
+    if runtime_path:
+        runtime = RuntimeInfo(runtime_path)
+        runtimes = {runtime.serial_number: runtime}
+    else:
+        runtimes = {}
+
+    # Detect armored sequences in the file
+    sequences = detect_process(file_path, os.path.basename(file_path))
+    if not sequences:
+        return pyarmor_files, main_decrypted_output
+
+    # Use specific directory for decrypted outputs
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    pyarmor8_and_9_extracted_dir = os.path.join(script_dir, "pyarmor8_and_9_extracted")
+    os.makedirs(pyarmor8_and_9_extracted_dir, exist_ok=True)
+
+    class Args:
+        """Minimal args object for decrypt_process"""
+        output_dir = pyarmor8_and_9_extracted_dir
+        export_raw_data = False
+        show_all = False
+        show_err_opcode = False
+        show_warn_stack = False
+        concurrent = 1
+        executable = None
+
+    args = Args()
+
+    # Run decryption
+    decrypt_process(runtimes, sequences, args)
+
+    # Collect all decrypted files from pyarmor8_and_9_extracted_dir
+    for root, _, files in os.walk(pyarmor8_and_9_extracted_dir):
+        for f in files:
+            full_path = os.path.join(root, f)
+            pyarmor_files.append(full_path)
+            if main_decrypted_output is None and f.endswith(".pyc"):
+                main_decrypted_output = full_path
+
+    return pyarmor_files, main_decrypted_output
+
 def decompile_apk_file(file_path):
     """
     Decompile an Android APK using Androguard (via subprocess) and scan
@@ -12081,10 +12142,37 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
-            def pyc_thread():
-                try:
-                    if is_pyc_file_from_output(die_output):
-                        logger.info(f"File {norm_path} is a .pyc file. Attempting Pylingual decompilation...")
+        def pyc_thread(norm_path, die_output):
+            """
+            Process a single .pyc file.
+            - If PyArmor-protected, extract and scan decrypted files.
+            - Always attempt Pylingual decompilation.
+            """
+            try:
+                # Check if this is a .pyc file
+                if is_pyc_file_from_output(die_output):
+                    logger.info(f"File {norm_path} is a .pyc file.")
+
+                    # Handle PyArmor-protected .pyc
+                    if is_pyarmor_archive_from_output(die_output):
+                        logger.info(f"File {norm_path} is PyArmor-protected. Extracting...")
+                        try:
+                            pyarmor_files, main_decrypted_output = extract_and_return_pyarmor(norm_path)
+
+                            # Scan main decrypted output if present
+                            if main_decrypted_output:
+                                threading.Thread(target=scan_and_warn, args=(main_decrypted_output,)).start()
+
+                            # Scan extracted PyArmor files
+                            if pyarmor_files:
+                                for extracted_file in pyarmor_files:
+                                    threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                        except Exception as e_extract:
+                            logger.error(f"Error extracting PyArmor .pyc {norm_path}: {e_extract}")
+
+                    # Original Pylingual decompilation
+                    try:
+                        logger.info(f"Attempting Pylingual decompilation for {norm_path}...")
                         pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
                         if pylingual:
@@ -12095,8 +12183,12 @@ def scan_and_warn(file_path,
                         if pycdas:
                             for rname in pycdas.keys():
                                 threading.Thread(target=scan_and_warn, kwargs={"file_path": rname}).start()
-                except Exception as e:
-                    logger.error(f"Error in PYC processing for {norm_path}: {e}")
+
+                    except Exception as e_pyl:
+                        logger.error(f"Pylingual decompilation error for {norm_path}: {e_pyl}")
+
+            except Exception as e:
+                logger.error(f"Error in PYC processing for {norm_path}: {e}")
 
             def nsis_thread():
                 try:
@@ -12508,11 +12600,11 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
-        # Real-time malware scan thread (CPU intensive)
         def realtime_malware_thread():
             try:
                 is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time(
-                    norm_path, signature_check, file_name, die_output, pe_file=pe_file)
+                    norm_path, signature_check, file_name, die_output, pe_file=pe_file
+                )
 
                 if is_malicious:
                     virus_name = ''.join(virus_names)
@@ -12526,27 +12618,41 @@ def scan_and_warn(file_path,
                 if already_vmprotect_unpacked:
                     return
 
-                # Now unpack here if VMProtect was detected
+                # ========= VMProtect specialized unpacking =========
                 if is_vmprotect:
                     try:
                         logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
 
+                        # Read original file
                         with open(norm_path, 'rb') as f:
                             packed_data = f.read()
 
+                        # Attempt unpack
                         unpacked_data = unpack_pe(packed_data)
 
                         if unpacked_data:
                             base_name, ext = os.path.splitext(os.path.basename(norm_path))
-                            unpacked_path = os.path.join(tempfile.gettempdir(), f"{base_name}_vmprotect_unpacked{ext}")
+                            unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
+                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)  # Use dedicated VMProtect dir
 
+
+                            # Write unpacked file
                             with open(unpacked_path, 'wb') as f:
                                 f.write(unpacked_data)
 
-                            logger.info(f"Unpacked VMProtect file saved to: {unpacked_path}")
-                            threading.Thread(target=scan_and_warn, args=(unpacked_path,)).start()
+                            logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
+
+                            # Launch scan/warning thread
+                            threading.Thread(
+                                target=scan_and_warn,
+                                args=(unpacked_path,),
+                                kwargs={"flag_vmprotect": True}
+                            ).start()
+
+                            already_vmprotect_unpacked = True
                         else:
                             logger.warning(f"Unpacking VMProtect failed for {norm_path}")
+
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
 
