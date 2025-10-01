@@ -223,10 +223,6 @@ import struct
 logger.debug(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import lzma
-logger.debug(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import importlib
 logger.debug(f"importlib module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -383,8 +379,8 @@ from pylingual.main import main as pylingual_main
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from oneshot.shot import decrypt_process, general_aes_ctr_decrypt, RuntimeInfo, detect_process
-logger.debug(f"oneshot.shot.decrypt_process, general_aes_ctr_decrypt, RuntimeInfo, detect_process module loaded in {time.time() - start_time:.6f} seconds")
+from oneshot.shot import decrypt_process, RuntimeInfo, detect_process
+logger.debug(f"oneshot.shot.decrypt_process, RuntimeInfo, detect_process module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
@@ -762,6 +758,7 @@ homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
+pyarmor7_bypass_sandboxie_dir = get_sandbox_path(pyarmor7_extracted_dir)
 version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
 sandboxie_box = "DefaultBox"
 
@@ -9365,7 +9362,6 @@ def process_pyarmor7_in_sandbox(
     Returns list of absolute host paths to extracted files (copied into `pyarmor7_extracted_dir`).
     """
     unpacked_files: List[str] = []
-    python_executable = python_executable or python_path
     # Require global locations (adjust if you prefer passing as params)
     try:
         sandboxie_exe = str(sandboxie_path)
@@ -9374,7 +9370,7 @@ def process_pyarmor7_in_sandbox(
         return unpacked_files
 
     try:
-        sandbox_inner_dump_dir = Path(pyarmor_bypass_sandboxie_dir)  # inside-sandbox path where helper writes dump/
+        sandbox_inner_dump_dir = Path(pyarmor7_bypass_sandboxie_dir)  # inside-sandbox path where helper writes dump/
     except NameError:
         logger.error("process_pyarmor7_in_sandbox: pyarmor_bypass_sandboxie_dir global not set")
         return unpacked_files
@@ -9446,7 +9442,6 @@ def process_pyarmor7_in_sandbox(
                 # enumerate files
                 all_files = list(sandbox_dump_dir.rglob("*"))
                 # compute sizes
-                changed = False
                 for p in all_files:
                     if p.is_file():
                         try:
@@ -9457,7 +9452,6 @@ def process_pyarmor7_in_sandbox(
                         if prev is None or prev != size:
                             last_sizes[str(p)] = size
                             stable_counts[str(p)] = 0
-                            changed = True
                         else:
                             stable_counts[str(p)] = stable_counts.get(str(p), 0) + 1
                 # If there are no files yet, wait
@@ -9836,17 +9830,63 @@ def is_pyarmor_file(file_path: str, read_bytes: int = 64 * 1024) -> Tuple[bool, 
 
     return is_pyarmor_content(head)
 
+def process_sourcedefender_payload(output_file):
+    """
+    Process SourceDefender protected files by attempting to decrypt them.
+    """
+    try:
+        logger.info(f"[*] Processing SourceDefender file: {output_file}")
+
+        # Get file info (we already know it's SourceDefender, so just get details)
+        file_info = get_sourcedefender_info(output_file)
+        logger.info(f"[+] SourceDefender file info - Size: {file_info['file_size']} bytes, Lines: {file_info['line_count']}")
+
+        # Attempt to unprotect the file
+        result = unprotect_sourcedefender_file(output_file)
+
+        if result['success']:
+            logger.info(f"[+] Successfully decrypted SourceDefender {result['version']} protected file.")
+            logger.info(f"[+] Decrypted file saved as: {result['output_file']}")
+
+            # Add to deobfuscated paths list for further processing
+            deobfuscated_saved_paths.append(result['output_file'])
+
+            # Log SourceDefender decryption success but don't flag as suspicious
+            logger.info(f"[+] SourceDefender {result['version']} file successfully decrypted and available for analysis.")
+
+            # Re-process the decrypted file through the main pipeline
+            logger.info("[*] Re-analyzing decrypted SourceDefender content...")
+            return output_file
+
+        else:
+            logger.error(f"[!] SourceDefender decryption failed: {result['error']}")
+            return None
+    except Exception as ex:
+        logger.error(f"[!] Error processing SourceDefender payload: {ex}")
+        return None
+
 def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
-    Detects whether the payload is Exela v2, SourceDefender, or generic.
+    Detects whether the payload is pyarmor7, Exela v2, SourceDefender, or generic.
     """
     try:
         # Check for PyArmor v7 protected files
         is_pa, pa_reason = is_pyarmor_file(output_file)
         if is_pa:
             logger.info(f"[*] Detected PyArmor-protected file ({pa_reason}). Treating as PyArmor v7.")
-            process_pyarmor7_payload(output_file)
+
+            # Run sandbox unpacking and get list of unpacked files
+            unpacked_files = process_pyarmor7_in_sandbox(output_file)
+
+            if unpacked_files:
+                for extracted_file in unpacked_files:
+                    # Schedule scanning and further decompiled code processing
+                    threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                    threading.Thread(target=process_decompiled_code, args=(extracted_file,)).start()
+            else:
+                logger.warning(f"[*] No files extracted from PyArmor v7 file: {output_file}")
+
             return
 
         # First check if it's a SourceDefender protected file
@@ -9880,40 +9920,6 @@ def process_decompiled_code(output_file):
 
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
-
-def process_sourcedefender_payload(output_file):
-    """
-    Process SourceDefender protected files by attempting to decrypt them.
-    """
-    try:
-        logger.info(f"[*] Processing SourceDefender file: {output_file}")
-
-        # Get file info (we already know it's SourceDefender, so just get details)
-        file_info = get_sourcedefender_info(output_file)
-        logger.info(f"[+] SourceDefender file info - Size: {file_info['file_size']} bytes, Lines: {file_info['line_count']}")
-
-        # Attempt to unprotect the file
-        result = unprotect_sourcedefender_file(output_file)
-
-        if result['success']:
-            logger.info(f"[+] Successfully decrypted SourceDefender {result['version']} protected file.")
-            logger.info(f"[+] Decrypted file saved as: {result['output_file']}")
-
-            # Add to deobfuscated paths list for further processing
-            deobfuscated_saved_paths.append(result['output_file'])
-
-            # Log SourceDefender decryption success but don't flag as suspicious
-            logger.info(f"[+] SourceDefender {result['version']} file successfully decrypted and available for analysis.")
-
-            # Re-process the decrypted file through the main pipeline
-            logger.info("[*] Re-analyzing decrypted SourceDefender content...")
-            process_decompiled_code(result['output_file'])
-
-        else:
-            logger.error(f"[!] SourceDefender decryption failed: {result['error']}")
-
-    except Exception as ex:
-        logger.error(f"[!] Error processing SourceDefender payload: {ex}")
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -11847,7 +11853,7 @@ def scan_and_warn(file_path,
         die_output = ""
         plain_text_flag = False
 
-        already_vmprotect_unpacked = False
+        already_vmprotect_unpacked = flag_vmprotect
 
         # Convert WindowsPath to string if necessary
         if isinstance(file_path, WindowsPath):
@@ -12040,22 +12046,16 @@ def scan_and_warn(file_path,
 
         # ========== SPECIALIZED ANALYSIS THREADS ==========
         def vmprotect_detection():
-            """
-            Detects VMProtect in a PE file using is_vm_protect_from_output.
-            Attempts to unpack if detected and logs PE32/PE64 type.
-            """
             try:
-                # Skip if flag_vmprotect is already set
                 if flag_vmprotect:
                     return
 
-                if is_vm_protect_from_output(die_output):  # Use the VMProtect checker
-                    # Attempt to unpack
+                if is_vm_protect_from_output(die_output):
                     try:
                         with open(file_path, 'rb') as f:
                             packed_data = f.read()
 
-                        unpacked_data = unpack_pe(packed_data)  # unpacking function
+                        unpacked_data = unpack_pe(packed_data)
                         if unpacked_data:
                             base_name, ext = os.path.splitext(os.path.basename(file_path))
                             unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
@@ -12065,17 +12065,17 @@ def scan_and_warn(file_path,
                                 f.write(unpacked_data)
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-
-                            # Optional: further scanning/warning in a thread
-                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), kwargs={"flag_vmprotect": True}).start()
-
                             already_vmprotect_unpacked = True
+
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), kwargs={"flag_vmprotect": True}).start()
 
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file '{file_path}': {e}")
 
             except Exception as e:
                 logger.error(f"Error in VMProtect detection for '{file_path}': {e}")
+
+            return already_vmprotect_unpacked
 
         def themida_detection():
             try:
@@ -12276,9 +12276,8 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
-        # Start all specialized analysis threads
+        # Start all specialized analysis threads, including VMProtect detection
         analysis_threads = [
-            threading.Thread(target=vmprotect_detection),
             threading.Thread(target=themida_detection),
             threading.Thread(target=autoit_analysis),
             threading.Thread(target=asar_analysis),
@@ -12288,9 +12287,15 @@ def scan_and_warn(file_path,
             threading.Thread(target=advanced_installer_analysis),
             threading.Thread(target=apk_analysis),
             threading.Thread(target=dotnet_analysis),
-            threading.Thread(target=cx_freeze_thread)
+            threading.Thread(target=cx_freeze_thread),
+            threading.Thread(
+                target=lambda: globals().update({
+                    "already_vmprotect_unpacked": vmprotect_detection()
+                })
+            )
         ]
 
+        # Start all threads
         for thread in analysis_threads:
             thread.start()
 
@@ -12870,8 +12875,6 @@ def scan_and_warn(file_path,
                                 args=(unpacked_path,),
                                 kwargs={"flag_vmprotect": True}
                             ).start()
-
-                            already_vmprotect_unpacked = True
                         else:
                             logger.warning(f"Unpacking VMProtect failed for {norm_path}")
 
@@ -14053,8 +14056,12 @@ def find_child_windows(parent_hwnd):
 
    return child_windows
 
-def is_window_valid(hwnd):
-    return bool(user32.IsWindow(hwnd))
+# A tiny helper to check a HWND (pure ctypes)
+def is_window_valid(hwnd: int) -> bool:
+    try:
+        return bool(user32.IsWindow(hwnd))
+    except Exception:
+        return False
 
 # comtypes imports (local import protected inside functions where appropriate)
 # module-level lock to avoid concurrent type-generation races
@@ -14103,12 +14110,6 @@ def _load_uia_types(retries: int = 3, retry_delay: float = 0.5):
     Load/generate comtypes.gen.UIAutomationClient in a robust, serialized way.
     Returns the imported module (comtypes.gen.UIAutomationClient) or None on failure.
     """
-    try:
-        import comtypes
-    except ImportError:
-        logger.error("comtypes not installed.")
-        return None
-
     # Fast path — already generated
     try:
         import comtypes.gen.UIAutomationClient as uiac
@@ -14414,13 +14415,6 @@ def _extract_uia_text(hwnd: int, uia, UIA) -> List[str]:
     except Exception as e:
         logger.error("_extract_uia_text failed: %s", e, exc_info=True)
         return []
-
-# A tiny helper to check a HWND (pure ctypes)
-def is_window_valid(hwnd: int) -> bool:
-    try:
-        return bool(ctypes.windll.user32.IsWindow(hwnd))
-    except Exception:
-        return False
 
 # Decorator to ensure COM is initialized on the thread
 def com_init(func: Callable[..., Any]) -> Callable[..., Any]:
