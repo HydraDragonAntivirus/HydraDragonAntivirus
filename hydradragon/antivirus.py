@@ -379,8 +379,16 @@ from pylingual.main import main as pylingual_main
 logger.debug(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from oneshot.shot import decrypt_process, RuntimeInfo, detect_process
-logger.debug(f"oneshot.shot.decrypt_process, RuntimeInfo, detect_process module loaded in {time.time() - start_time:.6f} seconds")
+from oneshot.detect import detect_process
+logger.debug(f"oneshot.detect.detect_process module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from oneshot.runtime import RuntimeInfo
+logger.debug(f"oneshot.runtime.RuntimeInfo module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from oneshot.shot import decrypt_process
+logger.debug(f"oneshot.shot.decrypt_process module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
