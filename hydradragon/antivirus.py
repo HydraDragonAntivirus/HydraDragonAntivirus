@@ -9954,9 +9954,14 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths, output_dir
 
-def extract_and_return_pyarmor(file_path: str, runtime_path: str = None) -> Tuple[List[str], str]:
+def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) -> Tuple[List[str], str]:
     """
-    Extract PyArmor-protected .pyc files and return decrypted outputs.
+    Extract PyArmor-protected .pyc files and return decrypted outputs
+    using oneshot.shot.run_oneshot_python.
+
+    Args:
+        file_path: path to the .pyc file
+        runtime_paths: list of runtime paths (e.g. pytransform.dll etc.)
 
     Returns:
         pyarmor_files: list of paths to all extracted files
@@ -9965,32 +9970,19 @@ def extract_and_return_pyarmor(file_path: str, runtime_path: str = None) -> Tupl
     pyarmor_files: List[str] = []
     main_decrypted_output: str = None
 
-    # Prepare runtimes
-    if runtime_path:
-        runtime = RuntimeInfo(runtime_path)
-        runtimes = {runtime.serial_number: runtime}
-    else:
-        runtimes = {}
+    # Ensure output directory exists
+    os.makedirs(pyarmor8_and_9_extracted_dir, exist_ok=True)
 
-    # Detect armored sequences in the file
-    sequences = detect_process(file_path, os.path.basename(file_path))
-    if not sequences:
-        return pyarmor_files, main_decrypted_output
+    # Default runtimes list
+    if runtime_paths is None:
+        runtime_paths = []
 
-    class Args:
-        """Minimal args object for decrypt_process"""
-        output_dir = pyarmor8_and_9_extracted_dir
-        export_raw_data = False
-        show_all = False
-        show_err_opcode = False
-        show_warn_stack = False
-        concurrent = 1
-        executable = None
-
-    args = Args()
-
-    # Run decryption
-    decrypt_process(runtimes, sequences, args)
+    # Run the oneshot pure-Python decryption
+    run_oneshot_python(
+        directory=os.path.dirname(file_path),
+        runtime_paths=runtime_paths,
+        output_dir=pyarmor8_and_9_extracted_dir
+    )
 
     # Collect all decrypted files from pyarmor8_and_9_extracted_dir
     for root, _, files in os.walk(pyarmor8_and_9_extracted_dir):
