@@ -589,6 +589,7 @@ valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
 Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(script_dir, "OpenHydraDragonAntiRootkit.py")
+bypass_pyarmor7_path = os.path.join(script_dir, "bypass_pyarmor7.py")
 
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
@@ -762,6 +763,7 @@ HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJac
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
 version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
+sandboxie_box = "DefaultBox"
 
 # --- Global tracking sets ---
 seen_files = set()  # Tracks already-scanned (path, md5) tuples
@@ -9350,6 +9352,164 @@ def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
         # Optional: write cleaned original as fallback
         output_path.write_text(cleaned, encoding="utf-8")
 
+def process_pyarmor7_in_sandbox(
+    target_path: str,
+    timeout: int = 600
+) -> List[str]:
+    """
+    Run bypass_pyarmor7.py inside Sandboxie and collect unpacked files.
+
+    - target_path: path to the protected .py / .pyc to unpack (host path).
+    - timeout: total seconds to wait for dump to appear and stabilize.
+
+    Returns list of absolute host paths to extracted files (copied into `pyarmor7_extracted_dir`).
+    """
+    unpacked_files: List[str] = []
+    python_executable = python_executable or python_path
+    # Require global locations (adjust if you prefer passing as params)
+    try:
+        sandboxie_exe = str(sandboxie_path)
+    except NameError:
+        logger.error("process_pyarmor7_in_sandbox: sandboxie_path global not set")
+        return unpacked_files
+
+    try:
+        sandbox_inner_dump_dir = Path(pyarmor_bypass_sandboxie_dir)  # inside-sandbox path where helper writes dump/
+    except NameError:
+        logger.error("process_pyarmor7_in_sandbox: pyarmor_bypass_sandboxie_dir global not set")
+        return unpacked_files
+
+    try:
+        extracted_base = Path(pyarmor8_and_9_extracted_dir)
+    except NameError:
+        # fallback: create `pyarmor8_and_9_extracted` next to script
+        extracted_base = Path(pyarmor7_extracted_dir)
+
+    # Validate inputs
+    if not os.path.exists(target_path):
+        logger.error(f"process_pyarmor7_in_sandbox: target does not exist: {target_path}")
+        return unpacked_files
+
+    if not os.path.isfile(bypass_pyarmor7_path):
+        logger.error(f"process_pyarmor7_in_sandbox: bypass helper not found: {bypass_pyarmor7_path}")
+        return unpacked_files
+
+    # Build sandbox command: Sandboxie -> python -> helper target
+    # We launch helper with the filename argument; helper will create dump/ in its CWD (inside sandbox)
+    target_name = os.path.basename(target_path)
+    bypass_helper = str(bypass_pyarmor7_path)
+
+    # Prepare shell command similar to your sandbox_deobfuscate_file
+    # Using quoted arguments to be safe on Windows
+    shell_cmd = (
+        f'"{sandboxie_exe}" /box:{sandboxie_box} /elevate '
+        f'"{python_path}" "{bypass_helper}" "{target_name}"'
+    )
+
+    logger.info(f"[SANDBOX] Running PyArmor7 bypass helper in sandbox: {shell_cmd!r}")
+    logger.info(f"[SANDBOX] Expect dump at sandbox inner location: {sandbox_inner_dump_dir}/dump")
+
+    # Run with working dir = directory containing the bypass helper (so helper finds the target name in that CWD)
+    helper_cwd = os.path.dirname(bypass_pyarmor7_path)
+
+    try:
+        subprocess.run(
+            shell_cmd,
+            shell=True,
+            check=True,
+            cwd=helper_cwd,
+            timeout=timeout if timeout < 120 else 120,  # let run finish quickly; we'll rely on stability loop for full timeout
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        )
+    except subprocess.CalledProcessError as ex:
+        logger.error(f"[SANDBOX] Helper returned non-zero: {ex}")
+        # continue to check for any produced dumps
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[SANDBOX] Helper process timed out (short-run). Proceeding to wait for dump (up to {timeout}s).")
+    except Exception as e:
+        logger.error(f"[SANDBOX] Failed to launch helper in sandbox: {e}")
+        return unpacked_files
+
+    # Wait for dump directory to appear and stabilize (files stop changing size)
+    sandbox_dump_dir = sandbox_inner_dump_dir / "dump"
+    deadline = time.monotonic() + timeout
+    stable_threshold = 3  # number of checks unchanged before we consider stable
+    check_interval = 1.0
+    last_sizes = {}
+    stable_counts = {}
+
+    logger.info("[SANDBOX] Waiting for dump folder to appear inside sandbox...")
+
+    while time.monotonic() < deadline:
+        try:
+            if sandbox_dump_dir.exists() and sandbox_dump_dir.is_dir():
+                # enumerate files
+                all_files = list(sandbox_dump_dir.rglob("*"))
+                # compute sizes
+                changed = False
+                for p in all_files:
+                    if p.is_file():
+                        try:
+                            size = p.stat().st_size
+                        except (FileNotFoundError, OSError):
+                            size = -1
+                        prev = last_sizes.get(str(p))
+                        if prev is None or prev != size:
+                            last_sizes[str(p)] = size
+                            stable_counts[str(p)] = 0
+                            changed = True
+                        else:
+                            stable_counts[str(p)] = stable_counts.get(str(p), 0) + 1
+                # If there are no files yet, wait
+                if not all_files:
+                    time.sleep(check_interval)
+                    continue
+
+                # If all files have reached stable threshold, break
+                if all(stable_counts.get(str(p), 0) >= stable_threshold for p in all_files if p.is_file()):
+                    logger.info("[SANDBOX] Dump directory appears stable, collecting files.")
+                    break
+
+            time.sleep(check_interval)
+        except Exception as e:
+            logger.debug(f"[SANDBOX] Wait loop exception: {e}")
+            time.sleep(check_interval)
+    else:
+        logger.error("[SANDBOX] Timed out waiting for sandbox dump to stabilize.")
+        return unpacked_files
+
+    # Copy files from sandbox dump to persistent extracted folder on host
+    try:
+        extracted_base.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Could not create extracted dir {extracted_base}: {e}")
+        return unpacked_files
+
+    # sandbox_dump_dir may contain subdirectories — mirror the structure
+    try:
+        for root, _, files in os.walk(sandbox_dump_dir):
+            rel_root = os.path.relpath(root, sandbox_dump_dir)
+            dest_dir = extracted_base if rel_root in (".", "") else extracted_base / rel_root
+            os.makedirs(dest_dir, exist_ok=True)
+
+            for fname in files:
+                src = Path(root) / fname
+                dest = Path(dest_dir) / fname
+                try:
+                    # read from sandbox path; in some Sandboxie setups, sandbox-inner paths may be accessible via host FS mapping
+                    # If not accessible, user must ensure sandbox paths are visible to the host (Sandboxie does this for /box:DefaultBox).
+                    shutil.copy2(src, dest)
+                    unpacked_files.append(str(dest.resolve()))
+                    logger.info(f"[SANDBOX] Copied unpacked file: {dest}")
+                except Exception as e:
+                    logger.error(f"[SANDBOX] Failed to copy {src} -> {dest}: {e}")
+    except Exception as e:
+        logger.error(f"[SANDBOX] Error during copy from sandbox dump: {e}")
+        return unpacked_files
+
+    logger.info(f"[SANDBOX] Completed PyArmor7 unpack for {target_path}; {len(unpacked_files)} files extracted.")
+    return unpacked_files
+
 def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     Runs the Python deobfuscator inside Sandboxie (DefaultBox),
@@ -9367,7 +9527,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     script_path = str(transformed_path)
 
     shell_cmd = (
-        f'"{sandboxie_exe}" /box:DefaultBox /elevate '
+        f'"{sandboxie_exe}" /box:{sandboxie_box} /elevate '
         f'"{python_exe}" "{script_path}"'
     )
 
@@ -9618,12 +9778,77 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
     logger.info("No more clean code found; transformations exhausted.")
     return None
 
+def is_pyarmor_content(data: bytes) -> Tuple[bool, str]:
+    """
+    Inspect raw bytes and decide whether they look like a PyArmor-protected object.
+
+    Returns:
+        (is_pyarmor, reason)
+        - is_pyarmor: True if it looks like PyArmor / PY00
+        - reason: brief text why it matched (or empty if no match)
+    """
+    if not data or len(data) == 0:
+        return False, "empty"
+
+    # Quick `PY00` header check (common for embedded PYZ-style objects / pyc payloads)
+    try:
+        if data.startswith(b'PY00'):
+            return True, 'PY00 header'
+    except Exception:
+        pass
+
+    # Primary PyArmor marker used by detect_process in your code
+    if b'__pyarmor__' in data:
+        return True, '__pyarmor__ marker found'
+
+    # Some PyArmor versions embed 'PYARMOR' or 'pyarmor' strings in the header/metadata
+    # (case-insensitive check)
+    if b'PYARMOR' in data[:4096] or b'pyarmor' in data[:4096]:
+        return True, 'PYARMOR marker in header'
+
+    # Last resort: look for the PY00 magic somewhere near the beginning (not only at 0)
+    # (helps for files with a short wrapper before the PY00)
+    if data[:65536].find(b'PY00') != -1:
+        return True, 'PY00 found in first 64KB'
+
+    return False, ''
+
+
+def is_pyarmor_file(file_path: str, read_bytes: int = 64 * 1024) -> Tuple[bool, str]:
+    """
+    Check whether a file is PyArmor-protected or contains a PY00 payload.
+
+    Args:
+        file_path: path to the file to check
+        read_bytes: how many bytes to read from the start (default 64 KiB)
+
+    Returns:
+        (is_pyarmor, reason) same as is_pyarmor_content
+    """
+    if not os.path.isfile(file_path):
+        return False, "not a file"
+
+    try:
+        with open(file_path, 'rb') as f:
+            head = f.read(read_bytes)
+    except Exception as e:
+        return False, f"read error: {e}"
+
+    return is_pyarmor_content(head)
+
 def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
     Detects whether the payload is Exela v2, SourceDefender, or generic.
     """
     try:
+        # Check for PyArmor v7 protected files
+        is_pa, pa_reason = is_pyarmor_file(output_file)
+        if is_pa:
+            logger.info(f"[*] Detected PyArmor-protected file ({pa_reason}). Treating as PyArmor v7.")
+            process_pyarmor7_payload(output_file)
+            return
+
         # First check if it's a SourceDefender protected file
         if is_sourcedefender_file(output_file):
             logger.info("[*] Detected SourceDefender protected file.")
@@ -11552,7 +11777,7 @@ def run_themida_unlicense(file_path, x64=False):
     HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
     cmd = [
         HydraDragonAntivirus_sandboxie_path,
-        "/box:DefaultBox",
+        f"/box:{sandboxie_box}",
         "/elevate",
         unpacker,
         file_path
@@ -14976,7 +15201,7 @@ def run_sandboxie_plugin_script():
     # build the inner python invocation
     python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
     # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate "{python_path}" {python_entry}'
+    cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate "{python_path}" {python_entry}'
     try:
         logger.info(f"Running python script via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
@@ -14989,7 +15214,7 @@ def run_sandboxie_plugin():
     # build the inner rundll32 invocation
     dll_entry = f'"{HydraDragonAV_sandboxie_DLL_path}",Run'
     # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate rundll32.exe {dll_entry}'
+    cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate rundll32.exe {dll_entry}'
     try:
         logger.info(f"Running DLL via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
@@ -15000,7 +15225,7 @@ def run_sandboxie_plugin():
 
 def run_sandboxie(file_path):
     try:
-        subprocess.run([sandboxie_path, '/box:DefaultBox', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
+        subprocess.run([sandboxie_path, f'/box:{sandboxie_box}', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
@@ -15020,7 +15245,7 @@ def run_de4dot_in_sandbox(file_path):
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
         sandboxie_path,
-        "/box:DefaultBox",
+        f"/box:{sandboxie_box}",
         "/elevate",
         de4dot_cex_x64_path,
         "-r",
@@ -15064,7 +15289,7 @@ def run_and_copy_log(label="orig"):
     force_remove_log()
 
     # Launch the tool
-    cmd = [sandboxie_path, '/box:DefaultBox', '/elevate', HiJackThis_exe]
+    cmd = [sandboxie_path, f'/box:{sandboxie_box}', '/elevate', HiJackThis_exe]
     subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
     logger.debug("HiJackThis launched.")
 
@@ -15570,7 +15795,7 @@ class Worker(QThread):
             self.output_signal.emit("[*] Starting full sandbox cleanup using Start.exe termination commands...")
             cmds = [
                 [sandboxie_path, "/terminate"],
-                [sandboxie_path, "/box:DefaultBox", "/terminate"],
+                [sandboxie_path, f"/box:{sandboxie_box}", "/terminate"],
                 [sandboxie_path, "/terminate_all"],
             ]
             for cmd in cmds:
