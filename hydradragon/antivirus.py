@@ -626,7 +626,7 @@ scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
 APP_NAME = "HydraDragon Antivirus"
-APP_VERSION = "v0.1 (Beta 5.1)"
+APP_VERSION = "v0.1 (Beta 6)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
 
 # Resolve system drive path
