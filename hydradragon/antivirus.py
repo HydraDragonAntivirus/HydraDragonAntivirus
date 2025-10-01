@@ -473,6 +473,7 @@ icon_path = os.path.join(assets_dir, "HydraDragonAVLogo.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
 pyinstaller_extracted_dir = os.path.join(script_dir, "pyinstaller_extracted")
 pyarmor8_and_9_extracted_dir = os.path.join(script_dir, "pyarmor8_and_9_extracted")
+pyarmor7_extracted_dir = os.path.join(script_dir, "pyarmor7_extracted")
 cx_freeze_extracted_dir = os.path.join(script_dir, "cx_freeze_extracted")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
@@ -918,7 +919,7 @@ COMMON_DIRECTORIES = [
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
-    commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir,
+    commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, pyarmor7_extracted_dir,
     seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
     advanced_installer_extracted_dir, processed_dir, python_source_code_dir,
     pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
@@ -979,6 +980,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(un_confuser_ex_extracted_dir), ".NET file deobfuscated with UnConfuserEx."),
     (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
     (lambda fp: fp.startswith(pyarmor8_and_9_extracted_dir), "PyArmor 8 and 9 extracted."),
+    (lambda fp: fp.startswith(pyarmor7_extracted_dir), "PyArmor 7 extracted."),
     (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
     (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
     (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
@@ -9735,11 +9737,6 @@ def extract_and_return_pyarmor(file_path: str, runtime_path: str = None) -> Tupl
     sequences = detect_process(file_path, os.path.basename(file_path))
     if not sequences:
         return pyarmor_files, main_decrypted_output
-
-    # Use specific directory for decrypted outputs
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    pyarmor8_and_9_extracted_dir = os.path.join(script_dir, "pyarmor8_and_9_extracted")
-    os.makedirs(pyarmor8_and_9_extracted_dir, exist_ok=True)
 
     class Args:
         """Minimal args object for decrypt_process"""
