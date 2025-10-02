@@ -3827,6 +3827,7 @@ def ensure_http_prefix(url):
 saved_paths = []
 saved_pyc_paths = []
 deobfuscated_saved_paths = []
+deobfuscated_paths_lock = threading.Lock()
 path_lists = [saved_paths, deobfuscated_saved_paths, saved_pyc_paths]
 
 def fetch_html(url, return_file_path=False):
@@ -8854,6 +8855,14 @@ def process_exela_v2_payload(output_file):
         source_code_file = 'exela_stealer_last_stage.py'
         source_code_path = save_to_file(source_code_file, final_decrypted_data)
 
+        # If final source saved, record it in global deobfuscated_saved_paths
+        if source_code_path:
+            with deobfuscated_paths_lock:
+                deobfuscated_saved_paths.append(source_code_path)
+            logger.info(f"Saved final Exela v2 source to {source_code_path} and appended to deobfuscated_saved_paths.")
+        else:
+            logger.error("Failed to save the final decrypted source code.")
+
         # Search for webhook URLs
         webhooks_discord = re.findall(discord_webhook_pattern, final_decrypted_data)
         webhooks_canary = re.findall(discord_canary_webhook_pattern, final_decrypted_data)
@@ -9840,34 +9849,50 @@ def is_pyarmor_file(file_path: str, read_bytes: int = 64 * 1024) -> Tuple[bool, 
 def process_sourcedefender_payload(output_file):
     """
     Process SourceDefender protected files by attempting to decrypt them.
+    Thread-safe appending to deobfuscated_saved_paths is used.
+    Returns the path to the decrypted file on success, otherwise None.
     """
     try:
         logger.info(f"[*] Processing SourceDefender file: {output_file}")
 
         # Get file info (we already know it's SourceDefender, so just get details)
         file_info = get_sourcedefender_info(output_file)
-        logger.info(f"[+] SourceDefender file info - Size: {file_info['file_size']} bytes, Lines: {file_info['line_count']}")
+        logger.info(f"[+] SourceDefender file info - Size: {file_info.get('file_size')} bytes, Lines: {file_info.get('line_count')}")
 
         # Attempt to unprotect the file
         result = unprotect_sourcedefender_file(output_file)
 
-        if result['success']:
-            logger.info(f"[+] Successfully decrypted SourceDefender {result['version']} protected file.")
-            logger.info(f"[+] Decrypted file saved as: {result['output_file']}")
+        if result.get('success'):
+            output_saved = result.get('output_file')
+            version = result.get('version', 'unknown')
 
-            # Add to deobfuscated paths list for further processing
-            deobfuscated_saved_paths.append(result['output_file'])
+            logger.info(f"[+] Successfully decrypted SourceDefender {version} protected file.")
+            logger.info(f"[+] Decrypted file saved as: {output_saved}")
+
+            # Thread-safe append to global list
+            try:
+                with deobfuscated_paths_lock:
+                    deobfuscated_saved_paths.append(output_saved)
+                logger.info(f"[+] Appended decrypted SourceDefender file to deobfuscated_saved_paths: {output_saved}")
+            except NameError:
+                # If the lock/list are not defined, fall back to non-locked append but log a warning
+                logger.warning("[!] deobfuscated_paths_lock or deobfuscated_saved_paths not found; appending without lock.")
+                try:
+                    deobfuscated_saved_paths.append(output_saved)
+                except Exception as ex:
+                    logger.error(f"[!] Failed to append decrypted path to deobfuscated_saved_paths: {ex}")
 
             # Log SourceDefender decryption success but don't flag as suspicious
-            logger.info(f"[+] SourceDefender {result['version']} file successfully decrypted and available for analysis.")
+            logger.info(f"[+] SourceDefender {version} file successfully decrypted and available for analysis.")
 
-            # Re-process the decrypted file through the main pipeline
+            # Re-process the decrypted file through the main pipeline if desired
             logger.info("[*] Re-analyzing decrypted SourceDefender content...")
-            return output_file
+            return output_saved
 
         else:
-            logger.error(f"[!] SourceDefender decryption failed: {result['error']}")
+            logger.error(f"[!] SourceDefender decryption failed: {result.get('error')}")
             return None
+
     except Exception as ex:
         logger.error(f"[!] Error processing SourceDefender payload: {ex}")
         return None
@@ -9888,6 +9913,11 @@ def process_decompiled_code(output_file):
 
             if unpacked_files:
                 for extracted_file in unpacked_files:
+                    # Append extracted file to global deobfuscated_saved_paths (thread-safe)
+                    with deobfuscated_paths_lock:
+                        deobfuscated_saved_paths.append(extracted_file)
+                    logger.info(f"Appended unpacked file to deobfuscated_saved_paths: {extracted_file}")
+
                     # Schedule scanning and further decompiled code processing
                     threading.Thread(target=process_decompiled_code, args=(extracted_file,)).start()
             else:
@@ -9916,7 +9946,10 @@ def process_decompiled_code(output_file):
             logger.info("[*] Detected non-Exela payload. Using generic processing.")
             deobfuscated = deobfuscate_until_clean(output_file)
             if deobfuscated:
-                deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
+                with deobfuscated_paths_lock:
+                    deobfuscated_saved_paths.append(deobfuscated)
+                logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
+
                 notify_user_for_malicious_source_code(
                     deobfuscated,
                     "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen"
