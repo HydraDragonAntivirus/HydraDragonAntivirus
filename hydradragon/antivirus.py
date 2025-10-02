@@ -1584,6 +1584,13 @@ def is_autoit_file_from_output(die_output):
         return True
     return False
 
+def is_compound_file_from_output(die_output):
+    """Checks if DIE output indicates a Microsoft Compound file."""
+    if die_output and ("Archive: Microsoft Compound" in die_output):
+        logger.info("DIE output indicates a Microsoft Compound file.")
+        return True
+    return False
+
 def is_jsc_from_output(die_output: str) -> Optional[str]:
     """
     Detect JavaScript Compiled/Bytenode (.JSC) files from DIE output.
@@ -6621,9 +6628,9 @@ def ml_fastpath_should_continue(
 
         # spawn notification but continue
         if virus_name.startswith("PUA."):
-            threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, "ML"), daemon=True).start()
+            threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, "ML"),).start()
         else:
-            threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"), daemon=True).start()
+            threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"),).start()
 
         return True
 
@@ -6800,7 +6807,7 @@ def scan_file_real_time(
 
         threads = []
         for worker in workers:
-            t = threading.Thread(target=worker, daemon=True)
+            t = threading.Thread(target=worker,)
             t.start()
             threads.append(t)
 
@@ -11815,6 +11822,17 @@ def run_themida_unlicense(file_path, x64=False):
         logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
         return None
 
+
+def _scan_file(file_path):
+    try:
+        scan_code_for_links(decompiled_code=file_path, file_path=file_path)
+    except Exception as e:
+        logger.error(f"Failed to scan links in {file_path}: {e}")
+    try:
+        scan_and_warn(file_path=file_path)
+    except Exception as e:
+        logger.error(f"Failed to scan_and_warn in {file_path}: {e}")
+
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -12633,7 +12651,16 @@ def scan_and_warn(file_path,
         def java_class_thread():
             try:
                 if is_java_class_from_output(die_output):
-                    threading.Thread(target=run_fernflower_decompiler, args=(norm_path,)).start()
+                    decompiled_file = run_fernflower_decompiler(norm_path)
+                    if decompiled_file:
+                        # Run both scans in a new thread
+                        threading.Thread(
+                            target=lambda: (
+                                _scan_file(file_path=decompiled_file)
+                            ),
+                        ).start()
+                    else:
+                        logger.info("No file returned from FernFlower decompiler.")
             except Exception as e:
                 logger.error(f"Error in Java class analysis for {norm_path}: {e}")
 
