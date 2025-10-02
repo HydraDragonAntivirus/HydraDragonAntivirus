@@ -11,13 +11,12 @@ os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
 from hydra_logger import (
-    logger, 
-    setup_gui_mode, 
+    logger,
+    setup_gui_mode,
     get_alert_counts,
-    application_log_file, 
-    log_directory, 
-    script_dir, 
-    logger, 
+    application_log_file,
+    log_directory,
+    script_dir,
     reinitialize_hydra_logger
 )
 
@@ -54,7 +53,7 @@ total_start_time = time.time()
 
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
-                               QPushButton, QLabel, QTextEdit,
+                               QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox, QFileDialog)
 logger.debug(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
@@ -1609,13 +1608,6 @@ def is_microsoft_compound_file_from_output(die_output):
         logger.info("DIE output indicates a Microsoft Compound file.")
         return True
     return False
-
-def _thread_wrapper(func, *args, **kwargs):
-    """Run func(*args, **kwargs) and log any exceptions (safe thread target)."""
-    try:
-        func(*args, **kwargs)
-    except Exception as e:
-        logger.error(f"Error in threaded task {func.__name__}: {e}")
 
 def is_jsc_from_output(die_output: str) -> Optional[str]:
     """
@@ -11888,23 +11880,23 @@ class VBADeobfuscator:
     """
     Advanced VBA deobfuscator for common obfuscation techniques.
     """
-    
+
     def __init__(self):
         self.decoded_strings = []
-        
+
     def deobfuscate(self, vba_code: str) -> Tuple[str, List[Dict]]:
         """
         Deobfuscate VBA code using multiple techniques.
-        
+
         Args:
             vba_code: Raw VBA source code
-            
+
         Returns:
             Tuple of (deobfuscated_code, list_of_decoded_strings)
         """
         self.decoded_strings = []
         deobfuscated = vba_code
-        
+
         # Apply deobfuscation techniques in order
         deobfuscated = self._decode_hex_strings(deobfuscated)
         deobfuscated = self._decode_base64_strings(deobfuscated)
@@ -11915,13 +11907,13 @@ class VBADeobfuscator:
         deobfuscated = self._decode_replace_functions(deobfuscated)
         deobfuscated = self._decode_ascii_codes(deobfuscated)
         deobfuscated = self._decode_dridex(deobfuscated)
-        
+
         return deobfuscated, self.decoded_strings
-    
+
     def _decode_hex_strings(self, code: str) -> str:
         """Decode hex-encoded strings like &H41&H42&H43."""
         pattern = r'(?:&H[0-9A-Fa-f]{2})+(?:&H[0-9A-Fa-f]{2})*'
-        
+
         def replace_hex(match):
             hex_str = match.group(0)
             hex_values = re.findall(r'&H([0-9A-Fa-f]{2})', hex_str)
@@ -11937,14 +11929,14 @@ class VBADeobfuscator:
             except:
                 pass
             return hex_str
-        
+
         return re.sub(pattern, replace_hex, code)
-    
+
     def _decode_base64_strings(self, code: str) -> str:
         """Decode Base64 encoded strings."""
         # Look for potential Base64 strings (at least 20 chars, ends with = or not)
         pattern = r'"([A-Za-z0-9+/]{20,}={0,2})"'
-        
+
         def replace_base64(match):
             b64_str = match.group(1)
             try:
@@ -11959,13 +11951,13 @@ class VBADeobfuscator:
             except:
                 pass
             return match.group(0)
-        
+
         return re.sub(pattern, replace_base64, code)
-    
+
     def _decode_chr_sequences(self, code: str) -> str:
         """Decode Chr() function sequences like Chr(65) & Chr(66) & Chr(67)."""
         pattern = r'Chr[W$]?\s*\(\s*(\d+)\s*\)'
-        
+
         def replace_chr(match):
             char_code = int(match.group(1))
             try:
@@ -11975,19 +11967,19 @@ class VBADeobfuscator:
             except:
                 pass
             return match.group(0)
-        
+
         # Replace individual Chr calls
         result = re.sub(pattern, replace_chr, code, flags=re.IGNORECASE)
-        
+
         # Now collapse concatenated strings
         result = self._collapse_string_concatenations(result)
-        
+
         return result
-    
+
     def _decode_strreverse(self, code: str) -> str:
         """Decode StrReverse function calls."""
         pattern = r'StrReverse\s*\(\s*"([^"]+)"\s*\)'
-        
+
         def replace_strreverse(match):
             original = match.group(1)
             reversed_str = original[::-1]
@@ -11997,40 +11989,40 @@ class VBADeobfuscator:
                 'decoded': reversed_str
             })
             return f'"{reversed_str}"'
-        
+
         return re.sub(pattern, replace_strreverse, code, flags=re.IGNORECASE)
-    
+
     def _decode_concatenations(self, code: str) -> str:
         """Decode simple string concatenations."""
         # Pattern for "str1" & "str2" or "str1" + "str2"
         pattern = r'"([^"]*)"[\s]*[&+][\s]*"([^"]*)"'
-        
+
         def replace_concat(match):
             return f'"{match.group(1)}{match.group(2)}"'
-        
+
         # Keep replacing until no more matches
         prev = ""
         while prev != code:
             prev = code
             code = re.sub(pattern, replace_concat, code)
-        
+
         return code
-    
+
     def _collapse_string_concatenations(self, code: str) -> str:
         """Collapse multiple concatenated strings into one."""
         pattern = r'"([^"]*)"[\s]*[&+][\s]*"([^"]*)"'
-        
+
         prev = ""
         while prev != code:
             prev = code
             code = re.sub(pattern, r'"\1\2"', code)
-        
+
         return code
-    
+
     def _decode_split_strings(self, code: str) -> str:
         """Decode Split() function usage for obfuscation."""
         pattern = r'Split\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)'
-        
+
         def replace_split(match):
             string = match.group(1)
             delimiter = match.group(2)
@@ -12042,14 +12034,14 @@ class VBADeobfuscator:
                     'encoded': f'Split("{string}", "{delimiter}")',
                     'decoded': str(parts)
                 })
-        
+
         re.sub(pattern, replace_split, code, flags=re.IGNORECASE)
         return code
-    
+
     def _decode_replace_functions(self, code: str) -> str:
         """Decode Replace() function calls."""
         pattern = r'Replace\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]*)"\s*\)'
-        
+
         def replace_func(match):
             original = match.group(1)
             find = match.group(2)
@@ -12061,13 +12053,13 @@ class VBADeobfuscator:
                 'decoded': result
             })
             return f'"{result}"'
-        
+
         return re.sub(pattern, replace_func, code, flags=re.IGNORECASE)
-    
+
     def _decode_ascii_codes(self, code: str) -> str:
         """Decode arrays of ASCII codes like Array(65, 66, 67)."""
         pattern = r'Array\s*\(\s*((?:\d+\s*,\s*)*\d+)\s*\)'
-        
+
         def replace_array(match):
             numbers = [int(n.strip()) for n in match.group(1).split(',')]
             try:
@@ -12082,15 +12074,15 @@ class VBADeobfuscator:
             except:
                 pass
             return match.group(0)
-        
+
         return re.sub(pattern, replace_array, code, flags=re.IGNORECASE)
-    
+
     def _decode_dridex(self, code: str) -> str:
         """Decode Dridex-style obfuscation (custom encoding)."""
         # Dridex often uses custom character substitution
         # Pattern: look for suspicious character patterns
         pattern = r'"([^"]{10,})"'
-        
+
         def check_dridex(match):
             encoded = match.group(1)
             # Check if string looks obfuscated (high entropy, unusual chars)
@@ -12105,25 +12097,25 @@ class VBADeobfuscator:
                     })
                     return f'"{decoded}"'
             return match.group(0)
-        
+
         return re.sub(pattern, check_dridex, code)
-    
+
     def _looks_obfuscated(self, s: str) -> bool:
         """Check if string appears to be obfuscated."""
         if len(s) < 10:
             return False
-        
+
         # High ratio of non-alphanumeric characters
         non_alnum = sum(1 for c in s if not c.isalnum())
         if non_alnum / len(s) > 0.3:
             return True
-        
+
         # Check for repeating patterns
         if len(set(s)) < len(s) * 0.3:
             return True
-        
+
         return False
-    
+
     def _try_dridex_decode(self, s: str) -> Optional[str]:
         """Attempt Dridex decoding algorithm."""
         try:
@@ -12143,25 +12135,25 @@ class OLE2Handler:
     Handler for extracting and processing OLE2/Microsoft Office files
     including VBA macros, embedded objects, and IOCs.
     """
-    
+
     def __init__(self, script_dir: str):
         """
         Initialize the OLE2 handler.
-        
+
         Args:
             script_dir: Base script directory (output will be in script_dir/ole2/)
         """
         self.ole2_dir = os.path.join(script_dir, "ole2")
         os.makedirs(self.ole2_dir, exist_ok=True)
         self.deobfuscator = VBADeobfuscator()
-        
+
     def is_microsoft_compound_file_from_output(self, die_output: str) -> bool:
         """
         Check if DIE output indicates a Microsoft Compound File (OLE2).
-        
+
         Args:
             die_output: Output from DIE (Detect It Easy) tool
-            
+
         Returns:
             True if the file is an OLE2/Microsoft Office file
         """
@@ -12178,14 +12170,14 @@ class OLE2Handler:
             'Composite Document File'
         ]
         return any(indicator.lower() in die_output.lower() for indicator in ole_indicators)
-    
+
     def run_ole_extractor(self, file_path: str) -> Optional[str]:
         """
         Extract VBA macros and other content from OLE2 file.
-        
+
         Args:
             file_path: Path to the OLE2 file to process
-            
+
         Returns:
             Path to directory containing extracted content, or None if extraction failed
         """
@@ -12194,49 +12186,49 @@ class OLE2Handler:
             base_name = Path(file_path).stem
             extract_dir = os.path.join(self.ole2_dir, f"{base_name}_extracted")
             os.makedirs(extract_dir, exist_ok=True)
-            
+
             # Parse the file
             vbaparser = VBA_Parser(file_path)
-            
+
             # Get file type
             file_type = self._get_file_type(vbaparser.type)
             logger.info(f"Detected file type: {file_type}")
-            
+
             # Check for VBA macros
             has_macros = vbaparser.detect_vba_macros()
-            
+
             if has_macros:
                 logger.info(f"VBA Macros detected in {file_path}")
-                
+
                 # Extract macro source code
                 macro_count = self._extract_macros(vbaparser, extract_dir)
                 logger.info(f"Extracted {macro_count} VBA macro(s)")
-                
+
                 # Analyze macros for suspicious content
                 self._analyze_and_save_results(vbaparser, extract_dir)
-                
+
                 # Extract deobfuscated code using oletools
                 self._extract_revealed_code(vbaparser, extract_dir)
-                
+
                 # Apply custom advanced deobfuscation
                 self._apply_advanced_deobfuscation(extract_dir)
             else:
                 logger.info(f"No VBA Macros found in {file_path}")
-            
+
             # Close parser
             vbaparser.close()
-            
+
             # Return extraction directory if we extracted anything
             if os.listdir(extract_dir):
                 return extract_dir
             else:
                 logger.info("No content was extracted")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Error extracting OLE2 content from {file_path}: {e}")
             return None
-    
+
     def _get_file_type(self, type_constant) -> str:
         """Convert type constant to readable string."""
         type_map = {
@@ -12246,23 +12238,23 @@ class OLE2Handler:
             TYPE_MHTML: "MHTML"
         }
         return type_map.get(type_constant, "Unknown")
-    
+
     def _extract_macros(self, vbaparser: VBA_Parser, output_dir: str) -> int:
         """
         Extract all VBA macro source code to separate files.
-        
+
         Returns:
             Number of macros extracted
         """
         macro_count = 0
-        
+
         for (filename, stream_path, vba_filename, vba_code) in vbaparser.extract_macros():
             macro_count += 1
-            
+
             # Create safe filename
             safe_name = self._sanitize_filename(vba_filename)
             output_file = os.path.join(output_dir, f"macro_{macro_count}_{safe_name}.vba")
-            
+
             # Save macro with metadata
             with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
                 f.write(f"' Source File: {filename}\n")
@@ -12270,11 +12262,11 @@ class OLE2Handler:
                 f.write(f"' VBA Module: {vba_filename}\n")
                 f.write("'" + "="*70 + "\n\n")
                 f.write(vba_code)
-            
+
             logger.info(f"Extracted macro to: {output_file}")
-        
+
         return macro_count
-    
+
     def _analyze_and_save_results(self, vbaparser: VBA_Parser, output_dir: str):
         """
         Analyze macros for suspicious patterns and save results.
@@ -12282,18 +12274,18 @@ class OLE2Handler:
         try:
             # Analyze macros (include decoded strings)
             results = vbaparser.analyze_macros(show_decoded_strings=True)
-            
+
             if not results:
                 logger.info("No suspicious patterns found")
                 return
-            
+
             # Save analysis results
             analysis_file = os.path.join(output_dir, "analysis_results.txt")
-            
+
             with open(analysis_file, 'w', encoding='utf-8', errors='replace') as f:
                 f.write("VBA MACRO ANALYSIS RESULTS\n")
                 f.write("="*70 + "\n\n")
-                
+
                 # Group results by type
                 categories = {
                     'AutoExec': [],
@@ -12304,11 +12296,11 @@ class OLE2Handler:
                     'Dridex String': [],
                     'VBA obfuscated Strings': []
                 }
-                
+
                 for kw_type, keyword, description in results:
                     if kw_type in categories:
                         categories[kw_type].append((keyword, description))
-                
+
                 # Write categorized results
                 for category, items in categories.items():
                     if items:
@@ -12318,7 +12310,7 @@ class OLE2Handler:
                             f.write(f"  Keyword: {keyword}\n")
                             f.write(f"  Description: {description}\n")
                             f.write("\n")
-                
+
                 # Write statistics
                 f.write("\n" + "="*70 + "\n")
                 f.write("STATISTICS\n")
@@ -12330,9 +12322,9 @@ class OLE2Handler:
                 f.write(f"Base64 obfuscated strings: {vbaparser.nb_base64strings}\n")
                 f.write(f"Dridex obfuscated strings: {vbaparser.nb_dridexstrings}\n")
                 f.write(f"VBA obfuscated strings: {vbaparser.nb_vbastrings}\n")
-            
+
             logger.info(f"Analysis results saved to: {analysis_file}")
-            
+
             # Log critical findings
             if vbaparser.nb_autoexec > 0:
                 logger.warning(f"ALERT: {vbaparser.nb_autoexec} auto-executable macro(s) found!")
@@ -12340,30 +12332,30 @@ class OLE2Handler:
                 logger.warning(f"ALERT: {vbaparser.nb_suspicious} suspicious keyword(s) found!")
             if vbaparser.nb_iocs > 0:
                 logger.warning(f"ALERT: {vbaparser.nb_iocs} potential IOC(s) found!")
-                
+
         except Exception as e:
             logger.error(f"Error analyzing macros: {e}")
-    
+
     def _extract_revealed_code(self, vbaparser: VBA_Parser, output_dir: str):
         """
         Extract deobfuscated macro code with strings revealed (oletools method).
         """
         try:
             revealed_code = vbaparser.reveal()
-            
+
             if revealed_code:
                 output_file = os.path.join(output_dir, "deobfuscated_oletools.vba")
-                
+
                 with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
                     f.write("' DEOBFUSCATED VBA MACRO CODE (oletools)\n")
                     f.write("' (Obfuscated strings replaced with decoded content)\n")
                     f.write("'" + "="*70 + "\n\n")
                     f.write(revealed_code)
-                
+
                 logger.info(f"Deobfuscated code (oletools) saved to: {output_file}")
         except Exception as e:
             logger.error(f"Error extracting revealed code: {e}")
-    
+
     def _apply_advanced_deobfuscation(self, output_dir: str):
         """
         Apply advanced custom deobfuscation to all extracted macros.
@@ -12371,57 +12363,57 @@ class OLE2Handler:
         try:
             # Find all macro files
             macro_files = [f for f in os.listdir(output_dir) if f.startswith('macro_') and f.endswith('.vba')]
-            
+
             if not macro_files:
                 return
-            
+
             # Create advanced deobfuscation output file
             advanced_output = os.path.join(output_dir, "deobfuscated_advanced.vba")
             decoded_strings_file = os.path.join(output_dir, "decoded_strings.txt")
-            
+
             all_decoded = []
-            
+
             with open(advanced_output, 'w', encoding='utf-8', errors='replace') as out_f:
                 out_f.write("' ADVANCED DEOBFUSCATED VBA MACRO CODE\n")
                 out_f.write("' (Multiple deobfuscation techniques applied)\n")
                 out_f.write("'" + "="*70 + "\n\n")
-                
+
                 for macro_file in macro_files:
                     macro_path = os.path.join(output_dir, macro_file)
-                    
+
                     with open(macro_path, 'r', encoding='utf-8', errors='replace') as in_f:
                         vba_code = in_f.read()
-                    
+
                     # Apply deobfuscation
                     deobfuscated, decoded_strings = self.deobfuscator.deobfuscate(vba_code)
                     all_decoded.extend(decoded_strings)
-                    
+
                     out_f.write(f"\n' {'='*70}\n")
                     out_f.write(f"' Source: {macro_file}\n")
                     out_f.write(f"' {'='*70}\n\n")
                     out_f.write(deobfuscated)
                     out_f.write("\n\n")
-            
+
             logger.info(f"Advanced deobfuscated code saved to: {advanced_output}")
-            
+
             # Save decoded strings separately
             if all_decoded:
                 with open(decoded_strings_file, 'w', encoding='utf-8', errors='replace') as f:
                     f.write("DECODED STRINGS FROM VBA MACROS\n")
                     f.write("="*70 + "\n\n")
-                    
+
                     for item in all_decoded:
                         f.write(f"Type: {item['type']}\n")
                         f.write(f"Encoded: {item['encoded']}\n")
                         f.write(f"Decoded: {item['decoded']}\n")
                         f.write("-"*70 + "\n")
-                
+
                 logger.info(f"Decoded strings saved to: {decoded_strings_file}")
                 logger.info(f"Total decoded strings: {len(all_decoded)}")
-                
+
         except Exception as e:
             logger.error(f"Error in advanced deobfuscation: {e}")
-    
+
     def _sanitize_filename(self, filename: str) -> str:
         """
         Create a safe filename by removing invalid characters.
@@ -12431,43 +12423,43 @@ class OLE2Handler:
         for char in invalid_chars:
             filename = filename.replace(char, '_')
         return filename[:100]  # Limit length
-    
+
     def extract_iocs(self, analysis_file: str) -> List[Tuple[str, str]]:
         """
         Parse analysis results file to extract IOCs.
-        
+
         Args:
             analysis_file: Path to analysis results file
-            
+
         Returns:
             List of tuples (ioc_type, ioc_value)
         """
         iocs = []
-        
+
         try:
             with open(analysis_file, 'r', encoding='utf-8', errors='replace') as f:
                 in_ioc_section = False
                 keyword = None
-                
+
                 for line in f:
                     if 'IOC' in line and '-'*50 in line:
                         in_ioc_section = True
                         continue
-                    
+
                     if in_ioc_section:
                         if line.startswith('\n') or '='*50 in line:
                             break
-                        
+
                         if 'Keyword:' in line:
                             keyword = line.split('Keyword:', 1)[1].strip()
                         elif 'Description:' in line and keyword:
                             description = line.split('Description:', 1)[1].strip()
                             iocs.append((description, keyword))
                             keyword = None
-        
+
         except Exception as e:
             logger.error(f"Error extracting IOCs: {e}")
-        
+
         return iocs
 
 @dataclass
@@ -16261,7 +16253,7 @@ class ShieldWidget(QWidget):
             gradient.setColorAt(1.0, glow_color)
             painter.setBrush(QBrush(gradient))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(-130 + layer * 10, -130 + layer * 10, 
+            painter.drawEllipse(-130 + layer * 10, -130 + layer * 10,
                               (130 - layer * 10) * 2, (130 - layer * 10) * 2)
 
         # Draw shield with enhanced gradient
@@ -16305,11 +16297,11 @@ class ShieldWidget(QWidget):
                 painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
                 painter.setOpacity(1.0)
         else:
-            painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine, 
+            painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine,
                               Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(int(-40 * progress), int(-40 * progress), 
+            painter.drawLine(int(-40 * progress), int(-40 * progress),
                            int(40 * progress), int(40 * progress))
-            painter.drawLine(int(40 * progress), int(-40 * progress), 
+            painter.drawLine(int(40 * progress), int(-40 * progress),
                            int(-40 * progress), int(40 * progress))
 
 
@@ -16321,49 +16313,49 @@ class StatusCard(QFrame):
         self.setObjectName("status_card")
         self.setMinimumHeight(120)
         self._hover_scale = 1.0
-        
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
-        
+
         if icon_text:
             icon_label = QLabel(icon_text)
             icon_label.setStyleSheet("font-size: 32px; color: #88C0D0;")
             layout.addWidget(icon_label)
-        
+
         title_label = QLabel(title)
         title_label.setObjectName("card_title")
         layout.addWidget(title_label)
-        
+
         self.value_label = QLabel(value)
         self.value_label.setObjectName("card_value")
         layout.addWidget(self.value_label)
-        
+
         self.hover_animation = QPropertyAnimation(self, b"hover_scale")
         self.hover_animation.setDuration(200)
         self.hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        
+
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 80))
         shadow.setOffset(0, 5)
         self.setGraphicsEffect(shadow)
-    
+
     def get_hover_scale(self):
         return self._hover_scale
-    
+
     def set_hover_scale(self, value):
         self._hover_scale = value
         self.setStyleSheet(f"#status_card {{ transform: scale({value}); }}")
-    
+
     hover_scale = Property(float, get_hover_scale, set_hover_scale)
-    
+
     def enterEvent(self, event):
         self.hover_animation.setStartValue(1.0)
         self.hover_animation.setEndValue(1.05)
         self.hover_animation.start()
         super().enterEvent(event)
-    
+
     def leaveEvent(self, event):
         self.hover_animation.setStartValue(1.05)
         self.hover_animation.setEndValue(1.0)
@@ -17181,7 +17173,7 @@ class AntivirusApp(QWidget):
                 font-family: 'Segoe UI', 'SF Pro Display', Arial, sans-serif;
                 font-size: 14px;
             }
-            
+
             QTextEdit {
                 background-color: #3B4252;
                 border: 2px solid #4C566A;
@@ -17191,11 +17183,11 @@ class AntivirusApp(QWidget):
                 font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
                 font-size: 13px;
             }
-            
+
             QTextEdit:focus {
                 border: 2px solid #88C0D0;
             }
-            
+
             QLineEdit {
                 background-color: #3B4252;
                 border: 2px solid #4C566A;
@@ -17204,26 +17196,26 @@ class AntivirusApp(QWidget):
                 color: #ECEFF4;
                 font-size: 14px;
             }
-            
+
             QLineEdit:focus {
                 border: 2px solid #88C0D0;
                 background-color: #434C5E;
             }
-            
+
             #sidebar {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #2E3440, stop:1 #232831);
                 max-width: 240px;
                 border-right: 1px solid #4C566A;
             }
-            
+
             #logo {
                 color: #88C0D0;
                 font-size: 32px;
                 font-weight: bold;
                 letter-spacing: 2px;
             }
-            
+
             #nav_button {
                 background-color: transparent;
                 border: none;
@@ -17235,19 +17227,19 @@ class AntivirusApp(QWidget):
                 font-weight: 500;
                 margin: 2px 8px;
             }
-            
+
             #nav_button:hover {
                 background-color: #434C5E;
                 color: #ECEFF4;
             }
-            
+
             #nav_button:checked {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #88C0D0, stop:1 #81A1C1);
                 color: #2E3440;
                 font-weight: bold;
             }
-            
+
             #page_title {
                 font-size: 32px;
                 font-weight: 300;
@@ -17255,19 +17247,19 @@ class AntivirusApp(QWidget):
                 padding-bottom: 20px;
                 letter-spacing: 1px;
             }
-            
+
             #page_subtitle {
                 font-size: 18px;
                 color: #A3BE8C;
                 font-weight: 500;
             }
-            
+
             #version_label {
                 font-size: 13px;
                 color: #81A1C1;
                 font-weight: 400;
             }
-            
+
             #action_button {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #5E81AC, stop:1 #5273A0);
@@ -17279,16 +17271,16 @@ class AntivirusApp(QWidget):
                 border: none;
                 min-width: 180px;
             }
-            
+
             #action_button:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #81A1C1, stop:1 #6B8DB8);
             }
-            
+
             #action_button:pressed {
                 background: #4C6A94;
             }
-            
+
             #action_button_danger {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #BF616A, stop:1 #B34C56);
@@ -17299,12 +17291,12 @@ class AntivirusApp(QWidget):
                 font-weight: bold;
                 border: none;
             }
-            
+
             #action_button_danger:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #D08770, stop:1 #C47766);
             }
-            
+
             QGroupBox {
                 font-weight: bold;
                 border: 2px solid #4C566A;
@@ -17313,7 +17305,7 @@ class AntivirusApp(QWidget):
                 padding: 20px;
                 background-color: #3B4252;
             }
-            
+
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
@@ -17322,12 +17314,12 @@ class AntivirusApp(QWidget):
                 color: #ECEFF4;
                 border-radius: 6px;
             }
-            
+
             #warning_text {
                 font-size: 13px;
                 line-height: 1.6;
             }
-            
+
             #status_card {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #3B4252, stop:1 #343D4C);
@@ -17335,13 +17327,13 @@ class AntivirusApp(QWidget):
                 border-radius: 12px;
                 padding: 15px;
             }
-            
+
             #status_card:hover {
                 border: 2px solid #88C0D0;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #434C5E, stop:1 #3B4554);
             }
-            
+
             #card_title {
                 font-size: 13px;
                 color: #81A1C1;
@@ -17349,13 +17341,13 @@ class AntivirusApp(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 1px;
             }
-            
+
             #card_value {
                 font-size: 24px;
                 color: #ECEFF4;
                 font-weight: bold;
             }
-            
+
             QProgressBar {
                 border: 2px solid #4C566A;
                 border-radius: 8px;
@@ -17364,30 +17356,30 @@ class AntivirusApp(QWidget):
                 color: #ECEFF4;
                 font-weight: bold;
             }
-            
+
             QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #88C0D0, stop:0.5 #81A1C1, stop:1 #5E81AC);
                 border-radius: 6px;
             }
-            
+
             QScrollBar:vertical {
                 border: none;
                 background-color: #3B4252;
                 width: 12px;
                 border-radius: 6px;
             }
-            
+
             QScrollBar::handle:vertical {
                 background-color: #5E81AC;
                 border-radius: 6px;
                 min-height: 30px;
             }
-            
+
             QScrollBar::handle:vertical:hover {
                 background-color: #81A1C1;
             }
-            
+
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
             }
@@ -17536,56 +17528,56 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(30)
-        
+
         # Status cards row
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
 
         # Enable GUI mode for alert tracking
         setup_gui_mode(self)
-        
+
         # Update status cards with current counts
         critical_count, event_count = get_alert_counts()
         self.threat_card.value_label.setText(str(critical_count))
         self.scan_card.value_label.setText(str(event_count))
         self.uptime_card = StatusCard("System Uptime", "Ready", "⏱️")
-        
-        cards_layout.addWidget(self.threat_card)
-        cards_layout.addWidget(self.scan_card)
+
+        cards_layout.addWidget(self.threat_card_value_label)
+        cards_layout.addWidget(self.scan_card_value_label)
         cards_layout.addWidget(self.uptime_card)
-        
+
         layout.addLayout(cards_layout)
-        
+
         # Main status area
         main_area = QHBoxLayout()
         main_area.setSpacing(40)
-        
+
         self.shield_widget = ShieldWidget()
         main_area.addWidget(self.shield_widget, 2)
-        
+
         status_vbox = QVBoxLayout()
         status_vbox.addStretch()
-        
+
         title = QLabel("System Status")
         title.setObjectName("page_title")
         self.status_text = QLabel("Ready for analysis!")
         self.status_text.setObjectName("page_subtitle")
-        
+
         version_label = QLabel(WINDOW_TITLE)
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
-        
+
         status_vbox.addWidget(title)
         status_vbox.addWidget(self.status_text)
         status_vbox.addSpacing(30)
         status_vbox.addWidget(version_label)
         status_vbox.addWidget(defs_label)
         status_vbox.addStretch()
-        
+
         main_area.addLayout(status_vbox, 3)
         layout.addLayout(main_area)
-        
+
         self.log_outputs.append(None)
         return page
 
@@ -17594,14 +17586,14 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
-        
+
         header_layout = QHBoxLayout()
         title = QLabel(title_text)
         title.setObjectName("page_title")
         header_layout.addWidget(title)
         header_layout.addStretch()
         layout.addLayout(header_layout)
-        
+
         button_container = QHBoxLayout()
         button = QPushButton(f"Run {title_text}")
         button.setObjectName("action_button")
@@ -17609,17 +17601,17 @@ class AntivirusApp(QWidget):
         button_container.addWidget(button)
         button_container.addStretch()
         layout.addLayout(button_container)
-        
+
         progress_bar = QProgressBar()
         progress_bar.setVisible(False)
         progress_bar.setMaximumHeight(8)
         layout.addWidget(progress_bar)
-        
+
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17628,11 +17620,11 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
-        
+
         title = QLabel("Deep File Analysis")
         title.setObjectName("page_title")
         layout.addWidget(title)
-        
+
         warning_box = QGroupBox("Recommended Workflow")
         warning_layout = QVBoxLayout(warning_box)
         warning_text = QLabel(
@@ -17654,23 +17646,23 @@ class AntivirusApp(QWidget):
         warning_text.setObjectName("warning_text")
         warning_layout.addWidget(warning_text)
         layout.addWidget(warning_box)
-        
+
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
-        
+
         analyze_btn = QPushButton("Analyze File...")
         analyze_btn.setObjectName("action_button")
         analyze_btn.clicked.connect(self.analyze_file)
-        
+
         stop_btn = QPushButton("Stop Analysis")
         stop_btn.setObjectName("action_button_danger")
         stop_btn.clicked.connect(self.stop_analysis)
-        
+
         button_layout.addWidget(analyze_btn)
         button_layout.addWidget(stop_btn)
         button_layout.addStretch()
         layout.addLayout(button_layout)
-        
+
         control_layout = QHBoxLayout()
         sandboxie_control_btn = QPushButton("Open Sandboxie Control")
         sandboxie_control_btn.setObjectName("action_button")
@@ -17678,12 +17670,12 @@ class AntivirusApp(QWidget):
         control_layout.addWidget(sandboxie_control_btn)
         control_layout.addStretch()
         layout.addLayout(control_layout)
-        
+
         log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17692,11 +17684,11 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
-        
+
         title = QLabel("Hayabusa Event Log Analysis")
         title.setObjectName("page_title")
         layout.addWidget(title)
-        
+
         info_box = QGroupBox("About Hayabusa")
         info_layout = QVBoxLayout(info_box)
         info_text = QLabel(
@@ -17707,62 +17699,62 @@ class AntivirusApp(QWidget):
         info_text.setObjectName("warning_text")
         info_layout.addWidget(info_text)
         layout.addWidget(info_box)
-        
+
         update_rules_btn = QPushButton("Update Hayabusa Rules Database")
         update_rules_btn.setObjectName("action_button")
         update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
         layout.addWidget(update_rules_btn)
-        
+
         timeline_layout = QHBoxLayout()
         timeline_layout.setSpacing(15)
-        
+
         csv_timeline_btn = QPushButton("Generate CSV Timeline")
         csv_timeline_btn.setObjectName("action_button")
         csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
-        
+
         json_timeline_btn = QPushButton("Generate JSON Timeline")
         json_timeline_btn.setObjectName("action_button")
         json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
-        
+
         timeline_layout.addWidget(csv_timeline_btn)
         timeline_layout.addWidget(json_timeline_btn)
         timeline_layout.addStretch()
         layout.addLayout(timeline_layout)
-        
+
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
         self.search_input.setMinimumHeight(42)
-        
+
         search_btn = QPushButton("Search Events")
         search_btn.setObjectName("action_button")
         search_btn.clicked.connect(self.perform_hayabusa_search)
-        
+
         search_layout.addWidget(self.search_input, 1)
         search_layout.addWidget(search_btn)
         layout.addLayout(search_layout)
-        
+
         analysis_layout = QHBoxLayout()
         analysis_layout.setSpacing(15)
-        
+
         logon_summary_btn = QPushButton("Logon Summary")
         logon_summary_btn.setObjectName("action_button")
         logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
-        
+
         metrics_btn = QPushButton("System Metrics")
         metrics_btn.setObjectName("action_button")
         metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
-        
+
         analysis_layout.addWidget(logon_summary_btn)
         analysis_layout.addWidget(metrics_btn)
         analysis_layout.addStretch()
         layout.addLayout(analysis_layout)
-        
+
         log_output = QTextEdit("Hayabusa analysis results will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17785,7 +17777,7 @@ class AntivirusApp(QWidget):
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17794,21 +17786,21 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
-        
+
         title = QLabel("System Cleanup & Reset")
         title.setObjectName("page_title")
         layout.addWidget(title)
-        
+
         cleanup_button = QPushButton("Perform Full Environment Cleanup")
         cleanup_button.setObjectName("action_button_danger")
         cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
         layout.addWidget(cleanup_button)
-        
+
         log_output = QTextEdit("Cleanup process logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17817,43 +17809,43 @@ class AntivirusApp(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(25)
-        
+
         title = QLabel("About HydraDragon")
         title.setObjectName("page_title")
         layout.addWidget(title)
-        
+
         about_text = QLabel(
             "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
             "It provides a sandboxed environment to safely analyze potential threats."
         )
         about_text.setWordWrap(True)
         layout.addWidget(about_text)
-        
+
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(15)
-        
+
         llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
         llama_load_button.setObjectName("action_button")
         llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
         buttons_layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
-        
+
         github_button = QPushButton("View Project on GitHub")
         github_button.setObjectName("action_button")
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         buttons_layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
-        
+
         llama_release_button = QPushButton("View Meta Llama Release")
         llama_release_button.setObjectName("action_button")
         llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
         buttons_layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
-        
+
         layout.addLayout(buttons_layout)
-        
+
         log_output = QTextEdit("Llama AI model status will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
-        
+
         self.log_outputs.append(log_output)
         return page
 
@@ -17877,23 +17869,23 @@ class AntivirusApp(QWidget):
         sidebar_layout = QVBoxLayout(sidebar_frame)
         sidebar_layout.setContentsMargins(15, 25, 15, 25)
         sidebar_layout.setSpacing(8)
-        
+
         logo_area = QHBoxLayout()
         logo_area.setSpacing(12)
-        
+
         icon_widget = HydraIconWidget()
         icon_widget.setFixedSize(36, 36)
-        
+
         logo_label = QLabel("HYDRA")
         logo_label.setObjectName("logo")
-        
+
         logo_area.addWidget(icon_widget)
         logo_area.addWidget(logo_label)
         logo_area.addStretch()
-        
+
         sidebar_layout.addLayout(logo_area)
         sidebar_layout.addSpacing(30)
-        
+
         nav_buttons = [
             ("🏠", "Status"),
             ("🔄", "Update ClamAV"),
@@ -17906,25 +17898,25 @@ class AntivirusApp(QWidget):
             ("🧹", "Cleanup"),
             ("ℹ️", "About & AI")
         ]
-        
+
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        
+
         for i, (icon, name) in enumerate(nav_buttons):
             button_layout = QHBoxLayout()
             button_layout.setSpacing(10)
-            
+
             button = QPushButton(f"{icon}  {name}")
             button.setCheckable(True)
             button.setObjectName("nav_button")
             button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
-            
+
             sidebar_layout.addWidget(button)
             self.nav_group.addButton(button, i)
-        
+
         self.nav_group.button(0).setChecked(True)
         sidebar_layout.addStretch()
-        
+
         return sidebar_frame
 
     def setup_ui(self):
@@ -17932,15 +17924,15 @@ class AntivirusApp(QWidget):
             self.setWindowIcon(QIcon(icon_path))
         else:
             logger.error(f"Icon file not found at: {icon_path}")
-        
+
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1100, 800)
         self.resize(1400, 900)
-        
+
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
         main_layout.addWidget(self.create_sidebar())
         main_layout.addWidget(self.create_main_content(), 1)
 
