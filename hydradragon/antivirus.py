@@ -11150,7 +11150,7 @@ def run_fernflower_decompiler(file_path):
     Uses FernFlower to decompile the given JAR file.
     The FernFlower JAR is expected to be located in jar_decompiler_dir.
     The decompiled output is saved to a folder in script_dir.
-    The flag_java_class indicates if a Java class file was detected.
+    The flag_fernflower indicates if a Java class file was detected.
 
     Returns:
       list[str] | None: List of paths to files in the decompiled output directory, or None on error.
@@ -11199,7 +11199,7 @@ def run_jar_extractor(file_path, flag_fernflower):
     """
     Extracts a JAR file to an "extracted_files" folder in script_dir.
     Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
-    The flag_java_class indicates if the DIE output also detected a Java class file.
+    The flag_fernflower indicates if the DIE output also detected a Java class file.
 
     Returns:
       list[str] | None: List of file paths extracted or decompiled, or None on error.
@@ -11936,7 +11936,7 @@ def scan_and_warn(file_path,
                 threading.Thread(target=scan_and_warn, args=(dest,
                                 mega_optimization_with_anti_false_positive,
                                 command_flag, flag_debloat, flag_obfuscar,
-                                flag_de4dot, flag_fernflower, nsis_flag, ntdll_dropped)).start()
+                                flag_de4dot, flag_fernflower, nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
         elif normalized_path.startswith(normalized_sandbox):
             # Check if this is a dropped ntdll.dll in the sandbox
             if normalized_path == sandboxed_ntdll_path:
@@ -11950,7 +11950,7 @@ def scan_and_warn(file_path,
                     threading.Thread(target=scan_and_warn, args=(dest,
                         mega_optimization_with_anti_false_positive, command_flag,
                         flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
-                        nsis_flag, ntdll_dropped)).start()
+                        nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
 
             perform_special_scan = True
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
@@ -11958,7 +11958,7 @@ def scan_and_warn(file_path,
                 threading.Thread(target=scan_and_warn, args=(dest,
                     mega_optimization_with_anti_false_positive, command_flag,
                     flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
-                    nsis_flag, ntdll_dropped)).start()
+                    nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
@@ -12681,7 +12681,7 @@ def scan_and_warn(file_path,
 
                         # Thread 2: scan_code_for_links with flag_fernflower
                         threading.Thread(
-                            target=lambda: scan_code_for_links(file_path=decompiled_file, flag_fernflower=True)
+                            target=lambda: scan_code_for_links(file_path=decompiled_file, fernflower_flag=True)
                         ).start()   
                     else:
                         logger.info("No file returned from FernFlower decompiler.")
