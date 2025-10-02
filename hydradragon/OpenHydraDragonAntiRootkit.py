@@ -31,6 +31,7 @@ import win32security
 from notifypy import Notify
 import re
 from hydra_logger import logger, script_dir
+from PySide6.QtWidgets import QApplication
 
 # Define log directories and files
 log_directory = os.path.join(script_dir, "log")
@@ -1143,7 +1144,7 @@ def save_network_report(network_indicators: list):
     logger.info(f"Network indicators report saved to -> {out_path}")
 
 
-def main():
+def main_rootkit_analysis():
     if not DETECTIEASY_PATH.exists():
         logger.warning(f"DIE missing at {DETECTIEASY_PATH}; PE detection will be skipped.")
     DIE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1156,6 +1157,10 @@ def main():
     save_report(combined)
     print(json.dumps(combined, indent=2))
     logger.info("=== Scan complete ===")
+
+def main():
+    app = QApplication(sys.argv)
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()

@@ -2245,6 +2245,32 @@ files = [
 ]
 
 [[package]]
+name = "logly"
+version = "0.1.3"
+description = "A stupidly simple, yet blazingly fast and powerful logging utility for Python — powered by Rust."
+optional = false
+python-versions = "<3.14,>=3.10"
+groups = ["main"]
+files = [
+    {file = "logly-0.1.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:eb183ebae10910fa4adb89ab1c224422c94229c79ec03a6c182f937234222775"},
+    {file = "logly-0.1.3-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:c9eecac328cce2e557c8ff9ad55e0fcad3bcb15af639596c14c2e7c988df5c39"},
+    {file = "logly-0.1.3-cp310-abi3-win_amd64.whl", hash = "sha256:12fe916d2aea367a4ab8a5a43a10cb7ca86feaad4929843f990f8ef11d28eb0c"},
+    {file = "logly-0.1.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:9f9409604bc0cda24ae97e09136dd9f339d68c375ea38751561e3ec6dc991657"},
+    {file = "logly-0.1.3-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:7329c89fcae56cba02f51c92246bc22d02019db7ea2678a799727db8c0be72c5"},
+    {file = "logly-0.1.3-cp310-cp310-win_amd64.whl", hash = "sha256:933b2e6a16d9719e4736ba873ff9aa0c753a8bc64c7ebcf90663cfdd19d392d0"},
+    {file = "logly-0.1.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:69766e5bee35ac414550a1ce976941e66b59f843c3c1332a19ba03543602118b"},
+    {file = "logly-0.1.3-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:96dcbcba2e068238cebf1046e54acb93de5b4443ee6c87b655612bb20b5a9ba8"},
+    {file = "logly-0.1.3-cp311-cp311-win_amd64.whl", hash = "sha256:a96aa96d52e3f477b756c65038064ca152a7105e192f38d05966e58814755b4c"},
+    {file = "logly-0.1.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:35d6157aeec5c1d722fc66b505deeb5640360daebc0087ad543cbbe670851174"},
+    {file = "logly-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:bab74cb02773413869b805d65f20f04f9169d9616a7521dbb65c0b02e6a5d36a"},
+    {file = "logly-0.1.3-cp312-cp312-win_amd64.whl", hash = "sha256:50fc3d1a17e90c749d54c0285e104deded9ff948f8b010af14b98fd6f2074081"},
+    {file = "logly-0.1.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:c0c166cf2cd370a02fe68d7b4b5b692c31bef9e26c65133df243b195248259c7"},
+    {file = "logly-0.1.3-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:1d9af7e54c88b9bb2c2e1ec4ba22bb7943f55ed856b888c44561b23c6ad0c9f5"},
+    {file = "logly-0.1.3-cp313-cp313-win_amd64.whl", hash = "sha256:ed0d6d0ab2ad47eca376ea04975e7655ce9ab1cd3a49695f522a7e0c3e4d6b91"},
+    {file = "logly-0.1.3.tar.gz", hash = "sha256:de936520606dd518ae5dc3cfaa42c8f181ff730053571fb3550700115938e8ee"},
+]
+
+[[package]]
 name = "loguru"
 version = "0.6.0"
 description = "Python logging made (stupidly) simple"
@@ -7250,4 +7276,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "cee97b991a155bc1a52fd6d81af1a4ea2f7f3d58ef5ab801ba70d7897a47f000"
+content-hash = "e553cc03f53ef38ccb9be02af85b3a59a3b44f30caf153ed5357f34fc21a7344"

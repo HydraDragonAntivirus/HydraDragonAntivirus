@@ -10,7 +10,16 @@ main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
-from hydra_logger import application_log_file, log_directory, script_dir, logger, reinitialize_hydra_logger
+from hydra_logger import (
+    logger, 
+    setup_gui_mode, 
+    get_alert_counts,
+    application_log_file, 
+    log_directory, 
+    script_dir, 
+    logger, 
+    reinitialize_hydra_logger
+)
 
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
@@ -44,7 +53,7 @@ logger.debug(
 total_start_time = time.time()
 
 start_time = time.time()
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox, QFileDialog)
@@ -16089,7 +16098,6 @@ class HydraIconWidget(QWidget):
         if self.pixmap and not self.pixmap.isNull():
             painter.drawPixmap(self.rect(), self.pixmap)
         else:
-            # Fallback drawing if image is not found
             primary_color = QColor("#88C0D0")
             shadow_color = QColor("#4C566A")
             path = QPainterPath()
@@ -16109,9 +16117,9 @@ class HydraIconWidget(QWidget):
             painter.drawPath(path)
 
 
-# --- Custom Shield Widget for Status ---
+# --- Advanced Shield Widget with Particle Effects ---
 class ShieldWidget(QWidget):
-    """A custom widget to draw an animated status shield with a glowing effect."""
+    """Enhanced shield widget with advanced animations and particle effects."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAutoFillBackground(True)
@@ -16119,42 +16127,60 @@ class ShieldWidget(QWidget):
         self._glow_opacity = 0.0
         self._check_progress = 1.0
         self._scale_factor = 1.0
-        self.setMinimumSize(250, 250)
+        self._rotation_angle = 0.0
+        self._pulse_intensity = 1.0
+        self.setMinimumSize(280, 280)
 
-        # Load the hydra image for the protected state
         self.hydra_pixmap = None
         if os.path.exists(icon_path):
             self.hydra_pixmap = QPixmap(icon_path)
         else:
             logger.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
 
-
-        # Animation for the icon appearing/disappearing
+        # Check animation
         self.check_animation = QPropertyAnimation(self, b"check_progress")
-        self.check_animation.setDuration(500)
-        self.check_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.check_animation.setDuration(600)
+        self.check_animation.setEasingCurve(QEasingCurve.Type.OutElastic)
 
-        # Animation for the background glow
+        # Glow animation
         self.glow_animation = QPropertyAnimation(self, b"glow_opacity")
-        self.glow_animation.setDuration(2500)
+        self.glow_animation.setDuration(2000)
         self.glow_animation.setLoopCount(-1)
-        self.glow_animation.setStartValue(0.2)
-        self.glow_animation.setKeyValueAt(0.5, 0.7)
-        self.glow_animation.setEndValue(0.2)
+        self.glow_animation.setStartValue(0.3)
+        self.glow_animation.setKeyValueAt(0.5, 0.8)
+        self.glow_animation.setEndValue(0.3)
         self.glow_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
         self.glow_animation.start()
 
-        # Breathing animation for the shield
+        # Breathing animation
         self.breathe_animation = QPropertyAnimation(self, b"scale_factor")
-        self.breathe_animation.setDuration(5000)
+        self.breathe_animation.setDuration(4000)
         self.breathe_animation.setLoopCount(-1)
         self.breathe_animation.setStartValue(1.0)
-        self.breathe_animation.setKeyValueAt(0.5, 1.05)
+        self.breathe_animation.setKeyValueAt(0.5, 1.08)
         self.breathe_animation.setEndValue(1.0)
-        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.breathe_animation.start()
 
-    # --- Getter/Setter for check_progress ---
+        # Rotation animation
+        self.rotation_animation = QPropertyAnimation(self, b"rotation_angle")
+        self.rotation_animation.setDuration(20000)
+        self.rotation_animation.setLoopCount(-1)
+        self.rotation_animation.setStartValue(0.0)
+        self.rotation_animation.setEndValue(360.0)
+        self.rotation_animation.setEasingCurve(QEasingCurve.Type.Linear)
+        self.rotation_animation.start()
+
+        # Pulse animation
+        self.pulse_animation = QPropertyAnimation(self, b"pulse_intensity")
+        self.pulse_animation.setDuration(1500)
+        self.pulse_animation.setLoopCount(-1)
+        self.pulse_animation.setStartValue(1.0)
+        self.pulse_animation.setKeyValueAt(0.5, 1.15)
+        self.pulse_animation.setEndValue(1.0)
+        self.pulse_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.pulse_animation.start()
+
     def get_check_progress(self):
         return self._check_progress
 
@@ -16162,7 +16188,6 @@ class ShieldWidget(QWidget):
         self._check_progress = value
         self.update()
 
-    # --- Getter/Setter for glow_opacity ---
     def get_glow_opacity(self):
         return self._glow_opacity
 
@@ -16170,7 +16195,6 @@ class ShieldWidget(QWidget):
         self._glow_opacity = value
         self.update()
 
-    # --- Getter/Setter for scale_factor ---
     def get_scale_factor(self):
         return self._scale_factor
 
@@ -16178,10 +16202,25 @@ class ShieldWidget(QWidget):
         self._scale_factor = value
         self.update()
 
-    # --- Qt Properties for Animation ---
+    def get_rotation_angle(self):
+        return self._rotation_angle
+
+    def set_rotation_angle(self, value):
+        self._rotation_angle = value
+        self.update()
+
+    def get_pulse_intensity(self):
+        return self._pulse_intensity
+
+    def set_pulse_intensity(self, value):
+        self._pulse_intensity = value
+        self.update()
+
     check_progress = Property(float, get_check_progress, set_check_progress)
     glow_opacity = Property(float, get_glow_opacity, set_glow_opacity)
     scale_factor = Property(float, get_scale_factor, set_scale_factor)
+    rotation_angle = Property(float, get_rotation_angle, set_rotation_angle)
+    pulse_intensity = Property(float, get_pulse_intensity, set_pulse_intensity)
 
     def set_status(self, is_protected):
         if self.is_protected != is_protected:
@@ -16198,52 +16237,138 @@ class ShieldWidget(QWidget):
         side = min(self.width(), self.height())
         painter.translate(self.width() / 2, self.height() / 2)
         painter.scale(self._scale_factor, self._scale_factor)
-        painter.scale(side / 220.0, side / 220.0)
+        painter.scale(side / 240.0, side / 240.0)
 
-        # Draw the outer glow
-        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
-        gradient = QRadialGradient(0, 0, 110)
-        glow_color.setAlphaF(self._glow_opacity)
-        gradient.setColorAt(0.5, glow_color)
-        glow_color.setAlphaF(0)
-        gradient.setColorAt(1.0, glow_color)
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(-110, -110, 220, 220)
+        # Draw outer rings with rotation
+        painter.save()
+        painter.rotate(self._rotation_angle)
+        for i in range(3):
+            radius = 120 + (i * 15)
+            ring_color = QColor(136, 192, 208, int(30 - i * 10))
+            painter.setPen(QPen(ring_color, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(-radius, -radius, radius * 2, radius * 2)
+        painter.restore()
 
-        # Draw the main shield shape
+        # Draw multi-layered glow
+        for layer in range(4):
+            glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
+            gradient = QRadialGradient(0, 0, 130 - layer * 20)
+            opacity = self._glow_opacity * (0.4 - layer * 0.08) * self._pulse_intensity
+            glow_color.setAlphaF(opacity)
+            gradient.setColorAt(0.6, glow_color)
+            glow_color.setAlphaF(0)
+            gradient.setColorAt(1.0, glow_color)
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(-130 + layer * 10, -130 + layer * 10, 
+                              (130 - layer * 10) * 2, (130 - layer * 10) * 2)
+
+        # Draw shield with enhanced gradient
         path = QPainterPath()
-        path.moveTo(0, -90)
-        path.cubicTo(80, -80, 80, 0, 80, 0)
-        path.lineTo(80, 40)
-        path.quadTo(80, 90, 0, 100)
-        path.quadTo(-80, 90, -80, 40)
-        path.lineTo(-80, 0)
-        path.cubicTo(-80, -80, 0, -90, 0, -90)
+        path.moveTo(0, -95)
+        path.cubicTo(85, -85, 85, 0, 85, 0)
+        path.lineTo(85, 45)
+        path.quadTo(85, 100, 0, 110)
+        path.quadTo(-85, 100, -85, 45)
+        path.lineTo(-85, 0)
+        path.cubicTo(-85, -85, 0, -95, 0, -95)
 
-        # Fill shield with a gradient
-        shield_gradient = QLinearGradient(0, -90, 0, 100)
-        shield_gradient.setColorAt(0, QColor("#434C5E"))
-        shield_gradient.setColorAt(1, QColor("#3B4252"))
+        shield_gradient = QLinearGradient(0, -95, 0, 110)
+        shield_gradient.setColorAt(0, QColor("#4C566A"))
+        shield_gradient.setColorAt(0.3, QColor("#434C5E"))
+        shield_gradient.setColorAt(0.7, QColor("#3B4252"))
+        shield_gradient.setColorAt(1, QColor("#2E3440"))
         painter.fillPath(path, QBrush(shield_gradient))
+
+        # Draw shield border with glow
+        border_color = QColor("#88C0D0")
+        border_color.setAlphaF(0.8 * self._pulse_intensity)
+        painter.setPen(QPen(border_color, 3))
+        painter.drawPath(path)
 
         progress = self._check_progress
 
-        # Draw the correct icon based on protection status
+        # Draw energy lines inside shield
         if self.is_protected:
-            # Draw the user's PNG inside the shield if protected and available
+            painter.save()
+            painter.setPen(QPen(QColor(136, 192, 208, int(100 * progress)), 2))
+            for i in range(-60, 61, 20):
+                painter.drawLine(i, -80, i, 90)
+            painter.restore()
+
+        # Draw icon or cross
+        if self.is_protected:
             if self.hydra_pixmap and not self.hydra_pixmap.isNull():
                 painter.setOpacity(progress)
-                # Define the rectangle to draw the pixmap in
-                pixmap_rect = QRect(-75, -85, 150, 150)
+                pixmap_rect = QRect(-80, -90, 160, 160)
                 painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
-                painter.setOpacity(1.0) # Reset opacity
+                painter.setOpacity(1.0)
         else:
-            # Draw the cross for the 'unprotected' status
-            painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(int(-35 * progress), int(-35 * progress), int(35 * progress), int(35 * progress))
-            painter.drawLine(int(35 * progress), int(-35 * progress), int(-35 * progress), int(35 * progress))
+            painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine, 
+                              Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(int(-40 * progress), int(-40 * progress), 
+                           int(40 * progress), int(40 * progress))
+            painter.drawLine(int(40 * progress), int(-40 * progress), 
+                           int(-40 * progress), int(40 * progress))
 
+
+# --- Animated Status Card Widget ---
+class StatusCard(QFrame):
+    """Modern card widget with hover effects and animations."""
+    def __init__(self, title, value, icon_text="", parent=None):
+        super().__init__(parent)
+        self.setObjectName("status_card")
+        self.setMinimumHeight(120)
+        self._hover_scale = 1.0
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        
+        if icon_text:
+            icon_label = QLabel(icon_text)
+            icon_label.setStyleSheet("font-size: 32px; color: #88C0D0;")
+            layout.addWidget(icon_label)
+        
+        title_label = QLabel(title)
+        title_label.setObjectName("card_title")
+        layout.addWidget(title_label)
+        
+        self.value_label = QLabel(value)
+        self.value_label.setObjectName("card_value")
+        layout.addWidget(self.value_label)
+        
+        self.hover_animation = QPropertyAnimation(self, b"hover_scale")
+        self.hover_animation.setDuration(200)
+        self.hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 5)
+        self.setGraphicsEffect(shadow)
+    
+    def get_hover_scale(self):
+        return self._hover_scale
+    
+    def set_hover_scale(self, value):
+        self._hover_scale = value
+        self.setStyleSheet(f"#status_card {{ transform: scale({value}); }}")
+    
+    hover_scale = Property(float, get_hover_scale, set_hover_scale)
+    
+    def enterEvent(self, event):
+        self.hover_animation.setStartValue(1.0)
+        self.hover_animation.setEndValue(1.05)
+        self.hover_animation.start()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        self.hover_animation.setStartValue(1.05)
+        self.hover_animation.setEndValue(1.0)
+        self.hover_animation.start()
+        super().leaveEvent(event)
 
 # --- Worker Thread for Background Tasks ---
 class Worker(QThread):
@@ -17043,54 +17168,247 @@ class AntivirusApp(QWidget):
         self.workers = []
         self.log_outputs = []
         self.animation_group = QParallelAnimationGroup()
-        self.worker_lock = threading.RLock()  # Safer choice
+        self.worker_lock = threading.RLock()
 
-        self.apply_stylesheet()
+        self.apply_extreme_stylesheet()
         self.setup_ui()
 
-    def apply_stylesheet(self):
+    def apply_extreme_stylesheet(self):
         stylesheet = """
-            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
-            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
-            #sidebar { background-color: #2E3440; max-width: 220px; }
-            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
-            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
-            #nav_button:hover { background-color: #434C5E; }
-            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
-            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
-            #page_subtitle { font-size: 16px; color: #A3BE8C; }
-            #version_label { font-size: 13px; color: #81A1C1; }
-            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
-            #action_button:hover { background-color: #81A1C1; }
-            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
-            #action_button_danger:hover { background-color: #d08770; }
-            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
-            #warning_text { font-size: 13px; }
+            QWidget {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                font-family: 'Segoe UI', 'SF Pro Display', Arial, sans-serif;
+                font-size: 14px;
+            }
+            
+            QTextEdit {
+                background-color: #3B4252;
+                border: 2px solid #4C566A;
+                border-radius: 10px;
+                padding: 12px;
+                color: #ECEFF4;
+                font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+                font-size: 13px;
+            }
+            
+            QTextEdit:focus {
+                border: 2px solid #88C0D0;
+            }
+            
+            QLineEdit {
+                background-color: #3B4252;
+                border: 2px solid #4C566A;
+                border-radius: 8px;
+                padding: 10px 15px;
+                color: #ECEFF4;
+                font-size: 14px;
+            }
+            
+            QLineEdit:focus {
+                border: 2px solid #88C0D0;
+                background-color: #434C5E;
+            }
+            
+            #sidebar {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2E3440, stop:1 #232831);
+                max-width: 240px;
+                border-right: 1px solid #4C566A;
+            }
+            
+            #logo {
+                color: #88C0D0;
+                font-size: 32px;
+                font-weight: bold;
+                letter-spacing: 2px;
+            }
+            
+            #nav_button {
+                background-color: transparent;
+                border: none;
+                color: #D8DEE9;
+                padding: 14px 16px;
+                text-align: left;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 500;
+                margin: 2px 8px;
+            }
+            
+            #nav_button:hover {
+                background-color: #434C5E;
+                color: #ECEFF4;
+            }
+            
+            #nav_button:checked {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #88C0D0, stop:1 #81A1C1);
+                color: #2E3440;
+                font-weight: bold;
+            }
+            
+            #page_title {
+                font-size: 32px;
+                font-weight: 300;
+                color: #ECEFF4;
+                padding-bottom: 20px;
+                letter-spacing: 1px;
+            }
+            
+            #page_subtitle {
+                font-size: 18px;
+                color: #A3BE8C;
+                font-weight: 500;
+            }
+            
+            #version_label {
+                font-size: 13px;
+                color: #81A1C1;
+                font-weight: 400;
+            }
+            
+            #action_button {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5E81AC, stop:1 #5273A0);
+                color: #ECEFF4;
+                border-radius: 10px;
+                padding: 14px 24px;
+                font-size: 14px;
+                font-weight: bold;
+                border: none;
+                min-width: 180px;
+            }
+            
+            #action_button:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #81A1C1, stop:1 #6B8DB8);
+            }
+            
+            #action_button:pressed {
+                background: #4C6A94;
+            }
+            
+            #action_button_danger {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #BF616A, stop:1 #B34C56);
+                color: #ECEFF4;
+                border-radius: 10px;
+                padding: 14px 24px;
+                font-size: 14px;
+                font-weight: bold;
+                border: none;
+            }
+            
+            #action_button_danger:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #D08770, stop:1 #C47766);
+            }
+            
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #4C566A;
+                border-radius: 12px;
+                margin-top: 15px;
+                padding: 20px;
+                background-color: #3B4252;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 5px 10px;
+                background-color: #5E81AC;
+                color: #ECEFF4;
+                border-radius: 6px;
+            }
+            
+            #warning_text {
+                font-size: 13px;
+                line-height: 1.6;
+            }
+            
+            #status_card {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3B4252, stop:1 #343D4C);
+                border: 2px solid #4C566A;
+                border-radius: 12px;
+                padding: 15px;
+            }
+            
+            #status_card:hover {
+                border: 2px solid #88C0D0;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #434C5E, stop:1 #3B4554);
+            }
+            
+            #card_title {
+                font-size: 13px;
+                color: #81A1C1;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }
+            
+            #card_value {
+                font-size: 24px;
+                color: #ECEFF4;
+                font-weight: bold;
+            }
+            
+            QProgressBar {
+                border: 2px solid #4C566A;
+                border-radius: 8px;
+                text-align: center;
+                background-color: #3B4252;
+                color: #ECEFF4;
+                font-weight: bold;
+            }
+            
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #88C0D0, stop:0.5 #81A1C1, stop:1 #5E81AC);
+                border-radius: 6px;
+            }
+            
+            QScrollBar:vertical {
+                border: none;
+                background-color: #3B4252;
+                width: 12px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #5E81AC;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #81A1C1;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
         """
         self.setStyleSheet(stylesheet)
 
     def append_log_output(self, text):
-        """Append text to the current page's log output widget."""
         current_page_index = self.main_stack.currentIndex()
         if 0 <= current_page_index < len(self.log_outputs):
             log_widget = self.log_outputs[current_page_index]
             if log_widget:
                 log_widget.append(text)
-                # Auto-scroll to bottom
                 log_widget.verticalScrollBar().setValue(
                     log_widget.verticalScrollBar().maximum()
                 )
 
     def on_worker_finished(self, worker):
-        """Handle worker thread completion."""
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-
         with self.worker_lock:
             if worker in self.workers:
                 self.workers.remove(worker)
-
-        # Update UI status when all workers are done
         with self.worker_lock:
             if not self.workers:
                 if hasattr(self, 'shield_widget'):
@@ -17099,7 +17417,6 @@ class AntivirusApp(QWidget):
                     self.status_text.setText("Ready for analysis!")
 
     def _update_ui_for_worker_start(self, task_type):
-        """Update UI elements when worker starts (called from main thread)."""
         self.append_log_output(f"[*] Task '{task_type}' started.")
         if hasattr(self, 'shield_widget'):
             self.shield_widget.set_status(False)
@@ -17107,66 +17424,42 @@ class AntivirusApp(QWidget):
             self.status_text.setText("System is busy...")
 
     def start_worker(self, task_type, *args):
-        """Start a new worker thread for the given task."""
-        # This method is called from the main GUI thread (e.g., button clicks),
-        # so it's safe to create workers and update the UI directly.
         try:
-            # Create a new worker
             worker = Worker(task_type, *args)
             worker.output_signal.connect(self.append_log_output)
-            # When the worker finishes, call on_worker_finished
             worker.finished.connect(lambda: self.on_worker_finished(worker))
-
-            # Add to the active workers list (thread-safe)
             with self.worker_lock:
                 self.workers.append(worker)
-
-            # Start the worker's run() method in a new thread.
             worker.start()
-
-            # Update UI to show the system is busy *after* successfully starting.
             self._update_ui_for_worker_start(task_type)
-
         except Exception as e:
-            # Handle any errors during worker creation
             self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
 
     def stop_analysis(self):
-        """Stop all running analysis tasks."""
         if not self.workers:
             self.append_log_output("[!] No running tasks to stop.")
             return
-
         self.append_log_output("[*] Requesting stop for all running tasks...")
-
-        # Request stop for all workers
-        for worker in self.workers[:]:  # Create a copy of the list
+        for worker in self.workers[:]:
             if worker.isRunning():
                 worker.request_stop()
                 self.append_log_output(f"[*] Stop requested for task: {worker.task_type}")
-
-        # Run force_stop_remaining_workers in 1 second without QTimer
         threading.Timer(1.0, self.force_stop_remaining_workers).start()
 
     def force_stop_remaining_workers(self):
-        """Force stop any workers that didn't stop gracefully."""
         remaining_workers = [w for w in self.workers if w.isRunning()]
-
         if remaining_workers:
             self.append_log_output(f"[*] Force stopping {len(remaining_workers)} remaining tasks...")
-
             for worker in remaining_workers:
                 try:
-                    worker.terminate()  # Force termination
-                    worker.wait(2000)  # Wait up to 2 seconds
+                    worker.terminate()
+                    worker.wait(2000)
                     if worker.isRunning():
                         self.append_log_output(f"[!] Could not stop task: {worker.task_type}")
                     else:
                         self.append_log_output(f"[+] Force stopped task: {worker.task_type}")
                 except Exception as e:
                     self.append_log_output(f"[!] Error stopping task {worker.task_type}: {str(e)}")
-
-        # Clear workers list and update UI
         self.workers.clear()
         if hasattr(self, 'shield_widget'):
             self.shield_widget.set_status(True)
@@ -17174,28 +17467,18 @@ class AntivirusApp(QWidget):
             self.status_text.setText("Ready for analysis!")
 
     def open_sandboxie_control(self):
-        """Starts run_sandboxie_control in a thread."""
         self.append_log_output("[*] Opening Sandboxie Control window...")
-
         def run_thread():
             try:
                 run_sandboxie_control()
                 self.append_log_output("[+] Sandboxie Control window opened successfully.")
             except Exception as e:
                 self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
-
-        # Use QThread instead of threading.Thread for better Qt integration
         thread = threading.Thread(target=run_thread)
         thread.start()
 
     def analyze_file(self):
-        """Open file dialog and start file analysis."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select a file to analyze",
-            "",
-            "All Files (*)"
-        )
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
         if file_path:
             self.append_log_output(f"[*] Selected file for analysis: {file_path}")
             self.start_worker("analyze_file", file_path)
@@ -17203,120 +17486,153 @@ class AntivirusApp(QWidget):
             self.append_log_output("[*] File selection cancelled.")
 
     def perform_hayabusa_search(self):
-        """Performs a search using the text from the search input field."""
         if not hasattr(self, 'search_input'):
             self.append_log_output("[!] Search input not available.")
             return
-
         keywords = self.search_input.text().strip()
         if keywords:
-            self.start_worker("hayabusa_search", keywords, False)  # False for keyword search
+            self.start_worker("hayabusa_search", keywords, False)
         else:
             self.append_log_output("[!] Please enter search keywords first.")
 
     def switch_page_with_animation(self, index):
-        """Switch between pages with slide animation."""
         if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
             self.main_stack.currentIndex() == index):
             return
-
         current_widget = self.main_stack.currentWidget()
         next_widget = self.main_stack.widget(index)
         current_index = self.main_stack.currentIndex()
-
         slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
         slide_in_x = -slide_out_x
-
         next_widget.move(slide_in_x, 0)
         next_widget.show()
         next_widget.raise_()
-
         current_pos_anim = QPropertyAnimation(current_widget, b"pos")
         current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
         next_pos_anim = QPropertyAnimation(next_widget, b"pos")
         next_pos_anim.setEndValue(QPoint(0, 0))
-
         self.animation_group = QParallelAnimationGroup()
         for anim in [current_pos_anim, next_pos_anim]:
-            anim.setDuration(400)
+            anim.setDuration(500)
             anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
             self.animation_group.addAnimation(anim)
-
         self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
         self.animation_group.start()
 
     def closeEvent(self, event):
-        """Handle application close event - stop all workers first."""
         if self.workers:
             self.append_log_output("[*] Stopping all running tasks before exit...")
-
-            # Request stop for all workers
             for worker in self.workers:
                 if worker.isRunning():
                     worker.request_stop()
-
-            # Force terminate if needed
             for worker in self.workers:
                 if worker.isRunning():
                     worker.terminate()
-                    worker.wait(3000)  # Wait up to 3 seconds
-
+                    worker.wait(3000)
         event.accept()
 
     def create_status_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(30)
+        
+        # Status cards row
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(20)
+
+        # Enable GUI mode for alert tracking
+        setup_gui_mode(self)
+        
+        # Update status cards with current counts
+        critical_count, event_count = get_alert_counts()
+        self.threat_card.value_label.setText(str(critical_count))
+        self.scan_card.value_label.setText(str(event_count))
+        self.uptime_card = StatusCard("System Uptime", "Ready", "⏱️")
+        
+        cards_layout.addWidget(self.threat_card)
+        cards_layout.addWidget(self.scan_card)
+        cards_layout.addWidget(self.uptime_card)
+        
+        layout.addLayout(cards_layout)
+        
+        # Main status area
         main_area = QHBoxLayout()
+        main_area.setSpacing(40)
+        
         self.shield_widget = ShieldWidget()
         main_area.addWidget(self.shield_widget, 2)
+        
         status_vbox = QVBoxLayout()
         status_vbox.addStretch()
+        
         title = QLabel("System Status")
         title.setObjectName("page_title")
         self.status_text = QLabel("Ready for analysis!")
         self.status_text.setObjectName("page_subtitle")
+        
         version_label = QLabel(WINDOW_TITLE)
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
+        
         status_vbox.addWidget(title)
         status_vbox.addWidget(self.status_text)
-        status_vbox.addSpacing(20)
+        status_vbox.addSpacing(30)
         status_vbox.addWidget(version_label)
         status_vbox.addWidget(defs_label)
         status_vbox.addStretch()
+        
         main_area.addLayout(status_vbox, 3)
         layout.addLayout(main_area)
-        self.log_outputs.append(None) # No log output on status page
+        
+        self.log_outputs.append(None)
         return page
 
     def create_task_page(self, title_text, task_name):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
+        header_layout = QHBoxLayout()
         title = QLabel(title_text)
         title.setObjectName("page_title")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+        
+        button_container = QHBoxLayout()
         button = QPushButton(f"Run {title_text}")
         button.setObjectName("action_button")
         button.clicked.connect(lambda: self.start_worker(task_name))
-        layout.addWidget(button)
+        button_container.addWidget(button)
+        button_container.addStretch()
+        layout.addLayout(button_container)
+        
+        progress_bar = QProgressBar()
+        progress_bar.setVisible(False)
+        progress_bar.setMaximumHeight(8)
+        layout.addWidget(progress_bar)
+        
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)  # Make read-only to prevent user input
+        log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
-        layout.addStretch()
         return page
 
     def create_analysis_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
         title = QLabel("Deep File Analysis")
         title.setObjectName("page_title")
         layout.addWidget(title)
+        
         warning_box = QGroupBox("Recommended Workflow")
         warning_layout = QVBoxLayout(warning_box)
         warning_text = QLabel(
@@ -17338,39 +17654,49 @@ class AntivirusApp(QWidget):
         warning_text.setObjectName("warning_text")
         warning_layout.addWidget(warning_text)
         layout.addWidget(warning_box)
-        # First row of buttons
+        
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+        
         analyze_btn = QPushButton("Analyze File...")
         analyze_btn.setObjectName("action_button")
         analyze_btn.clicked.connect(self.analyze_file)
+        
         stop_btn = QPushButton("Stop Analysis")
         stop_btn.setObjectName("action_button_danger")
         stop_btn.clicked.connect(self.stop_analysis)
+        
         button_layout.addWidget(analyze_btn)
         button_layout.addWidget(stop_btn)
+        button_layout.addStretch()
         layout.addLayout(button_layout)
-        # Second row of buttons
+        
         control_layout = QHBoxLayout()
         sandboxie_control_btn = QPushButton("Open Sandboxie Control")
         sandboxie_control_btn.setObjectName("action_button")
         sandboxie_control_btn.clicked.connect(self.open_sandboxie_control)
         control_layout.addWidget(sandboxie_control_btn)
-        control_layout.addStretch()  # Push button to the left
+        control_layout.addStretch()
         layout.addLayout(control_layout)
+        
         log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
         return page
 
     def create_hayabusa_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
         title = QLabel("Hayabusa Event Log Analysis")
         title.setObjectName("page_title")
         layout.addWidget(title)
+        
         info_box = QGroupBox("About Hayabusa")
         info_layout = QVBoxLayout(info_box)
         info_text = QLabel(
@@ -17381,56 +17707,75 @@ class AntivirusApp(QWidget):
         info_text.setObjectName("warning_text")
         info_layout.addWidget(info_text)
         layout.addWidget(info_box)
+        
         update_rules_btn = QPushButton("Update Hayabusa Rules Database")
         update_rules_btn.setObjectName("action_button")
         update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
         layout.addWidget(update_rules_btn)
+        
         timeline_layout = QHBoxLayout()
+        timeline_layout.setSpacing(15)
+        
         csv_timeline_btn = QPushButton("Generate CSV Timeline")
         csv_timeline_btn.setObjectName("action_button")
         csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
+        
         json_timeline_btn = QPushButton("Generate JSON Timeline")
         json_timeline_btn.setObjectName("action_button")
         json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
+        
         timeline_layout.addWidget(csv_timeline_btn)
         timeline_layout.addWidget(json_timeline_btn)
+        timeline_layout.addStretch()
         layout.addLayout(timeline_layout)
+        
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
+        self.search_input.setMinimumHeight(42)
+        
         search_btn = QPushButton("Search Events")
         search_btn.setObjectName("action_button")
         search_btn.clicked.connect(self.perform_hayabusa_search)
-        search_layout.addWidget(self.search_input)
+        
+        search_layout.addWidget(self.search_input, 1)
         search_layout.addWidget(search_btn)
         layout.addLayout(search_layout)
+        
         analysis_layout = QHBoxLayout()
+        analysis_layout.setSpacing(15)
+        
         logon_summary_btn = QPushButton("Logon Summary")
         logon_summary_btn.setObjectName("action_button")
         logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
+        
         metrics_btn = QPushButton("System Metrics")
         metrics_btn.setObjectName("action_button")
         metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
+        
         analysis_layout.addWidget(logon_summary_btn)
         analysis_layout.addWidget(metrics_btn)
+        analysis_layout.addStretch()
         layout.addLayout(analysis_layout)
+        
         log_output = QTextEdit("Hayabusa analysis results will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
         return page
 
     def create_generate_whitelist_db_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
 
         title = QLabel("Generate Whitelist DB")
         title.setObjectName("page_title")
         layout.addWidget(title)
 
-        # Main Generate Whitelist DB button
         generate_button = QPushButton("Run Generate Whitelist DB (Recommended)")
         generate_button.setObjectName("action_button")
         generate_button.clicked.connect(lambda: self.start_worker("generate_whitelist_db"))
@@ -17440,62 +17785,76 @@ class AntivirusApp(QWidget):
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
-
-        layout.addStretch()
         return page
 
     def create_cleanup_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
         title = QLabel("System Cleanup & Reset")
         title.setObjectName("page_title")
         layout.addWidget(title)
+        
         cleanup_button = QPushButton("Perform Full Environment Cleanup")
         cleanup_button.setObjectName("action_button_danger")
         cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
         layout.addWidget(cleanup_button)
+        
         log_output = QTextEdit("Cleanup process logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
-        layout.addStretch()
         return page
 
     def create_about_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
+        layout.setSpacing(25)
+        
         title = QLabel("About HydraDragon")
         title.setObjectName("page_title")
         layout.addWidget(title)
+        
         about_text = QLabel(
             "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
             "It provides a sandboxed environment to safely analyze potential threats."
         )
         about_text.setWordWrap(True)
         layout.addWidget(about_text)
+        
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setSpacing(15)
+        
         llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
         llama_load_button.setObjectName("action_button")
         llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
-        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+        buttons_layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
         github_button = QPushButton("View Project on GitHub")
         github_button.setObjectName("action_button")
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
-        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+        buttons_layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
         llama_release_button = QPushButton("View Meta Llama Release")
         llama_release_button.setObjectName("action_button")
         llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
-        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+        buttons_layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        layout.addLayout(buttons_layout)
+        
         log_output = QTextEdit("Llama AI model status will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
+        
         self.log_outputs.append(log_output)
-        layout.addStretch()
         return page
 
     def create_main_content(self):
@@ -17516,33 +17875,56 @@ class AntivirusApp(QWidget):
         sidebar_frame = QFrame()
         sidebar_frame.setObjectName("sidebar")
         sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(15)
+        sidebar_layout.setContentsMargins(15, 25, 15, 25)
+        sidebar_layout.setSpacing(8)
+        
         logo_area = QHBoxLayout()
+        logo_area.setSpacing(12)
+        
         icon_widget = HydraIconWidget()
-        icon_widget.setFixedSize(30, 30)
+        icon_widget.setFixedSize(36, 36)
+        
         logo_label = QLabel("HYDRA")
         logo_label.setObjectName("logo")
+        
         logo_area.addWidget(icon_widget)
         logo_area.addWidget(logo_label)
+        logo_area.addStretch()
+        
         sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(20)
+        sidebar_layout.addSpacing(30)
+        
         nav_buttons = [
-            "Status", "Update ClamAV Definitions", "Generate Clean DB",
-            "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About And Load AI"
+            ("🏠", "Status"),
+            ("🔄", "Update ClamAV"),
+            ("🗃️", "Generate Clean DB"),
+            ("🔍", "Analyze File"),
+            ("📋", "Capture Logs"),
+            ("🤖", "Compare Logs"),
+            ("🛡️", "Rootkit Scan"),
+            ("📊", "Hayabusa Analysis"),
+            ("🧹", "Cleanup"),
+            ("ℹ️", "About & AI")
         ]
+        
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        for i, name in enumerate(nav_buttons):
-            button = QPushButton(name)
+        
+        for i, (icon, name) in enumerate(nav_buttons):
+            button_layout = QHBoxLayout()
+            button_layout.setSpacing(10)
+            
+            button = QPushButton(f"{icon}  {name}")
             button.setCheckable(True)
             button.setObjectName("nav_button")
             button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            
             sidebar_layout.addWidget(button)
             self.nav_group.addButton(button, i)
+        
         self.nav_group.button(0).setChecked(True)
         sidebar_layout.addStretch()
+        
         return sidebar_frame
 
     def setup_ui(self):
@@ -17550,12 +17932,15 @@ class AntivirusApp(QWidget):
             self.setWindowIcon(QIcon(icon_path))
         else:
             logger.error(f"Icon file not found at: {icon_path}")
+        
         self.setWindowTitle(WINDOW_TITLE)
-        self.setMinimumSize(1024, 768)
-        self.resize(1200, 800)
+        self.setMinimumSize(1100, 800)
+        self.resize(1400, 900)
+        
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        
         main_layout.addWidget(self.create_sidebar())
         main_layout.addWidget(self.create_main_content(), 1)
 

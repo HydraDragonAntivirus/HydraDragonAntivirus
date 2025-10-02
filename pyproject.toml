@@ -51,6 +51,7 @@ dependencies = [
     "nltk",
     "flare-capa",
     "oletools",
+    "logly",
     "unipacker",
 
     # Pylingual reverse-engineering dependencies
