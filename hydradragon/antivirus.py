@@ -4313,7 +4313,6 @@ def extract_with_unipacker(file_path):
 
         # Start emulation in a separate thread
         emu_thread = threading.Thread(target=engine.emu)
-        emu_thread.daemon = True
         emu_thread.start()
 
         # Wait for emulation to complete or timeout
@@ -11877,7 +11876,7 @@ class ScanFlags:
 
 def run_scan_thread(dest: str, scan_flags: ScanFlags):
     """Start a scan_and_warn thread with flags packed in ScanFlags."""
-    threading.Thread(target=scan_and_warn, args=(dest, scan_flags), daemon=True).start()
+    threading.Thread(target=scan_and_warn, args=(dest, scan_flags)).start()
 
 # --- Main Scanning Function ---
 @run_in_thread
@@ -12738,13 +12737,11 @@ def scan_and_warn(file_path,
                         # Thread 1: scan_and_warn (capture extracted_path to avoid late-binding)
                         threading.Thread(
                             target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p),
-                            daemon=True
                         ).start()
 
                         # Thread 2: scan_code_for_links with ole2_flag =True
                         threading.Thread(
                             target=lambda p=extracted_path: _thread_wrapper(scan_code_for_links, p, ole2_flag=True),
-                            daemon=True
                         ).start()
 
                     else:
