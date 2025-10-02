@@ -11867,6 +11867,593 @@ def run_themida_unlicense(file_path, x64=False):
         logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
         return None
 
+
+class VBADeobfuscator:
+    """
+    Advanced VBA deobfuscator for common obfuscation techniques.
+    """
+    
+    def __init__(self):
+        self.decoded_strings = []
+        
+    def deobfuscate(self, vba_code: str) -> Tuple[str, List[Dict]]:
+        """
+        Deobfuscate VBA code using multiple techniques.
+        
+        Args:
+            vba_code: Raw VBA source code
+            
+        Returns:
+            Tuple of (deobfuscated_code, list_of_decoded_strings)
+        """
+        self.decoded_strings = []
+        deobfuscated = vba_code
+        
+        # Apply deobfuscation techniques in order
+        deobfuscated = self._decode_hex_strings(deobfuscated)
+        deobfuscated = self._decode_base64_strings(deobfuscated)
+        deobfuscated = self._decode_chr_sequences(deobfuscated)
+        deobfuscated = self._decode_strreverse(deobfuscated)
+        deobfuscated = self._decode_concatenations(deobfuscated)
+        deobfuscated = self._decode_split_strings(deobfuscated)
+        deobfuscated = self._decode_replace_functions(deobfuscated)
+        deobfuscated = self._decode_ascii_codes(deobfuscated)
+        deobfuscated = self._decode_dridex(deobfuscated)
+        
+        return deobfuscated, self.decoded_strings
+    
+    def _decode_hex_strings(self, code: str) -> str:
+        """Decode hex-encoded strings like &H41&H42&H43."""
+        pattern = r'(?:&H[0-9A-Fa-f]{2})+(?:&H[0-9A-Fa-f]{2})*'
+        
+        def replace_hex(match):
+            hex_str = match.group(0)
+            hex_values = re.findall(r'&H([0-9A-Fa-f]{2})', hex_str)
+            try:
+                decoded = ''.join(chr(int(h, 16)) for h in hex_values)
+                if decoded.isprintable():
+                    self.decoded_strings.append({
+                        'type': 'Hex',
+                        'encoded': hex_str,
+                        'decoded': decoded
+                    })
+                    return f'"{decoded}"'
+            except:
+                pass
+            return hex_str
+        
+        return re.sub(pattern, replace_hex, code)
+    
+    def _decode_base64_strings(self, code: str) -> str:
+        """Decode Base64 encoded strings."""
+        # Look for potential Base64 strings (at least 20 chars, ends with = or not)
+        pattern = r'"([A-Za-z0-9+/]{20,}={0,2})"'
+        
+        def replace_base64(match):
+            b64_str = match.group(1)
+            try:
+                decoded = base64.b64decode(b64_str).decode('utf-8', errors='ignore')
+                if len(decoded) > 3 and decoded.isprintable():
+                    self.decoded_strings.append({
+                        'type': 'Base64',
+                        'encoded': b64_str,
+                        'decoded': decoded
+                    })
+                    return f'"{decoded}"'
+            except:
+                pass
+            return match.group(0)
+        
+        return re.sub(pattern, replace_base64, code)
+    
+    def _decode_chr_sequences(self, code: str) -> str:
+        """Decode Chr() function sequences like Chr(65) & Chr(66) & Chr(67)."""
+        pattern = r'Chr[W$]?\s*\(\s*(\d+)\s*\)'
+        
+        def replace_chr(match):
+            char_code = int(match.group(1))
+            try:
+                if 0 <= char_code <= 255:
+                    char = chr(char_code)
+                    return f'"{char}"'
+            except:
+                pass
+            return match.group(0)
+        
+        # Replace individual Chr calls
+        result = re.sub(pattern, replace_chr, code, flags=re.IGNORECASE)
+        
+        # Now collapse concatenated strings
+        result = self._collapse_string_concatenations(result)
+        
+        return result
+    
+    def _decode_strreverse(self, code: str) -> str:
+        """Decode StrReverse function calls."""
+        pattern = r'StrReverse\s*\(\s*"([^"]+)"\s*\)'
+        
+        def replace_strreverse(match):
+            original = match.group(1)
+            reversed_str = original[::-1]
+            self.decoded_strings.append({
+                'type': 'StrReverse',
+                'encoded': original,
+                'decoded': reversed_str
+            })
+            return f'"{reversed_str}"'
+        
+        return re.sub(pattern, replace_strreverse, code, flags=re.IGNORECASE)
+    
+    def _decode_concatenations(self, code: str) -> str:
+        """Decode simple string concatenations."""
+        # Pattern for "str1" & "str2" or "str1" + "str2"
+        pattern = r'"([^"]*)"[\s]*[&+][\s]*"([^"]*)"'
+        
+        def replace_concat(match):
+            return f'"{match.group(1)}{match.group(2)}"'
+        
+        # Keep replacing until no more matches
+        prev = ""
+        while prev != code:
+            prev = code
+            code = re.sub(pattern, replace_concat, code)
+        
+        return code
+    
+    def _collapse_string_concatenations(self, code: str) -> str:
+        """Collapse multiple concatenated strings into one."""
+        pattern = r'"([^"]*)"[\s]*[&+][\s]*"([^"]*)"'
+        
+        prev = ""
+        while prev != code:
+            prev = code
+            code = re.sub(pattern, r'"\1\2"', code)
+        
+        return code
+    
+    def _decode_split_strings(self, code: str) -> str:
+        """Decode Split() function usage for obfuscation."""
+        pattern = r'Split\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)'
+        
+        def replace_split(match):
+            string = match.group(1)
+            delimiter = match.group(2)
+            # Just show what it would produce
+            parts = string.split(delimiter)
+            if len(parts) > 1:
+                self.decoded_strings.append({
+                    'type': 'Split',
+                    'encoded': f'Split("{string}", "{delimiter}")',
+                    'decoded': str(parts)
+                })
+        
+        re.sub(pattern, replace_split, code, flags=re.IGNORECASE)
+        return code
+    
+    def _decode_replace_functions(self, code: str) -> str:
+        """Decode Replace() function calls."""
+        pattern = r'Replace\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]*)"\s*\)'
+        
+        def replace_func(match):
+            original = match.group(1)
+            find = match.group(2)
+            replace_with = match.group(3)
+            result = original.replace(find, replace_with)
+            self.decoded_strings.append({
+                'type': 'Replace',
+                'encoded': f'Replace("{original}", "{find}", "{replace_with}")',
+                'decoded': result
+            })
+            return f'"{result}"'
+        
+        return re.sub(pattern, replace_func, code, flags=re.IGNORECASE)
+    
+    def _decode_ascii_codes(self, code: str) -> str:
+        """Decode arrays of ASCII codes like Array(65, 66, 67)."""
+        pattern = r'Array\s*\(\s*((?:\d+\s*,\s*)*\d+)\s*\)'
+        
+        def replace_array(match):
+            numbers = [int(n.strip()) for n in match.group(1).split(',')]
+            try:
+                decoded = ''.join(chr(n) for n in numbers if 0 <= n <= 255)
+                if decoded.isprintable():
+                    self.decoded_strings.append({
+                        'type': 'ASCII Array',
+                        'encoded': match.group(0),
+                        'decoded': decoded
+                    })
+                    return f'"{decoded}"'
+            except:
+                pass
+            return match.group(0)
+        
+        return re.sub(pattern, replace_array, code, flags=re.IGNORECASE)
+    
+    def _decode_dridex(self, code: str) -> str:
+        """Decode Dridex-style obfuscation (custom encoding)."""
+        # Dridex often uses custom character substitution
+        # Pattern: look for suspicious character patterns
+        pattern = r'"([^"]{10,})"'
+        
+        def check_dridex(match):
+            encoded = match.group(1)
+            # Check if string looks obfuscated (high entropy, unusual chars)
+            if self._looks_obfuscated(encoded):
+                # Try common Dridex decoding
+                decoded = self._try_dridex_decode(encoded)
+                if decoded:
+                    self.decoded_strings.append({
+                        'type': 'Dridex',
+                        'encoded': encoded,
+                        'decoded': decoded
+                    })
+                    return f'"{decoded}"'
+            return match.group(0)
+        
+        return re.sub(pattern, check_dridex, code)
+    
+    def _looks_obfuscated(self, s: str) -> bool:
+        """Check if string appears to be obfuscated."""
+        if len(s) < 10:
+            return False
+        
+        # High ratio of non-alphanumeric characters
+        non_alnum = sum(1 for c in s if not c.isalnum())
+        if non_alnum / len(s) > 0.3:
+            return True
+        
+        # Check for repeating patterns
+        if len(set(s)) < len(s) * 0.3:
+            return True
+        
+        return False
+    
+    def _try_dridex_decode(self, s: str) -> Optional[str]:
+        """Attempt Dridex decoding algorithm."""
+        try:
+            # Dridex typically uses XOR with a key
+            # Try common keys
+            for key in [0x42, 0x55, 0x7A, 0xFF]:
+                decoded = ''.join(chr(ord(c) ^ key) for c in s)
+                if decoded.isprintable() and ' ' in decoded:
+                    return decoded
+        except:
+            pass
+        return None
+
+
+class OLE2Handler:
+    """
+    Handler for extracting and processing OLE2/Microsoft Office files
+    including VBA macros, embedded objects, and IOCs.
+    """
+    
+    def __init__(self, script_dir: str):
+        """
+        Initialize the OLE2 handler.
+        
+        Args:
+            script_dir: Base script directory (output will be in script_dir/ole2/)
+        """
+        self.ole2_dir = os.path.join(script_dir, "ole2")
+        os.makedirs(self.ole2_dir, exist_ok=True)
+        self.deobfuscator = VBADeobfuscator()
+        
+    def is_microsoft_compound_file_from_output(self, die_output: str) -> bool:
+        """
+        Check if DIE output indicates a Microsoft Compound File (OLE2).
+        
+        Args:
+            die_output: Output from DIE (Detect It Easy) tool
+            
+        Returns:
+            True if the file is an OLE2/Microsoft Office file
+        """
+        ole_indicators = [
+            'Microsoft Compound File',
+            'OLE',
+            'MS Office',
+            'Word',
+            'Excel',
+            'PowerPoint',
+            '.doc',
+            '.xls',
+            '.ppt',
+            'Composite Document File'
+        ]
+        return any(indicator.lower() in die_output.lower() for indicator in ole_indicators)
+    
+    def run_ole_extractor(self, file_path: str) -> Optional[str]:
+        """
+        Extract VBA macros and other content from OLE2 file.
+        
+        Args:
+            file_path: Path to the OLE2 file to process
+            
+        Returns:
+            Path to directory containing extracted content, or None if extraction failed
+        """
+        try:
+            # Create extraction directory
+            base_name = Path(file_path).stem
+            extract_dir = os.path.join(self.ole2_dir, f"{base_name}_extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            # Parse the file
+            vbaparser = VBA_Parser(file_path)
+            
+            # Get file type
+            file_type = self._get_file_type(vbaparser.type)
+            logger.info(f"Detected file type: {file_type}")
+            
+            # Check for VBA macros
+            has_macros = vbaparser.detect_vba_macros()
+            
+            if has_macros:
+                logger.info(f"VBA Macros detected in {file_path}")
+                
+                # Extract macro source code
+                macro_count = self._extract_macros(vbaparser, extract_dir)
+                logger.info(f"Extracted {macro_count} VBA macro(s)")
+                
+                # Analyze macros for suspicious content
+                self._analyze_and_save_results(vbaparser, extract_dir)
+                
+                # Extract deobfuscated code using oletools
+                self._extract_revealed_code(vbaparser, extract_dir)
+                
+                # Apply custom advanced deobfuscation
+                self._apply_advanced_deobfuscation(extract_dir)
+            else:
+                logger.info(f"No VBA Macros found in {file_path}")
+            
+            # Close parser
+            vbaparser.close()
+            
+            # Return extraction directory if we extracted anything
+            if os.listdir(extract_dir):
+                return extract_dir
+            else:
+                logger.info("No content was extracted")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error extracting OLE2 content from {file_path}: {e}")
+            return None
+    
+    def _get_file_type(self, type_constant) -> str:
+        """Convert type constant to readable string."""
+        type_map = {
+            TYPE_OLE: "OLE (MS Office 97-2003)",
+            TYPE_OpenXML: "OpenXML (MS Office 2007+)",
+            TYPE_Word2003_XML: "Word 2003 XML",
+            TYPE_MHTML: "MHTML"
+        }
+        return type_map.get(type_constant, "Unknown")
+    
+    def _extract_macros(self, vbaparser: VBA_Parser, output_dir: str) -> int:
+        """
+        Extract all VBA macro source code to separate files.
+        
+        Returns:
+            Number of macros extracted
+        """
+        macro_count = 0
+        
+        for (filename, stream_path, vba_filename, vba_code) in vbaparser.extract_macros():
+            macro_count += 1
+            
+            # Create safe filename
+            safe_name = self._sanitize_filename(vba_filename)
+            output_file = os.path.join(output_dir, f"macro_{macro_count}_{safe_name}.vba")
+            
+            # Save macro with metadata
+            with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+                f.write(f"' Source File: {filename}\n")
+                f.write(f"' OLE Stream: {stream_path}\n")
+                f.write(f"' VBA Module: {vba_filename}\n")
+                f.write("'" + "="*70 + "\n\n")
+                f.write(vba_code)
+            
+            logger.info(f"Extracted macro to: {output_file}")
+        
+        return macro_count
+    
+    def _analyze_and_save_results(self, vbaparser: VBA_Parser, output_dir: str):
+        """
+        Analyze macros for suspicious patterns and save results.
+        """
+        try:
+            # Analyze macros (include decoded strings)
+            results = vbaparser.analyze_macros(show_decoded_strings=True)
+            
+            if not results:
+                logger.info("No suspicious patterns found")
+                return
+            
+            # Save analysis results
+            analysis_file = os.path.join(output_dir, "analysis_results.txt")
+            
+            with open(analysis_file, 'w', encoding='utf-8', errors='replace') as f:
+                f.write("VBA MACRO ANALYSIS RESULTS\n")
+                f.write("="*70 + "\n\n")
+                
+                # Group results by type
+                categories = {
+                    'AutoExec': [],
+                    'Suspicious': [],
+                    'IOC': [],
+                    'Hex String': [],
+                    'Base64 String': [],
+                    'Dridex String': [],
+                    'VBA obfuscated Strings': []
+                }
+                
+                for kw_type, keyword, description in results:
+                    if kw_type in categories:
+                        categories[kw_type].append((keyword, description))
+                
+                # Write categorized results
+                for category, items in categories.items():
+                    if items:
+                        f.write(f"\n{category.upper()}\n")
+                        f.write("-"*70 + "\n")
+                        for keyword, description in items:
+                            f.write(f"  Keyword: {keyword}\n")
+                            f.write(f"  Description: {description}\n")
+                            f.write("\n")
+                
+                # Write statistics
+                f.write("\n" + "="*70 + "\n")
+                f.write("STATISTICS\n")
+                f.write("="*70 + "\n")
+                f.write(f"AutoExec keywords: {vbaparser.nb_autoexec}\n")
+                f.write(f"Suspicious keywords: {vbaparser.nb_suspicious}\n")
+                f.write(f"IOCs: {vbaparser.nb_iocs}\n")
+                f.write(f"Hex obfuscated strings: {vbaparser.nb_hexstrings}\n")
+                f.write(f"Base64 obfuscated strings: {vbaparser.nb_base64strings}\n")
+                f.write(f"Dridex obfuscated strings: {vbaparser.nb_dridexstrings}\n")
+                f.write(f"VBA obfuscated strings: {vbaparser.nb_vbastrings}\n")
+            
+            logger.info(f"Analysis results saved to: {analysis_file}")
+            
+            # Log critical findings
+            if vbaparser.nb_autoexec > 0:
+                logger.warning(f"ALERT: {vbaparser.nb_autoexec} auto-executable macro(s) found!")
+            if vbaparser.nb_suspicious > 0:
+                logger.warning(f"ALERT: {vbaparser.nb_suspicious} suspicious keyword(s) found!")
+            if vbaparser.nb_iocs > 0:
+                logger.warning(f"ALERT: {vbaparser.nb_iocs} potential IOC(s) found!")
+                
+        except Exception as e:
+            logger.error(f"Error analyzing macros: {e}")
+    
+    def _extract_revealed_code(self, vbaparser: VBA_Parser, output_dir: str):
+        """
+        Extract deobfuscated macro code with strings revealed (oletools method).
+        """
+        try:
+            revealed_code = vbaparser.reveal()
+            
+            if revealed_code:
+                output_file = os.path.join(output_dir, "deobfuscated_oletools.vba")
+                
+                with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+                    f.write("' DEOBFUSCATED VBA MACRO CODE (oletools)\n")
+                    f.write("' (Obfuscated strings replaced with decoded content)\n")
+                    f.write("'" + "="*70 + "\n\n")
+                    f.write(revealed_code)
+                
+                logger.info(f"Deobfuscated code (oletools) saved to: {output_file}")
+        except Exception as e:
+            logger.error(f"Error extracting revealed code: {e}")
+    
+    def _apply_advanced_deobfuscation(self, output_dir: str):
+        """
+        Apply advanced custom deobfuscation to all extracted macros.
+        """
+        try:
+            # Find all macro files
+            macro_files = [f for f in os.listdir(output_dir) if f.startswith('macro_') and f.endswith('.vba')]
+            
+            if not macro_files:
+                return
+            
+            # Create advanced deobfuscation output file
+            advanced_output = os.path.join(output_dir, "deobfuscated_advanced.vba")
+            decoded_strings_file = os.path.join(output_dir, "decoded_strings.txt")
+            
+            all_decoded = []
+            
+            with open(advanced_output, 'w', encoding='utf-8', errors='replace') as out_f:
+                out_f.write("' ADVANCED DEOBFUSCATED VBA MACRO CODE\n")
+                out_f.write("' (Multiple deobfuscation techniques applied)\n")
+                out_f.write("'" + "="*70 + "\n\n")
+                
+                for macro_file in macro_files:
+                    macro_path = os.path.join(output_dir, macro_file)
+                    
+                    with open(macro_path, 'r', encoding='utf-8', errors='replace') as in_f:
+                        vba_code = in_f.read()
+                    
+                    # Apply deobfuscation
+                    deobfuscated, decoded_strings = self.deobfuscator.deobfuscate(vba_code)
+                    all_decoded.extend(decoded_strings)
+                    
+                    out_f.write(f"\n' {'='*70}\n")
+                    out_f.write(f"' Source: {macro_file}\n")
+                    out_f.write(f"' {'='*70}\n\n")
+                    out_f.write(deobfuscated)
+                    out_f.write("\n\n")
+            
+            logger.info(f"Advanced deobfuscated code saved to: {advanced_output}")
+            
+            # Save decoded strings separately
+            if all_decoded:
+                with open(decoded_strings_file, 'w', encoding='utf-8', errors='replace') as f:
+                    f.write("DECODED STRINGS FROM VBA MACROS\n")
+                    f.write("="*70 + "\n\n")
+                    
+                    for item in all_decoded:
+                        f.write(f"Type: {item['type']}\n")
+                        f.write(f"Encoded: {item['encoded']}\n")
+                        f.write(f"Decoded: {item['decoded']}\n")
+                        f.write("-"*70 + "\n")
+                
+                logger.info(f"Decoded strings saved to: {decoded_strings_file}")
+                logger.info(f"Total decoded strings: {len(all_decoded)}")
+                
+        except Exception as e:
+            logger.error(f"Error in advanced deobfuscation: {e}")
+    
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Create a safe filename by removing invalid characters.
+        """
+        # Remove or replace invalid characters
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, '_')
+        return filename[:100]  # Limit length
+    
+    def extract_iocs(self, analysis_file: str) -> List[Tuple[str, str]]:
+        """
+        Parse analysis results file to extract IOCs.
+        
+        Args:
+            analysis_file: Path to analysis results file
+            
+        Returns:
+            List of tuples (ioc_type, ioc_value)
+        """
+        iocs = []
+        
+        try:
+            with open(analysis_file, 'r', encoding='utf-8', errors='replace') as f:
+                in_ioc_section = False
+                keyword = None
+                
+                for line in f:
+                    if 'IOC' in line and '-'*50 in line:
+                        in_ioc_section = True
+                        continue
+                    
+                    if in_ioc_section:
+                        if line.startswith('\n') or '='*50 in line:
+                            break
+                        
+                        if 'Keyword:' in line:
+                            keyword = line.split('Keyword:', 1)[1].strip()
+                        elif 'Description:' in line and keyword:
+                            description = line.split('Description:', 1)[1].strip()
+                            iocs.append((description, keyword))
+                            keyword = None
+        
+        except Exception as e:
+            logger.error(f"Error extracting IOCs: {e}")
+        
+        return iocs
+
 @dataclass
 class ScanFlags:
     mega_optimization_with_anti_false_positive: bool
@@ -12715,7 +13302,7 @@ def scan_and_warn(file_path,
                         # Thread 2: scan_code_for_links with flag_fernflower
                         threading.Thread(
                             target=lambda: scan_code_for_links(file_path=decompiled_file, fernflower_flag=True)
-                        ).start()   
+                        ).start()
                     else:
                         logger.info("No file returned from FernFlower decompiler.")
             except Exception as e:
@@ -12723,35 +13310,51 @@ def scan_and_warn(file_path,
 
         def ole2_handler_thread():
             """
-            Detect OLE2 from global die_output, run an OLE extractor/processor,
-            then launch two threads:
-            - scan_and_warn on the extracted artifact
-            - scan_code_for_links on the extracted artifact with ole2_flag=True
+            Thread function to handle OLE2 file detection and extraction.
 
-            Replace the placeholder functions below with your real implementations:
-            - is_ole2_from_output
-            - run_ole_extractor
-            - scan_and_warn
-            - scan_code_for_links
+            Args:
+                norm_path: Normalized path to the file
+                die_output: Output from DIE tool
+                script_dir: Base script directory
+                scan_and_warn: Function to scan extracted artifacts for threats
+                scan_code_for_links: Function to scan code for suspicious links
             """
+
+            def _thread_wrapper(func, *args, **kwargs):
+                """Wrapper to catch exceptions in threads."""
+                try:
+                    func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Error in thread executing {func.__name__}: {e}")
+
             try:
-                if is_microsoft_compound_file_from_output(die_output):
-                    # Placeholder: run your OLE extractor/processor which returns a path (file or folder)
-                    extracted_path = run_ole_extractor(norm_path)  # <-- replace with real function
+                handler = OLE2Handler(script_dir)
+
+                if handler.is_microsoft_compound_file_from_output(die_output):
+                    logger.info(f"OLE2/Microsoft Office file detected: {norm_path}")
+
+                    # Extract VBA macros and content
+                    extracted_path = handler.run_ole_extractor(norm_path)
 
                     if extracted_path:
-                        # Thread 1: scan_and_warn (capture extracted_path to avoid late-binding)
+                        logger.info(f"Extraction completed. Content saved to: {extracted_path}")
+
+                        # Thread 1: Scan extracted artifacts for threats
                         threading.Thread(
                             target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p),
                         ).start()
 
-                        # Thread 2: scan_code_for_links with ole2_flag =True
+                        # Thread 2: Scan code for suspicious links (with OLE2 flag)
                         threading.Thread(
-                            target=lambda p=extracted_path: _thread_wrapper(scan_code_for_links, p, ole2_flag=True),
+                            target=lambda p=extracted_path: _thread_wrapper(
+                                scan_code_for_links, p, ole2_flag=True
+                            ),
                         ).start()
 
+                        logger.info("Spawned analysis threads for extracted content")
                     else:
-                        logger.info("No extracted artifact returned from OLE extractor.")
+                        logger.info("No content extracted from OLE2 file")
+
             except Exception as e:
                 logger.error(f"Error in OLE2 handling for {norm_path}: {e}")
 
