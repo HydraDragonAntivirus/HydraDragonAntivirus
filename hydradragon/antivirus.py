@@ -4245,9 +4245,9 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
         subprocess.run(
             [
                 hydra_dragon_dumper_path,
-                "-pid",
+                "--pid",
                 pid,
-                "-o",
+                "--output",
                 output_dir
             ],
             check=True
