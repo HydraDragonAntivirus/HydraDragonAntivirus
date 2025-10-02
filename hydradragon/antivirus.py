@@ -9889,7 +9889,6 @@ def process_decompiled_code(output_file):
             if unpacked_files:
                 for extracted_file in unpacked_files:
                     # Schedule scanning and further decompiled code processing
-                    threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
                     threading.Thread(target=process_decompiled_code, args=(extracted_file,)).start()
             else:
                 logger.warning(f"[*] No files extracted from PyArmor v7 file: {output_file}")
