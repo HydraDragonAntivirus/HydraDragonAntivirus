@@ -489,6 +489,7 @@ un_confuser_ex_extracted_dir = os.path.join(script_dir, "UnConfuserEx_extracted"
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
+ole2_dir = os.path.join(script_dir, "ole2")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
 FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
@@ -915,7 +916,7 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
     hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
-    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir,
+    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir, ole2_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
     commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, pyarmor7_extracted_dir,
@@ -967,6 +968,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(autohotkey_decompiled_dir), "AutoHotkey script decompiled."),
     (lambda fp: fp.startswith(themida_unpacked_dir), "Themida unpacked."),
     (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
+    (lambda fp: fp.startswith(ole2_dir), "OLE2 extracted."),
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
     (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
     (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
