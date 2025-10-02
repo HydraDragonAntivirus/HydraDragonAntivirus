@@ -1584,12 +1584,19 @@ def is_autoit_file_from_output(die_output):
         return True
     return False
 
-def is_compound_file_from_output(die_output):
+def is_microsoft_compound_file_from_output(die_output):
     """Checks if DIE output indicates a Microsoft Compound file."""
     if die_output and ("Archive: Microsoft Compound" in die_output):
         logger.info("DIE output indicates a Microsoft Compound file.")
         return True
     return False
+
+def _thread_wrapper(func, *args, **kwargs):
+    """Run func(*args, **kwargs) and log any exceptions (safe thread target)."""
+    try:
+        func(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Error in threaded task {func.__name__}: {e}")
 
 def is_jsc_from_output(die_output: str) -> Optional[str]:
     """
@@ -3492,6 +3499,7 @@ def get_signature(base_signature, **flags):
         'jsc_flag': 'JavaScript.ByteCode.v8',
         'javascript_deobfuscated_flag': 'JavaScript',
         'nuitka_flag': 'Nuitka',
+        'ole2_flag': 'OLE2',
         'inno_setup_flag': 'Inno Setup',
         'autohotkey_flag': 'AutoHotkey',
         'nsis_flag': 'NSIS',
@@ -12708,6 +12716,42 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in Java class analysis for {norm_path}: {e}")
 
+        def ole2_handler_thread():
+            """
+            Detect OLE2 from global die_output, run an OLE extractor/processor,
+            then launch two threads:
+            - scan_and_warn on the extracted artifact
+            - scan_code_for_links on the extracted artifact with ole2_flag=True
+
+            Replace the placeholder functions below with your real implementations:
+            - is_ole2_from_output
+            - run_ole_extractor
+            - scan_and_warn
+            - scan_code_for_links
+            """
+            try:
+                if is_microsoft_compound_file_from_output(die_output):
+                    # Placeholder: run your OLE extractor/processor which returns a path (file or folder)
+                    extracted_path = run_ole_extractor(norm_path)  # <-- replace with real function
+
+                    if extracted_path:
+                        # Thread 1: scan_and_warn (capture extracted_path to avoid late-binding)
+                        threading.Thread(
+                            target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p),
+                            daemon=True
+                        ).start()
+
+                        # Thread 2: scan_code_for_links with ole2_flag =True
+                        threading.Thread(
+                            target=lambda p=extracted_path: _thread_wrapper(scan_code_for_links, p, ole2_flag=True),
+                            daemon=True
+                        ).start()
+
+                    else:
+                        logger.info("No extracted artifact returned from OLE extractor.")
+            except Exception as e:
+                logger.error(f"Error in OLE2 handling for {norm_path}: {e}")
+
         def nuitka_thread():
             try:
                 nuitka_type = is_nuitka_file_from_output(die_output)
@@ -12741,6 +12785,7 @@ def scan_and_warn(file_path,
             threading.Thread(target=dotnet_confuserex_thread),
             threading.Thread(target=jar_analysis_thread),
             threading.Thread(target=java_class_thread),
+            threading.Thread(target=ole2_handler_thread),
             threading.Thread(target=nuitka_thread),
             threading.Thread(target=pyinstaller_thread)
         ]
