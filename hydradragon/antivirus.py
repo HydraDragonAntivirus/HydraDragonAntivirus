@@ -10226,9 +10226,11 @@ def extract_npm_file(file_path):
 def extract_asar_file(file_path):
     """
     Extracts an Electron .asar archive using the 'asar' npm CLI
-    and scans all extracted files for URLs, IPs, domains, and Discord webhooks.
+    and scans all extracted files for URLs, IPs, domains, and Discord webhooks
+    in separate threads.
 
     :param file_path: Path to the .asar file
+    :return: Path to the extracted folder or None if extraction failed
     """
     try:
         logger.info(f"Detected Asar archive: {file_path}")
@@ -10250,27 +10252,25 @@ def extract_asar_file(file_path):
         subprocess.run(asar_command, check=True)
         logger.info(f"Asar archive extracted to {asar_output_dir}")
 
-        # Scan all extracted files
+        # Scan all extracted files in separate threads
         for root, _, files in os.walk(asar_output_dir):
             for file in files:
                 file_path_full = os.path.join(root, file)
                 logger.info(f"Scanning file: {file_path_full}")
 
-                try:
-                    # Read the file content (skip binary decoding errors)
-                    with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
+                # Run scan_code_for_links in a thread
+                threading.Thread(
+                    target=lambda fp=file_path_full: scan_code_for_links(fp, asar_flag=True)
+                ).start()
 
-                    # Scan for links, IPs, domains, Discord webhooks
-                    scan_code_for_links(content, file_path_full, asar_flag=True)
-
-                except Exception as ex:
-                    logger.error(f"Error scanning file {file_path_full}: {ex}")
+        return asar_output_dir  # Return the extracted folder path
 
     except subprocess.CalledProcessError as ex:
         logger.error(f"asar extraction failed for {file_path}: {ex}")
+        return None
     except Exception as ex:
         logger.error(f"Error processing Asar file {file_path}: {ex}")
+        return None
 
 def deobfuscate_webcrack_js(file_path) -> str:
     """
