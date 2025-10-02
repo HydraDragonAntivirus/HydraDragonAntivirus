@@ -363,6 +363,10 @@ from nltk.tokenize import word_tokenize
 logger.debug(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
+logger.debug(f"oletools.olevba.VBA_Parser , TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from unipacker.core import Sample, UnpackerEngine, SimpleClient
 logger.debug(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
 
