@@ -11249,7 +11249,7 @@ def run_jar_extractor(file_path, flag_fernflower):
         for f in extracted_file_paths:
             if f.endswith(".java"):
                 try:
-                    scan_code_for_links(decompiled_code=f, file_path=f)
+                    scan_code_for_links(decompiled_code=f, file_path=f, fernflower_flag=True)
                 except Exception as e:
                     logger.error(f"Failed to scan {f}: {e}")
 
