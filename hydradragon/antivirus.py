@@ -11854,6 +11854,23 @@ def run_themida_unlicense(file_path, x64=False):
         logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
         return None
 
+@dataclass
+class ScanFlags:
+    mega_optimization_with_anti_false_positive: bool
+    command_flag: bool
+    flag_debloat: bool
+    flag_obfuscar: bool
+    flag_de4dot: bool
+    flag_fernflower: bool
+    nsis_flag: bool
+    ntdll_dropped: bool
+    flag_confuserex: bool
+    flag_vmprotect: bool
+
+def run_scan_thread(dest: str, scan_flags: ScanFlags):
+    """Start a scan_and_warn thread with flags packed in ScanFlags."""
+    threading.Thread(target=scan_and_warn, args=(dest, scan_flags), daemon=True).start()
+
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -11927,38 +11944,41 @@ def scan_and_warn(file_path,
         normalized_sandbox = os.path.abspath(sandboxie_folder).lower()
         normalized_de4dot = os.path.abspath(de4dot_sandboxie_dir).lower()
 
+        # Create one flags object up front
+        scan_flags = ScanFlags(
+            mega_optimization_with_anti_false_positive,
+            command_flag,
+            flag_debloat,
+            flag_obfuscar,
+            flag_de4dot,
+            flag_fernflower,
+            nsis_flag,
+            ntdll_dropped,
+            flag_confuserex,
+            flag_vmprotect
+        )
+
         # --- Route files based on origin folder ---
         if normalized_path.startswith(normalized_de4dot):
             perform_special_scan = True
-            # Copy from de4dot sandbox to extracted directory and rescan
             dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
             if dest is not None:
-                threading.Thread(target=scan_and_warn, args=(dest,
-                                mega_optimization_with_anti_false_positive,
-                                command_flag, flag_debloat, flag_obfuscar,
-                                flag_de4dot, flag_fernflower, nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
+                run_scan_thread(dest, scan_flags)
+
         elif normalized_path.startswith(normalized_sandbox):
             # Check if this is a dropped ntdll.dll in the sandbox
             if normalized_path == sandboxed_ntdll_path:
-                ntdll_dropped = True
+                scan_flags.ntdll_dropped = True  # update in dataclass
                 logger.critical(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
-                # Optionally force a special scan for this file
                 perform_special_scan = True
-                # You may choose a specific dir for ntdll analysis, or reuse existing staging dir
                 dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
                 if dest is not None:
-                    threading.Thread(target=scan_and_warn, args=(dest,
-                        mega_optimization_with_anti_false_positive, command_flag,
-                        flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
-                        nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
+                    run_scan_thread(dest, scan_flags)
 
             perform_special_scan = True
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
-                threading.Thread(target=scan_and_warn, args=(dest,
-                    mega_optimization_with_anti_false_positive, command_flag,
-                    flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
-                    nsis_flag, ntdll_dropped, flag_confuserex, flag_vmprotect)).start()
+                run_scan_thread(dest, scan_flags)
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
