@@ -13,7 +13,6 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 
 import os
 import sys
-import logging
 import json
 import subprocess
 import ctypes
@@ -31,10 +30,7 @@ import win32con
 import win32security
 from notifypy import Notify
 import re
-
-
-# Set script directory
-script_dir = os.getcwd()
+from hydra_logger import logger, script_dir
 
 # Define log directories and files
 log_directory = os.path.join(script_dir, "log")
@@ -52,13 +48,6 @@ application_log_file = os.path.join(
     log_directory, "DONTREMOVEantivirus.log"
 )
 
-# Configure logging for application log
-logging.basicConfig(
-    filename=application_log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-)
-
 # Redirect stdout to stdout console log
 sys.stdout = open(
     stdout_console_log_file, "w", encoding="utf-8", errors="ignore"
@@ -70,7 +59,7 @@ sys.stderr = open(
 )
 
 # Logging for application initialization
-logging.info(
+logger.info(
     "Application started at %s",
     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 )
@@ -89,9 +78,9 @@ try:
         with open(ANTIVIRUS_PROCESS_LIST_PATH, 'r', encoding='utf-8', errors='ignore') as av_file:
             antivirus_process_list = [line.strip() for line in av_file if line.strip()]
 except Exception as ex:
-    logging.info(f"Error reading {ANTIVIRUS_PROCESS_LIST_PATH}: {ex}")
+    logger.info(f"Error reading {ANTIVIRUS_PROCESS_LIST_PATH}: {ex}")
 
-logging.info(f"Antivirus process list read from {ANTIVIRUS_PROCESS_LIST_PATH}: {antivirus_process_list}")
+logger.info(f"Antivirus process list read from {ANTIVIRUS_PROCESS_LIST_PATH}: {antivirus_process_list}")
 
 
 SYSTEM_DIRS      = [
@@ -117,9 +106,9 @@ def notify_user_for_rootkit(file_path, virus_name):
         notification_message = f"Suspicious rootkit behaviour detected in: {file_path}\nVirus: {virus_name}"
         notification.message = notification_message
         notification.send()
-        logging.error(notification_message) # Also log it as an error for record-keeping
+        logger.error(notification_message) # Also log it as an error for record-keeping
     except Exception as e:
-        logging.error(f"Failed to send notification: {e}")
+        logger.error(f"Failed to send notification: {e}")
 
 # ========== WinVerifyTrust SETUP ==========
 class GUID(ctypes.Structure):
@@ -213,7 +202,7 @@ def check_valid_signature(file_path: str) -> dict:
         status = "Valid" if is_valid else "Invalid or no signature"
         return {"is_valid": is_valid, "status": status}
     except Exception as ex:
-        logging.error(f"[Signature] {file_path}: {ex}")
+        logger.error(f"[Signature] {file_path}: {ex}")
         return {"is_valid": False, "status": str(ex)}
 
 def analyze_file_with_die(file_path: str, die_path: Path, die_output_dir: Path) -> str:
@@ -231,10 +220,10 @@ def analyze_file_with_die(file_path: str, die_path: Path, die_output_dir: Path) 
         )
         with open(outpath, "w", encoding="utf-8", errors="ignore") as f:
             f.write(result.stdout)
-        logging.info(f"[DIE] {file_path} → {outpath}")
+        logger.info(f"[DIE] {file_path} → {outpath}")
         return result.stdout
     except Exception as ex:
-        logging.error(f"[DIE] error for {file_path}: {ex}")
+        logger.error(f"[DIE] error for {file_path}: {ex}")
         return ""
 
 def is_pe_file_from_output(die_output: str) -> bool:
@@ -257,7 +246,7 @@ def pe_heuristic_analysis(path: str) -> dict:
         imports = [imp.dll.decode(errors='ignore') for imp in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])]
         return {"entropy": entropy_list, "imports": imports}
     except Exception as ex:
-        logging.debug(f"[PE] {path}: {ex}")
+        logger.debug(f"[PE] {path}: {ex}")
         return {}
 
 # ========== SCANNING FUNCTIONS ==========
@@ -293,7 +282,7 @@ def process_file(fp: Path) -> dict:
         })
         return rec
     except Exception as ex:
-        logging.error(f"[File] error for {fp}: {ex}")
+        logger.error(f"[File] error for {fp}: {ex}")
         return {"path": str(fp), "error": str(ex)}
 
 def scan_files_parallel() -> list[dict]:
@@ -302,7 +291,7 @@ def scan_files_parallel() -> list[dict]:
     for dir_path in SYSTEM_DIRS:
         root = Path(dir_path)
         if not root.exists():
-            logging.warning(f"[Scan] Dir not found: {dir_path}")
+            logger.warning(f"[Scan] Dir not found: {dir_path}")
             continue
         for fp in root.rglob("*"):
             if fp.is_file():
@@ -342,7 +331,7 @@ def process_driver(svc) -> dict:
             "pe_heuristics": heur
         }
     except Exception as ex:
-        logging.error(f"[Driver] error for {path}: {ex}")
+        logger.error(f"[Driver] error for {path}: {ex}")
         return {"path": path, "error": str(ex)}
 
 def scan_drivers_parallel() -> list[dict]:
@@ -351,7 +340,7 @@ def scan_drivers_parallel() -> list[dict]:
         c = wmi.WMI()
         svcs = list(c.Win32_SystemDriver())
     except Exception as ex:
-        logging.error(f"[Drivers] WMI query failed: {ex}")
+        logger.error(f"[Drivers] WMI query failed: {ex}")
         return findings
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_svc = {executor.submit(process_driver, svc): svc for svc in svcs}
@@ -382,7 +371,7 @@ def analyze_process(pinfo: dict) -> dict:
             "die_output_snippet": die_out[:500], "pe_heuristics": heur
         }
     except Exception as ex:
-        logging.error(f"[Process] error for {exe}: {ex}")
+        logger.error(f"[Process] error for {exe}: {ex}")
         return {"pid": pinfo.get('pid'), "exe": exe, "error": str(ex)}
 
 def scan_processes_parallel() -> dict:
@@ -587,7 +576,7 @@ def scan_ifeo_antivirus_blocking() -> list[dict]:
                                     })
                                     
                         except Exception as e:
-                            logging.debug(f"Error checking IFEO subkey {exe_name}: {e}")
+                            logger.debug(f"Error checking IFEO subkey {exe_name}: {e}")
                     
                     i += 1
                 except OSError:
@@ -595,7 +584,7 @@ def scan_ifeo_antivirus_blocking() -> list[dict]:
                     break
                     
     except Exception as e:
-        logging.error(f"Error scanning IFEO registry: {e}")
+        logger.error(f"Error scanning IFEO registry: {e}")
     
     return findings
 
@@ -663,7 +652,7 @@ def scan_registry_for_network_indicators() -> list[dict]:
         except (PermissionError, FileNotFoundError):
             pass # Skip keys we can't access
         except Exception as e:
-            logging.debug(f"Error scanning registry key {full_key_path}: {e}")
+            logger.debug(f"Error scanning registry key {full_key_path}: {e}")
 
     # List of root keys to start scanning from
     root_keys_to_scan = [
@@ -673,10 +662,10 @@ def scan_registry_for_network_indicators() -> list[dict]:
         (winreg.HKEY_CLASSES_ROOT, "HKEY_CLASSES_ROOT"),
     ]
 
-    logging.info("Starting full registry scan for network indicators...")
+    logger.info("Starting full registry scan for network indicators...")
     for hkey, hkey_name in root_keys_to_scan:
         _scan_key(hkey, "", hkey_name)
-    logging.info(f"Finished full registry scan. Found {len(findings)} indicators.")
+    logger.info(f"Finished full registry scan. Found {len(findings)} indicators.")
     
     return findings
 
@@ -715,7 +704,7 @@ class TimingBasedDetection:
                         'suspicion': 'High timing variance - possible hooking'
                     })
             except Exception as e:
-                logging.debug(f"Timing test failed for {api_name}: {e}")
+                logger.debug(f"Timing test failed for {api_name}: {e}")
         return findings
 
 class MemoryAnomalyDetection:
@@ -767,7 +756,7 @@ class MemoryAnomalyDetection:
                     break
                 address = next_addr
         except Exception as e:
-            logging.error(f"Memory scan failed: {e}")
+            logger.error(f"Memory scan failed: {e}")
         return findings
 
 class NetworkAnomalyDetection:
@@ -797,7 +786,7 @@ class NetworkAnomalyDetection:
                     'connections': list(hidden_connections)
                 })
         except Exception as e:
-            logging.error(f"Network detection failed: {e}")
+            logger.error(f"Network detection failed: {e}")
         return findings
 
 class FileSystemAnomalyDetection:
@@ -825,7 +814,7 @@ class FileSystemAnomalyDetection:
                         'suspicion': 'File size mismatch - possible redirection'
                     })
             except Exception as e:
-                logging.debug(f"File redirection test failed for {file_path}: {e}")
+                logger.debug(f"File redirection test failed for {file_path}: {e}")
         return findings
 
     @staticmethod
@@ -858,7 +847,7 @@ class FileSystemAnomalyDetection:
                             continue
                     break
             except Exception as e:
-                logging.debug(f"ADS scan failed for {dir_path}: {e}")
+                logger.debug(f"ADS scan failed for {dir_path}: {e}")
         return findings
 
 class RegistryAnomalyDetection:
@@ -883,7 +872,7 @@ class RegistryAnomalyDetection:
                             'suspicion': 'Recently modified critical registry key'
                         })
             except Exception as e:
-                logging.debug(f"Registry timestamp check failed for {key_path}: {e}")
+                logger.debug(f"Registry timestamp check failed for {key_path}: {e}")
         return findings
 
 class BootKitDetection:
@@ -909,7 +898,7 @@ class BootKitDetection:
                             'pattern': pattern
                         })
         except Exception as e:
-            logging.debug(f"Boot configuration check failed: {e}")
+            logger.debug(f"Boot configuration check failed: {e}")
         return findings
 
 def run_enhanced_detection():
@@ -922,7 +911,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit(finding.get('api', 'N/A'), finding.get('detection_name', 'UnknownTiming'))
         results['timing_anomalies'] = timing_anomalies
     except Exception as e:
-        logging.error(f"Timing detection failed: {e}")
+        logger.error(f"Timing detection failed: {e}")
 
     try:
         memory_anomalies = MemoryAnomalyDetection.scan_memory_regions()
@@ -930,7 +919,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit(finding.get('base_address', 'N/A'), finding.get('detection_name', 'UnknownMemory'))
         results['memory_anomalies'] = memory_anomalies
     except Exception as e:
-        logging.error(f"Memory detection failed: {e}")
+        logger.error(f"Memory detection failed: {e}")
 
     try:
         network_anomalies = NetworkAnomalyDetection.detect_hidden_network_connections()
@@ -938,7 +927,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit('System Network State', finding.get('detection_name', 'UnknownNetwork'))
         results['network_anomalies'] = network_anomalies
     except Exception as e:
-        logging.error(f"Network detection failed: {e}")
+        logger.error(f"Network detection failed: {e}")
 
     try:
         file_redirection = FileSystemAnomalyDetection.detect_file_redirection()
@@ -951,7 +940,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit(finding.get('file', 'N/A'), finding.get('detection_name', 'UnknownADS'))
         results['ads_streams'] = ads_streams
     except Exception as e:
-        logging.error(f"Filesystem detection failed: {e}")
+        logger.error(f"Filesystem detection failed: {e}")
 
     try:
         registry_timestamp_anomalies = RegistryAnomalyDetection.detect_registry_timestamp_anomalies()
@@ -959,7 +948,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit(finding.get('key', 'N/A'), finding.get('detection_name', 'UnknownRegistryTimestamp'))
         results['registry_timestamp_anomalies'] = registry_timestamp_anomalies
     except Exception as e:
-        logging.error(f"Registry detection failed: {e}")
+        logger.error(f"Registry detection failed: {e}")
 
     try:
         boot_anomalies = BootKitDetection.check_boot_configuration()
@@ -967,7 +956,7 @@ def run_enhanced_detection():
             notify_user_for_rootkit(finding.get('pattern', 'N/A'), finding.get('detection_name', 'UnknownBoot'))
         results['boot_anomalies'] = boot_anomalies
     except Exception as e:
-        logging.error(f"Boot detection failed: {e}")
+        logger.error(f"Boot detection failed: {e}")
 
     return results
 
@@ -983,7 +972,7 @@ def check_file_deleted_from_sandbox() -> dict:
         with open(report_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
     except Exception as e:
-        logging.error(f"Could not read report file: {e}")
+        logger.error(f"Could not read report file: {e}")
         return {"error": f"Could not read report file: {e}"}
     
     if len(lines) < 2:
@@ -1046,7 +1035,7 @@ def check_file_deleted_from_sandbox() -> dict:
             f.write(f"File deletion check: {main_file} - Status: {status}\n")
             f.write(f"[{datetime.now()}] {note}\n")
     except Exception as e:
-        logging.error(f"Could not write deletion report: {e}")
+        logger.error(f"Could not write deletion report: {e}")
     
     return result
 
@@ -1138,7 +1127,7 @@ def save_report(report: dict):
     out = REPORTS_DIR / "scan_report.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
-    logging.info(f"Report -> {out}")
+    logger.info(f"Report -> {out}")
 
 def save_network_report(network_indicators: list):
     """Saves the network indicators to a separate file."""
@@ -1151,23 +1140,22 @@ def save_network_report(network_indicators: list):
     }
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report_data, f, indent=2, ensure_ascii=False)
-    logging.info(f"Network indicators report saved to -> {out_path}")
+    logger.info(f"Network indicators report saved to -> {out_path}")
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     if not DETECTIEASY_PATH.exists():
-        logging.warning(f"DIE missing at {DETECTIEASY_PATH}; PE detection will be skipped.")
+        logger.warning(f"DIE missing at {DETECTIEASY_PATH}; PE detection will be skipped.")
     DIE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    logging.info("=== Starting unified rootkit indicator scan ===")
+    logger.info("=== Starting unified rootkit indicator scan ===")
     original_report = generate_scan_report()
     enhanced_results = run_enhanced_detection()
     combined = generate_detailed_report(original_report, enhanced_results)
     save_report(combined)
     print(json.dumps(combined, indent=2))
-    logging.info("=== Scan complete ===")
+    logger.info("=== Scan complete ===")
 
 if __name__ == "__main__":
     main()

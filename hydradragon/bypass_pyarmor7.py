@@ -4,7 +4,6 @@
 
 print("Preparing the unpacker...")
 
-import subprocess
 from functools import wraps
 import typing
 import struct
@@ -13,7 +12,7 @@ import marshal
 import sys,inspect,types
 import inspect
 import opcode
-import os, dis
+import os
 import traceback
 
 LOAD_GLOBAL = opcode.opmap["LOAD_GLOBAL"]

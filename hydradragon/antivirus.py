@@ -20,6 +20,10 @@ stderr_console_log_file = os.path.join(
     log_directory, "antivirusconsolestderr.log"
 )
 
+pyarmor7_console_log_file = os.path.join(
+    log_directory, "antiviruspyarmor7.log"
+)
+
 # Redirect stdout to stdout console log
 sys.stdout = open(
     stdout_console_log_file, "w", encoding="utf-8", errors="ignore"
@@ -9424,14 +9428,16 @@ def process_pyarmor7_in_sandbox(
     target_name = os.path.basename(target_path)
     bypass_helper = str(bypass_pyarmor7_path)
 
-    # Prepare shell command similar to your sandbox_deobfuscate_file
+    # Prepare shell command with output redirection
     # Using quoted arguments to be safe on Windows
     shell_cmd = (
         f'"{sandboxie_exe}" /box:{sandboxie_box} /elevate '
-        f'"{python_path}" "{bypass_helper}" "{target_name}"'
+        f'"{python_path}" "{bypass_helper}" "{target_name}" '
+        f'> "{pyarmor7_console_log_file}" 2>&1'
     )
 
     logger.info(f"[SANDBOX] Running PyArmor7 bypass helper in sandbox: {shell_cmd!r}")
+    logger.info(f"[SANDBOX] Console output will be logged to: {pyarmor7_console_log_file}")
     logger.info(f"[SANDBOX] Expect dump at sandbox inner location: {sandbox_inner_dump_dir}/dump")
 
     # Run with working dir = directory containing the bypass helper (so helper finds the target name in that CWD)
@@ -9448,6 +9454,7 @@ def process_pyarmor7_in_sandbox(
         )
     except subprocess.CalledProcessError as ex:
         logger.error(f"[SANDBOX] Helper returned non-zero: {ex}")
+        logger.error(f"[SANDBOX] Check log file for details: {pyarmor7_console_log_file}")
         # continue to check for any produced dumps
     except subprocess.TimeoutExpired:
         logger.warning(f"[SANDBOX] Helper process timed out (short-run). Proceeding to wait for dump (up to {timeout}s).")
