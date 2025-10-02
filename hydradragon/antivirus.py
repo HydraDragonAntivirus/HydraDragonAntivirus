@@ -11822,17 +11822,6 @@ def run_themida_unlicense(file_path, x64=False):
         logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
         return None
 
-
-def _scan_file(file_path):
-    try:
-        scan_code_for_links(decompiled_code=file_path, file_path=file_path)
-    except Exception as e:
-        logger.error(f"Failed to scan links in {file_path}: {e}")
-    try:
-        scan_and_warn(file_path=file_path)
-    except Exception as e:
-        logger.error(f"Failed to scan_and_warn in {file_path}: {e}")
-
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -12653,12 +12642,15 @@ def scan_and_warn(file_path,
                 if is_java_class_from_output(die_output):
                     decompiled_file = run_fernflower_decompiler(norm_path)
                     if decompiled_file:
-                        # Run both scans in a new thread
+                        # Thread 1: scan_and_warn
                         threading.Thread(
-                            target=lambda: (
-                                _scan_file(file_path=decompiled_file)
-                            ),
+                            target=lambda: scan_and_warn(decompiled_file)
                         ).start()
+
+                        # Thread 2: scan_code_for_links with flag_fernflower
+                        threading.Thread(
+                            target=lambda: scan_code_for_links(file_path=decompiled_file, flag_fernflower=True)
+                        ).start()   
                     else:
                         logger.info("No file returned from FernFlower decompiler.")
             except Exception as e:
