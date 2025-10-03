@@ -3,33 +3,41 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- Color Resources -->
-        <SolidColorBrush x:Key="DarkBackground" Color="#2E3440"/>
-        <SolidColorBrush x:Key="SidebarBackground" Color="#3B4252"/>
-        <SolidColorBrush x:Key="BorderColor" Color="#4C566A"/>
-        <SolidColorBrush x:Key="HoverColor" Color="#434C5E"/>
-        <SolidColorBrush x:Key="AccentColor" Color="#88C0D0"/>
-        <SolidColorBrush x:Key="DangerColor" Color="#BF616A"/>
-        <SolidColorBrush x:Key="ActionColor" Color="#5E81AC"/>
-        <SolidColorBrush x:Key="TextColor" Color="#ECEFF4"/>
-        <SolidColorBrush x:Key="SubtleTextColor" Color="#D8DEE9"/>
-        <SolidColorBrush x:Key="SecondaryTextColor" Color="#81A1C1"/>
-        <SolidColorBrush x:Key="SuccessColor" Color="#A3BE8C"/>
 
-        <!-- Misc -->
+        <!-- ==== Color primitives (Colors used in GradientStops) ==== -->
+        <Color x:Key="AccentLightColor">#FF81A1C1</Color>
+        <Color x:Key="AccentDarkColor">#FF6B8DB8</Color>
+        <Color x:Key="ActionTopColor">#FF5E81AC</Color>
+        <Color x:Key="ActionBottomColor">#FF5273A0</Color>
+        <Color x:Key="WindowGradTopColor">#FF3B4252</Color>
+        <Color x:Key="WindowGradBottomColor">#FF2E3440</Color>
+        <Color x:Key="TextColorColor">#FFECEFF4</Color>
+
+        <!-- ==== Brushes (for Background, Foreground, etc.) ==== -->
+        <SolidColorBrush x:Key="TextColor" Color="{StaticResource TextColorColor}"/>
+        <SolidColorBrush x:Key="AccentLight" Color="{StaticResource AccentLightColor}"/>
+        <SolidColorBrush x:Key="AccentDark" Color="{StaticResource AccentDarkColor}"/>
+        <SolidColorBrush x:Key="ActionTopBrush" Color="{StaticResource ActionTopColor}"/>
+        <SolidColorBrush x:Key="ActionBottomBrush" Color="{StaticResource ActionBottomColor}"/>
+
+        <!-- ==== Window background gradient (used in MainWindow Background) ==== -->
         <LinearGradientBrush x:Key="WindowGradient" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#3B4252" Offset="0.0" />
-            <GradientStop Color="#2E3440" Offset="1.0" />
+            <GradientStop Color="{StaticResource WindowGradTopColor}" Offset="0" />
+            <GradientStop Color="{StaticResource WindowGradBottomColor}" Offset="1" />
         </LinearGradientBrush>
 
-        <!-- Shadow / Effect resources -->
-        <DropShadowEffect x:Key="WindowShadow" Color="#000000" Direction="320" ShadowDepth="5" Opacity="0.5" BlurRadius="10"/>
-        <DropShadowEffect x:Key="SubtleShadow" Color="#000000" Direction="320" ShadowDepth="3" Opacity="0.35" BlurRadius="8"/>
-        <DropShadowEffect x:Key="HoverGlow" Color="#88C0D0" Direction="0" ShadowDepth="0" Opacity="0.8" BlurRadius="18"/>
-     
-        <!-- ===========================
-             Base ActionButtonStyle
-             =========================== -->
+        <!-- ==== Effects ==== -->
+        <DropShadowEffect x:Key="WindowShadow" Color="#FF000000" Direction="320" ShadowDepth="5" Opacity="0.50" BlurRadius="10"/>
+        <DropShadowEffect x:Key="SubtleShadow" Color="#FF000000" Direction="320" ShadowDepth="3" Opacity="0.35" BlurRadius="8"/>
+        <DropShadowEffect x:Key="HoverGlow" Color="#FF88C0D0" Direction="0" ShadowDepth="0" Opacity="0.8" BlurRadius="18"/>
+
+        <!-- ==== Action gradient built from Color primitives - used as default Background for action buttons ==== -->
+        <LinearGradientBrush x:Key="ActionGradient" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="{StaticResource ActionTopColor}" Offset="0.0"/>
+            <GradientStop Color="{StaticResource ActionBottomColor}" Offset="1.0"/>
+        </LinearGradientBrush>
+
+        <!-- ==== Base Button Template (for consistent behavior) ==== -->
         <Style x:Key="ActionButtonStyleBase" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
@@ -43,7 +51,6 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-            <!-- small scale transform used for press animation -->
             <Setter Property="RenderTransform">
                 <Setter.Value>
                     <ScaleTransform ScaleX="1" ScaleY="1"/>
@@ -54,30 +61,36 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <!-- rounded border with gradient background bound to Background property -->
                             <Border x:Name="Bd"
                                     CornerRadius="10"
                                     Background="{TemplateBinding Background}"
                                     Effect="{TemplateBinding Effect}"
-                                    SnapsToDevicePixels="True">
+                                    SnapsToDevicePixels="True"
+                                    Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                                   Margin="{TemplateBinding Padding}"
                                                   RecognizesAccessKey="True"/>
                             </Border>
 
-                            <!-- Focus visual -->
-                            <Border x:Name="FocusVisual" CornerRadius="10" BorderThickness="2" Visibility="Collapsed">
+                            <Border x:Name="FocusVisual" CornerRadius="10" BorderThickness="2" Visibility="Collapsed" IsHitTestVisible="False">
                                 <Border.BorderBrush>
-                                    <SolidColorBrush Color="#88C0D0" Opacity="0.10"/>
+                                    <SolidColorBrush Color="#FF88C0D0" Opacity="0.18"/>
                                 </Border.BorderBrush>
                             </Border>
                         </Grid>
 
                         <ControlTemplate.Triggers>
-                            <!-- MouseOver: glow + subtle lift -->
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Effect" Value="{StaticResource HoverGlow}"/>
+                                <Setter TargetName="Bd" Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                            <GradientStop Color="{StaticResource AccentLightColor}" Offset="0.0"/>
+                                            <GradientStop Color="{StaticResource AccentDarkColor}" Offset="1.0"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
                                 <Trigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
@@ -100,9 +113,9 @@
                                 </Trigger.ExitActions>
                             </Trigger>
 
-                            <!-- Pressed: remove shadow and slightly scale down -->
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Effect" Value="{x:Null}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#FF4C6A94"/>
                                 <Trigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
@@ -125,7 +138,6 @@
                                 </Trigger.ExitActions>
                             </Trigger>
 
-                            <!-- Focus -->
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="FocusVisual" Property="Visibility" Value="Visible"/>
                             </Trigger>
@@ -135,331 +147,26 @@
             </Setter>
         </Style>
 
-        <!-- ===========================
-             Epic Button (gradient + glow)
-             Based on the base style
-             =========================== -->
+        <!-- ==== Epic style (looks like your python #action_button by default) ==== -->
         <Style x:Key="EpicButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
-                        <GradientStop Color="#88C0D0" Offset="0.0"/>
-                        <GradientStop Color="#5E81AC" Offset="1.0"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Background" Value="{StaticResource ActionGradient}"/>
             <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
             <Setter Property="Padding" Value="16,10"/>
         </Style>
 
-        <!-- ===========================
-             Action Button (vertical gradient)
-             =========================== -->
-        <Style x:Key="ActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#5E81AC" Offset="0.0"/>
-                        <GradientStop Color="#5273A0" Offset="1.0"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
-        </Style>
+        <!-- ==== Optional: Danger style ==== -->
+        <LinearGradientBrush x:Key="DangerGradient" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#FFBF616A" Offset="0.0"/>
+            <GradientStop Color="#FFB34C56" Offset="1.0"/>
+        </LinearGradientBrush>
 
-        <!-- ===========================
-             Danger Button (red gradient)
-             =========================== -->
         <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#BF616A" Offset="0.0"/>
-                        <GradientStop Color="#B34C56" Offset="1.0"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Background" Value="{StaticResource DangerGradient}"/>
             <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
         </Style>
 
-        <!-- ===========================
-             Nav Button (flat, transparent with hover)
-             Intended for sidebar navigation
-             =========================== -->
-        <Style x:Key="NavButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="12,10"/>
-            <Setter Property="Margin" Value="4,2"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <Grid>
-                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                            </Grid>
-                        </Border>
-
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="{StaticResource HoverColor}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background">
-                                    <Setter.Value>
-                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                            <GradientStop Color="#88C0D0" Offset="0.0"/>
-                                            <GradientStop Color="#81A1C1" Offset="1.0"/>
-                                        </LinearGradientBrush>
-                                    </Setter.Value>
-                                </Setter>
-                                <Setter Property="Foreground" Value="{StaticResource DarkBackground}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ===========================
-             Implicit default Button style
-             All Buttons without explicit Style will use Epic look
-             If you prefer not to override globally, remove the x:Key so it's only implicit.
-             =========================== -->
-        <Style TargetType="Button" BasedOn="{StaticResource EpicButtonStyle}"/>
-
-        <!-- Text Styles -->
-        <Style x:Key="PageTitleStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="28"/>
-            <Setter Property="FontWeight" Value="Light"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="Margin" Value="0,0,0,15"/>
-        </Style>
-
-        <Style x:Key="PageSubtitleStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="16"/>
-            <Setter Property="Foreground" Value="{StaticResource SuccessColor}"/>
-        </Style>
-
-        <Style x:Key="VersionLabelStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{StaticResource SecondaryTextColor}"/>
-        </Style>
-
-        <Style x:Key="LogoStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="28"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
-        </Style>
-
-        <!-- TextBox/TextEdit Style -->
-        <Style x:Key="LogOutputStyle" TargetType="TextBox">
-            <Setter Property="Background" Value="{StaticResource SidebarBackground}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="FontFamily" Value="Consolas, Courier New"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="8"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="IsReadOnly" Value="True"/>
-            <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
-            <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="5"
-                                SnapsToDevicePixels="True">
-                            <ScrollViewer x:Name="PART_ContentHost"
-                                          Margin="{TemplateBinding Padding}"
-                                          Focusable="false"
-                                          HorizontalScrollBarVisibility="{TemplateBinding HorizontalScrollBarVisibility}"
-                                          VerticalScrollBarVisibility="{TemplateBinding VerticalScrollBarVisibility}"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- GroupBox Style -->
-        <Style TargetType="GroupBox">
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Margin" Value="0,10,0,0"/>
-            <Setter Property="Padding" Value="15"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="GroupBox">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <Border Grid.Row="0" Grid.RowSpan="2"
-                                    Background="Transparent"
-                                    BorderBrush="{StaticResource BorderColor}"
-                                    BorderThickness="1"
-                                    CornerRadius="8"/>
-                            <TextBlock Grid.Row="0"
-                                       Text="{TemplateBinding Header}"
-                                       Foreground="{TemplateBinding Foreground}"
-                                       FontWeight="{TemplateBinding FontWeight}"
-                                       Margin="10,0,0,0"
-                                       Padding="5,0"/>
-                            <ContentPresenter Grid.Row="1"
-                                              Margin="{TemplateBinding Padding}"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Window Style -->
-        <Style x:Key="MainWindowStyle" TargetType="Window">
-            <Setter Property="Background" Value="{StaticResource DarkBackground}"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Foreground" Value="{StaticResource SubtleTextColor}"/>
-        </Style>
-
-        <!-- Sidebar Style -->
-        <Style x:Key="SidebarStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource SidebarBackground}"/>
-            <Setter Property="Width" Value="220"/>
-        </Style>
-
-        <!-- Warning Text Style -->
-        <Style x:Key="WarningTextStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{StaticResource SubtleTextColor}"/>
-            <Setter Property="TextWrapping" Value="Wrap"/>
-            <Setter Property="LineHeight" Value="20"/>
-        </Style>
-
-        <!-- ScrollBar Styles -->
-        <Style TargetType="ScrollBar">
-            <Setter Property="Background" Value="{StaticResource BorderColor}"/>
-            <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
-            <Setter Property="Width" Value="12"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Grid>
-                            <Border Background="{TemplateBinding Background}" CornerRadius="6"/>
-                            <Track x:Name="PART_Track" IsDirectionReversed="True">
-                                <Track.Thumb>
-                                    <Thumb>
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Border Background="{TemplateBinding Foreground}" CornerRadius="6"/>
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- =========================
-             =====  ADDED: Qt-like ID Styles (x:Key)
-             These map the Python/Qt '#id' selectors to WPF Styles.
-             Use them by setting: Style="{StaticResource action_button}" on your Button
-             or Style="{StaticResource nav_button}" for nav buttons, etc.
-             ========================= -->
-
-        <!-- Map for #action_button -->
-        <Style x:Key="action_button" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
-            <!-- preserves ActionButtonStyle but provides Python-id-compatible key -->
-        </Style>
-
-        <!-- Map for #action_button_danger -->
-        <Style x:Key="action_button_danger" TargetType="Button" BasedOn="{StaticResource DangerButtonStyle}">
-            <!-- preserves DangerButtonStyle but accessible via resource key "action_button_danger" -->
-        </Style>
-
-        <!-- Map for #nav_button -->
-        <Style x:Key="nav_button" TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
-            <!-- preserves NavButtonStyle but accessible via resource key "nav_button" -->
-        </Style>
-
-        <!-- Map for #logo (TextBlock) -->
-        <Style x:Key="logo" TargetType="TextBlock" BasedOn="{StaticResource LogoStyle}">
-            <!-- accessible via Style='{StaticResource logo}' -->
-        </Style>
-
-        <!-- Map for #page_title -->
-        <Style x:Key="page_title" TargetType="TextBlock" BasedOn="{StaticResource PageTitleStyle}" />
-
-        <!-- Map for #page_subtitle -->
-        <Style x:Key="page_subtitle" TargetType="TextBlock" BasedOn="{StaticResource PageSubtitleStyle}" />
-
-        <!-- Map for #version_label -->
-        <Style x:Key="version_label" TargetType="TextBlock" BasedOn="{StaticResource VersionLabelStyle}" />
-
-        <!-- Map for #warning_text -->
-        <Style x:Key="warning_text" TargetType="TextBlock" BasedOn="{StaticResource WarningTextStyle}" />
-
-        <!-- Map for #status_card (Border) -->
-        <Style x:Key="status_card" TargetType="Border">
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#3B4252" Offset="0.0"/>
-                        <GradientStop Color="#343D4C" Offset="1.0"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}"/>
-            <Setter Property="BorderThickness" Value="2"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="Padding" Value="15"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="#88C0D0"/>
-                    <Setter Property="Background">
-                        <Setter.Value>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                <GradientStop Color="#434C5E" Offset="0.0"/>
-                                <GradientStop Color="#3B4554" Offset="1.0"/>
-                            </LinearGradientBrush>
-                        </Setter.Value>
-                    </Setter>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Map for #card_title and #card_value -->
-        <Style x:Key="card_title" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{StaticResource SecondaryTextColor}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <!-- changed from numeric 600 -->
-            <Setter Property="TextWrapping" Value="Wrap"/>
-            <Setter Property="TextAlignment" Value="Left"/>
-        </Style>
-
-        <Style x:Key="card_value" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="24"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-        </Style>
+        <!-- ==== Implicit global Button style (so plain <Button/> uses Epic look) ==== -->
+        <Style TargetType="Button" BasedOn="{StaticResource EpicButtonStyle}" />
 
     </Application.Resources>
 </Application>
