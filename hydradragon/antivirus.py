@@ -60,7 +60,7 @@ logger.debug(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f
 
 start_time = time.time()
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
 logger.debug(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -16313,6 +16313,9 @@ class StatusCard(QFrame):
         self.setObjectName("status_card")
         self.setMinimumHeight(120)
         self._hover_scale = 1.0
+        self.scale_animation = None
+        self.original_width = 0
+        self.original_height = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -16341,12 +16344,27 @@ class StatusCard(QFrame):
         shadow.setOffset(0, 5)
         self.setGraphicsEffect(shadow)
 
+        # Store original size after widget is shown and laid out
+        QTimer.singleShot(0, self._store_original_size)
+
+    def _store_original_size(self):
+        """Store original dimensions after widget is laid out"""
+        self.original_width = self.width()
+        self.original_height = self.height()
+
     def get_hover_scale(self):
         return self._hover_scale
 
     def set_hover_scale(self, value):
         """Animate widget scaling on hover"""
+        if self._hover_scale == value:
+            return
+            
         self._hover_scale = value
+
+        # Only animate if we have valid dimensions
+        if self.original_width == 0 or self.original_height == 0:
+            return
 
         # Get current geometry
         current = self.geometry()
@@ -16360,12 +16378,13 @@ class StatusCard(QFrame):
         scaled_rect = QRect(0, 0, new_width, new_height)
         scaled_rect.moveCenter(center)
 
-        # Animate the geometry change
-        if not hasattr(self, 'scale_animation'):
+        # Create/reuse animation
+        if self.scale_animation is None:
             self.scale_animation = QPropertyAnimation(self, b"geometry")
             self.scale_animation.setDuration(150)
-            self.scale_animation.setEasingCurve(QEasingCurve.OutCubic)
+            self.scale_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
+        self.scale_animation.stop()
         self.scale_animation.setEndValue(scaled_rect)
         self.scale_animation.start()
 
