@@ -16345,8 +16345,29 @@ class StatusCard(QFrame):
         return self._hover_scale
 
     def set_hover_scale(self, value):
+        """Animate widget scaling on hover"""
         self._hover_scale = value
-        self.setStyleSheet(f"#status_card {{ transform: scale({value}); }}")
+        
+        # Get current geometry
+        current = self.geometry()
+        center = current.center()
+        
+        # Calculate new scaled size
+        new_width = int(self.original_width * value)
+        new_height = int(self.original_height * value)
+        
+        # Create rect centered on original position
+        scaled_rect = QRect(0, 0, new_width, new_height)
+        scaled_rect.moveCenter(center)
+        
+        # Animate the geometry change
+        if not hasattr(self, 'scale_animation'):
+            self.scale_animation = QPropertyAnimation(self, b"geometry")
+            self.scale_animation.setDuration(150)
+            self.scale_animation.setEasingCurve(QEasingCurve.OutCubic)
+        
+        self.scale_animation.setEndValue(scaled_rect)
+        self.scale_animation.start()
 
     hover_scale = Property(float, get_hover_scale, set_hover_scale)
 
