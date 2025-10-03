@@ -2,3 +2,4 @@ pefile
 numpy
 tqdm
 capstone
+logly

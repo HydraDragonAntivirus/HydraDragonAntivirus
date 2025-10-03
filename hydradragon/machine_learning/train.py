@@ -3,7 +3,6 @@ import json
 import pickle
 import os
 import pefile
-import logging
 import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -15,15 +14,7 @@ from tqdm import tqdm
 import mmap
 import capstone
 import time
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('pe_extraction.log'),
-        logging.StreamHandler()
-    ]
-)
+from hydra_logger import logger
 
 class PEFeatureExtractor:
     def __init__(self):
@@ -121,10 +112,10 @@ class PEFeatureExtractor:
             analysis['overall_analysis']['total_instructions'] = grand_total_instructions
             analysis['overall_analysis']['add_count'] = total_add_count
             analysis['overall_analysis']['mov_count'] = total_mov_count
-            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
+            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instWructions > 0 else False
 
         except Exception as e:
-            logging.error(f"Capstone disassembly failed: {e}")
+            logger.error(f"Capstone disassembly failed: {e}")
             analysis['error'] = str(e)
 
         return analysis
@@ -187,7 +178,7 @@ class PEFeatureExtractor:
 
             return callback_addresses
         except Exception as e:
-            logging.error(f"Error retrieving TLS callback addresses: {e}")
+            logger.error(f"Error retrieving TLS callback addresses: {e}")
             return []
 
     def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
@@ -215,7 +206,7 @@ class PEFeatureExtractor:
 
             return tls_callbacks
         except Exception as e:
-            logging.error(f"Error analyzing TLS callbacks: {e}")
+            logger.error(f"Error analyzing TLS callbacks: {e}")
             return {}
 
     def analyze_dos_stub(self, pe) -> Dict[str, Any]:
@@ -238,7 +229,7 @@ class PEFeatureExtractor:
 
             return dos_stub
         except Exception as e:
-            logging.error(f"Error analyzing DOS stub: {e}")
+            logger.error(f"Error analyzing DOS stub: {e}")
             return {}
 
     def analyze_certificates(self, pe) -> Dict[str, Any]:
@@ -264,7 +255,7 @@ class PEFeatureExtractor:
 
             return cert_info
         except Exception as e:
-            logging.error(f"Error analyzing certificates: {e}")
+            logger.error(f"Error analyzing certificates: {e}")
             return {}
 
     def analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
@@ -297,7 +288,7 @@ class PEFeatureExtractor:
 
             return delay_imports
         except Exception as e:
-            logging.error(f"Error analyzing delay imports: {e}")
+            logger.error(f"Error analyzing delay imports: {e}")
             return []
 
     def analyze_load_config(self, pe) -> Dict[str, Any]:
@@ -323,7 +314,7 @@ class PEFeatureExtractor:
 
             return load_config
         except Exception as e:
-            logging.error(f"Error analyzing load config: {e}")
+            logger.error(f"Error analyzing load config: {e}")
             return {}
 
     def analyze_relocations(self, pe) -> List[Dict[str, Any]]:
@@ -354,7 +345,7 @@ class PEFeatureExtractor:
 
             return relocations
         except Exception as e:
-            logging.error(f"Error analyzing relocations: {e}")
+            logger.error(f"Error analyzing relocations: {e}")
             return []
 
     def analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
@@ -378,13 +369,13 @@ class PEFeatureExtractor:
                             }
                             bound_import['references'].append(reference)
                     else:
-                        logging.warning(f"Bound import {bound_import['name']} has no references.")
+                        logger.warning(f"Bound import {bound_import['name']} has no references.")
 
                     bound_imports.append(bound_import)
 
             return bound_imports
         except Exception as e:
-            logging.error(f"Error analyzing bound imports: {e}")
+            logger.error(f"Error analyzing bound imports: {e}")
             return []
 
     def analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
@@ -422,7 +413,7 @@ class PEFeatureExtractor:
 
             return characteristics
         except Exception as e:
-            logging.error(f"Error analyzing section characteristics: {e}")
+            logger.error(f"Error analyzing section characteristics: {e}")
             return {}
 
     def analyze_extended_headers(self, pe) -> Dict[str, Any]:
@@ -464,7 +455,7 @@ class PEFeatureExtractor:
 
             return headers
         except Exception as e:
-            logging.error(f"Error analyzing extended headers: {e}")
+            logger.error(f"Error analyzing extended headers: {e}")
             return {}
 
     def serialize_data(self, data) -> Any:
@@ -502,7 +493,7 @@ class PEFeatureExtractor:
 
             return rich_header
         except Exception as e:
-            logging.error(f"Error analyzing Rich header: {e}")
+            logger.error(f"Error analyzing Rich header: {e}")
             return {}
 
     def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
@@ -538,7 +529,7 @@ class PEFeatureExtractor:
 
             return overlay_info
         except Exception as e:
-            logging.error(f"Error analyzing overlay: {e}")
+            logger.error(f"Error analyzing overlay: {e}")
             return {}
 
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -553,15 +544,15 @@ class PEFeatureExtractor:
                 # Attempt to load PE file directly
                 pe = pefile.PE(file_path, fast_load=True)
             except pefile.PEFormatError:
-                logging.error(f"{file_path} is not a valid PE file.")
+                logger.error(f"{file_path} is not a valid PE file.")
                 return None
             except Exception as ex:
-                logging.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
+                logger.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
                 return None
             try:
                 pe.parse_data_directories()
             except Exception:
-                logging.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
+                logger.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
 
             # Extract features
             numeric_features = {
@@ -694,7 +685,7 @@ class PEFeatureExtractor:
             return numeric_features
 
         except Exception as ex:
-            logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
+            logger.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None
         finally:
             # ensure PE handle is closed to release underlying file descriptor
@@ -702,7 +693,7 @@ class PEFeatureExtractor:
                 if pe is not None:
                     pe.close()
             except Exception:
-                logging.debug(f"Failed to close pe for {file_path}", exc_info=True)
+                logger.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
 class DataProcessor:
     def __init__(self,
@@ -728,6 +719,33 @@ class DataProcessor:
         # Ensure store exists and preload seen md5s (resume support)
         self._init_store()
         self.seen = self._load_seen_md5s()
+
+    def consolidate_pickle_for_ml(self, output_path: str = 'ml_definitions.pkl'):
+        """
+        Read all streaming pickle entries and consolidate into a single
+        dict with 'malicious' and 'benign' lists for ML loading.
+        """
+        malicious_entries = []
+        benign_entries = []
+        
+        logger.info(f"Consolidating pickle from {self.pickle_path}...")
+        
+        for features in self.load_all_pickled():
+            if features.get('file_info', {}).get('is_malicious'):
+                malicious_entries.append(features)
+            else:
+                benign_entries.append(features)
+        
+        consolidated = {
+            'malicious': malicious_entries,
+            'benign': benign_entries
+        }
+        
+        with open(output_path, 'wb') as f:
+            pickle.dump(consolidated, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        logger.info(f"Consolidated {len(malicious_entries)} malicious and {len(benign_entries)} benign entries to {output_path}")
+        return output_path
 
     # --------------------------
     # Storage init / index helpers
@@ -761,7 +779,7 @@ class DataProcessor:
                         continue
         except FileNotFoundError:
             pass
-        logging.info(f"Resuming: {len(seen)} md5s preloaded from index.")
+        logger.info(f"Resuming: {len(seen)} md5s preloaded from index.")
         return seen
 
     # --------------------------
@@ -941,10 +959,10 @@ class DataProcessor:
 
         try:
             shutil.move(str(file_path), str(dest))
-            logging.info(f"Moved {file_path} -> {dest}")
+            logger.info(f"Moved {file_path} -> {dest}")
             return
         except FileNotFoundError:
-            logging.warning(f"File not found for move: {file_path}")
+            logger.warning(f"File not found for move: {file_path}")
             return
         except PermissionError:
             # File might be locked by another process (common on Windows). Try copy+delete with retries.
@@ -953,23 +971,23 @@ class DataProcessor:
                 try:
                     shutil.copy2(str(file_path), str(dest))
                     os.remove(str(file_path))
-                    logging.info(f"Copied and removed locked file {file_path} -> {dest} on attempt {attempt}")
+                    logger.info(f"Copied and removed locked file {file_path} -> {dest} on attempt {attempt}")
                     return
                 except FileNotFoundError:
-                    logging.warning(f"File disappeared during move attempt: {file_path}")
+                    logger.warning(f"File disappeared during move attempt: {file_path}")
                     return
                 except PermissionError:
-                    logging.warning(f"PermissionError moving {file_path}, attempt {attempt}/{max_retries}")
+                    logger.warning(f"PermissionError moving {file_path}, attempt {attempt}/{max_retries}")
                     time.sleep(0.5 * attempt)  # backoff
                     continue
                 except Exception as e:
-                    logging.error(f"Unexpected error moving {file_path} on attempt {attempt}: {e}", exc_info=True)
+                    logger.error(f"Unexpected error moving {file_path} on attempt {attempt}: {e}", exc_info=True)
                     break
 
-            logging.error(f"Failed to move {file_path} after {max_retries} retries due to persistent lock.")
+            logger.error(f"Failed to move {file_path} after {max_retries} retries due to persistent lock.")
             return
         except Exception as ex:
-            logging.error(f"Unhandled error moving {file_path} -> {dest}: {ex}", exc_info=True)
+            logger.error(f"Unhandled error moving {file_path} -> {dest}: {ex}", exc_info=True)
             return
 
     # --------------------------
@@ -1001,11 +1019,11 @@ class DataProcessor:
 
                 return features
         except Exception as e:
-            logging.error(f"Error processing {file_path}: {e}", exc_info=True)
+            logger.error(f"Error processing {file_path}: {e}", exc_info=True)
             try:
                 self._move(Path(file_path), self.problematic_dir)
             except Exception as ex_move:
-                logging.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
+                logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
             return None
         finally:
             # always close the mmap if created
@@ -1013,7 +1031,7 @@ class DataProcessor:
                 if mm is not None:
                     mm.close()
             except Exception:
-                logging.debug(f"Failed to close mmap for {file_path}", exc_info=True)
+                logger.debug(f"Failed to close mmap for {file_path}", exc_info=True)
 
     # --------------------------
     # Append vector bytes + index line + pickle the full features dict
@@ -1064,7 +1082,7 @@ class DataProcessor:
                 # write the raw features dict as one pickle record
                 pickle.dump(features, pf, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as e:
-            logging.exception(f"Failed to append pickled features for {path}: {e}")
+            logger.exception(f"Failed to append pickled features for {path}: {e}")
 
         return index_entry
 
@@ -1089,7 +1107,7 @@ class DataProcessor:
                     try:
                         self._move(Path(feats['file_info']['path']), self.duplicates_dir)
                     except Exception as e:
-                        logging.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
+                        logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
                     continue
 
                 # mark as seen
@@ -1100,24 +1118,24 @@ class DataProcessor:
                     self._append_vector_and_index(feats)
                     inserted += 1
                 except Exception as e:
-                    logging.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
+                    logger.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
                     # optionally move to problematic_dir
                     try:
                         self._move(Path(feats['file_info']['path']), self.problematic_dir)
                     except Exception:
                         pass
 
-        logging.info(f"Finished processing {directory}: inserted {inserted} unique records into binary store and pickle.")
+        logger.info(f"Finished processing {directory}: inserted {inserted} unique records into binary store and pickle.")
         return inserted
 
     # --------------------------
     # process whole dataset
     # --------------------------
     def process_dataset(self):
-        logging.info("Processing malicious files...")
+        logger.info("Processing malicious files...")
         malicious_count = self.process_dir(Path(self.malicious_dir), True)
 
-        logging.info("Processing benign files...")
+        logger.info("Processing benign files...")
         benign_count = self.process_dir(Path(self.benign_dir), False)
 
         summary = {
@@ -1133,7 +1151,7 @@ class DataProcessor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
-        logging.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, pickle at {self.pickle_path}")
+        logger.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, pickle at {self.pickle_path}")
 
     # --------------------------
     # Helper: stream-read all pickled records (if needed)
@@ -1153,7 +1171,7 @@ class DataProcessor:
                 except EOFError:
                     break
                 except Exception:
-                    logging.exception("Error reading pickled file; stopping.")
+                    logger.exception("Error reading pickled file; stopping.")
                     break
 
 def main():
@@ -1164,6 +1182,8 @@ def main():
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir)
     processor.process_dataset()
+
+    processor.consolidate_pickle_for_ml('ml_definitions.pkl')
 
 if __name__ == "__main__":
     main()
