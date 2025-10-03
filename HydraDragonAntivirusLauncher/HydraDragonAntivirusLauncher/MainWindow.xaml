@@ -6,15 +6,21 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource WindowGradient}">
     <Grid>
-        <Border CornerRadius="15"
+        <!-- Outer card with rounded corners + shadow -->
+        <Border x:Name="Card"
+                CornerRadius="15"
                 Background="{StaticResource WindowGradient}"
                 Margin="10"
                 Effect="{StaticResource WindowShadow}">
-            <Button Name="BtnLaunch" Content="Launch Antivirus"
-                    Style="{StaticResource EpicButtonStyle}"
-                    Width="240" Height="70"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Click="BtnLaunch_Click"/>
+            <!-- Centering container so the button stays centered on different sizes -->
+            <Grid>
+                <Button x:Name="BtnLaunch"
+                        Content="Launch Antivirus"
+                        Style="{StaticResource EpicButtonStyle}"
+                        Width="240" Height="70"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Click="BtnLaunch_Click"/>
+            </Grid>
         </Border>
     </Grid>
 </Window>

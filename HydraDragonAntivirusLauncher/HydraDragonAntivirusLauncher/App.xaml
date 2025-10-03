@@ -16,50 +16,118 @@
         <SolidColorBrush x:Key="SecondaryTextColor" Color="#81A1C1"/>
         <SolidColorBrush x:Key="SuccessColor" Color="#A3BE8C"/>
 
-        <!-- 
-            RESOURCES TO RESOLVE ERRORS
-            The order of styles has been adjusted to ensure dependencies are met.
-        -->
-
-        <!-- 1. WindowGradient Resource -->
+        <!-- Misc -->
         <LinearGradientBrush x:Key="WindowGradient" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#3B4252" Offset="0.0" />
             <GradientStop Color="#2E3440" Offset="1.0" />
         </LinearGradientBrush>
 
-        <!-- 2. WindowShadow Resource -->
+        <!-- Shadow / Effect resources -->
         <DropShadowEffect x:Key="WindowShadow" Color="#000000" Direction="320" ShadowDepth="5" Opacity="0.5" BlurRadius="10"/>
-
-        <!-- Action Button Style (Moved up) -->
-        <Style x:Key="ActionButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource ActionColor}"/>
+        <DropShadowEffect x:Key="SubtleShadow" Color="#000000" Direction="320" ShadowDepth="3" Opacity="0.35" BlurRadius="8"/>
+        <DropShadowEffect x:Key="HoverGlow" Color="#88C0D0" Direction="0" ShadowDepth="0" Opacity="0.8" BlurRadius="18"/>
+     
+        <!-- ===========================
+             Base ActionButtonStyle
+             =========================== -->
+        <Style x:Key="ActionButtonStyleBase" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Padding" Value="20,12"/>
-            <Setter Property="Margin" Value="5"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="MaxWidth" Value="300"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="Margin" Value="6"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <!-- small scale transform used for press animation -->
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                </Setter.Value>
+            </Setter>
+
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="8"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
+                        <Grid>
+                            <!-- rounded border with gradient background bound to Background property -->
+                            <Border x:Name="Bd"
+                                    CornerRadius="10"
+                                    Background="{TemplateBinding Background}"
+                                    Effect="{TemplateBinding Effect}"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+
+                            <!-- Focus visual -->
+                            <Border x:Name="FocusVisual" CornerRadius="10" BorderThickness="2" Visibility="Collapsed">
+                                <Border.BorderBrush>
+                                    <SolidColorBrush Color="#88C0D0" Opacity="0.10"/>
+                                </Border.BorderBrush>
+                            </Border>
+                        </Grid>
+
                         <ControlTemplate.Triggers>
+                            <!-- MouseOver: glow + subtle lift -->
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#81A1C1"/>
+                                <Setter TargetName="Bd" Property="Effect" Value="{StaticResource HoverGlow}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                             To="1.02" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                             To="1.02" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                             To="1.0" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                             To="1.0" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
+
+                            <!-- Pressed: remove shadow and slightly scale down -->
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#4C566A"/>
+                                <Setter TargetName="Bd" Property="Effect" Value="{x:Null}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                             To="0.97" Duration="0:0:0.06"/>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                             To="0.97" Duration="0:0:0.06"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                             To="1.0" Duration="0:0:0.08"/>
+                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                             To="1.0" Duration="0:0:0.08"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+
+                            <!-- Focus -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="FocusVisual" Property="Visibility" Value="Visible"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -67,77 +135,89 @@
             </Setter>
         </Style>
 
-        <!-- 3. EpicButtonStyle Resource (Now correctly references ActionButtonStyle) -->
-        <Style x:Key="EpicButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+        <!-- ===========================
+             Epic Button (gradient + glow)
+             Based on the base style
+             =========================== -->
+        <Style x:Key="EpicButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
             <Setter Property="Background">
                 <Setter.Value>
                     <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
-                        <GradientStop Color="#88C0D0" Offset="0.0" />
-                        <GradientStop Color="#5E81AC" Offset="1.0" />
+                        <GradientStop Color="#88C0D0" Offset="0.0"/>
+                        <GradientStop Color="#5E81AC" Offset="1.0"/>
                     </LinearGradientBrush>
                 </Setter.Value>
             </Setter>
-            <Setter Property="Effect" Value="{StaticResource WindowShadow}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="8"
-                                Effect="{TemplateBinding Effect}"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Effect">
-                                    <Setter.Value>
-                                        <DropShadowEffect Color="#88C0D0" ShadowDepth="0" Opacity="0.8" BlurRadius="15"/>
-                                    </Setter.Value>
-                                </Setter>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Effect" Value="{x:Null}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
+            <Setter Property="Padding" Value="16,10"/>
         </Style>
 
-        <!-- Navigation Button Style -->
+        <!-- ===========================
+             Action Button (vertical gradient)
+             =========================== -->
+        <Style x:Key="ActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#5E81AC" Offset="0.0"/>
+                        <GradientStop Color="#5273A0" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
+        </Style>
+
+        <!-- ===========================
+             Danger Button (red gradient)
+             =========================== -->
+        <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyleBase}">
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#BF616A" Offset="0.0"/>
+                        <GradientStop Color="#B34C56" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Effect" Value="{StaticResource SubtleShadow}"/>
+        </Style>
+
+        <!-- ===========================
+             Nav Button (flat, transparent with hover)
+             Intended for sidebar navigation
+             =========================== -->
         <Style x:Key="NavButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Padding" Value="15,12"/>
-            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="4,2"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="5"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"
-                                              RecognizesAccessKey="True"/>
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                            </Grid>
                         </Border>
+
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{StaticResource HoverColor}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentColor}"/>
+                                <Setter TargetName="border" Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="#88C0D0" Offset="0.0"/>
+                                            <GradientStop Color="#81A1C1" Offset="1.0"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
                                 <Setter Property="Foreground" Value="{StaticResource DarkBackground}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -146,41 +226,12 @@
             </Setter>
         </Style>
 
-        <!-- Danger Button Style -->
-        <Style x:Key="DangerButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource DangerColor}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Padding" Value="20,12"/>
-            <Setter Property="Margin" Value="5"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="8"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#D08770"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#A0505A"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <!-- ===========================
+             Implicit default Button style
+             All Buttons without explicit Style will use Epic look
+             If you prefer not to override globally, remove the x:Key so it's only implicit.
+             =========================== -->
+        <Style TargetType="Button" BasedOn="{StaticResource EpicButtonStyle}"/>
 
         <!-- Text Styles -->
         <Style x:Key="PageTitleStyle" TargetType="TextBlock">
@@ -325,5 +376,90 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- =========================
+             =====  ADDED: Qt-like ID Styles (x:Key)
+             These map the Python/Qt '#id' selectors to WPF Styles.
+             Use them by setting: Style="{StaticResource action_button}" on your Button
+             or Style="{StaticResource nav_button}" for nav buttons, etc.
+             ========================= -->
+
+        <!-- Map for #action_button -->
+        <Style x:Key="action_button" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+            <!-- preserves ActionButtonStyle but provides Python-id-compatible key -->
+        </Style>
+
+        <!-- Map for #action_button_danger -->
+        <Style x:Key="action_button_danger" TargetType="Button" BasedOn="{StaticResource DangerButtonStyle}">
+            <!-- preserves DangerButtonStyle but accessible via resource key "action_button_danger" -->
+        </Style>
+
+        <!-- Map for #nav_button -->
+        <Style x:Key="nav_button" TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
+            <!-- preserves NavButtonStyle but accessible via resource key "nav_button" -->
+        </Style>
+
+        <!-- Map for #logo (TextBlock) -->
+        <Style x:Key="logo" TargetType="TextBlock" BasedOn="{StaticResource LogoStyle}">
+            <!-- accessible via Style='{StaticResource logo}' -->
+        </Style>
+
+        <!-- Map for #page_title -->
+        <Style x:Key="page_title" TargetType="TextBlock" BasedOn="{StaticResource PageTitleStyle}" />
+
+        <!-- Map for #page_subtitle -->
+        <Style x:Key="page_subtitle" TargetType="TextBlock" BasedOn="{StaticResource PageSubtitleStyle}" />
+
+        <!-- Map for #version_label -->
+        <Style x:Key="version_label" TargetType="TextBlock" BasedOn="{StaticResource VersionLabelStyle}" />
+
+        <!-- Map for #warning_text -->
+        <Style x:Key="warning_text" TargetType="TextBlock" BasedOn="{StaticResource WarningTextStyle}" />
+
+        <!-- Map for #status_card (Border) -->
+        <Style x:Key="status_card" TargetType="Border">
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#3B4252" Offset="0.0"/>
+                        <GradientStop Color="#343D4C" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="15"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="#88C0D0"/>
+                    <Setter Property="Background">
+                        <Setter.Value>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#434C5E" Offset="0.0"/>
+                                <GradientStop Color="#3B4554" Offset="1.0"/>
+                            </LinearGradientBrush>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Map for #card_title and #card_value -->
+        <Style x:Key="card_title" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource SecondaryTextColor}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <!-- changed from numeric 600 -->
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="TextAlignment" Value="Left"/>
+        </Style>
+
+        <Style x:Key="card_value" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
     </Application.Resources>
 </Application>
