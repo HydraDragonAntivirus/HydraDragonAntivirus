@@ -4055,6 +4055,7 @@ def scan_yara(file_path):
     }
 
     # Lock for thread-safe access to shared variables
+    thread_lock = threading.Lock()
     threads = []
 
     try:
@@ -4344,12 +4345,20 @@ def scan_yara(file_path):
             except Exception as e:
                 logger.error(f"Error scanning with valhalla_rule: {e}")
 
+        # FIX: Create YARA-X scanner BEFORE threading
+        yaraxtr_scanner = None
+        if yaraxtr_rule:
+            try:
+                yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
+            except Exception as e:
+                logger.error(f"Failed to create YARA-X scanner: {e}")
+
         # Thread worker for yaraxtr_rule scanning (YARA-X)
         def yaraxtr_rule_worker():
             try:
-                if yaraxtr_rule:
-                    scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                    scan_results = scanner.scan(data_content)
+                # Use the pre-created scanner instead of creating a new one
+                if yaraxtr_scanner:
+                    scan_results = yaraxtr_scanner.scan(data_content)
                     local_matched_rules = []
                     local_matched_results = []
 
@@ -4367,7 +4376,7 @@ def scan_yara(file_path):
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
-                    logger.error("yaraxtr_rule is not defined.")
+                    logger.error("yaraxtr_rule scanner is not available.")
             except Exception as e:
                 logger.error(f"Error scanning with yaraxtr_rule: {e}")
 
