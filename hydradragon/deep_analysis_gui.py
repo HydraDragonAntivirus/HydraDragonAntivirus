@@ -35,7 +35,7 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
-from .antivirus_scripts.antivirus import (
+from hydradragon.antivirus_scripts.antivirus import (
     icon_path, 
     meta_llama_1b_dir, 
     freshclam_path,

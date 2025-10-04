@@ -355,15 +355,15 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .antivirus_scripts.utils import get_signature
+from .utils import get_signature
 logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
-from .antivirus_scripts import clamav
+from . import clamav
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .antivirus_scripts.detect_type import (
+from .detect_type import (
     is_go_garble_from_output,
     is_pyc_file_from_output,
     is_pyarmor_archive_from_output,
