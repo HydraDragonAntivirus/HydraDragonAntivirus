@@ -23,6 +23,17 @@ def is_go_garble_from_output(die_output):
         return True
     return False
 
+def is_nexe_file_from_output(die_output):
+    """
+    Check if the DIE output indicates a JavaScript nexe file.
+    A file is considered JavaScript nexe if the output contains:
+      - "Packer: nexe"
+    """
+    if die_output and ("Packer: nexe" in die_output):
+        logger.info("DIE output indicates a nexe file.")
+        return True
+    return False
+
 def is_pyc_file_from_output(die_output):
     """
     Check if the DIE output indicates a Python compiled module (.pyc file).

@@ -15,7 +15,8 @@ def get_signature(base_signature, **flags):
         'pyc_flag': 'PYC.Python',
         'androguard_flag': 'Android',
         'asar_flag': 'Electron',
-        'registry_flag': 'Registry'
+        'registry_flag': 'Registry',
+        'nexe_flag' : 'nexe'
     }
 
     for flag, platform in platform_map.items():

@@ -364,6 +364,7 @@ logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .detect_type import (
+    is_nexe_file_from_output,
     is_go_garble_from_output,
     is_pyc_file_from_output,
     is_pyarmor_archive_from_output,
@@ -475,6 +476,7 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+nexe_javascript_unpacked_dir = os.path.join(script_dir, "nexe_unpacked")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
 unlicense_x64_path  = os.path.join(unlicense_dir, "unlicense-x64.exe")
@@ -11404,6 +11406,52 @@ def run_scan_thread(dest: str, scan_flags: ScanFlags):
     """Start a scan_and_warn thread with flags packed in ScanFlags."""
     threading.Thread(target=scan_and_warn, args=(dest, scan_flags)).start()
 
+def nexe_unpacker(file_path) -> list:
+    """
+    Unpacks a nexe executable and extracts the embedded JavaScript bundle.
+    Returns a list of paths to extracted files.
+
+    :param file_path: Path to the nexe executable
+    :return: List of paths to the extracted JavaScript files
+    """
+    try:
+        logger.info(f"Detected nexe executable: {file_path}")
+
+        # Get the base filename without extension for directory naming
+        base_filename = os.path.splitext(os.path.basename(file_path))[0]
+        
+        # Create a unique numbered subdirectory under nexe_javascript_unpacked_dir
+        folder_number = 1
+        while os.path.exists(os.path.join(nexe_javascript_unpacked_dir, f"{base_filename}_{folder_number}")):
+            folder_number += 1
+        js_output_dir = os.path.join(nexe_javascript_unpacked_dir, f"{base_filename}_{folder_number}")
+        os.makedirs(js_output_dir, exist_ok=True)
+
+        # Run nexe_unpacker command to extract the JavaScript bundle
+        nexe_command = [
+            "nexe_unpacker",
+            file_path,
+            "-o",
+            js_output_dir
+        ]
+        subprocess.run(nexe_command, check=True)
+        logger.info(f"nexe JavaScript extracted to {js_output_dir}")
+
+        # Collect all extracted files from the output directory
+        extracted_files = []
+        for root, dirs, files in os.walk(js_output_dir):
+            for file in files:
+                extracted_files.append(os.path.join(root, file))
+
+        return extracted_files
+
+    except subprocess.CalledProcessError as ex:
+        logger.error(f"nexe_unpacker extraction failed for {file_path}: {ex}")
+        return []
+    except Exception as ex:
+        logger.error(f"Error processing nexe file {file_path}: {ex}")
+        return []
+
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -11688,6 +11736,55 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in Themida detection for {norm_path}: {e}")
 
+        def nexe_thread():
+            try:
+                if is_nexe_file_from_output(die_output):
+                    logger.info(f"Checking if the file {norm_path} contains nexe executable")
+                    
+                    # Step 1: Extract nexe files
+                    nexe_files = nexe_unpacker(norm_path)
+                    if not nexe_files:
+                        return
+                    
+                    for extracted_file in nexe_files:
+                        # Step 2: Optionally deobfuscate with Webcrack
+                        try:
+                            js_output_dir = deobfuscate_webcrack_js(extracted_file)
+                        except Exception as deobf_err:
+                            logger.error(f"Webcrack deobfuscation failed for {extracted_file}: {deobf_err}")
+                            js_output_dir = extracted_file  # fallback: just scan the extracted file
+
+                        # Step 3: Scan extracted/deobfuscated files
+                        scan_paths = []
+                        if os.path.isdir(js_output_dir):
+                            for root, _, files in os.walk(js_output_dir):
+                                for file in files:
+                                    scan_paths.append(os.path.join(root, file))
+                        else:
+                            scan_paths.append(js_output_dir)
+
+                        for file_path_full in scan_paths:
+                            try:
+                                with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                                    content = f.read()
+
+                                threading.Thread(
+                                    target=scan_code_for_links,
+                                    args=(content, file_path_full),
+                                    kwargs={"nexe_flag": True}
+                                ).start()
+
+                                threading.Thread(
+                                    target=scan_and_warn,
+                                    args=(file_path_full,),
+                                ).start()
+
+                            except Exception as scan_err:
+                                logger.error(f"Error scanning file {file_path_full}: {scan_err}")
+
+            except Exception as e:
+                logger.error(f"Error in nexe analysis for {norm_path}: {e}")
+
         def autoit_analysis():
             try:
                 if is_autoit_file_from_output(die_output):
@@ -11885,6 +11982,7 @@ def scan_and_warn(file_path,
             threading.Thread(target=apk_analysis),
             threading.Thread(target=dotnet_analysis),
             threading.Thread(target=cx_freeze_thread),
+            threading.Thread(target=nexe_thread),
             threading.Thread(
                 target=lambda: globals().update({
                     "already_vmprotect_unpacked": vmprotect_detection()

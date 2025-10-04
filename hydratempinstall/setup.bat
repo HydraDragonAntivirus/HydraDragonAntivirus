@@ -152,8 +152,17 @@ if %errorlevel% equ 0 (
     echo Failed to install 'webcrack' package.
 )
 
+rem 16. Install nexe_unpacker globally with npm
+echo Installing 'nexe_unpacker' npm package globally...
+"%NODEJS_PATH%\npm.cmd" install -g nexe_unpacker
+if %errorlevel% equ 0 (
+    echo 'nexe_unpacker' package installed successfully.
+) else (
+    echo Failed to install 'nexe_unpacker' package.
+)
+
 rem --------------------------------------------------------------------------
-rem 16. Navigate to HydraDragon pkg-unpacker folder and build npm project
+rem 17. Navigate to HydraDragon pkg-unpacker folder and build npm project
 if exist "%PKG_UNPACKER_DIR%" (
     echo Navigating to HydraDragon pkg-unpacker folder...
     cd /d "%PKG_UNPACKER_DIR%"
