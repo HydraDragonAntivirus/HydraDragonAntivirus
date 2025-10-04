@@ -222,10 +222,6 @@ from importlib.util import MAGIC_NUMBER
 logger.debug(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import difflib
-logger.debug(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import zlib
 logger.debug(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -358,16 +354,20 @@ from oneshot.shot import run_oneshot_python
 logger.debug(f"oneshot.shot.run_oneshot_python module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
-logger.debug(f"sourcedefender.unprotect_sourcedefender_file and is_sourcedefender_file, get_sourcedefender_info modules loaded in {time.time() - start_time:.6f} seconds")
+from decompilers.sourceundefender import is_sourcedefender_file, unprotect_sourcedefender_file, get_sourcedefender_info
+logger.debug(f"decompilers.sourceundefender.unprotect_sourcedefender_file and is_sourcedefender_file, get_sourcedefender_info modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from advancedInstallerExtractor import AdvancedInstallerReader
-logger.debug(f"advancedInstallerExtractor.AddvancedInstallerReader module loaded in {time.time() - start_time:.6f} seconds")
+from decompilers.advancedInstallerExtractor import AdvancedInstallerReader
+logger.debug(f"decompilers.advancedInstallerExtractor.AdvancedInstallerReader module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from vmprotectunpacker import unpack_pe
-logger.debug(f"vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
+from decompilers.vmprotectunpacker import unpack_pe
+logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from utils import get_signature
+logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
 from detect_type import (
@@ -598,7 +598,8 @@ valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
 Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(script_dir, "OpenHydraDragonAntiRootkit.py")
-bypass_pyarmor7_path = os.path.join(script_dir, "bypass_pyarmor7.py")
+decompilers_dir = os.path.join(script_dir, "decompilers")
+bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
@@ -2377,279 +2378,6 @@ def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
     cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
     return (cosine_similarity + 1) / 2
 
-def notify_user(file_path, virus_name, engine_detected):
-    notification = Notify()
-    notification.title = "Malware Alert"
-    notification_message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_pua(file_path, virus_name, engine_detected):
-    notification = Notify()
-    notification.title = "PUA Alert"
-    notification_message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_malicious_source_code(file_path, virus_name):
-    """
-    Sends a notification about malicious source code detected.
-    """
-    notification = Notify()
-    notification.title = f"Malicious Source Code detected: {virus_name}"
-    notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.error(notification_message)
-
-def notify_user_for_detected_command(message, file_path):
-    notification = Notify()
-    notification.title = "Malware Message Alert"
-    notification.message = (
-        f"{message}\n\n"
-        f"Related to: {file_path}\n"
-        f"(This does not necessarily mean the file is malware.)"
-    )
-
-    notification.send()
-    logger.critical(f"Notification: {notification.message}")
-
-
-def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis_flag=False):
-    notification = Notify()
-    if HiJackThis_flag:
-        notification.title = "Meta Llama-3.2-1B Security HiJackThis Alert"
-    else:
-        notification.title = "Meta Llama-3.2-1B Security Alert"
-
-    if malware_status.lower() == "maybe":
-        notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    elif malware_status.lower() == "yes":
-        notification_message = f"Malware detected: {file_path}\nVirus: {virus_name}"
-
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_size_warning(file_path, archive_type, virus_name):
-    """Send a notification for size-related warnings."""
-    notification = Notify()
-    notification.title = "Size Warning"
-    notification_message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
-                            f"which might be suspicious. Virus Name: {virus_name}")
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
-    """Send a notification for warnings related to suspicious filenames in archive files."""
-    notification = Notify()
-    notification.title = "Suspicious Filename In Archive Warning"
-    notification_message = (
-        f"The filename in the {archive_type} archive '{file_path}' contains a suspicious pattern: {virus_name}."
-    )
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_susp_name(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Suspicious Name Alert"
-    notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_scr(file_path, virus_name):
-    """
-    Notifies the user about a suspicious .scr PE file.
-    """
-    notification = Notify()
-    notification.title = "Suspicious .SCR File Detected"
-    notification_message = f"Suspicious .scr file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(f"ALERT: {notification_message}")
-
-def notify_user_etw_tampering(file_path, virus_name):
-    notification = Notify()
-    notification.title = "ETW Tampering Alert"
-    notification_message = f"ETW Tampering detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
-    notification = Notify()
-    notification.title = "Fake System File Alert"
-    notification_message = (
-        f"Fake system file detected:\n"
-        f"File Path: {file_path}\n"
-        f"File Name: {file_name}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_detected_rootkit(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Rootkit Detection Alert"
-    notification_message = (
-        f"Potential rootkit file detected:\n"
-        f"File Path: {file_path}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_invalid(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Fully Invalid signature Alert"
-    notification_message = f"Fully Invalid signature file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_fake_size(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Fake Size Alert"
-    notification_message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_startup(file_path, message):
-    """Notify the user about suspicious or malicious startup files."""
-    notification = Notify()
-    notification.title = "Startup File Alert"
-
-    # Include file_path in the message
-    notification_message = f"File: {file_path}\n{message}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_uefi(file_path, virus_name):
-    notification = Notify()
-    notification.title = "UEFI Malware Alert"
-    notification_message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_ransomware(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Ransomware Alert"
-    notification_message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_exela_stealer_v2(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Exela Stealer version 2 Alert in Python source code"
-    notification_message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_hosts(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Host Hijacker Alert"
-    notification_message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_worm(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Worm Alert"
-    notification_message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
-    notification = Notify()
-    notification.title = "Malware or Phishing Alert"
-
-    # Build the notification message dynamically
-    message_parts = []
-    if detection_type:
-        message_parts.append(f"Detection Type: {detection_type}")
-    if domain:
-        message_parts.append(f"Domain: {domain}")
-    if ipv4_address:
-        message_parts.append(f"IPv4 Address: {ipv4_address}")
-    if ipv6_address:
-        message_parts.append(f"IPv6 Address: {ipv6_address}")
-    if url:
-        message_parts.append(f"URL: {url}")
-    if file_path:
-        message_parts.append(f"File Path: {file_path}")
-
-    if message_parts:
-        notification_message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
-    else:
-        notification_message = "Phishing or Malicious activity detected"
-
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_hips(ip_address=None, dst_ip_address=None):
-    notification = Notify()
-    notification.title = "(Not Verified) Malicious Network Activity Detected"
-
-    if ip_address and dst_ip_address:
-        notification_message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
-    elif ip_address:
-        notification_message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
-    elif dst_ip_address:
-        notification_message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
-    else:
-        notification_message = "Malicious activity detected"
-
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
-    """
-    Function to send notification for detected HIPS file.
-    """
-    notification = Notify()
-    notification.title = "(Verified) Web Malware Alert For File"
-    notification_message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
-    notification.message = notification_message
-    notification.send()
-    logger.critical(notification_message)
-
 # Function to load antivirus list
 def load_antivirus_list():
     global antivirus_domains_data
@@ -2803,32 +2531,6 @@ def load_website_data():
     logger.info("All domain and IP address CSV files loaded successfully!")
 
 # --------------------------------------------------------------------------
-# Helper function to generate platform-specific signatures
-def get_signature(base_signature, **flags):
-    """Generate platform-specific signature based on flags."""
-    platform_map = {
-        'dotnet_flag': 'DotNET',
-        'fernflower_flag': 'Java',
-        'jsc_flag': 'JavaScript.ByteCode.v8',
-        'javascript_deobfuscated_flag': 'JavaScript',
-        'nuitka_flag': 'Nuitka',
-        'ole2_flag': 'OLE2',
-        'inno_setup_flag': 'Inno Setup',
-        'autohotkey_flag': 'AutoHotkey',
-        'nsis_flag': 'NSIS',
-        'pyc_flag': 'PYC.Python',
-        'androguard_flag': 'Android',
-        'asar_flag': 'Electron',
-        'registry_flag': 'Registry'
-    }
-
-    for flag, platform in platform_map.items():
-        if flags.get(flag):
-            return f"HEUR:Win32.{platform}.{base_signature}"
-
-    return f"HEUR:Win32.{base_signature}"
-
-# --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
 def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     """
@@ -2885,18 +2587,6 @@ def check_in_csv_data(target, csv_data):
         if entry['address'] == target:
             return True, entry['reference']
     return False, None
-
-def notify_with_homepage(target, base_signature, threat_name, **flags):
-    """Helper to handle both main signature and homepage signature notifications."""
-    # Main signature
-    signature = get_signature(base_signature, **flags)
-    notify_user_for_malicious_source_code(target, signature)
-
-    # Homepage signature if flag exists
-    homepage_flag = flags.get('homepage_flag')
-    if homepage_flag:
-        homepage_sig = f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen"
-        notify_user_for_malicious_source_code(target, homepage_sig)
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
