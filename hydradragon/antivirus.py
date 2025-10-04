@@ -3,13 +3,18 @@
 
 import os
 import sys
-from datetime import datetime
 import time
+from datetime import datetime
 
+# Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
-sys.path.insert(0, main_dir)
 
+# Add the main directory to sys.path to allow absolute imports
+if main_dir not in sys.path:
+    sys.path.insert(0, main_dir)
+
+# Now you can import your logger safely
 from hydra_logger import (
     logger,
     log_directory,
@@ -358,15 +363,15 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .utils import get_signature
+from hydradragon.utils import get_signature
 logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
-from . import clamav
+from hydradragon import clamav
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .detect_type import (
+from hydradragon.detect_type import (
     is_go_garble_from_output,
     is_pyc_file_from_output,
     is_pyarmor_archive_from_output,
@@ -403,7 +408,7 @@ from .detect_type import (
 logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from antivirus_scripts.notify_user import (
+from hydradragon.antivirus_scripts.notify_user import (
     notify_user,
     notify_user_pua,
     notify_user_for_malicious_source_code,
@@ -1434,7 +1439,7 @@ def get_die_output(path: str) -> Tuple[str, bool]:
     with open(path, "rb") as f:
         peek = f.read(8192)
 
-    if is_plain_text_file_from_output(peek):
+    if is_plain_text(peek):
         die_output = "Binary\n    Format: plain text"
         plain_text_flag = True
     else:
