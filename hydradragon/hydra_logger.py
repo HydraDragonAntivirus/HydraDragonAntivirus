@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QGraphicsOpacityEffect, QApplication)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject
 
-script_dir = os.getcwd()
+script_dir = os.path.dirname(os.path.abspath(__file__))
 log_directory = os.path.join(script_dir, "log")
 os.makedirs(log_directory, exist_ok=True)
 application_log_file = os.path.join(log_directory, "antivirus.log")

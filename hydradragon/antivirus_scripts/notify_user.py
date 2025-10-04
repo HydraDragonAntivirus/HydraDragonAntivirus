@@ -275,7 +275,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.send()
     logger.critical(notification_message)
 
-def notify_with_homepage(target, base_signature, threat_name, **flags):
+def notify_user_with_homepage(target, base_signature, threat_name, **flags):
     """Helper to handle both main signature and homepage signature notifications."""
     # Main signature
     signature = get_signature(base_signature, **flags)

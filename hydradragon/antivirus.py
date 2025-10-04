@@ -400,10 +400,37 @@ from antivirus_scripts.detect_type import (
     is_compiled_autohotkey_file_from_output,
     is_inno_setup_file_from_output
 )
-logger.debug(f"die_analysis detection functions loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
 
-from antivirus_scripts.notify_user import (notify_user, notify_user_size_warning
-                                           )
+start_time = time.time()
+from antivirus_scripts.notify_user import (
+    notify_user,
+    notify_user_pua,
+    notify_user_for_malicious_source_code,
+    notify_user_for_detected_command,
+    notify_user_for_meta_llama,
+    notify_user_size_warning,
+    notify_susp_archive_file_name_warning,
+    notify_user_susp_name,
+    notify_user_scr,
+    notify_user_etw_tampering,
+    notify_user_for_detected_fake_system_file,
+    notify_user_for_detected_rootkit,
+    notify_user_invalid,
+    notify_user_fake_size,
+    notify_user_startup,
+    notify_user_uefi,
+    notify_user_ransomware,
+    notify_user_exela_stealer_v2,
+    notify_user_hosts,
+    notify_user_worm,
+    notify_user_for_web,
+    notify_user_for_hips,
+    notify_user_for_detected_hips_file,
+    notify_user_with_homepage
+)
+logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -2658,7 +2685,7 @@ def scan_domain_general(url, **flags):
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
-                    notify_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
                     return
 
         # Check main domain threats
@@ -2670,7 +2697,7 @@ def scan_domain_general(url, **flags):
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
                 logger.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
-                notify_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
+                notify_user_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
                 return
 
         logger.info(f"Domain {full_domain} passed all checks.")
@@ -2718,7 +2745,7 @@ def scan_ip_address_general(ip_address, **flags):
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
-                    notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
             logger.info(f"Unknown IPv6 address detected: {ip_address}")
@@ -2756,7 +2783,7 @@ def scan_ip_address_general(ip_address, **flags):
                     else:
                         logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
 
-                    notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
             logger.info(f"Unknown IPv4 address detected: {ip_address}")
@@ -2780,7 +2807,7 @@ def scan_spam_email_365_general(email_content, **flags):
 
         if detected_spam_words:
             logger.critical(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
-            notify_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
+            notify_user_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
             return True
         else:
             logger.info("Email content passed spam check - no spam indicators found.")
@@ -2810,7 +2837,7 @@ def scan_url_general(url, **flags):
                           f"Threat: {entry['threat']}, Tags: {entry['tags']}\n"
                           f"URLhaus Link: {entry['urlhaus_link']}, Reporter: {entry['reporter']}")
                 logger.critical(message)
-                notify_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
+                notify_user_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
                 return
 
         # Heuristic check using uBlock Origin style detection
@@ -11473,6 +11500,21 @@ def scan_and_warn(file_path,
                 perform_special_scan = True
                 dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
                 if dest is not None:
+                    # Run ETW tampering detection in a thread
+                    def etw_detection_task():
+                        try:
+                            is_tampered = detect_etw_tampering_sandbox(dest)
+                            if is_tampered:
+                                scan_flags.etw_tampered = True
+                                virus_name = "HEUR:Win32.Trojan.EDR.Killer.gen"
+                                logger.critical(f"[ETW Tampering] Detected tampering in sandboxed ntdll.dll")
+                                notify_user_etw_tampering(normalized_path, virus_name)
+                        except Exception as e:
+                            logger.error(f"[ETW Detection Thread] Error: {e}")
+                    
+                    etw_thread = threading.Thread(target=etw_detection_task, daemon=True)
+                    etw_thread.start()
+                    
                     run_scan_thread(dest, scan_flags)
 
             perform_special_scan = True
@@ -14803,34 +14845,146 @@ def run_anti_self_delete_check():
     except Exception as e:
         logger.error(f"Failed to write report file: {e}")
 
+def check_rootkit_scan_results():
+    """
+    Reads the scan_report.json from the antirootkit plugin and processes any detections.
+    Sends notifications and logs critical alerts for each rootkit detection found.
+    """
+    reports_dir = os.path.join(script_dir, "reports")
+    scan_report_path = os.path.join(reports_dir, "scan_report.json")
+    
+    if not os.path.exists(scan_report_path):
+        logger.warning(f"Rootkit scan report not found at: {scan_report_path}")
+        return
+    
+    try:
+        with open(scan_report_path, 'r', encoding='utf-8', errors='ignore') as f:
+            scan_data = json.load(f)
+        
+        # Process suspicious files
+        for item in scan_data.get('suspicious_files', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('path', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process suspicious drivers
+        for item in scan_data.get('suspicious_drivers', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('path', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process suspicious processes
+        for item in scan_data.get('process_scan', {}).get('suspicious_processes', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('exe', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process suspicious autorun entries
+        for item in scan_data.get('suspicious_autorun', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('exe', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process registry ACL issues
+        for item in scan_data.get('registry_acl_issues', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = f"{item.get('root', '')}\\{item.get('subkey', '')}"
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process IFEO antivirus blocking
+        for item in scan_data.get('ifeo_antivirus_blocking', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('ifeo_path', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Process enhanced detection results
+        enhanced = scan_data.get('enhanced_detection', {})
+        
+        for item in enhanced.get('timing_anomalies', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = f"API Hook: {item.get('api', 'Unknown')}"
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('memory_anomalies', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = f"Memory Region: {item.get('base_address', 'Unknown')}"
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('network_anomalies', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = "Network Connections"
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('file_redirection', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('file', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('ads_streams', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('file', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('registry_timestamp_anomalies', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = item.get('key', 'Unknown')
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        for item in enhanced.get('boot_anomalies', []):
+            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
+                file_path = f"Boot Config: {item.get('pattern', 'Unknown')}"
+                virus_name = item['detection_name']
+                notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        # Check for self-delete detection
+        self_delete = scan_data.get('self_delete_detection', {})
+        if self_delete.get('status') == 'DELETED':
+            virus_name = "HEUR:Win32.Susp.Trojan.SelfDelete"
+            file_path = self_delete.get('file_path', 'Unknown')
+            notify_user_for_detected_rootkit(file_path, virus_name)
+        
+        logger.info("Rootkit scan results processed successfully")
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse rootkit scan report: {e}")
+    except Exception as e:
+        logger.error(f"Error processing rootkit scan results: {e}")
+
 def run_sandboxie_plugin_script():
+    """
+    Runs the antirootkit plugin script in Sandboxie and then checks results.
+    """
     # Anti-self-delete check for plugin
     run_anti_self_delete_check()
 
     # build the inner python invocation
-    python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
+    python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}"'
     # build the full command line for Start.exe
     cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate "{python_path}" {python_entry}'
+    
     try:
         logger.info(f"Running python script via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
         subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
         logger.info("Python plugin ran successfully in Sandboxie.")
+        
+        # After successful execution, check the scan results
+        check_rootkit_scan_results()
+        
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run python plugin in Sandboxie: {ex}")
-
-def run_sandboxie_plugin():
-    # build the inner rundll32 invocation
-    dll_entry = f'"{HydraDragonAV_sandboxie_DLL_path}",Run'
-    # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate rundll32.exe {dll_entry}'
-    try:
-        logger.info(f"Running DLL via Sandboxie: {cmd}")
-        # shell=True so that Start.exe sees the switches correctly
-        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logger.info("Plugin ran successfully in Sandboxie.")
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to run plugin in Sandboxie: {ex}")
 
 def run_sandboxie(file_path):
     try:
