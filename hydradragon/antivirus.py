@@ -363,15 +363,15 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from hydradragon.utils import get_signature
+from .antivirus_scripts.utils import get_signature
 logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
-from hydradragon import clamav
+from .antivirus_scripts import clamav
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from hydradragon.detect_type import (
+from .antivirus_scripts.detect_type import (
     is_go_garble_from_output,
     is_pyc_file_from_output,
     is_pyarmor_archive_from_output,
@@ -408,7 +408,7 @@ from hydradragon.detect_type import (
 logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from hydradragon.antivirus_scripts.notify_user import (
+from .antivirus_scripts.notify_user import (
     notify_user,
     notify_user_pua,
     notify_user_for_malicious_source_code,
