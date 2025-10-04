@@ -864,22 +864,34 @@ IPv4_pattern_standard = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:
 # IPv6 patterns (standard and all variations)
 IPv6_pattern_standard = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}::'
 
-# Discord webhook patterns (normal, reversed, base64, base32)
+# Discord webhook patterns (normal, reversed, base64, base32, reversed base64)
 discord_webhook_pattern = (
     r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
     r'|aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3Mv[A-Za-z0-9+/]+'
     r'|/skoohbew/ipa/moc\.drocsid//:sptth'
     r'|NBXXK4TFMFZGKIDCNFZGKIDDN5WGS33VEAQHS6LUNFXGO4TFMF2GKIDCNFZGKIDCNFXW4IDJNZQWY3DPEB2HI4DTHIXS653XO4XG64Q='
     r'|=Q4G6X4O35X6SHIHDT4IH2BEPD3YWQZNJDI4WXFNCDIKGZFNCDIKGF2MT4OGXFNUL6SHAQUEEVS33SGW5NDDIKGZFNCDIKGZFMT4TKXXBN'
+    r'|=m9vaG9ibmVifaXBhL21vYy5kcm9jc2lkLy86c3B0dGhh[A-Za-z0-9+/]+'
 )
 
-# Discord Canary webhook patterns (normal, reversed, base64, base32)
+# Discord attachment patterns (normal, reversed, base64, base32, reversed base64)
+discord_attachment_pattern = (
+    r'https://cdn\.discordapp\.com/attachments/[0-9]+/[0-9]+/[A-Za-z0-9_.-]+'
+    r'|aHR0cHM6Ly9jZG4uZGlzY29yZGFwcC5jb20vYXR0YWNobWVudHMv[A-Za-z0-9+/]+'
+    r'|/stnemhcatta/moc\.ppadrocsid\.ndc//:sptth'
+    r'|NBXXK4TFMNQWWZLDMN2GKIDCNFZGKIDBNR4XAYLTORSW45DFON2C4ZDPNRXXEZJAMFZGC4TUORUW4ZY='
+    r'|=YZ4WUROUTCGZFMAJZEXRRNPDZ4C2NOFD54WSROSOLTYA4XRNBDIKGZFNCDIKGZ2MDLZWWQNMFT4KXXBN'
+    r'|=c3RuZW1oY2F0dGEvbW9jLnBwYWRyb2NzaWQubmRjLy86c3B0dGhh[A-Za-z0-9+/]+'
+)
+
+# Discord Canary webhook patterns (normal, reversed, base64, base32, reversed base64)
 discord_canary_webhook_pattern = (
     r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
     r'|aHR0cHM6Ly9jYW5hcnkuZGlzY29yZC5jb20vYXBpL3dlYmhvb2tzL[A-Za-z0-9+/]+'
     r'|/skoohbew/ipa/moc\.drocsid\.yranac//:sptth'
     r'|NBXXK4TFMFZGKIDCNFZGKIDDN5WGS33VEAQHS6LUNFXGO4TFMF2GKIDCNFZGKIDCNFXW4IDJNZQWY3DPEB2HI4DTHIXS653XO4XG64TJNF2GS4DFOQQGC3DJMRZXIZJ5'
     r'|5JZIXZRMJD3CGQOFD4SG2FNJT46G6X4O35X6SHIHDT4IH2BEPD3YWQZNJDI4WXFNCDIKGZFNCDIKGZFMT4OGXFNUL6SHAQUEEVS33SGW5NDDIKGZFNCDIKGZFMT4TKXXBN'
+    r'|=c2tob29oYmV3L2lwaS9tb2MuZHJvY3NpZC55cmFuYWMvLzpzcHR0aGE[A-Za-z0-9+/]+'
 )
 
 # CDN attachment patterns (normal, reversed, base64, base32)
@@ -915,6 +927,9 @@ telegram_keyword_pattern = (
 
 # Discord webhook (standard)
 discord_webhook_pattern_standard = r'https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
+
+# Discord attachment (standard)
+discord_attachment_pattern_standard = r'https://cdn\.discord\.com/api/attachments/\d+/[A-Za-z0-9_-]+'
 
 # Discord Canary webhook (standard)
 discord_canary_webhook_pattern_standard = r'https://canary\.discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
@@ -2566,6 +2581,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     # Define detection patterns and their corresponding signatures
     detections = [
         (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord webhook URL", "Discord.Webhook"),
+        (re.findall(discord_attachment_pattern, decompiled_code, flags=re.IGNORECASE), "Discord attachment URL", "Discord.Attachment"),
         (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord Canary webhook URL", "Discord.Canary.Webhook"),
         (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE), "Discord CDN attachment URL", "Discord.CDNAttachment")
     ]
@@ -3893,6 +3909,9 @@ class RealTimeWebProtectionHandler:
             # --- Heuristic Checks for Discord & Telegram ---
             if re.compile(discord_webhook_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Discord.Webhook')
+                return
+            if re.compile(discord_attachment_pattern_standard).search(url):
+                self.handle_detection('url', url, 'HEUR:Discord.Attachment')
                 return
             if re.compile(discord_canary_webhook_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Discord.CanaryWebhook')
@@ -6605,14 +6624,11 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
 
     preserve_patterns = [
         discord_webhook_pattern,
+        discord_attachment_pattern,
         discord_canary_webhook_pattern,
         cdn_attachment_pattern,
         telegram_token_pattern,
         telegram_keyword_pattern,
-        discord_webhook_pattern_standard,
-        discord_canary_webhook_pattern_standard,
-        cdn_attachment_pattern_standard,
-        telegram_pattern_standard,
         UBLOCK_REGEX,
         ZIP_JOIN,
         CHAINED_JOIN,
@@ -6666,9 +6682,10 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                 # Merge only if next token is likely valid code/URL
                 if next_token.startswith(('"', "'", 'http')):
                     merged_tokens.append('u' + next_token)
+                    i += 2
                 else:
                     merged_tokens.append('u')
-                i += 2
+                    i += 1
             else:
                 merged_tokens.append('u')
                 i += 1
