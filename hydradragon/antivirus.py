@@ -48,23 +48,6 @@ logger.debug(
 total_start_time = time.time()
 
 start_time = time.time()
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
-                               QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
-                               QFrame, QStackedWidget, QLineEdit,
-                               QApplication, QButtonGroup, QGroupBox, QFileDialog)
-logger.debug(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
-logger.debug(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
-                           QPainterPath, QRadialGradient, QIcon, QPixmap)
-logger.debug(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import clamav
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
@@ -15196,12 +15179,6 @@ def run_de4dot_in_sandbox(file_path):
         logger.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
-
-# ----- Global Variables to hold captured data -----
-pre_analysis_log_path = None
-post_analysis_log_path = None
-pre_analysis_entries = {}
-post_analysis_entries = {}
 
 # ----- Utility Functions -----
 def force_remove_log():
