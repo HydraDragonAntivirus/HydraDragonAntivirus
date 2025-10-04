@@ -400,7 +400,7 @@ from .detect_type import (
 logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .antivirus_scripts.notify_user import (
+from .notify_user import (
     notify_user,
     notify_user_pua,
     notify_user_for_malicious_source_code,
