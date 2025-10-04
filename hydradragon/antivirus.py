@@ -358,7 +358,7 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from utils import get_signature
+from antivirus_scripts.utils import get_signature
 logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
@@ -366,7 +366,7 @@ from antivirus_scripts import clamav
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from detect_type import (
+from antivirus_scripts.detect_type import (
     is_go_garble_from_output,
     is_pyc_file_from_output,
     is_pyarmor_archive_from_output,
@@ -402,6 +402,8 @@ from detect_type import (
 )
 logger.debug(f"die_analysis detection functions loaded in {time.time() - start_time:.6f} seconds")
 
+from antivirus_scripts.notify_user import (notify_user, notify_user_size_warning
+                                           )
 # Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -5225,7 +5227,7 @@ def scan_zip_file(file_path):
                 # Size-bomb check
                 if zip_size < 20 * 1024 * 1024 and info.file_size > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.ZIP" if encrypted else "HEUR:Win32.Susp.Size.ZIP"
-                    notify_size_warning(file_path, "ZIP", virus)
+                    notify_user_size_warning(file_path, "ZIP", virus)
                     malware_detected = True
 
         # Single-entry password logic
@@ -5236,7 +5238,7 @@ def scan_zip_file(file_path):
                     snippet = zf.open(fname).read(4096)
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
-                    notify_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
+                    notify_user_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
                     malware_detected = True
 
         # Return based on detection status
@@ -5299,7 +5301,7 @@ def scan_7z_file(file_path):
                 # Size-bomb check
                 if archive_size < 20 * 1024 * 1024 and entry.uncompressed > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.7z" if encrypted else "HEUR:Win32.Susp.Size.7z"
-                    notify_size_warning(file_path, "7z", virus)
+                    notify_user_size_warning(file_path, "7z", virus)
                     malware_detected = True
 
         # Single-entry password logic
@@ -5310,7 +5312,7 @@ def scan_7z_file(file_path):
                 snippet = data_map.get(fname, b'')[:4096]
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
-                    notify_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
+                    notify_user_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
                     malware_detected = True
 
         # Return based on detection status
@@ -5373,7 +5375,7 @@ def scan_tar_file(file_path):
                             f"({extracted_file_size / (1024 * 1024):.2f} MB) - flagged as {virus_name}. "
                             "Potential TARbomb or Fake Size detected to avoid VirusTotal detections."
                         )
-                        notify_size_warning(file_path, "TAR", virus_name)
+                        notify_user_size_warning(file_path, "TAR", virus_name)
 
         return True, []
     except Exception as ex:

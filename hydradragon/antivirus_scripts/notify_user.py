@@ -62,7 +62,7 @@ def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis
 
     logger.critical(notification_message)
 
-def notify_size_warning(file_path, archive_type, virus_name):
+def notify_user_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
     notification = Notify()
     notification.title = "Size Warning"
