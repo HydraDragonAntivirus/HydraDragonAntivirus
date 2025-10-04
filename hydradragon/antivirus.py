@@ -391,8 +391,8 @@ from antivirus_scripts.detect_type import (
     is_packer_upx_output,
     is_jar_file_from_output,
     is_java_class_from_output,
+    is_plain_text,
     is_plain_text_file_from_output,
-    is_plain_text_data,
     is_7z_file_from_output,
     is_pyinstaller_archive_from_output,
     is_microsoft_compound_file_from_output,
@@ -1501,7 +1501,7 @@ def debloat_pe_file(file_path):
 def remove_magic_bytes(data_content, die_output):
     """Remove magic bytes from data, considering it might be hex-encoded."""
     try:
-        if is_plain_text_data(die_output):
+        if is_plain_text_file_from_output(die_output):
             # Convert binary data to hex representation for easier pattern removal
             hex_data = binascii.hexlify(data_content).decode("utf-8", errors="ignore")
 
