@@ -6,14 +6,6 @@ import sys
 import time
 from datetime import datetime
 
-# Ensure the script's directory is the working directory
-main_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(main_dir)
-
-# Add the main directory to sys.path to allow absolute imports
-if main_dir not in sys.path:
-    sys.path.insert(0, main_dir)
-
 # Now you can import your logger safely
 from hydra_logger import (
     logger,

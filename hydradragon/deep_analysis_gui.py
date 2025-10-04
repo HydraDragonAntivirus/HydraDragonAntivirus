@@ -7,6 +7,15 @@ import shutil
 import json
 import subprocess
 import difflib
+
+# Ensure the script's directory is the working directory
+main_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(main_dir)
+
+# Add the main directory to sys.path to allow absolute imports
+if main_dir not in sys.path:
+    sys.path.insert(0, main_dir)
+
 from datetime import datetime, timedelta
 from typing import Optional
 from hydra_logger import (
@@ -16,7 +25,24 @@ from hydra_logger import (
     application_log_file,
     log_directory,
     script_dir,
-    reinitialize_hydra_logger,
+    reinitialize_hydra_logger
+)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
+                               QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
+                               QFrame, QStackedWidget, QLineEdit,
+                               QApplication, QButtonGroup, QGroupBox, QFileDialog)
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
+from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
+                           QPainterPath, QRadialGradient, QIcon, QPixmap)
+from .antivirus_scripts.antivirus import (
+    icon_path, 
+    meta_llama_1b_dir, 
+    freshclam_path,
+    clamav_file_paths, 
+    sandboxie_path, 
+    sandboxie_box, 
+    reports_dir,                      
     run_analysis_with_yield,
     scan_code_for_links,
     run_sandboxie_plugin_script,
@@ -44,16 +70,6 @@ from hydra_logger import (
     stdout_console_log_file,
     stderr_console_log_file
 )
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
-                               QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
-                               QFrame, QStackedWidget, QLineEdit,
-                               QApplication, QButtonGroup, QGroupBox, QFileDialog)
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
-from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
-                           QPainterPath, QRadialGradient, QIcon, QPixmap)
-from antivirus import (icon_path, meta_llama_1b_dir, freshclam_path,
-                          clamav_file_paths, sandboxie_path, sandboxie_box)
 
 # ----- Global Variables to hold captured data -----
 pre_analysis_log_path = None
@@ -589,7 +605,7 @@ class Worker(QThread):
             logger.error(f"Error scanning network indicators: {str(e)}")
             self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
 
-    def check_and_scan_network_indicators(self, reports_dir=None):
+    def check_and_scan_network_indicators(self):
         """
         Check for network indicators file and scan the indicators only if file exists.
         """
