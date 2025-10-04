@@ -9,7 +9,7 @@ import chardet
 from elftools.elf.elffile import ELFFile
 from elftools.common.exceptions import ELFError
 import macholib.MachO
-from androguard.misc import APK
+from androguard.misc import AnalyzeAPK
 from androguard.core.apk import APK
 
 def is_go_garble_from_output(die_output):
