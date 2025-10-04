@@ -47,10 +47,6 @@ logger.debug(
 # Start timing total duration
 total_start_time = time.time()
 
-start_time = time.time()
-import clamav
-logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
-
 # Measure and logger.debug time taken for each import
 start_time = time.time()
 import hashlib
@@ -63,10 +59,6 @@ logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import tempfile
 logger.debug(f"tempfile module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import webbrowser
-logger.debug(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from uuid import uuid4 as uniquename
@@ -370,6 +362,10 @@ from utils import get_signature
 logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")    
 
 start_time = time.time()
+from antivirus_scripts import clamav
+logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from detect_type import (
     is_go_garble_from_output,
     is_pyc_file_from_output,
@@ -597,7 +593,8 @@ icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
-Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(script_dir, "OpenHydraDragonAntiRootkit.py")
+antivirus_scripts_dir = os.path.join(script_dir, "antivirus_scripts")
+Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(antivirus_scripts_dir, "OpenHydraDragonAntiRootkit.py")
 decompilers_dir = os.path.join(script_dir, "decompilers")
 bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
