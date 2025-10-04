@@ -11665,8 +11665,6 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in VMProtect detection for '{file_path}': {e}")
 
-            return already_vmprotect_unpacked
-
         def themida_detection():
             try:
                 is_themida_protected = is_themida_from_output(die_output)
@@ -11801,7 +11799,7 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
-        def apk_analysis(norm_path, apk_result):
+        def apk_analysis():
             """
             Analyze and decompile an APK, then scan decompiled files in threads.
             """
