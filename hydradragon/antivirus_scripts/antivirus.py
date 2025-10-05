@@ -11525,7 +11525,6 @@ def scan_and_warn(file_path,
         # If we've already scanned this exact (path, hash), skip immediately
         key = (norm_path.lower(), md5)
         if key in seen_files:
-            logger.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})")
             return False
 
          # Mark it seen and proceed
