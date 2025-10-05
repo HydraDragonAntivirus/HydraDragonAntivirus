@@ -11923,7 +11923,6 @@ def scan_and_warn(file_path,
             """
             try:
                 if not apk_result:
-                    logger.warning(f"{norm_path} is not a valid APK (skipping).")
                     return
 
                 logger.info(f"File {norm_path} is a valid APK file.")
