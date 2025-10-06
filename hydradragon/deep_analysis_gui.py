@@ -1683,7 +1683,7 @@ class AntivirusApp(QWidget):
             "<b>NOTICE:</b> HydraDragonDumper x64 must be used to create clean hashes before you download malware.<br><br>"
             "<b>Recommended Workflow:</b><br>"
             "1. Update ClamAV and Hayabusa Virus Definitions<br>"
-            "2. Generate Clean DB (HydraDragonDumper x64)<br>"
+            "2. Generate Clean DB with HydraDragonDumper x64 (Highly Recommended) <br>"
             "3. Capture Pre-analysis Logs<br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
@@ -1819,7 +1819,7 @@ class AntivirusApp(QWidget):
         title.setObjectName("page_title")
         layout.addWidget(title)
 
-        generate_button = QPushButton("Run Generate Whitelist DB (Recommended)")
+        generate_button = QPushButton("Run Generate Whitelist DB (Highly Recommended)")
         generate_button.setObjectName("action_button")
         generate_button.clicked.connect(lambda: self.start_worker("generate_whitelist_db"))
         layout.addWidget(generate_button)
