@@ -314,49 +314,84 @@ def show_critical_alert(title, message, level="CRITICAL"):
 
 def alert_on_critical(record):
     """Show popup alert for critical level logs only"""
-    if record["level"] == "CRITICAL":
-        # Increment critical count
-        count = alert_tracker.increment_critical()
-        
-        # Detect script
-        script_name = detect_script_name()
-        
-        title = "Critical Security Alert"
-        message = record["message"]
-        
-        # Add script information to message
-        message = f"[{script_name}] {message}"
-        
-        # Extract additional context if available
-        if "extra" in record:
-            context_parts = [f"{k}: {v}" for k, v in record["extra"].items()]
-            if context_parts:
-                message += "\n\n" + "\n".join(context_parts)
-        
-        # Add alert count
-        message += f"\n\nTotal Critical Alerts: {count}"
-        
-        # Only show GUI popup if running in GUI mode
-        if is_gui_available():
-            show_critical_alert(title, message, "CRITICAL")
+    try:
+        if record.get("level") == "CRITICAL":
+            # Increment critical count
+            count = alert_tracker.increment_critical()
             
-            # Update status cards if available
-            try:
-                app = QApplication.instance()
-                if app and hasattr(app, 'main_window'):
-                    main_window = app.main_window
-                    if hasattr(main_window, 'threat_card'):
-                        main_window.threat_card.value_label.setText(str(count))
-            except Exception as e:
-                logger.debug(f"Could not update status card: {str(e)}")
+            # Detect script
+            script_name = detect_script_name()
+            
+            title = "Critical Security Alert"
+            message = record.get("message", "")
+            
+            # Add script information to message
+            message = f"[{script_name}] {message}"
+            
+            # Extract additional context if available
+            if "extra" in record and isinstance(record["extra"], dict):
+                context_parts = [f"{k}: {v}" for k, v in record["extra"].items()]
+                if context_parts:
+                    message += "\n\n" + "\n".join(context_parts)
+            
+            # Add alert count
+            message += f"\n\nTotal Critical Alerts: {count}"
+            
+            # Only show GUI popup if running in GUI mode
+            if is_gui_available():
+                show_critical_alert(title, message, "CRITICAL")
+                
+                # Update status cards if available
+                try:
+                    app = QApplication.instance()
+                    if app and hasattr(app, 'main_window'):
+                        main_window = app.main_window
+                        if hasattr(main_window, 'threat_card'):
+                            main_window.threat_card.value_label.setText(str(count))
+                except Exception as e:
+                    logger.debug(f"Could not update status card: {str(e)}")
+    except Exception as e:
+        # Protect callback from throwing to the logger internals
+        logger.debug(f"alert_on_critical failed: {e}")
 
 
-# Add callback to logger
-callback_id = logger.add_callback(alert_on_critical)
+def alert_on_event(record):
+    """Increment event counter for non-critical log records.
+    This is intended for INFO/WARNING/ERROR/DEBUG messages that represent
+    noteworthy events but are not critical alerts.
+    """
+    try:
+        level = record.get("level")
+        # Don't double count criticals as generic events
+        if level and level != "CRITICAL":
+            count = alert_tracker.increment_event()
+            # Optional: add a compact context to the log message
+            script_name = detect_script_name()
+            logger.debug(f"Event count incremented to {count} (source: {script_name}, level: {level})")
+
+            # If GUI is present, try to update an events card if available
+            if is_gui_available():
+                try:
+                    app = QApplication.instance()
+                    if app and hasattr(app, 'main_window'):
+                        main_window = app.main_window
+                        if hasattr(main_window, 'event_card'):
+                            main_window.event_card.value_label.setText(str(count))
+                except Exception as e:
+                    logger.debug(f"Could not update event status card: {str(e)}")
+    except Exception as e:
+        logger.debug(f"alert_on_event failed: {e}")
+
+
+# Add callbacks to logger
+callback_id_critical = logger.add_callback(alert_on_critical)
+callback_id_event = logger.add_callback(alert_on_event)
 
 
 def reinitialize_hydra_logger():
-    """Reset Hydra logger handlers and reapply file handler."""
+    """Reset Hydra logger handlers and reapply file handler.
+    Re-registers both critical and event callbacks.
+    """
     logger.remove_all()
     
     logger.add("console")
@@ -376,8 +411,10 @@ def reinitialize_hydra_logger():
         json=False
     )
     
-    # Re-add callback
-    logger.add_callback(alert_on_critical)
+    # Re-add callbacks
+    global callback_id_critical, callback_id_event
+    callback_id_critical = logger.add_callback(alert_on_critical)
+    callback_id_event = logger.add_callback(alert_on_event)
     
     return logger
 
@@ -392,11 +429,23 @@ def setup_gui_mode(main_window_instance):
 
 
 def get_alert_counts():
-    """Get current alert counts"""
+    """Get current alert counts (critical, events)"""
     return alert_tracker.get_counts()
 
 
 def reset_alert_counts():
-    """Reset all alert counts"""
+    """Reset all alert counts and update GUI cards if present."""
     alert_tracker.reset_counts()
     logger.info("Alert counts reset")
+    # Update GUI cards if present
+    if is_gui_available():
+        try:
+            app = QApplication.instance()
+            if app and hasattr(app, 'main_window'):
+                main_window = app.main_window
+                if hasattr(main_window, 'threat_card'):
+                    main_window.threat_card.value_label.setText('0')
+                if hasattr(main_window, 'event_card'):
+                    main_window.event_card.value_label.setText('0')
+        except Exception as e:
+            logger.debug(f"Could not update GUI cards after reset: {e}")
