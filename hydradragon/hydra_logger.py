@@ -365,10 +365,6 @@ def alert_on_event(record):
         # Don't double count criticals as generic events
         if level and level != "CRITICAL":
             count = alert_tracker.increment_event()
-            # Optional: add a compact context to the log message
-            script_name = detect_script_name()
-            logger.debug(f"Event count incremented to {count} (source: {script_name}, level: {level})")
-
             # If GUI is present, try to update an events card if available
             if is_gui_available():
                 try:
