@@ -486,7 +486,6 @@ hayabusa_dir = os.path.join(script_dir, "hayabusa")
 webcrack_javascript_deobfuscated_dir = os.path.join(script_dir, "webcrack_javascript_deobfuscated")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.5.0-win-x64.exe")
-av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
 network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
@@ -12708,102 +12707,6 @@ def scan_and_warn(file_path,
         return False
 
 
-class LogFileEventHandler(FileSystemEventHandler):
-    """Handles file system events for the log file."""
-    def __init__(self, filename):
-        self.filename = os.path.abspath(filename)
-        # Start reading from the end of the file.
-        try:
-            self.last_position = os.path.getsize(self.filename)
-        except FileNotFoundError:
-            self.last_position = 0
-        logger.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
-
-    def on_modified(self, event):
-        """
-        Called when a file or directory is modified.
-        """
-        # We only care about modifications to our specific log file.
-        if event.src_path != self.filename:
-            return
-
-        try:
-            current_position = os.path.getsize(self.filename)
-
-            # Handle log rotation or truncation.
-            if current_position < self.last_position:
-                logger.info("Log file has been reset. Reading from the beginning.")
-                self.last_position = 0
-
-            # If the file has grown, read the new lines.
-            if current_position > self.last_position:
-                with open(self.filename, 'r', encoding='utf-8') as f:
-                    f.seek(self.last_position)
-                    new_lines = f.readlines()
-                    self.last_position = f.tell()
-
-                # Process new lines after closing the file to release the lock.
-                for line in new_lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        event_data = json.loads(line)
-                        file_path_to_scan = event_data.get("file_path")
-
-                        if file_path_to_scan:
-                            process_name = event_data.get('process_name', 'N/A')
-                            logger.info(f"New event detected for process '{process_name}'")
-                            scan_and_warn(file_path_to_scan)
-                        else:
-                            logger.error("Found event log line without a 'file_path' key.")
-
-                    except json.JSONDecodeError:
-                        logger.error(f"Could not decode JSON from line: {line}")
-                    except Exception as e:
-                        logger.error(f"An error occurred while processing an event: {e}")
-
-        except FileNotFoundError:
-             logger.error(f"Log file '{self.filename}' not found during modification check.")
-             self.last_position = 0 # Reset position for when it's recreated.
-        except Exception as e:
-            logger.error(f"A critical error occurred in the event handler: {e}")
-
-
-def monitor_log_file(json_file_path: str):
-    """
-    Monitors a JSON log file for new entries using file system events.
-    """
-    logger.info(f"Starting to monitor log file: {json_file_path}")
-
-    # Ensure the file and its directory exist before starting the observer.
-    log_dir = os.path.dirname(os.path.abspath(json_file_path))
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-        logger.info(f"Created directory: {log_dir}")
-
-    if not os.path.exists(json_file_path):
-        with open(json_file_path, 'w', encoding='utf-8'):
-            logger.info(f"Log file not found. Created an empty file at: {json_file_path}")
-
-    event_handler = LogFileEventHandler(json_file_path)
-    observer = Observer()
-    # We watch the directory containing the file, not the file itself.
-    observer.schedule(event_handler, log_dir, recursive=False)
-
-    logger.info(f"Observer started. Watching directory: '{log_dir}'")
-    observer.start()
-
-    try:
-        while True:
-            # Keep the main thread alive to allow the observer to run.
-            time.sleep(0)
-    except KeyboardInterrupt:
-        observer.stop()
-        logger.info("Observer stopped by user.")
-    observer.join()
-
 def remove_log_file(json_file_path: str):
     """
     Removes the specified log file if it exists.
@@ -14832,7 +14735,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (web_protection_observer.begin_observing,),
             (monitor_directories_with_watchdog,),
             (start_monitoring_sandbox,),
-            (monitor_log_file, (av_events_json_file_path,)),
             (monitor_sandboxie_directory,),
             (check_startup_directories,),
             (monitor_hosts_file,),
