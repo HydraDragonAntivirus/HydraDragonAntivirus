@@ -11603,8 +11603,10 @@ def scan_and_warn(file_path,
             die_output, plain_text_flag = get_die_output(norm_path)
             die_cache[md5] = (die_output, plain_text_flag)
 
-        # CRITICAL: Unknown file check that can cause early return - NO THREADING
+        # CRITICAL: Ransomware check that can cause early return - NO THREADING
         if is_file_fully_unknown(die_output):
+            if perform_special_scan:
+                ransomware_alert(norm_path)  # Direct call, not threaded
             if mega_optimization_with_anti_false_positive:
                 logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
                 return False  # EARLY EXIT - must not be threaded
