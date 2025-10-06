@@ -1582,16 +1582,13 @@ class AntivirusApp(QWidget):
 
         # Create status cards first
         self.threat_card = StatusCard("Critical Threats", "0", "⚠️")
-        self.scan_card = StatusCard("Events", "0", "🧾")
 
         # Now update status cards with current counts
-        critical_count, event_count = get_alert_counts()
+        critical_count = get_alert_counts()
         self.threat_card.value_label.setText(str(critical_count))
-        self.scan_card.value_label.setText(str(event_count))
 
         # Add the whole card widgets to the layout
         cards_layout.addWidget(self.threat_card)
-        cards_layout.addWidget(self.scan_card)
 
         # Add the card layout to the main layout
         layout.addLayout(cards_layout)

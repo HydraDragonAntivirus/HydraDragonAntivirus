@@ -5,8 +5,15 @@ import os
 import sys
 import threading
 from logly import logger
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QGraphicsOpacityEffect, QApplication)
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QGraphicsOpacityEffect,
+    QApplication,
+)
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,48 +27,38 @@ logger.add(
     rotation="daily",
     retention=7,
     date_enabled=True,
-    async_write=True
+    async_write=True,
 )
 
-logger.configure(
-    level="DEBUG",
-    color=True,
-    show_time=True,
-    json=False
-)
+logger.configure(level="DEBUG", color=True, show_time=True, json=False)
 
 
 # Global tracking variables
 class AlertTracker(QObject):
-    """Thread-safe alert tracker with Qt signals"""
+    """Thread-safe tracker that only counts critical alerts"""
     critical_alert_signal = Signal(str, str)  # title, message
-    
+
     def __init__(self):
         super().__init__()
         self.critical_count = 0
-        self.event_count = 0
         self.lock = threading.Lock()
         self.is_gui_mode = False
         self.gui_app = None
-        
+
     def increment_critical(self):
         with self.lock:
             self.critical_count += 1
             return self.critical_count
-    
-    def increment_event(self):
-        with self.lock:
-            self.event_count += 1
-            return self.event_count
-    
+
     def get_counts(self):
+        """Return the current number of critical alerts (single int)."""
         with self.lock:
-            return self.critical_count, self.event_count
-    
+            return self.critical_count
+
     def reset_counts(self):
+        """Reset only the critical alert count."""
         with self.lock:
             self.critical_count = 0
-            self.event_count = 0
 
 
 # Global instance
@@ -73,7 +70,7 @@ def detect_script_name():
     try:
         script_name = os.path.basename(sys.argv[0])
         return script_name
-    except:
+    except Exception:
         return "unknown"
 
 
@@ -82,98 +79,98 @@ def is_gui_available():
     try:
         app = QApplication.instance()
         return app is not None
-    except:
+    except Exception:
         return False
 
 
 class CriticalAlertPopup(QWidget):
     """Modern critical alert popup notification"""
-    
+
     def __init__(self, title, message, level="CRITICAL", parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        
+
         self.level = level
         self.setup_ui(title, message)
         self.setup_animations()
         self.position_popup()
-        
+
     def setup_ui(self, title, message):
         """Setup the notification UI"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         container = QWidget()
         container.setObjectName("alert_container")
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(20, 20, 20, 20)
         container_layout.setSpacing(15)
-        
+
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
-        
+
         icon_label = QLabel()
         icon_label.setObjectName("alert_icon")
         icon_label.setFixedSize(48, 48)
         icon_label.setAlignment(Qt.AlignCenter)
         icon_label.setText("⚠")
         icon_label.setStyleSheet("font-size: 36px; color: #BF616A;")
-        
+
         header_layout.addWidget(icon_label)
-        
+
         title_container = QVBoxLayout()
         title_container.setSpacing(5)
-        
+
         title_label = QLabel(title)
         title_label.setObjectName("alert_title")
         title_label.setWordWrap(True)
         title_container.addWidget(title_label)
-        
+
         level_label = QLabel(self.level)
         level_label.setObjectName("alert_level")
         title_container.addWidget(level_label)
-        
+
         header_layout.addLayout(title_container, 1)
-        
+
         close_btn = QPushButton("×")
         close_btn.setObjectName("close_button")
         close_btn.setFixedSize(32, 32)
         close_btn.clicked.connect(self.close_animation)
         header_layout.addWidget(close_btn, 0, Qt.AlignTop)
-        
+
         container_layout.addLayout(header_layout)
-        
+
         message_label = QLabel(message)
         message_label.setObjectName("alert_message")
         message_label.setWordWrap(True)
         message_label.setMaximumWidth(400)
         container_layout.addWidget(message_label)
-        
+
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
         button_layout.addStretch()
-        
+
         dismiss_btn = QPushButton("Dismiss")
         dismiss_btn.setObjectName("dismiss_button")
         dismiss_btn.setMinimumWidth(100)
         dismiss_btn.clicked.connect(self.close_animation)
-        
+
         details_btn = QPushButton("View Details")
         details_btn.setObjectName("details_button")
         details_btn.setMinimumWidth(100)
         details_btn.clicked.connect(self.show_details)
-        
+
         button_layout.addWidget(details_btn)
         button_layout.addWidget(dismiss_btn)
-        
+
         container_layout.addLayout(button_layout)
-        
+
         main_layout.addWidget(container)
-        
+
         self.apply_stylesheet()
-        
+
     def apply_stylesheet(self):
         """Apply modern stylesheet to the alert"""
         stylesheet = """
@@ -256,43 +253,43 @@ class CriticalAlertPopup(QWidget):
             }
         """
         self.setStyleSheet(stylesheet)
-        
+
     def setup_animations(self):
         """Setup fade in/out animations"""
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
-        
+
         self.fade_in = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_in.setDuration(300)
         self.fade_in.setStartValue(0.0)
         self.fade_in.setEndValue(1.0)
         self.fade_in.setEasingCurve(QEasingCurve.OutCubic)
-        
+
         self.fade_out = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_out.setDuration(250)
         self.fade_out.setStartValue(1.0)
         self.fade_out.setEndValue(0.0)
         self.fade_out.setEasingCurve(QEasingCurve.InCubic)
         self.fade_out.finished.connect(self.close)
-        
+
     def position_popup(self):
         """Position popup at bottom-right of screen"""
         screen = QApplication.primaryScreen().geometry()
         self.adjustSize()
-        
+
         x = screen.width() - self.width() - 30
         y = screen.height() - self.height() - 50
-        
+
         self.move(x, y)
-        
+
     def show_details(self):
         """Handle details button click"""
         logger.info("User requested alert details")
-        
+
     def close_animation(self):
         """Animate close"""
         self.fade_out.start()
-        
+
     def showEvent(self, event):
         """Override show event to start fade in animation"""
         super().showEvent(event)
@@ -314,104 +311,66 @@ def show_critical_alert(title, message, level="CRITICAL"):
 
 def alert_on_critical(record):
     """Show popup alert for critical level logs only"""
-    try:
-        if record.get("level") == "CRITICAL":
-            # Increment critical count
-            count = alert_tracker.increment_critical()
-            
-            # Detect script
-            script_name = detect_script_name()
-            
-            title = "Critical Security Alert"
-            message = record.get("message", "")
-            
-            # Add script information to message
-            message = f"[{script_name}] {message}"
-            
-            # Extract additional context if available
-            if "extra" in record and isinstance(record["extra"], dict):
-                context_parts = [f"{k}: {v}" for k, v in record["extra"].items()]
-                if context_parts:
-                    message += "\n\n" + "\n".join(context_parts)
-            
-            # Add alert count
-            message += f"\n\nTotal Critical Alerts: {count}"
-            
-            # Only show GUI popup if running in GUI mode
-            if is_gui_available():
-                show_critical_alert(title, message, "CRITICAL")
-                
-                # Update status cards if available
-                try:
-                    app = QApplication.instance()
-                    if app and hasattr(app, 'main_window'):
-                        main_window = app.main_window
-                        if hasattr(main_window, 'threat_card'):
-                            main_window.threat_card.value_label.setText(str(count))
-                except Exception as e:
-                    logger.debug(f"Could not update status card: {str(e)}")
-    except Exception as e:
-        # Protect callback from throwing to the logger internals
-        logger.debug(f"alert_on_critical failed: {e}")
+    if record.get("level") == "CRITICAL":
+        # Increment critical count
+        count = alert_tracker.increment_critical()
+
+        # Detect script
+        script_name = detect_script_name()
+
+        title = "Critical Security Alert"
+        message = record.get("message", "")
+
+        # Add script information to message
+        message = f"[{script_name}] {message}"
+
+        # Extract additional context if available
+        if "extra" in record:
+            context_parts = [f"{k}: {v}" for k, v in record["extra"].items()]
+            if context_parts:
+                message += "\n\n" + "\n".join(context_parts)
+
+        # Add alert count
+        message += f"\n\nTotal Critical Alerts: {count}"
+
+        # Only show GUI popup if running in GUI mode
+        if is_gui_available():
+            show_critical_alert(title, message, "CRITICAL")
+
+            # Update status cards if available
+            try:
+                app = QApplication.instance()
+                if app and hasattr(app, "main_window"):
+                    main_window = app.main_window
+                    if hasattr(main_window, "threat_card"):
+                        main_window.threat_card.value_label.setText(str(count))
+            except Exception as e:
+                logger.debug(f"Could not update status card: {str(e)}")
 
 
-def alert_on_event(record):
-    """Increment event counter for non-critical log records.
-    This is intended for INFO/WARNING/ERROR/DEBUG messages that represent
-    noteworthy events but are not critical alerts.
-    """
-    try:
-        level = record.get("level")
-        # Don't double count criticals as generic events
-        if level and level != "CRITICAL":
-            count = alert_tracker.increment_event()
-            # If GUI is present, try to update an events card if available
-            if is_gui_available():
-                try:
-                    app = QApplication.instance()
-                    if app and hasattr(app, 'main_window'):
-                        main_window = app.main_window
-                        if hasattr(main_window, 'event_card'):
-                            main_window.event_card.value_label.setText(str(count))
-                except Exception as e:
-                    logger.debug(f"Could not update event status card: {str(e)}")
-    except Exception as e:
-        logger.debug(f"alert_on_event failed: {e}")
-
-
-# Add callbacks to logger
-callback_id_critical = logger.add_callback(alert_on_critical)
-callback_id_event = logger.add_callback(alert_on_event)
+# Add callback to logger
+callback_id = logger.add_callback(alert_on_critical)
 
 
 def reinitialize_hydra_logger():
-    """Reset Hydra logger handlers and reapply file handler.
-    Re-registers both critical and event callbacks.
-    """
+    """Reset Hydra logger handlers and reapply file handler."""
     logger.remove_all()
-    
+
     logger.add("console")
-    
+
     logger.add(
         application_log_file,
         rotation="daily",
         retention=7,
         date_enabled=True,
-        async_write=True
+        async_write=True,
     )
-    
-    logger.configure(
-        level="DEBUG",
-        color=True,
-        show_time=True,
-        json=False
-    )
-    
-    # Re-add callbacks
-    global callback_id_critical, callback_id_event
-    callback_id_critical = logger.add_callback(alert_on_critical)
-    callback_id_event = logger.add_callback(alert_on_event)
-    
+
+    logger.configure(level="DEBUG", color=True, show_time=True, json=False)
+
+    # Re-add callback
+    logger.add_callback(alert_on_critical)
+
     return logger
 
 
@@ -425,23 +384,11 @@ def setup_gui_mode(main_window_instance):
 
 
 def get_alert_counts():
-    """Get current alert counts (critical, events)"""
+    """Return the current critical alert count (int)."""
     return alert_tracker.get_counts()
 
 
 def reset_alert_counts():
-    """Reset all alert counts and update GUI cards if present."""
+    """Reset critical alert count only."""
     alert_tracker.reset_counts()
     logger.info("Alert counts reset")
-    # Update GUI cards if present
-    if is_gui_available():
-        try:
-            app = QApplication.instance()
-            if app and hasattr(app, 'main_window'):
-                main_window = app.main_window
-                if hasattr(main_window, 'threat_card'):
-                    main_window.threat_card.value_label.setText('0')
-                if hasattr(main_window, 'event_card'):
-                    main_window.event_card.value_label.setText('0')
-        except Exception as e:
-            logger.debug(f"Could not update GUI cards after reset: {e}")
