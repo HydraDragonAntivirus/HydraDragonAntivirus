@@ -4391,11 +4391,13 @@ def scan_yara(file_path):
         # Run YARA-X scanning sequentially in the main thread AFTER threads complete
         # This avoids all thread safety issues with Rust-based yara_x objects
         if yaraxtr_rule:
+            yaraxtr_scanner = None
             try:
+                # create scanner on THIS thread
                 yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
                 scan_results = yaraxtr_scanner.scan(data_content)
                 
-                for rule in scan_results.matching_rules:
+                for rule in getattr(scan_results, "matching_rules", []) or []:
                     if rule.identifier not in excluded_rules:
                         results['matched_rules'].append(rule.identifier)
                         match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
@@ -4405,6 +4407,16 @@ def scan_yara(file_path):
                         
             except Exception as e:
                 logger.error(f"Error scanning with yaraxtr_rule: {e}")
+            finally:
+                # IMPORTANT: ensure the Scanner is destroyed on THIS thread.
+                # Deleting it and forcing a GC here makes the Rust destructor run on this thread.
+                try:
+                    if yaraxtr_scanner is not None:
+                        del yaraxtr_scanner
+                        import gc
+                        gc.collect()
+                except Exception:
+                    logger.exception("Exception during yara_x cleanup")
 
         # Return results (third value is a boolean `is_vmprotect`)
         return (results['matched_rules'] if results['matched_rules'] else None,
