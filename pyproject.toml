@@ -45,13 +45,13 @@ dependencies = [
     "parse==1.20.2",
     "msgpack_python==0.5.6",
     "TgCrypto_pyrofork==1.2.7",
+    "logly==0.1.5",
     "autoit-ripper",
     "comtypes",
     "androguard",
     "nltk",
     "flare-capa",
     "oletools",
-    "logly",
     "unipacker",
 
     # Pylingual reverse-engineering dependencies

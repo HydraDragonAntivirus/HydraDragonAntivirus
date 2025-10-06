@@ -2246,28 +2246,25 @@ files = [
 
 [[package]]
 name = "logly"
-version = "0.1.3"
+version = "0.1.5"
 description = "A stupidly simple, yet blazingly fast and powerful logging utility for Python — powered by Rust."
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "logly-0.1.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:eb183ebae10910fa4adb89ab1c224422c94229c79ec03a6c182f937234222775"},
-    {file = "logly-0.1.3-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:c9eecac328cce2e557c8ff9ad55e0fcad3bcb15af639596c14c2e7c988df5c39"},
-    {file = "logly-0.1.3-cp310-abi3-win_amd64.whl", hash = "sha256:12fe916d2aea367a4ab8a5a43a10cb7ca86feaad4929843f990f8ef11d28eb0c"},
-    {file = "logly-0.1.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:9f9409604bc0cda24ae97e09136dd9f339d68c375ea38751561e3ec6dc991657"},
-    {file = "logly-0.1.3-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:7329c89fcae56cba02f51c92246bc22d02019db7ea2678a799727db8c0be72c5"},
-    {file = "logly-0.1.3-cp310-cp310-win_amd64.whl", hash = "sha256:933b2e6a16d9719e4736ba873ff9aa0c753a8bc64c7ebcf90663cfdd19d392d0"},
-    {file = "logly-0.1.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:69766e5bee35ac414550a1ce976941e66b59f843c3c1332a19ba03543602118b"},
-    {file = "logly-0.1.3-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:96dcbcba2e068238cebf1046e54acb93de5b4443ee6c87b655612bb20b5a9ba8"},
-    {file = "logly-0.1.3-cp311-cp311-win_amd64.whl", hash = "sha256:a96aa96d52e3f477b756c65038064ca152a7105e192f38d05966e58814755b4c"},
-    {file = "logly-0.1.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:35d6157aeec5c1d722fc66b505deeb5640360daebc0087ad543cbbe670851174"},
-    {file = "logly-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:bab74cb02773413869b805d65f20f04f9169d9616a7521dbb65c0b02e6a5d36a"},
-    {file = "logly-0.1.3-cp312-cp312-win_amd64.whl", hash = "sha256:50fc3d1a17e90c749d54c0285e104deded9ff948f8b010af14b98fd6f2074081"},
-    {file = "logly-0.1.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:c0c166cf2cd370a02fe68d7b4b5b692c31bef9e26c65133df243b195248259c7"},
-    {file = "logly-0.1.3-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:1d9af7e54c88b9bb2c2e1ec4ba22bb7943f55ed856b888c44561b23c6ad0c9f5"},
-    {file = "logly-0.1.3-cp313-cp313-win_amd64.whl", hash = "sha256:ed0d6d0ab2ad47eca376ea04975e7655ce9ab1cd3a49695f522a7e0c3e4d6b91"},
-    {file = "logly-0.1.3.tar.gz", hash = "sha256:de936520606dd518ae5dc3cfaa42c8f181ff730053571fb3550700115938e8ee"},
+    {file = "logly-0.1.5-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:5408050882ad39e10184e107ee96c4963765278170a544ffb15d92b1ebe74872"},
+    {file = "logly-0.1.5-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:71ce17544babaf16f707f786e2370ab848821332e744a59b234b162efc45c6c2"},
+    {file = "logly-0.1.5-cp310-cp310-win_amd64.whl", hash = "sha256:4c2f3a505be2f8ed5d3ca3a6895b2862bda2b758f7d91b76938bf8469d9294c3"},
+    {file = "logly-0.1.5-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5696e1631ab29b6938306f089650b3698b56ba6b9fb69005d16d76689bb83db9"},
+    {file = "logly-0.1.5-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:b5fc85e91fb1d48657757dd3f1fcba130fe2eb0681d10e07eab41668e4702bff"},
+    {file = "logly-0.1.5-cp311-cp311-win_amd64.whl", hash = "sha256:31a3b53e51b8f200d2d7a8735755763e3d68bfc49a3d7366d058cb3925530a3d"},
+    {file = "logly-0.1.5-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4cf8f9d76964498ac66474f41bd7a8a0656584b65eaca2016ff1ef40d431cc33"},
+    {file = "logly-0.1.5-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:4e826823dfe3260a0d00a6bffd41647e272f715a370815a0162f70fdee9b060a"},
+    {file = "logly-0.1.5-cp312-cp312-win_amd64.whl", hash = "sha256:dc44026b969a8c9b0b7bda862c58da614598014d680e2b58ff3824addba6e898"},
+    {file = "logly-0.1.5-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:aa6dbe98f5c1177522adb433d287e4d00c3e14cf32cae2eca0c43666ca4f6b06"},
+    {file = "logly-0.1.5-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:133f2d86ffa09a6f4f9240bca61b1476b87b04c582f27e2ceeb45a0c5fffff52"},
+    {file = "logly-0.1.5-cp313-cp313-win_amd64.whl", hash = "sha256:58ea75483c296933fac74a49097e3a3a2b38fdfa2743fd33d9ad309ea497cd92"},
+    {file = "logly-0.1.5.tar.gz", hash = "sha256:ea489960f0b2460d581b68a042b2482730d8dba30ee275d9a7c1f75aadb4828d"},
 ]
 
 [[package]]
@@ -7276,4 +7273,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "e553cc03f53ef38ccb9be02af85b3a59a3b44f30caf153ed5357f34fc21a7344"
+content-hash = "cfb8311763e87dce63e5096e4dccfcae32731b0a7b8b2df421bd601faaddff33"
