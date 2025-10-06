@@ -4066,6 +4066,10 @@ def scan_yara(file_path):
     attempt to unpack the PE or write any metadata file. Instead we set
     a boolean flag `is_vmprotect` which is returned as the third
     return value.
+    
+    Note: YARA-X scanning is performed sequentially (not in a thread) due to
+    Rust thread safety constraints. The yara_x.Scanner and compiled rules
+    cannot be safely shared across threads.
     """
 
     # Shared variables for results
@@ -4366,44 +4370,13 @@ def scan_yara(file_path):
             except Exception as e:
                 logger.error(f"Error scanning with valhalla_rule: {e}")
 
-        def yaraxtr_rule_worker():
-            try:
-                # Create the scanner INSIDE the worker thread
-                if yaraxtr_rule:
-                    try:
-                        # Scanner creation must happen in the same thread that uses it
-                        yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                        scan_results = yaraxtr_scanner.scan(data_content)
-                        local_matched_rules = []
-                        local_matched_results = []
-
-                        # Iterate through matching rules
-                        for rule in scan_results.matching_rules:
-                            if rule.identifier not in excluded_rules:
-                                local_matched_rules.append(rule.identifier)
-                                match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
-                                local_matched_results.append(match_details)
-                            else:
-                                logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-
-                        # Update shared results
-                        with thread_lock:
-                            results['matched_rules'].extend(local_matched_rules)
-                            results['matched_results'].extend(local_matched_results)
-                    except Exception as e:
-                        logger.error(f"Failed to create or use YARA-X scanner: {e}")
-                else:
-                    logger.error("yaraxtr_rule is not defined.")
-            except Exception as e:
-                logger.error(f"Error scanning with yaraxtr_rule: {e}")
-
-        # Create and start all threads
+        # Create and start threads for yara-python rules ONLY
+        # YARA-X is NOT included in threading
         workers = [
             clean_rules_worker,
             yargen_rule_worker,
             icewater_rule_worker,
-            valhalla_rule_worker,
-            yaraxtr_rule_worker
+            valhalla_rule_worker
         ]
 
         for worker in workers:
@@ -4414,6 +4387,24 @@ def scan_yara(file_path):
         # Wait for all threads to complete
         for thread in threads:
             thread.join()
+
+        # Run YARA-X scanning sequentially in the main thread AFTER threads complete
+        # This avoids all thread safety issues with Rust-based yara_x objects
+        if yaraxtr_rule:
+            try:
+                yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
+                scan_results = yaraxtr_scanner.scan(data_content)
+                
+                for rule in scan_results.matching_rules:
+                    if rule.identifier not in excluded_rules:
+                        results['matched_rules'].append(rule.identifier)
+                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
+                        results['matched_results'].append(match_details)
+                    else:
+                        logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+                        
+            except Exception as e:
+                logger.error(f"Error scanning with yaraxtr_rule: {e}")
 
         # Return results (third value is a boolean `is_vmprotect`)
         return (results['matched_rules'] if results['matched_rules'] else None,
