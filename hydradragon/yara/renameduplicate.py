@@ -80,7 +80,7 @@ def main():
     
     threads = []
     for name in duplicate_names:
-        t = threading.Thread(daemon=True, target=rename_second_rule, args=(yar_path, name, used_names))
+        t = threading.Thread(target=rename_second_rule, args=(yar_path, name, used_names))
         t.start()
         threads.append(t)
     

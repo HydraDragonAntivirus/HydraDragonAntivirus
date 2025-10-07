@@ -276,7 +276,7 @@ def process_file(file_path):
             return None
 
     # Start the sandbox execution in a separate thread so it doesn't block message collection.
-    sandbox_thread = threading.Thread(daemon=True, target=run_in_sandbox, args=(file_path,))
+    sandbox_thread = threading.Thread(target=run_in_sandbox, args=(file_path,))
     sandbox_thread.start()
 
     # Wait a moment to allow the executable to start.
@@ -287,7 +287,7 @@ def process_file(file_path):
     collected_messages = []
     # Use the full path (or at least the basename) of the file as the target.
     target_exe = file_path
-    message_thread = threading.Thread(daemon=True, target=collect_messages, args=(target_exe, collected_messages, stop_event))
+    message_thread = threading.Thread(target=collect_messages, args=(target_exe, collected_messages, stop_event))
     message_thread.start()
 
     # Allow the executable to run for 10 seconds.
