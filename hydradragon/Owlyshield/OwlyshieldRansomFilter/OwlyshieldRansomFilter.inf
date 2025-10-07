@@ -10,7 +10,7 @@ Signature   = "$Windows NT$"
 Class = "ActivityMonitor"
 ClassGuid = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
 Provider    = %ManufacturerName%
-DriverVer = 10/07/2025,21.1.28.456
+DriverVer = 10/08/2025,2.13.21.266
 CatalogFile = OwlyshieldRansomFilter.cat
 PnpLockdown = 1
 
@@ -50,7 +50,7 @@ Description      = %ServiceDescription%
 ServiceBinary    = %12%\%DriverName%.sys        ;%windir%\system32\drivers\
 Dependencies     = "FltMgr"
 ServiceType      = 2                            ;SERVICE_FILE_SYSTEM_DRIVER
-StartType        = 3                            ;SERVICE_DEMAND_START
+StartType        = 2                            ;SERVICE_AUTO_START
 ErrorControl     = 1                            ;SERVICE_ERROR_NORMAL
 LoadOrderGroup = "OwlyshieldRansomFilter Activity Monitor"
 AddReg           = MiniFilter.AddRegistry

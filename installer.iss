@@ -61,7 +61,7 @@ Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Fl
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2501-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.5.0.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.83.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.84.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-8.0.0-windivert-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u461-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -105,9 +105,6 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; Enable test signing mode for unsigned drivers
-Filename: "bcdedit.exe"; Parameters: "/set testsigning on"; Flags: runhidden
-
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2501-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
@@ -139,7 +136,7 @@ Filename: "{tmp}\Suricata-8.0.0-windivert-1-64bit.msi"; Parameters: "/quiet /nor
 Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Npcap
-Filename: "{tmp}\npcap-1.83.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.84.exe"; Flags: shellexec waituntilterminated
 
 ; Sandboxie Classic
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.71.3.exe"; Flags: shellexec waituntilterminated

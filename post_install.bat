@@ -30,12 +30,14 @@ if %errorlevel% neq 0 (
     exit /b
 )
 echo [+] MBRFilter driver installed.
+
 :: --------------------------------------------------------
 :: 3) Create and configure the service
 :: --------------------------------------------------------
 echo Creating 'Owlyshield Service'...
-sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
-echo [+] Service created.
+sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe" start= auto
+echo [+] Service created and set to auto-start.
+
 :: --------------------------------------------------------
 :: 4) Cleanup
 :: --------------------------------------------------------

@@ -4,6 +4,7 @@ import threading
 import time
 import webbrowser
 import subprocess
+from .notify_user import notify_user_hayabusa_critical
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +39,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     get_latest_clamav_def_time,
     WINDOW_TITLE,
     hayabusa_path,
-    evtx_logs_path,
 )
 
 # --- Custom Hydra Icon Widget ---
@@ -451,7 +451,7 @@ class Worker(QThread):
                 self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
                 return
 
-            # Run the update-rules command
+            # Run the update-rules comman
             cmd = [hayabusa_path, "update-rules"]
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
@@ -482,6 +482,107 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during real time protection: {str(e)}")
 
+    def analyze_hayabusa_results(self, csv_file_path):
+        """Analyze Hayabusa CSV results and notify on critical alerts only"""
+        try:
+            self.output_signal.emit(f"[*] Analyzing Hayabusa results from: {csv_file_path}")
+            
+            if not os.path.exists(csv_file_path):
+                self.output_signal.emit(f"[!] Results file not found: {csv_file_path}")
+                return
+            
+            import csv
+            critical_count = 0
+
+            with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                reader = csv.DictReader(f)
+                
+                for row in reader:
+                    if self.stop_requested:
+                        break
+                    
+                    # Get key fields from CSV
+                    timestamp = row.get('Timestamp', 'N/A')
+                    computer = row.get('Computer', 'N/A')
+                    channel = row.get('Channel', 'N/A')
+                    event_id = row.get('EventID', 'N/A')
+                    level = row.get('Level', '').lower()
+                    rule_title = row.get('RuleTitle', 'Unknown Rule')
+                    details = row.get('Details', 'No details available')
+                    
+                    # Only process critical alerts
+                    if level == 'critical' or level == 'crit':
+                        critical_count += 1
+                        # Notify on critical events
+                        notify_user_hayabusa_critical(
+                            event_log=f"{channel} (EID: {event_id})",
+                            rule_title=rule_title,
+                            details=details,
+                            computer=computer
+                        )
+                        self.output_signal.emit(
+                            f"[!] CRITICAL [{timestamp}]: {rule_title} | {computer} | {channel} | {details[:100]}"
+                        )
+            
+            # Output summary
+            self.output_signal.emit("\n" + "="*60)
+            self.output_signal.emit("[+] Hayabusa Analysis Summary:")
+            self.output_signal.emit(f"    Critical Alerts: {critical_count}")
+            self.output_signal.emit("="*60 + "\n")
+            
+            if critical_count > 0:
+                self.output_signal.emit(
+                    f"[!] ACTION REQUIRED: {critical_count} critical alerts detected!"
+                )
+            else:
+                self.output_signal.emit("[+] No critical threats detected.")
+                
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error analyzing Hayabusa results: {str(e)}")
+
+    def run_hayabusa_live_timeline(self):
+        """Run Hayabusa CSV timeline in live analysis mode and analyze results (critical only)"""
+        try:
+            self.output_signal.emit("[*] Starting Hayabusa live timeline analysis...")
+
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
+
+            # Use -m critical to only scan for critical alerts
+            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            process = subprocess.Popen(cmd, cwd=os.path.dirname(hayabusa_path))
+            rc = process.wait()
+
+            if rc == 0:
+                self.output_signal.emit("[+] Hayabusa live timeline analysis completed!")
+                self.output_signal.emit(f"[+] Output saved to: {output_file}")
+                
+                if os.path.exists(output_file):
+                    file_size = os.path.getsize(output_file)
+                    self.output_signal.emit(f"[+] Timeline file size: {file_size:,} bytes")
+                    try:
+                        with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
+                            line_count = sum(1 for _ in f)
+                            self.output_signal.emit(f"[+] Total critical events: {line_count - 1:,}")
+                    except Exception as e:
+                        self.output_signal.emit(f"[!] Could not count events: {str(e)}")
+                    
+                    # Analyze the results for critical threats only
+                    self.output_signal.emit("\n[*] Analyzing results for critical threats...")
+                    self.analyze_hayabusa_results(output_file)
+            else:
+                self.output_signal.emit(f"[!] Hayabusa live timeline failed. Return code: {rc}")
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error running Hayabusa live timeline: {str(e)}")
+
     def run(self):
         """The entry point for the thread."""
         try:
@@ -489,6 +590,7 @@ class Worker(QThread):
                 "update_defs": self.update_definitions,
                 "update_hayabusa_rules": self.update_hayabusa_rules,
                 "run_real_time_protection": self.run_real_time_protection,
+                "hayabusa_live_timeline": self.run_hayabusa_live_timeline,
             }
 
             task_function = task_mapping.get(self.task_type)
@@ -514,9 +616,12 @@ class AntivirusApp(QWidget):
         QTimer.singleShot(1000, self.run_startup_task)
 
     def run_startup_task(self):
-        """Run automatic real time protection on startup"""
-        self.append_log_output("[*] Running automatic real time protection...")
+        """Run automatic real time protection and Hayabusa analysis on startup"""
+        self.append_log_output("[*] Starting automatic real time protection...")
         self.start_worker("run_real_time_protection")
+
+        # Run Hayabusa live analysis
+        self.start_worker("hayabusa_live_timeline")
 
     def apply_extreme_stylesheet(self):
         stylesheet = """

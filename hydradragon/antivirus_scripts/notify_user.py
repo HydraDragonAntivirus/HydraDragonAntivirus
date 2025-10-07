@@ -22,6 +22,21 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     logger.critical(notification_message)
     _send_av_event_to_edr(file_path, virus_name, action="quarantine")
 
+def notify_user_hayabusa_critical(event_log, rule_title, details, computer):
+    notification = Notify()
+    notification.title = "Critical Security Event Detected"
+    notification_message = (
+        f"CRITICAL event detected by Hayabusa:\n"
+        f"Computer: {computer}\n"
+        f"Event Log: {event_log}\n"
+        f"Rule: {rule_title}\n"
+        f"Details: {details}"
+    )
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+    _send_av_event_to_edr(event_log, f"Hayabusa Critical: {rule_title}", action="kill_and_remove")
+
 def notify_user_for_malicious_source_code(file_path, virus_name):
     notification = Notify()
     notification.title = f"Malicious Source Code detected: {virus_name}"
