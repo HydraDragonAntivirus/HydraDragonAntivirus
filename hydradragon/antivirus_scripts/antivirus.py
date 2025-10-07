@@ -122,22 +122,6 @@ import psutil
 logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from watchdog.observers import Observer
-logger.debug(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from watchdog.events import FileSystemEventHandler
-logger.debug(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import win32file
-logger.debug(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import win32con
-logger.debug(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import win32service
 logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -177,10 +161,6 @@ logger.debug(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 from ctypes import wintypes
 logger.debug(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import win32gui
-logger.debug(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
