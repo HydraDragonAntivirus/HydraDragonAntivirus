@@ -17,7 +17,6 @@ if main_dir not in sys.path:
     sys.path.insert(0, main_dir)
 
 from datetime import datetime, timedelta
-from typing import Optional
 from hydra_logger import (
     logger,
     setup_gui_mode,
@@ -37,7 +36,6 @@ from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 from hydradragon.antivirus_scripts.antivirus import (
     icon_path, 
-    meta_llama_1b_dir, 
     freshclam_path,
     clamav_file_paths, 
     sandboxie_path, 
@@ -63,10 +61,8 @@ from hydradragon.antivirus_scripts.antivirus import (
     WINDOW_TITLE,
     hayabusa_path,
     evtx_logs_path,
-    run_hydra_whitelist,
     run_and_copy_log,
     parse_report,
-    scan_file_with_meta_llama,
     stdout_console_log_file,
     stderr_console_log_file
 )
@@ -423,57 +419,6 @@ class Worker(QThread):
         """Public method to request stopping the worker"""
         self.stop_requested = True
     # --- Task-Specific Methods (Called by run()) ---
-
-    def load_meta_llama_1b_model(self):
-        """
-        Function to load Meta Llama-3.2-1B model and tokenizer.
-        This is a resource-intensive operation.
-        Checks that the local folder exists before attempting to load.
-        """
-        # Check if the local model directory exists
-        if not os.path.isdir(meta_llama_1b_dir):
-            logger.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
-            return None, None
-
-        # --- Hugging Face Transformers for Llama model (Optional Feature) ---
-        # This feature is experimental and requires significant RAM.
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-        except Exception as ex:
-            error_message = f"Error importing transformers: {ex}"
-            logger.error(error_message)
-            return None, None
-
-        try:
-            logger.info("Attempting to load Llama-3.2-1B model and tokenizer...")
-
-            # Load tokenizer and model from the local directory
-            llama32_tokenizer = AutoTokenizer.from_pretrained(
-                meta_llama_1b_dir,
-                local_files_only=True
-            )
-            llama32_model = AutoModelForCausalLM.from_pretrained(
-                meta_llama_1b_dir,
-                local_files_only=True,
-                # Optional: Add device_map="auto" if you have a GPU and want to use it
-            )
-
-            logger.info("Llama-3.2-1B successfully loaded!")
-            return llama32_model, llama32_tokenizer
-        except Exception as ex:
-            error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
-            logger.error(error_message)
-            return None, None
-
-    def generate_whitelist_db(self, optional_path: Optional[str] = None):
-        """
-        Wrapper to generate whitelist from within a class (emits UI signal).
-        If optional_path is provided, it will be used as the output file for the whitelist.
-        """
-        success = run_hydra_whitelist(optional_path)
-        msg = "[+] whitelist (whitelist_hashes.txt) generated." if success else "[!] Failed to generate whitelist (whitelist_hashes.txt)."
-        self.output_signal.emit(msg)
-
     def capture_analysis_logs(self):
         global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
         if pre_analysis_log_path is None:
@@ -488,33 +433,6 @@ class Worker(QThread):
             self.output_signal.emit(f"[+] Post-analysis log captured: {os.path.basename(path)}")
         else:
             self.output_signal.emit("[!] Both pre and post-analysis captures have already been completed.")
-
-    def run_hijackthis_analysis(self):
-        """
-        Run HiJackThis once, capture the log, and analyze it directly with Llama.
-        """
-        try:
-            self.output_signal.emit("[*] Running HiJackThis analysis...")
-            
-            # Run HiJackThis and get the log path
-            log_path = run_and_copy_log()
-            
-            if not log_path or not os.path.exists(log_path):
-                self.output_signal.emit("[!] Failed to capture HiJackThis log!")
-                return
-            
-            self.output_signal.emit(f"[+] Log captured at: {log_path}")
-            
-            # Analyze the log directly with Llama
-            self.output_signal.emit("[*] Analyzing log with Llama...")
-            llama_response = scan_file_with_meta_llama(log_path, HiJackThis_flag=True)
-            
-            self.output_signal.emit("\n[*] Llama Analysis Results:")
-            self.output_signal.emit(llama_response)
-            
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
-
 
     def update_definitions(self):
         try:
@@ -1179,8 +1097,6 @@ class Worker(QThread):
                 "update_defs": self.update_definitions,
                 "generate_whitelist_db": self.generate_whitelist_db,
                 "rootkit_scan": self.perform_rootkit_scan,
-                "cleanup_environment": self.perform_cleanup,
-                "load_meta_llama_1b_model": self.load_meta_llama_1b_model,
                 "update_hayabusa_rules": self.update_hayabusa_rules,
                 "hayabusa_timeline_csv": lambda: self.run_hayabusa_timeline("csv"),
                 "hayabusa_timeline_json": lambda: self.run_hayabusa_timeline("json"),
@@ -1660,70 +1576,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(log_output, 1)
 
         self.log_outputs.append(log_output)
-        return page
-
-    def create_analysis_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
-
-        title = QLabel("Deep File Analysis")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-
-        warning_box = QGroupBox("Recommended Workflow")
-        warning_layout = QVBoxLayout(warning_box)
-        warning_text = QLabel(
-            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
-            "<b>NOTICE:</b> HydraDragonDumper x64 must be used to create clean hashes before you download malware.<br><br>"
-            "<b>Recommended Workflow:</b><br>"
-            "1. Update ClamAV and Hayabusa Virus Definitions<br>"
-            "2. Generate Clean DB with HydraDragonDumper x64 (Highly Recommended) <br>"
-            "4. Analyze a File<br>"
-            "5. Stop Analysis<br>"
-            "6. Capture Post-infection Logs and Analysis Results (with Llama AI)<br>"
-            "7. Rootkit Scan<br>"
-            "8. Hayabusa SIGMA SIEM CSV-timeline Scan<br>"
-            "9. Cleanup Environment<br><br>"
-            "<i>Return to a clean snapshot before starting a new analysis.</i>"
-        )
-        warning_text.setWordWrap(True)
-        warning_text.setObjectName("warning_text")
-        warning_layout.addWidget(warning_text)
-        layout.addWidget(warning_box)
-
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(15)
-
-        analyze_btn = QPushButton("Analyze File...")
-        analyze_btn.setObjectName("action_button")
-        analyze_btn.clicked.connect(self.analyze_file)
-
-        stop_btn = QPushButton("Stop Analysis")
-        stop_btn.setObjectName("action_button_danger")
-        stop_btn.clicked.connect(self.stop_analysis)
-
-        button_layout.addWidget(analyze_btn)
-        button_layout.addWidget(stop_btn)
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        control_layout = QHBoxLayout()
-        sandboxie_control_btn = QPushButton("Open Sandboxie Control")
-        sandboxie_control_btn.setObjectName("action_button")
-        sandboxie_control_btn.clicked.connect(self.open_sandboxie_control)
-        control_layout.addWidget(sandboxie_control_btn)
-        control_layout.addStretch()
-        layout.addLayout(control_layout)
-
-        log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-
-        self.log_outputs.append(log_output)
-        return page
+        return pagee
 
     def create_hayabusa_page(self):
         page = QWidget()
@@ -1861,8 +1714,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(title)
 
         about_text = QLabel(
-            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
-            "It provides a sandboxed environment to safely analyze potential threats."
+            "HydraDragon Antivirus is FOSS Antivirus with Real Time Protection. "
         )
         about_text.setWordWrap(True)
         layout.addWidget(about_text)
@@ -1870,42 +1722,19 @@ class AntivirusApp(QWidget):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(15)
 
-        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
-        llama_load_button.setObjectName("action_button")
-        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
-        buttons_layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
-
         github_button = QPushButton("View Project on GitHub")
         github_button.setObjectName("action_button")
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         buttons_layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
 
-        llama_release_button = QPushButton("View Meta Llama Release")
-        llama_release_button.setObjectName("action_button")
-        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
-        buttons_layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
-
         layout.addLayout(buttons_layout)
-
-        log_output = QTextEdit("Llama AI model status will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-
-        self.log_outputs.append(log_output)
         return page
 
     def create_main_content(self):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
         self.main_stack.addWidget(self.create_task_page("Update ClamAV Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_generate_whitelist_db_page())
-        self.main_stack.addWidget(self.create_analysis_page())
-        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Analyze Logs with Llama AI", "run_hijackthis_analysis"))
-        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
         self.main_stack.addWidget(self.create_hayabusa_page())
-        self.main_stack.addWidget(self.create_cleanup_page())
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
 
@@ -1935,14 +1764,10 @@ class AntivirusApp(QWidget):
         nav_buttons = [
             ("🏠", "Status"),
             ("🔄", "Update ClamAV"),
-            ("🗃️", "Generate Clean DB"),
             ("🔍", "Analyze File"),
-            ("📋", "Capture Logs"),
-            ("🤖", "Analyze Logs"),
-            ("🛡️", "Rootkit Scan"),
             ("📊", "Hayabusa Analysis"),
             ("🧹", "Cleanup"),
-            ("i", "About & AI")
+            ("i", "About")
         ]
 
         self.nav_group = QButtonGroup(self)

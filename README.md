@@ -13,14 +13,11 @@
 <img src="hydradragon/assets/Owlyshield.png" width=256px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/capa.png" width=200px>
-</p>
-<p align="center">
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
 ## Description
-Dynamic and static analysis with Sandboxie for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
+Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
 
 ## License
 
@@ -33,10 +30,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
-- If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
-- Meta Llama 3.2-1B Location: Copy the contents of meta-llama.7z to the following directory: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\meta-llama
 - Please allow a minimum of two hours (local time) for the antivirus to fully decompile the file and complete its analysis. Otherwise, it cannot achieve a 90%+ detection rate against fresh samples with fewer false positives.
-- Currently, only Sanctum and OwlyShield terminate malware. We are now switching to non-sandbox analysis, which assumes you are in a VM, but it carries some risk. However, it is required for maximum detection. This puts your machine at high risk.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -60,9 +54,6 @@ See the [LICENSE](./LICENSE) file for more information.
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe
 
-## Logs
-- You must look at critical alerts in the logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragon\log\antivirus.log and C:\Sandbox\%USERNAME%\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
-
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
 - Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
@@ -75,13 +66,11 @@ See the [LICENSE](./LICENSE) file for more information.
 
  ## IMPORTANT
 - Any logs will be removed when you restart the programme. So be careful!
-- Don't forget to clean up commandlineandmessages, HiJackThis_logs, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
 - Make your username hydradragonav (for example and for avoid anti analysis).
-- Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
 
  ## Discord Community Server
@@ -93,16 +82,13 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Guide
 
-**Note 1:** 
-- You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan.
-
-**Note 2:**.
+**Note 1:**.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
-**Note 3:**
+**Note 2:**
 - If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
-**Note 4:**
+**Note 3:**
 
 - https://github.com/icsharpcode/ILSpy
 - https://github.com/extremecoders-re/nuitka-extractor
@@ -131,7 +117,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
 - https://github.com/starhopp3r/ML-Antivirus
-- https://huggingface.co/meta-llama/Llama-3.2-1B
 - https://github.com/HydraDragonAntivirus/yarGen
 
 - I used these projects for AI.
@@ -144,37 +129,27 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects to optimize the antivirus.
 
-**Note 5:**.
+**Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
 
-**Note 6:**
+**Note 5:**
 
 - Don't forget to do a clean up, as it takes up too much space while processing files against ransomware, etc. 
 - You need too much storage because it logs everything. 
 
-**Note 7:**
+**Note 6:**
 
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
-**Note 8:**
+**Note 7:**
 - I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragon you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
-**Note 9:**
+**Note 8:**
 
 - If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
-**Note 10:**
-- HiJackThis version: 3.4.0.17 Beta
-- HiJackThis source code: https://github.com/dragokas/hijackthis
-
-**Note 11:**
-- HydraDragonAntivirusSandboxie vcpkg install commandds:
-- vcpkg install detours
-- vcpkg install libarchive
-- vcpkg integrate install
-
-**Note 12:**
+**Note 9:**
 - Inno Setup version 6.5.4
 
 ## Tips
@@ -195,23 +170,6 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - Try reset the container if malware tries to reboot the PC.
 
-**Tip 5:**
-
-- Run HiJackThis once outside of the sandbox to avoid being asked to accept the license agreement every time.
-
-**Tip 6:**
-
-- If Your program requires command-line arguments. Follow these steps:
-
-- 1. Run the program normally. It will exit immediately because no arguments were supplied.
-- 2. Open Sandboxie Control, right-click the DefaultBox, and select Run Any Program.
-- 3. Browse to the application executable.
-- 4. Enter the required arguments in the **Command line** field.
-- 5. Click **OK** to launch the program inside Sandboxie with the correct arguments.
-
-## Internet Access In Sandboxie
-- HIPS detection shouldn't work if you don't open the internet in Sandboxie (the installation already changes Sandboxie.ini for you). To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
-
 ### FAQ:
 **Does this collect data?**
 - No. We can allow GridinSoft and many other companies to collect data. Unlike other companies, they freely allow the use of their cloud, but I'm not allowing that.
@@ -226,7 +184,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.
 
 **Why is it 2GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B make a total of 3GB+. Note that it's a completely local (except update database and cloud checking for known files) and professional open source antivirus.
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+ Note that it's a completely local (except update database) and professional open source antivirus.
 
 **Why does the antivirus.exe application take too long to run?**
 - Sometimes you may have to wait 5+ minutes (or less) the first time you run the programme as a lot of things load.

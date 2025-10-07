@@ -44,24 +44,6 @@ def notify_user_for_detected_command(message, file_path):
     notification.send()
     logger.critical(f"Notification: {notification.message}")
 
-
-def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis_flag=False):
-    notification = Notify()
-    if HiJackThis_flag:
-        notification.title = "Meta Llama-3.2-1B Security HiJackThis Alert"
-    else:
-        notification.title = "Meta Llama-3.2-1B Security Alert"
-
-    if malware_status.lower() == "maybe":
-        notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    elif malware_status.lower() == "yes":
-        notification_message = f"Malware detected: {file_path}\nVirus: {virus_name}"
-
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
 def notify_user_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
     notification = Notify()
@@ -106,15 +88,6 @@ def notify_user_scr(file_path, virus_name):
 
     logger.critical(f"ALERT: {notification_message}")
 
-def notify_user_etw_tampering(file_path, virus_name):
-    notification = Notify()
-    notification.title = "ETW Tampering Alert"
-    notification_message = f"ETW Tampering detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification = Notify()
     notification.title = "Fake System File Alert"
@@ -122,19 +95,6 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
         f"Fake system file detected:\n"
         f"File Path: {file_path}\n"
         f"File Name: {file_name}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_for_detected_rootkit(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Rootkit Detection Alert"
-    notification_message = (
-        f"Potential rootkit file detected:\n"
-        f"File Path: {file_path}\n"
         f"Threat: {virus_name}"
     )
     notification.message = notification_message
@@ -181,15 +141,6 @@ def notify_user_uefi(file_path, virus_name):
 
     logger.critical(notification_message)
 
-def notify_user_ransomware(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Ransomware Alert"
-    notification_message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
     notification.title = "Exela Stealer version 2 Alert in Python source code"
@@ -203,15 +154,6 @@ def notify_user_hosts(file_path, virus_name):
     notification = Notify()
     notification.title = "Host Hijacker Alert"
     notification_message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
-def notify_user_worm(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Worm Alert"
-    notification_message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
 
@@ -274,15 +216,3 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.message = notification_message
     notification.send()
     logger.critical(notification_message)
-
-def notify_user_with_homepage(target, base_signature, threat_name, **flags):
-    """Helper to handle both main signature and homepage signature notifications."""
-    # Main signature
-    signature = get_signature(base_signature, **flags)
-    notify_user_for_malicious_source_code(target, signature)
-
-    # Homepage signature if flag exists
-    homepage_flag = flags.get('homepage_flag')
-    if homepage_flag:
-        homepage_sig = f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen"
-        notify_user_for_malicious_source_code(target, homepage_sig)

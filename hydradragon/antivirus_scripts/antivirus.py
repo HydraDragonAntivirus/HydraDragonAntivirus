@@ -411,17 +411,13 @@ from .notify_user import (
     notify_susp_archive_file_name_warning,
     notify_user_susp_name,
     notify_user_scr,
-    notify_user_etw_tampering,
     notify_user_for_detected_fake_system_file,
-    notify_user_for_detected_rootkit,
     notify_user_invalid,
     notify_user_fake_size,
     notify_user_startup,
     notify_user_uefi,
-    notify_user_ransomware,
     notify_user_exela_stealer_v2,
     notify_user_hosts,
-    notify_user_worm,
     notify_user_for_web,
     notify_user_for_hips,
     notify_user_for_detected_hips_file,
@@ -555,10 +551,8 @@ advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_db_dir = os.path.join(detectiteasy_dir, "db")
-detectiteasy_plain_text_dir = os.path.join(script_dir, "detectiteasy_plain_text")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
-copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
@@ -618,10 +612,7 @@ clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machine_learning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
-HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
-HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
 antivirus_scripts_dir = os.path.join(script_dir, "antivirus_scripts")
-Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(antivirus_scripts_dir, "OpenHydraDragonAntiRootkit.py")
 decompilers_dir = os.path.join(script_dir, "decompilers")
 bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
@@ -756,25 +747,13 @@ def get_desktop():
     """Return the current user's Desktop folder."""
     return _get_folder_path(CSIDL_DESKTOPDIRECTORY)
 
-def get_sandboxie_log_folder():
+def get_critical_log_folder():
     """Return the sandboxie log folder path on the desktop."""
     return f'{get_desktop()}\\DONTREMOVEHydraDragonAntivirusLogs'
 
-ntdll_path = os.path.join(system32_dir, "ntdll.dll")
-sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
 drivers_path = os.path.join(system32_dir, "drivers")
-drivers_sandboxie_path = get_sandbox_path(drivers_path)
 hosts_path = f'{drivers_path}\\hosts'
-hosts_sandboxie_path = get_sandbox_path(hosts_path)
-HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
-sandboxie_log_folder = get_sandboxie_log_folder()
-homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
-HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
-de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
-python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
-pyarmor7_bypass_sandboxie_dir = get_sandbox_path(pyarmor7_extracted_dir)
 version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
-sandboxie_box = "DefaultBox"
 
 # --- Global tracking sets ---
 seen_files = set()  # Tracks already-scanned (path, md5) tuples
@@ -793,14 +772,14 @@ PACKER_FLAGS = {
 }
 
 uefi_100kb_paths = [
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
+    r'X:\EFI\Microsoft\Boot\SecureBootRecovery.efi'
 ]
 
 uefi_paths = [
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
+    r'X:\EFI\Microsoft\Boot\bootmgfw.efi',
+    r'X:\EFI\Microsoft\Boot\bootmgr.efi',
+    r'X:\EFI\Microsoft\Boot\memtest.efi',
+    r'X:\EFI\Boot\bootx64.efi'
 ]
 
 # Custom flags for directory changes
@@ -954,17 +933,10 @@ COMMON_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
-    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
-]
-
-# Additional directories only in MANAGED_DIRECTORIES
-MANAGED_ONLY_DIRECTORIES = [
-    detectiteasy_plain_text_dir,
-    HiJackThis_logs_dir
+    decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
 ]
 
 # Final directory lists
-directories_to_scan = COMMON_DIRECTORIES + [sandboxie_folder]
 MANAGED_DIRECTORIES = COMMON_DIRECTORIES + MANAGED_ONLY_DIRECTORIES
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -986,7 +958,6 @@ for make_directory in MANAGED_DIRECTORIES:
 DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(hydra_dragon_dumper_extracted_dir), "Hydra Dragon Dumper (Mega Dumper Fork) output extracted."),
     (lambda fp: fp.startswith(enigma1_extracted_dir), "Enigma Virtual Box extracted."),
-    (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
     (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
     (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
     (lambda fp: fp.startswith(capa_results_dir), "CAPA program capabilities extracted."),
@@ -1003,7 +974,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(npm_pkg_extracted_dir), "NPM packer (JavaScript) extracted."),
     (lambda fp: fp.startswith(decompiled_jsc_dir), "V8 bytecode objects (JSC files) extracted."),
     (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
-    (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot."),
     (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
     (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
     (lambda fp: fp.startswith(un_confuser_ex_extracted_dir), ".NET file deobfuscated with UnConfuserEx."),
@@ -1348,24 +1318,15 @@ def analyze_file_with_die(file_path):
     """
     try:
         logger.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        output_dir = Path(detectiteasy_plain_text_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         # Define the base name for the output text file
         base_name = Path(file_path).with_suffix(".txt")
-        txt_output_path = get_unique_output_path(output_dir, base_name)
 
         # Run the DIE command once with the -p flag for plain output
         result = subprocess.run(
             [detectiteasy_console_path, "-p", file_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
         )
-
-        # Save the plain text output
-        with open(txt_output_path, "w", encoding="utf-8") as txt_file:
-            txt_file.write(result.stdout)
-
-        logger.info(f"Analysis result saved to {txt_output_path}")
 
         # Display the result using logging
         if result.stdout.strip():
@@ -1374,7 +1335,6 @@ def analyze_file_with_die(file_path):
             logger.info(f"{'='*60}")
             logger.info(result.stdout)
             logger.info(f"{'='*60}")
-            logger.info(f"Result saved to: {txt_output_path}")
         else:
             logger.error(f"No DIE output for {Path(file_path).name}")
             if result.stderr:
@@ -2671,15 +2631,15 @@ def scan_domain_general(url, **flags):
 
         # Check subdomain threats
         if subdomain:
-            for data_list, threat_name, signature_suffix, homepage_threat in subdomain_threats:
+            for data_list, threat_name, signature_suffix in subdomain_threats:
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
-                    notify_user_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(full_domain, signature_suffix, **flags)
                     return
 
         # Check main domain threats
-        for data_list, threat_name, signature_suffix, homepage_threat in main_threats:
+        for data_list, threat_name, signature_suffix in main_threats:
             is_full_threat, full_ref = is_domain_in_data_general(full_domain, data_list)
             is_main_threat, main_ref = is_domain_in_data_general(main_domain, data_list)
 
@@ -2687,7 +2647,7 @@ def scan_domain_general(url, **flags):
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
                 logger.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
-                notify_user_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
+                notify_user_with_homepage(domain_to_report, signature_suffix, **flags)
                 return
 
         logger.info(f"Domain {full_domain} passed all checks.")
@@ -2731,11 +2691,11 @@ def scan_ip_address_general(ip_address, **flags):
                 (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6", "Malware")
             ]
 
-            for data_list, threat_name, signature_suffix, homepage_threat in ipv6_threats:
+            for data_list, threat_name, signature_suffix in ipv6_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
-                    notify_user_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(ip_address, signature_suffix, **flags)
                     return
 
             logger.info(f"Unknown IPv6 address detected: {ip_address}")
@@ -2761,7 +2721,7 @@ def scan_ip_address_general(ip_address, **flags):
                 (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4", "Malware")
             ]
 
-            for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threats:
+            for data_list, threat_name, signature_suffix in ipv4_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     # Custom logging messages for different threat types
@@ -2773,7 +2733,7 @@ def scan_ip_address_general(ip_address, **flags):
                     else:
                         logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
 
-                    notify_user_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
+                    notify_user_with_homepage(ip_address, signature_suffix, **flags)
                     return
 
             logger.info(f"Unknown IPv4 address detected: {ip_address}")
@@ -2834,9 +2794,6 @@ def scan_url_general(url, **flags):
         if ublock_detect(url):
             notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
             logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
-            homepage_flag = flags.get('homepage_flag')
-            if homepage_flag:
-                notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             return
 
         logger.info(f"No match found for URL: {url}")
@@ -3354,12 +3311,7 @@ def extract_with_unipacker(file_path):
         logger.error(f"Unipacker extraction failed for {file_path}: {e}")
         return None
 
-# Global variables for worm detection
-worm_alerted_files = []
-worm_detected_count = {}
-worm_file_paths = []
-
-# Unified cache for all PE feature extractions (replaces both worm_scan_cache and any ML cache)
+# Unified cache for all PE feature extractions
 unified_pe_cache = {}
 
 def clear_pe_cache():
@@ -5277,137 +5229,12 @@ def scan_tar_file(file_path):
         logger.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
-def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract numeric features of a file using pefile for worm detection.
-    Uses unified caching system shared with ML scanning.
-
-    Returns:
-        Dict containing numeric features if successful, None if failed
-    """
-    return get_cached_pe_features(file_path)
-
-def check_worm_similarity(file_path: str, features_current: List[float]) -> bool:
-    """
-    Check similarity between the main file, collected files, and the current file for worm detection.
-    Uses cached features when available.
-    """
-    worm_detected = False
-
-    try:
-        # Compare with the main file if available and distinct from the current file
-        if main_file_path and main_file_path != file_path:
-            features_main = extract_numeric_worm_features(main_file_path)
-            if features_main:
-                similarity_main = calculate_vector_similarity(features_current, features_main)
-                if similarity_main > 0.86:
-                    logger.critical(
-                        f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
-                        f"with similarity score: {similarity_main:.2f}"
-                    )
-                    worm_detected = True
-
-        # Compare with each collected file in the file paths
-        for collected_file_path in worm_file_paths:
-            if collected_file_path != file_path:
-                features_collected = extract_numeric_worm_features(collected_file_path)
-                if features_collected:
-                    similarity_collected = calculate_vector_similarity(features_current, features_collected)
-                    if similarity_collected > 0.86:
-                        logger.critical(
-                            f"Worm has potentially spread to '{collected_file_path}' "
-                            f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
-                        )
-                        worm_detected = True
-
-    except FileNotFoundError as fnf_error:
-        logger.error(f"File not found: {fnf_error}")
-    except Exception as ex:
-        logger.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
-
-    return worm_detected
-
-def worm_alert(file_path):
-
-    if file_path in worm_alerted_files:
-        logger.info(f"Worm alert already triggered for {file_path}, skipping...")
-        return
-
-    try:
-        logger.info(f"Running worm detection for file '{file_path}'")
-
-        # Extract features
-        features_current = extract_numeric_worm_features(file_path)
-        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(system_root) or file_path.startswith(sandbox_system_root_directory)
-
-        if is_critical:
-            original_file_path = os.path.join(system_root, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_system_root_directory, os.path.basename(file_path))
-
-            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
-                original_file_size = os.path.getsize(original_file_path)
-                current_file_size = os.path.getsize(sandbox_file_path)
-                size_difference = abs(current_file_size - original_file_size) / original_file_size
-
-                original_file_mtime = os.path.getmtime(original_file_path)
-                current_file_mtime = os.path.getmtime(sandbox_file_path)
-                mtime_difference = abs(current_file_mtime - original_file_mtime)
-
-                if size_difference > 0.10:
-                    logger.critical(f"File size difference for '{file_path}' exceeds 10%.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-                if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logger.critical(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-            # Proceed with worm detection based on critical file comparison
-            worm_detected = check_worm_similarity(file_path, features_current)
-
-            if worm_detected:
-                logger.critical(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
-                worm_alerted_files.append(file_path)
-
-        else:
-            # Check for generic worm detection
-            worm_detected = check_worm_similarity(file_path, features_current)
-            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-
-            if worm_detected or worm_detected_count[file_path] >= 5:
-                if file_path not in worm_alerted_files:
-                    logger.critical(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-
-                # Notify for all files that have reached the detection threshold
-                for detected_file in worm_detected_count:
-                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
-                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.gen.Malware")
-                        worm_alerted_files.append(detected_file)
-
-    except Exception as ex:
-        logger.error(f"Error in worm detection for file {file_path}: {ex}")
-
 def check_pe_file(file_path, signature_check, file_name):
     try:
-        # Normalize the file path to lowercase for comparison
-        normalized_path = os.path.abspath(file_path).lower()
-        normalized_sandboxie = sandboxie_folder.lower()
-
         logger.info(f"File {file_path} is a valid PE file.")
 
-        # Check if file is inside the Sandboxie folder
-        if normalized_path.startswith(normalized_sandboxie):
-            worm_alert(file_path)
-            logger.info(f"File {file_path} is inside Sandboxie folder, scanned with worm_alert.")
-
         # Check for fake system files after signature validation
-        if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+        if file_name in fake_system_files and os.path.abspath(file_path).startswith(system_drive):
             if not signature_check["is_valid"]:
                 logger.critical(f"Detected fake system file: {file_path}")
                 notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
@@ -7370,44 +7197,6 @@ def search_files_with_same_extension(directory, extension):
     except Exception as ex:
         logger.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {ex}")
         return []
-
-def ransomware_alert(file_path):
-    global ransomware_detection_count
-
-    try:
-        logger.info(f"Running ransomware alert check for file '{file_path}'")
-
-        # Check the ransomware flag once.
-        if is_ransomware(file_path):
-            # If file is from the Sandboxie log folder, trigger Sandboxie-specific alert.
-            if file_path.startswith(sandboxie_log_folder):
-                ransomware_detection_count += 1
-                logger.critical(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.logger.gen")
-                logger.critical(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
-
-            # Normal processing for all flagged files.
-            ransomware_detection_count += 1
-            logger.critical(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
-
-            # When exactly two alerts occur, search for files with the same extension.
-            if ransomware_detection_count == 2:
-                _, ext = os.path.splitext(file_path)
-                if ext:
-                    directory = os.path.dirname(file_path)
-                    files_with_same_extension = search_files_with_same_extension(directory, ext)
-                    for ransom_file in files_with_same_extension:
-                        logger.info(f"Checking file '{ransom_file}' with same extension '{ext}'")
-                        if is_ransomware(ransom_file):
-                            logger.critical(f"File '{ransom_file}' might also be related to ransomware")
-
-            # When detections reach a threshold, notify the user with a generic flag.
-            if ransomware_detection_count >= 10:
-                notify_user_ransomware("Unknown", "HEUR:Win32.Ransom.gen")
-                logger.critical(f"User has been notified about potential ransomware")
-
-    except Exception as ex:
-        logger.error(f"Error in ransomware_alert: {ex}")
 
 def log_directory_type(file_path):
     try:
@@ -11256,7 +11045,6 @@ class ScanFlags:
     flag_de4dot: bool
     flag_fernflower: bool
     nsis_flag: bool
-    ntdll_dropped: bool
     flag_confuserex: bool
     flag_vmprotect: bool
 
@@ -11320,12 +11108,10 @@ def scan_and_warn(file_path,
                   flag_de4dot=False,
                   flag_fernflower=False,
                   nsis_flag=False,
-                  ntdll_dropped=False,
                   flag_confuserex=False,
                   flag_vmprotect=False):
     """
     Scans a file for potential issues with comprehensive threading for performance.
-    Only does ransomware_alert and worm_alert once per unique file path.
     """
     try:
         # Initialize variables
@@ -11379,8 +11165,6 @@ def scan_and_warn(file_path,
         initial_md5_in_cache = file_md5_cache.get(norm_path)
 
         normalized_path = norm_path.lower()
-        normalized_sandbox = os.path.abspath(sandboxie_folder).lower()
-        normalized_de4dot = os.path.abspath(de4dot_sandboxie_dir).lower()
 
         # Create one flags object up front
         scan_flags = ScanFlags(
@@ -11391,7 +11175,6 @@ def scan_and_warn(file_path,
             flag_de4dot,
             flag_fernflower,
             nsis_flag,
-            ntdll_dropped,
             flag_confuserex,
             flag_vmprotect
         )
@@ -11404,15 +11187,6 @@ def scan_and_warn(file_path,
                 run_scan_thread(dest, scan_flags)
 
         elif normalized_path.startswith(normalized_sandbox):
-            # Check if this is a dropped ntdll.dll in the sandbox
-            if normalized_path == sandboxed_ntdll_path:
-                scan_flags.ntdll_dropped = True  # update in dataclass
-                logger.critical(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
-                perform_special_scan = True
-                dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
-                if dest is not None:
-                    run_scan_thread(dest, scan_flags)
-
             perform_special_scan = True
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
@@ -11433,8 +11207,6 @@ def scan_and_warn(file_path,
 
         # CRITICAL: Ransomware check that can cause early return - NO THREADING
         if is_file_fully_unknown(die_output):
-            if perform_special_scan:
-                ransomware_alert(norm_path)  # Direct call, not threaded
             if mega_optimization_with_anti_false_positive:
                 logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
                 return False  # EARLY EXIT - must not be threaded
@@ -11461,11 +11233,6 @@ def scan_and_warn(file_path,
         macho_result = is_macho_file_from_output(die_output, norm_path)
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
-            return False  # EARLY EXIT
-
-        # Handle first pass worm detection - CRITICAL PATH
-        if not is_first_pass and perform_special_scan and pe_file:
-            worm_alert(norm_path)  # Direct call, not threaded
             return False  # EARLY EXIT
 
         # ========== THREADED OPERATIONS START HERE ==========
@@ -11527,7 +11294,7 @@ def scan_and_warn(file_path,
             flag_obfuscar = True
             logger.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory.")
 
-        match = next((Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
+        match = next((Path(p) for p in de4dot_extracted_dir
                      if Path(p) in wrap_norm_path.parents), None)
         if match and not flag_de4dot:
             flag_de4dot = True
@@ -12331,22 +12098,6 @@ def scan_and_warn(file_path,
             except Exception as deobf_err:
                 logger.error(f"Webcrack deobfuscation failed for {norm_path}: {deobf_err}")
 
-            # Homepage change processing (direct execution - needs early processing)
-            if norm_path == homepage_change_path:
-                try:
-                    for line in lines:
-                        line = line.strip()
-                        if line:
-                            parts = line.split(',')
-                            if len(parts) == 2:
-                                browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
-                                logger.info(f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
-                                scan_code_for_links(homepage_value, norm_path, homepage_flag=browser_tag)
-                            else:
-                                logger.error(f"Invalid format in homepage change file: {line}")
-                except Exception as ex:
-                    logger.error(f"Error processing homepage change file {norm_path}: {ex}")
-
             # Directory type logging
             log_directory_type(norm_path)
 
@@ -13023,26 +12774,21 @@ def monitor_memory_changes(
     finally:
         monitor.cleanup()
 
-def monitor_saved_paths():
-    """Continuously monitor all path lists in global path_lists and scan new items in threads."""
-    seen = set()
-    while True:
-        for path_list in path_lists:
-            for path in path_list:
-                if path not in seen:
-                    seen.add(path)
-                    threading.Thread(target=scan_and_warn, args=(path,)).start()
-
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
+    # Get environment paths
+    user_profile = os.environ.get('USERPROFILE', '')
+    appdata_roaming = os.environ.get('APPDATA', '')
+    programdata = os.environ.get('PROGRAMDATA', '')
+    
     # Define the paths to check
-    defaultbox_user_startup_folder = rf'{sandboxie_folder}\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
-    defaultbox_programdata_startup_folder = rf'{sandboxie_folder}\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
+    user_startup_folder = os.path.join(appdata_roaming, r'Microsoft\Windows\Start Menu\Programs\Startup')
+    programdata_startup_folder = os.path.join(programdata, r'Microsoft\Windows\Start Menu\Programs\Startup')
 
     # List of directories to check
     directories_to_check = [
-        defaultbox_user_startup_folder,
-        defaultbox_programdata_startup_folder
+        user_startup_folder,
+        programdata_startup_folder
     ]
 
     # List to keep track of already alerted files
@@ -13066,10 +12812,6 @@ def check_startup_directories():
                             elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
                                 malware_type = "HEUR:Win32.Startup.Susp.Extension.gen.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
-                            else:
-                                malware_type = "HEUR:Win32.Startup.Susp.gen.Malware"
-                                message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
-
                             logger.critical(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
@@ -14391,14 +14133,11 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
             (monitor_memory_changes, (), {'change_threshold_bytes': 1024, 'stop_callback': stop_callback}),
-            (run_sandboxie_plugin,),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
             (check_startup_directories,),
             (monitor_hosts_file,),
             (check_uefi_directories,),
-            (monitor_saved_paths,),
-            (run_sandboxie, (file_path,)),
         ]
 
         for thread_info in threads_to_start:
@@ -14519,166 +14258,6 @@ def run_anti_self_delete_check():
     except Exception as e:
         logger.error(f"Failed to write report file: {e}")
 
-def check_rootkit_scan_results():
-    """
-    Reads the scan_report.json from the antirootkit plugin and processes any detections.
-    Sends notifications and logs critical alerts for each rootkit detection found.
-    """
-    reports_dir = os.path.join(script_dir, "reports")
-    scan_report_path = os.path.join(reports_dir, "scan_report.json")
-
-    if not os.path.exists(scan_report_path):
-        logger.warning(f"Rootkit scan report not found at: {scan_report_path}")
-        return
-
-    try:
-        with open(scan_report_path, 'r', encoding='utf-8', errors='ignore') as f:
-            scan_data = json.load(f)
-
-        # Process suspicious files
-        for item in scan_data.get('suspicious_files', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('path', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process suspicious drivers
-        for item in scan_data.get('suspicious_drivers', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('path', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process suspicious processes
-        for item in scan_data.get('process_scan', {}).get('suspicious_processes', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('exe', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process suspicious autorun entries
-        for item in scan_data.get('suspicious_autorun', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('exe', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process registry ACL issues
-        for item in scan_data.get('registry_acl_issues', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = f"{item.get('root', '')}\\{item.get('subkey', '')}"
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process IFEO antivirus blocking
-        for item in scan_data.get('ifeo_antivirus_blocking', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('ifeo_path', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Process enhanced detection results
-        enhanced = scan_data.get('enhanced_detection', {})
-
-        for item in enhanced.get('timing_anomalies', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = f"API Hook: {item.get('api', 'Unknown')}"
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('memory_anomalies', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = f"Memory Region: {item.get('base_address', 'Unknown')}"
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('network_anomalies', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = "Network Connections"
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('file_redirection', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('file', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('ads_streams', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('file', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('registry_timestamp_anomalies', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = item.get('key', 'Unknown')
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        for item in enhanced.get('boot_anomalies', []):
-            if 'detection_name' in item and item['detection_name'].startswith('HEUR:'):
-                file_path = f"Boot Config: {item.get('pattern', 'Unknown')}"
-                virus_name = item['detection_name']
-                notify_user_for_detected_rootkit(file_path, virus_name)
-
-        # Check for self-delete detection
-        self_delete = scan_data.get('self_delete_detection', {})
-        if self_delete.get('status') == 'DELETED':
-            virus_name = "HEUR:Win32.Susp.Trojan.SelfDelete"
-            file_path = self_delete.get('file_path', 'Unknown')
-            notify_user_for_detected_rootkit(file_path, virus_name)
-
-        logger.info("Rootkit scan results processed successfully")
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse rootkit scan report: {e}")
-    except Exception as e:
-        logger.error(f"Error processing rootkit scan results: {e}")
-
-def run_sandboxie_plugin_script():
-    """
-    Runs the antirootkit plugin script in Sandboxie and then checks results.
-    """
-    # Anti-self-delete check for plugin
-    run_anti_self_delete_check()
-
-    # build the inner python invocation
-    python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}"'
-    # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate "{python_path}" {python_entry}'
-
-    try:
-        logger.info(f"Running python script via Sandboxie: {cmd}")
-        # shell=True so that Start.exe sees the switches correctly
-        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logger.info("Python plugin ran successfully in Sandboxie.")
-
-        # After successful execution, check the scan results
-        check_rootkit_scan_results()
-
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to run python plugin in Sandboxie: {ex}")
-
-def run_sandboxie_plugin():
-    # build the inner rundll32 invocation
-    dll_entry = f'"{HydraDragonAV_sandboxie_DLL_path}",Run'
-    # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:{sandboxie_box} /elevate rundll32.exe {dll_entry}'
-    try:
-        logger.info(f"Running DLL via Sandboxie: {cmd}")
-        # shell=True so that Start.exe sees the switches correctly
-        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logger.info("Plugin ran successfully in Sandboxie.")
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to run plugin in Sandboxie: {ex}")
-
-def run_sandboxie(file_path):
-    try:
-        subprocess.run([sandboxie_path, f'/box:{sandboxie_box}', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to run Sandboxie on {file_path}: {ex}")
-
 def run_de4dot_in_sandbox(file_path):
     """
     Runs de4dot inside Sandboxie to avoid contaminating the host.
@@ -14709,88 +14288,6 @@ def run_de4dot_in_sandbox(file_path):
         logger.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
         logger.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
-
-# ----- Utility Functions -----
-def force_remove_log():
-    """Forcefully remove the log file in the sandbox if it exists."""
-    if os.path.exists(HiJackThis_log_path):
-        try:
-            os.chmod(HiJackThis_log_path, 0o777)
-            os.remove(HiJackThis_log_path)
-            logger.info("Previous log removed successfully.")
-        except Exception as e:
-            logger.error("Failed to remove previous log: %s", e)
-
-def run_and_copy_log():
-    """
-    Remove any existing log file, launch HiJackThis,
-    wait until the log file is written, copy it to a timestamped file, and return its path.
-
-    :returns: Path to the copied log file
-    """
-    force_remove_log()
-
-    # Launch HiJackThis directly (outside sandbox)
-    cmd = [HiJackThis_exe]
-    
-    # Alternative: If you still want Sandboxie for isolation, use this instead:
-    # cmd = [sandboxie_path, f'/box:{sandboxie_box}', '/elevate', HiJackThis_exe]
-    
-    subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
-    logger.debug("HiJackThis launched.")
-
-    # Wait until the log file appears and has content
-    timeout = 1200  # Maximum wait time in seconds
-    start_time = time.time()
-    
-    while True:
-        if time.time() - start_time > timeout:
-            logger.error("Timeout waiting for HiJackThis log file")
-            raise TimeoutError("HiJackThis log file was not created within timeout period")
-            
-        if os.path.exists(HiJackThis_log_path):
-            stat = os.stat(HiJackThis_log_path)
-            if stat.st_size > 0:
-                break
-
-    # Copy to timestamped destination
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = os.path.join(HiJackThis_logs_dir, f"hijackthis_{ts}.txt")
-    shutil.copy(HiJackThis_log_path, dest)
-    logger.info("Log copied to %s", dest)
-    return dest
-
-def parse_report(path):
-    """
-    Parse the HiJackThis report and return a dictionary where:
-      key   -> The log line (lines starting with O2, O4, or O23)
-      value -> A 1-tuple containing the first existing file path found on that line,
-                or (None,) if no path could be opened.
-    """
-    entries = {}
-    with open(path, encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            line = line.strip()
-            if not line.startswith(('O2', 'O4', 'O23')):
-                continue
-
-            file_path = None
-            for part in line.split():
-                if os.path.exists(part):
-                    try:
-                        # test open for readability
-                        with open(part, 'rb'):
-                            file_path = part
-                    except (OSError, IOError):
-                        # couldn't open; treat as if not found
-                        file_path = None
-                    # in either case, stop scanning further parts
-                    break
-
-            # store a 1-tuple as the spec'd"tuple containing (file path)"
-            entries[line] = (file_path,)
-
-    return entries
 
 # --- Helper Function ---
 def get_latest_clamav_def_time():
