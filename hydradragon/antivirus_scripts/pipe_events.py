@@ -155,7 +155,7 @@ def _send_av_event_to_edr(file_path: str, virus_name: str, action: str = "monito
         logger.info(f"Successfully sent threat event to EDR for: {file_path}")
     except pywintypes.error as e:
         if hasattr(e, 'winerror') and e.winerror == 2:
-            logger.error(f"Could not connect to Owlyshield EDR. Is the service running?")
+            logger.error("Could not connect to Owlyshield EDR. Is the service running?")
         else:
             logger.error(f"Failed to send threat event to EDR: {e}")
     except Exception as e:
@@ -200,7 +200,7 @@ def _send_scan_request_to_av(file_path: str, event_type: str = "NEW_FILE_DETECTE
         logger.info(f"Successfully sent scan request to HydraDragon for: {file_path}")
     except pywintypes.error as e:
         if hasattr(e, 'winerror') and e.winerror == 2:
-            logger.error(f"Could not connect to HydraDragon AV. Is the service running?")
+            logger.error("Could not connect to HydraDragon AV. Is the service running?")
         else:
             logger.error(f"Failed to send scan request to HydraDragon: {e}")
     except Exception as e:
@@ -286,7 +286,7 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
 
         except pywintypes.error as e:
             if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
-                logger.warning(f"HydraDragon disconnected from threat event pipe.")
+                logger.warning("HydraDragon disconnected from threat event pipe.")
             else:
                 logger.error(f"Windows API Error in threat listener: {e.strerror} (Code: {e.winerror})")
             time.sleep(1)

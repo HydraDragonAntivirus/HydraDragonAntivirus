@@ -227,8 +227,8 @@ from dataclasses import dataclass
 logger.debug(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Callable
-logger.debug(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Callable module loaded in {time.time() - start_time:.6f} seconds")
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
+logger.debug(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List and Set module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
@@ -328,6 +328,7 @@ logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .detect_type import (
+    is_protector_from_output,
     is_nexe_file_from_output,
     is_go_garble_from_output,
     is_pyc_file_from_output,
@@ -384,6 +385,10 @@ from .notify_user import (
     notify_user_with_homepage
 )
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from .pipe_events import start_dual_pipe_integration
+logger.debug(f"pipe_events.start_dua_pipe_integration loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logger.debug total time
 total_end_time = time.time()
@@ -901,7 +906,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
     (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
     (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
-    (lambda fp: fp == main_file_path, "This is the main file."),
     (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
     (lambda fp: fp.startswith(resource_extractor_dir), "It's an RCData resources extracted directory."),
     (lambda fp: fp.startswith(ungarbler_dir), "It's a deobfuscated Go Garble directory."),
@@ -925,7 +929,6 @@ DIRECTORY_MESSAGES = [
 ransomware_detection_count = 0
 
 # Global flags and caches
-main_file_path: str | None = None
 pyinstaller_archive: str | None = None
 full_python_version: str | None = None
 pyz_version_match: bool = False
@@ -938,24 +941,6 @@ die_cache: dict[str, tuple[str, bool]] = {}
 
 # Separate cache for "binary-only" DIE results
 binary_die_cache: dict[str, str] = {}
-
-def reset_flags():
-    """
-    Reset all global flags and caches to their initial state.
-    """
-    global main_file_path, pyinstaller_archive, full_python_version, pyz_version_match
-    global ransomware_detection_count
-
-    main_file_path = None
-    pyinstaller_archive = None
-    full_python_version = None
-    pyz_version_match = False
-
-    file_md5_cache.clear()
-    die_cache.clear()
-    binary_die_cache.clear()
-
-    ransomware_detection_count = 0
 
 def compute_md5_via_text(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
@@ -10500,6 +10485,9 @@ def scan_and_warn(file_path,
             logger.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
             return False  # EARLY EXIT
 
+        if norm_path == hosts_path:
+            check_hosts_file_for_blocked_antivirus(norm_path)
+
         # ========== THREADED OPERATIONS START HERE ==========
         # Now we can safely use threading since no more early returns
 
@@ -11593,7 +11581,11 @@ class ProcessInfo:
     rss: int
 
 class SafeProcessMonitor:
-    """Thread-safe process monitor with proper resource management"""
+    """Thread-safe process monitor with proper resource management
+
+    NOTE: This version has the stop-request mechanism removed as requested.
+    The monitor runs until interrupted (KeyboardInterrupt) or an unhandled fatal error occurs.
+    """
 
     def __init__(self, sandboxie_folder: str, main_file_path: str):
         self.sandboxie_folder = sandboxie_folder.lower()
@@ -11604,7 +11596,6 @@ class SafeProcessMonitor:
         self._lock = threading.RLock()
         self._last_rss: Dict[int, int] = {}
         self._analysis_cooldown: Dict[int, float] = {}
-        self._stop_requested = threading.Event()
 
         # Thread pool for analysis tasks
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="MemAnalysis")
@@ -11713,26 +11704,23 @@ class SafeProcessMonitor:
                 change_type = "decrease"
 
             change_amount = proc_info.rss - prev_rss if prev_rss else proc_info.rss
+            exe_lower = proc_info.exe_path.lower()
+            is_in_sandbox = exe_lower.startswith(self.sandboxie_folder)
+            is_main_file = exe_lower == self.main_file_path
 
             logger.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
             logger.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
             logger.info(f"  Current RSS: {proc_info.rss} bytes")
             logger.info(f"  Change: {change_amount:+} bytes")
-            logger.info(f"  In sandbox: {proc_info.is_in_sandbox}, Is main file: {proc_info.is_main_file}")
+            logger.info(f"  In sandbox: {is_in_sandbox}, Is main file: {is_main_file}")
 
             return True, "Ready for analysis"
 
-    def _submit_analysis_task(self, proc_info) -> None:
+    def _submit_analysis_task(self, proc_info: ProcessInfo) -> None:
         """Submit memory analysis task to thread pool"""
-        if self._stop_requested.is_set():
-            return
 
         def analysis_task():
             try:
-                if self._stop_requested.is_set():
-                    logger.debug(f"Analysis cancelled for PID {proc_info.pid} (stop requested)")
-                    return None
-
                 # Verify process still exists before analysis
                 if not psutil.pid_exists(proc_info.pid):
                     logger.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
@@ -11741,25 +11729,18 @@ class SafeProcessMonitor:
                 logger.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
 
                 # Call the external analysis function (uses HydraDragonDumper internally)
-                result_file = analyze_specific_process(
-                    proc_info.name
-                )
-
-                if self._stop_requested.is_set():
-                    logger.debug(f"Analysis completed but stop requested for PID {proc_info.pid}")
-                    return result_file
+                result_file = analyze_specific_process(proc_info.name)
 
                 if result_file:
                     logger.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
 
-                    # Launch scan in separate thread if not stopping
-                    if not self._stop_requested.is_set():
-                        scan_thread = threading.Thread(
-                            target=self._safe_scan_and_warn,
-                            args=(result_file,),
-                            name=f"Scan-{proc_info.pid}",
-                        )
-                        scan_thread.start()
+                    # Launch scan in separate thread, passing proc_info for context
+                    scan_thread = threading.Thread(
+                        target=self._safe_scan_and_warn,
+                        args=(result_file, proc_info),
+                        name=f"Scan-{proc_info.pid}",
+                    )
+                    scan_thread.start()
                 else:
                     logger.error(f"Memory analysis for PID {proc_info.pid} returned no results")
 
@@ -11781,18 +11762,90 @@ class SafeProcessMonitor:
         except Exception as e:
             logger.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
 
-    def _safe_scan_and_warn(self, result_file: str) -> None:
-        """Safely execute scan_and_warn with error handling"""
-        try:
-            if not self._stop_requested.is_set():
-                scan_and_warn(result_file)
-        except Exception as e:
-            logger.error(f"Scan and warn failed for {result_file}: {e}")
+    def _safe_scan_and_warn(self, result_file: str, proc_info: ProcessInfo) -> None:
+        """Safely execute scan_and_warn, or if protector detected and main process running,
+        send result to main process via marker file.
 
-    def request_monitor_stop(self) -> None:
-        """Request graceful shutdown of the monitor"""
-        logger.info("Memory monitor stop requested")
-        self._stop_requested.set()
+        Behavior:
+          1. Check if the dumped file has a protector (using is_protector_from_output)
+          2. If protector exists AND main_file_path process is running:
+             - Write marker file next to main executable with result_file path
+             - Skip normal scan_and_warn
+          3. Otherwise:
+             - Call normal scan_and_warn(result_file)
+        """
+        try:
+            # First check if this dump has a protector
+            protector_name = None
+            try:
+                # Run DIE on the result_file to check for protector
+                die_output = get_die_output_binary(result_file)
+                protector_name = is_protector_from_output(die_output)
+                
+                if protector_name:
+                    logger.info(f"Protector detected in dump: {protector_name}")
+            except Exception as prot_err:
+                logger.debug(f"Failed to check for protector: {prot_err}")
+
+            # If protector found, try to send to main process
+            if protector_name:
+                target_norm = os.path.normcase(os.path.abspath(self.main_file_path))
+                
+                try:
+                    for proc in psutil.process_iter(['pid', 'exe']):
+                        try:
+                            exe = proc.info.get('exe')
+                            if not exe:
+                                try:
+                                    exe = proc.exe()
+                                except Exception:
+                                    exe = None
+
+                            if not exe:
+                                continue
+
+                            exe_norm = os.path.normcase(os.path.abspath(exe))
+                            if exe_norm == target_norm:
+                                pid = proc.info.get('pid') or proc.pid
+                                logger.info(f"Protector detected - sending to main process (PID {pid})")
+
+                                # Write marker file
+                                try:
+                                    target_dir = os.path.dirname(exe)
+                                    marker_name = f".hydra_scan_{pid}.txt"
+                                    marker_path = os.path.join(target_dir, marker_name)
+
+                                    with open(marker_path, "w", encoding="utf-8") as mf:
+                                        mf.write(f"timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                                        mf.write(f"protector: {protector_name}\n")
+                                        mf.write(f"result_file: {os.path.abspath(result_file)}\n")
+                                        mf.write(f"source_pid: {proc_info.pid}\n")
+
+                                    logger.info(f"Wrote protector marker at: {marker_path}")
+                                    return  # Exit early - don't call scan_and_warn
+
+                                except Exception as write_err:
+                                    logger.error(f"Failed to write marker file: {write_err}")
+
+                                break
+
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                            continue
+                        except Exception as inner:
+                            logger.debug(f"Error checking process: {inner}")
+                            continue
+
+                except Exception as enum_err:
+                    logger.debug(f"Failed to enumerate processes: {enum_err}")
+
+            # No protector or couldn't send to main - use normal scan
+            try:
+                scan_and_warn(result_file)
+            except Exception as scan_err:
+                logger.error(f"scan_and_warn failed for {result_file}: {scan_err}")
+
+        except Exception as e:
+            logger.error(f"Scan and warn wrapper failed for {result_file}: {e}")
 
     def cleanup(self) -> None:
         """Clean up resources"""
@@ -11808,7 +11861,10 @@ class SafeProcessMonitor:
         logger.info("Memory monitor shutdown complete")
 
     def monitor_processes(self, change_threshold_bytes: int, sleep_interval: float = 0.1) -> None:
-        """Main monitoring loop"""
+        """Main monitoring loop
+
+        This version runs continuously until interrupted (KeyboardInterrupt) or a fatal error occurs.
+        """
         logger.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
         logger.info(f"Monitoring main file: {self.main_file_path}")
         logger.info(f"Memory change threshold: {change_threshold_bytes} bytes")
@@ -11817,7 +11873,7 @@ class SafeProcessMonitor:
         iteration_count = 0
 
         try:
-            while not self._stop_requested.is_set():
+            while True:
                 iteration_count += 1
                 current_pids = set()
 
@@ -11826,9 +11882,6 @@ class SafeProcessMonitor:
                     processes = list(psutil.process_iter(['pid', 'memory_info', 'name']))
 
                     for proc in processes:
-                        if self._stop_requested.is_set():
-                            break
-
                         proc_info = self._get_safe_process_info(proc)
                         if not proc_info:
                             continue
@@ -11854,10 +11907,7 @@ class SafeProcessMonitor:
                     continue
 
                 # Sleep between iterations
-                if not self._stop_requested.wait(timeout=sleep_interval):
-                    continue  # Timeout expired, continue monitoring
-                else:
-                    break  # Stop was requested
+                time.sleep(sleep_interval)
 
         except KeyboardInterrupt:
             logger.info("Memory monitor interrupted by user")
@@ -11866,71 +11916,9 @@ class SafeProcessMonitor:
         finally:
             self.cleanup()
 
-
-def monitor_memory_changes(
-    change_threshold_bytes: int = 1024,
-    stop_callback: Optional[Callable[[], bool]] = None,
-) -> None:
-    """
-    Continuously monitor processes in sandbox and main file for RSS memory changes and trigger analysis.
-
-    Uses HydraDragonDumper extraction methods with robust error handling and resource management.
-
-    :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
-    :param stop_callback: Function that returns True when monitoring should stop
-    """
-    # These globals/objects must exist in the environment where this function is used:
-    # SafeProcessMonitor, sandboxie_folder, main_file_path
-    monitor = SafeProcessMonitor(sandboxie_folder, main_file_path)
-
-    # Set up stop callback integration
-    def check_stop_callback():
-        return monitor._stop_requested.is_set() or (stop_callback and stop_callback())
-
-    try:
-        # Start monitoring in a separate thread if stop_callback is provided
-        if stop_callback:
-            def monitor_with_callback():
-                while not check_stop_callback():
-                    try:
-                        monitor.monitor_processes(
-                            change_threshold_bytes,
-                            sleep_interval=0.1
-                        )
-                        break  # Normal exit
-                    except Exception as e:
-                        if not check_stop_callback():
-                            logger.error(f"Monitor restarting due to error: {e}")
-                            time.sleep(1)
-                        break
-
-            monitor_thread = threading.Thread(target=monitor_with_callback, name="MemoryMonitor")
-            monitor_thread.start()
-
-            # Wait for stop condition or thread completion
-            while monitor_thread.is_alive() and not check_stop_callback():
-                time.sleep(0.1)
-
-            if monitor_thread.is_alive():
-                monitor.request_monitor_stop()
-                monitor_thread.join(timeout=30)
-        else:
-            # Run directly in current thread
-            monitor.monitor_processes(change_threshold_bytes)
-
-    except KeyboardInterrupt:
-        logger.info("Memory monitoring interrupted")
-        monitor.request_monitor_stop()
-    except Exception as e:
-        logger.error(f"Memory monitoring failed: {e}")
-        monitor.request_monitor_stop()
-    finally:
-        monitor.cleanup()
-
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
     # Get environment paths
-    user_profile = os.environ.get('USERPROFILE', '')
     programdata = os.environ.get('PROGRAMDATA', '')
     
     # Define the paths to check
@@ -11973,7 +11961,7 @@ def check_startup_directories():
 
 def check_hosts_file_for_blocked_antivirus():
     """
-    Scan hosts_sandboxie_path for any entries that match one of your lists:
+    Scan hosts_path for any entries that match one of your lists:
       - IPv4 whitelist
       - IPv6 whitelist
       - Exact domain whitelist
@@ -12002,10 +11990,10 @@ def check_hosts_file_for_blocked_antivirus():
     }
 
     try:
-        if not os.path.exists(hosts_sandboxie_path):
+        if not os.path.exists(hosts_path):
             return False
 
-        with open(hosts_sandboxie_path, 'r') as hf:
+        with open(hosts_path, 'r') as hf:
             for raw in hf:
                 line = raw.strip()
                 if not line or line.startswith('#'):
@@ -12048,49 +12036,49 @@ def check_hosts_file_for_blocked_antivirus():
         if flagged['ipv4']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
                 details=list(flagged['ipv4'])
             )
         if flagged['ipv6']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
                 details=list(flagged['ipv6'])
             )
         if flagged['domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
                 details=list(flagged['domain'])
             )
         if flagged['mail_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
                 details=list(flagged['mail_domain'])
             )
         if flagged['sub_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
                 details=list(flagged['sub_domain'])
             )
         if flagged['mail_sub_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
                 details=list(flagged['mail_sub_domain'])
             )
         if flagged['antivirus']:
             any_flagged = True
             notify_user_hosts(
-                hosts_sandboxie_path,
+                hosts_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
                 details=list(flagged['antivirus'])
             )
@@ -12100,16 +12088,6 @@ def check_hosts_file_for_blocked_antivirus():
     except Exception as ex:
         logger.error(f"Error reading hosts file: {ex}")
         return False
-
-# Function to continuously monitor hosts file
-def monitor_hosts_file():
-    # Continuously check the hosts file
-    while True:
-        is_malicious_host = check_hosts_file_for_blocked_antivirus()
-
-        if is_malicious_host:
-            logger.critical("Malicious hosts file detected and flagged.")
-            break  # Stop monitoring after notifying once
 
 def is_malicious_file(file_path, size_limit_kb):
     """ Check if the file is less than the given size limit """
@@ -12157,109 +12135,70 @@ def periodic_yield_worker(stop_event, yield_interval=0.1):
         windows_yield_cpu()
         time.sleep(yield_interval)
 
-def perform_sandbox_analysis(file_path, stop_callback=None):
-    global main_file_path
+def start_real_time_protection():
+    """
+    Starts real-time protection by launching multiple monitoring threads.
+    Monitors system activities including network traffic, web protection,
+    startup directories, and pipe integration.
+    """
     global analysis_threads
     global thread_function_map  # Track thread -> function
 
     try:
-        if not isinstance(file_path, (str, bytes, os.PathLike)):
-            logger.error(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
-            return
+        logger.info("Starting real-time protection...")
 
-        logger.info(f"Performing sandbox analysis on: {file_path}")
-
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        file_path = os.path.normpath(file_path)
-        if not os.path.isfile(file_path):
-            logger.error(f"File does not exist: {file_path}")
-            return
-
-        main_file_path = file_path
         analysis_threads = []
         thread_function_map = {}
-
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
 
         def create_monitored_thread(target_func, *args, **kwargs):
             def monitored_wrapper():
                 try:
-                    if 'stop_callback' in target_func.__code__.co_varnames:
-                        target_func(*args, stop_callback=stop_callback, **kwargs)
-                    else:
-                        target_func(*args, **kwargs)
+                    target_func(*args, **kwargs)
                 except Exception as e:
-                    if stop_callback and stop_callback():
-                        logger.info(f"Thread {target_func.__name__} stopped by user request")
-                    else:
-                        logger.error(f"Error in thread {target_func.__name__}: {e}")
+                    logger.error(f"Error in thread {target_func.__name__}: {e}")
 
-            thread = threading.Thread(target=monitored_wrapper, name=f"Analysis_{target_func.__name__}")
+            thread = threading.Thread(target=monitored_wrapper, name=f"Protection_{target_func.__name__}")
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        stop_flag = threading.Event()
-
-        def stop_callback():
-            return stop_flag.is_set()
-
         threads_to_start = [
-            (monitor_memory_changes, (), {'change_threshold_bytes': 1024, 'stop_callback': stop_callback}),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
             (check_startup_directories,),
-            (monitor_hosts_file,),
-            (monitor_pipe_events),
+            (start_dual_pipe_integration,),
         ]
 
         for thread_info in threads_to_start:
-            if stop_callback and stop_callback():
-                logger.info("Analysis stopped before all threads could start")
-                return "[!] Analysis stopped by user request"
-
             target_func = thread_info[0]
             args = thread_info[1] if len(thread_info) > 1 else ()
 
             thread = create_monitored_thread(target_func, *args)
             thread.start()
 
-        # Instead of blocking loop, use a monitoring thread
+        # Monitor threads in separate thread
         def monitor_threads():
             while any(thread.is_alive() for thread in analysis_threads):
-                if stop_callback and stop_callback():
-                    logger.info("Stop requested, terminating analysis threads...")
-                    terminate_analysis_threads_immediately()
-                    return
                 time.sleep(0.1)
 
-        # Run monitoring in separate thread
         monitor_thread = threading.Thread(target=monitor_threads)
         monitor_thread.start()
 
         # Wait for monitoring thread to finish
         monitor_thread.join()
 
-        return "[+] Sandbox analysis completed successfully"
+        return "[+] Real-time protection completed successfully"
 
     except Exception as ex:
-        if stop_callback and stop_callback():
-            logger.info("Analysis stopped by user request during exception handling")
-            return "[!] Analysis stopped by user request"
-
-        error_message = f"An error occurred during sandbox analysis: {ex}"
+        error_message = f"An error occurred during real-time protection: {ex}"
         logger.error(error_message)
         return error_message
 
-def run_analysis_with_yield(file_path: str, stop_callback=None):
+
+def run_real_time_protection_with_yield():
     """
-    This function mirrors the original AnalysisThread.execute_analysis method.
-    It logs the file path, performs the sandbox analysis, and handles any exceptions.
-    Now supports a stop_callback to allow graceful interruption with Windows CPU yielding.
-    Runs a background thread that periodically yields CPU during analysis.
+    Starts real-time protection with periodic CPU yielding for better system responsiveness.
+    Runs a background thread that periodically yields CPU during protection.
     """
     # Create stop event for background yielding thread
     yield_stop_event = threading.Event()
@@ -12269,35 +12208,23 @@ def run_analysis_with_yield(file_path: str, stop_callback=None):
     yield_thread.start()
 
     try:
-        logger.info(f"Running analysis for: {file_path}")
+        logger.info("Starting real-time protection with CPU yielding...")
 
-        # Check for stop request before starting
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        # Let Qt process events before heavy work
+        # Let Qt process events before starting protection
         QApplication.processEvents()
         windows_yield_cpu()
 
-        # Perform the sandbox analysis with stop checking
-        result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
+        # Start the real-time protection
+        result = start_real_time_protection()
 
-        # Let Qt process events after heavy work
+        # Let Qt process events after starting protection
         QApplication.processEvents()
         windows_yield_cpu()
 
-        # Check for stop request after analysis
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        return result if result else "[+] Analysis completed successfully"
+        return result if result else "[+] Real-time protection started successfully"
 
     except Exception as ex:
-        # Check if the exception was due to a stop request
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        error_message = f"An error occurred during sandbox analysis: {ex}"
+        error_message = f"An error occurred while starting real-time protection: {ex}"
         logger.error(error_message)
         return error_message
 

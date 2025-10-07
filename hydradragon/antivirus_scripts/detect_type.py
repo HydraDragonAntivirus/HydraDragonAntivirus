@@ -12,6 +12,32 @@ import macholib.MachO
 from androguard.misc import AnalyzeAPK
 from androguard.core.apk import APK
 
+def is_protector_from_output(die_output: str) -> Union[str, bool]:
+    """
+    Strict protector detection: only extract explicit 'Protector: ...' lines.
+    Returns the first protector found (optionally with version like Themida(2.XX)),
+    or False if no explicit 'Protector:' line exists.
+    """
+    if not die_output:
+        logger.info("No DIE output provided for protector detection.")
+        return False
+
+    try:
+        m = re.search(r'Protector:\s*([^\r\n(]+)(?:\(([^)]+)\))?', die_output)
+        if not m:
+            logger.info("No explicit 'Protector:' line found in DIE output.")
+            return False
+
+        name = m.group(1).strip()
+        version = m.group(2)
+        protector = f"{name}({version})" if version else name
+        logger.info(f"DIE output indicates protector: {protector}")
+        return protector
+
+    except re.error as e:
+        logger.error(f"Regex error while scanning for Protector: lines: {e}")
+        return False
+
 def is_go_garble_from_output(die_output):
     """
     Check if the DIE output indicates a Go garbled file.
