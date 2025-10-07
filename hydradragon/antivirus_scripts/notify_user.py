@@ -1,6 +1,5 @@
 from hydra_logger import logger
 from notifypy import Notify
-from .utils import get_signature
 
 def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()

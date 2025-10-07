@@ -16,7 +16,7 @@ Dynamic and static analysis with Real Time Protection for Windows, including EDR
 This project is licensed under the **GNU Affero General Public License v3.0** (AGPLv3).  
 See the [LICENSE](./LICENSE) file for more information.
 
-## MEGA IMPORTANT
+## MEGA IMPORTANT AND !!!WARNING!!!
 - Like in modern antiviruses this antivirus also directly removes threats, so be careful!
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
