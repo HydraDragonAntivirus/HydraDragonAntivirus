@@ -39,6 +39,7 @@ echo [+] Service created.
 :: --------------------------------------------------------
 :: 4) Cleanup
 :: --------------------------------------------------------
-echo Cleaning up installer script...
+echo Cleaning up installer script and restarting system...
+shutdown -r -t 10
 del "%~f0"
 endlocal

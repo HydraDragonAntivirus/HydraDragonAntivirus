@@ -132,15 +132,6 @@ def notify_user_startup(file_path, message):
 
     logger.critical(notification_message)
 
-def notify_user_uefi(file_path, virus_name):
-    notification = Notify()
-    notification.title = "UEFI Malware Alert"
-    notification_message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-
-    logger.critical(notification_message)
-
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
     notification.title = "Exela Stealer version 2 Alert in Python source code"
