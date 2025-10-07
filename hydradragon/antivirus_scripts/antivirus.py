@@ -2702,12 +2702,21 @@ def scan_html_content(html_content, html_content_file_path, **flags):
 # --------------------------------------------------------------------------
 # Helpers for decoding regex fragments
 def _dec(b64: str) -> str:
-    """Decode Base64-encoded ASCII/UTF-8 text fragments."""
-    return base64.b64decode(b64.encode()).decode("utf-8", errors="replace")
+    """Decode Base64-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
+    # add padding if needed
+    pad = (-len(b64)) % 4
+    try:
+        return base64.b64decode(b64 + ('=' * pad)).decode("utf-8", errors="replace")
+    except Exception:
+        return ""  # fail gracefully
 
 def _dec32(b32: str) -> str:
-    """Decode Base32-encoded ASCII/UTF-8 text fragments."""
-    return base64.b32decode(b32.encode()).decode("utf-8", errors="replace")
+    """Decode Base32-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
+    pad = (-len(b32)) % 8
+    try:
+        return base64.b32decode(b32.upper() + ('=' * pad)).decode("utf-8", errors="replace")
+    except Exception:
+        return ""  # fail gracefully
 
 # --------------------------------------------------------------------------
 # Build URL regex at runtime
@@ -2809,29 +2818,29 @@ def build_url_regex():
         r'f[tx]p://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
 
         # Bracket-obfuscated domains (e.g., example[.]com, test[dot]com)
-        r'https?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
-        r'hxxps?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
-        r'h[tx]{2}ps?://[^\s<>"\'{}|\\^`\[\]]*\[[.\]dot\]][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'https?://[^\s<>"\'{}|\\^`\[\]]*\[(?:\.|dot)\][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'hxxps?://[^\s<>"\'{}|\\^`\[\]]*\[(?:\.|dot)\][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
+        r'h[tx]{2}ps?://[^\s<>"\'{}|\\^`\[\]]*\[(?:\.|dot)\][^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',
 
         # Specific bracket patterns for domains
-        r'[a-zA-Z0-9-]+\[[\.\]dot]\][a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
+        r'[a-zA-Z0-9-]+\[(?:\.|dot)\][a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
         r'[a-zA-Z0-9-]+\(\.\)[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
-        r'[a-zA-Z0-9-]+\{[\.\]dot]\}[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
+        r'[a-zA-Z0-9-]+\{(?:\.|dot)\}[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
 
         # Base64-obfuscated protocols
         _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/]*={0,2}",   # https://
-        _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",   # http://
-        _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",    # ftp://
+        _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",    # http://
+        _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",     # ftp://
 
         # Reversed/obfuscated
         r'//:[a-z]{4,5}sptth',
         r'//:[a-z]{4}ptth',
         r'//:[a-z]{3}ptf',
 
-        # Base32 obfuscations
-        r'NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P[A-Z2-7]*={0,6}',
-        r'NBXXK4TFMFZGKIDCMJUWC2LP[A-Z2-7]*={0,6}',
-        r'MZXW6IDCMFZWK4Q=[A-Z2-7]*={0,6}',
+        # Base32 obfuscations — DECODED USING _dec32 (escaped for safe regex insertion)
+        re.escape(_dec32("NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P")) + r'[A-Z2-7]*={0,6}',
+        re.escape(_dec32("NBXXK4TFMFZGKIDCMJUWC2LP")) + r'[A-Z2-7]*={0,6}',
+        re.escape(_dec32("MZXW6IDCMFZWK4Q=")) + r'[A-Z2-7]*={0,6}',
 
         # Additional obfuscation patterns
         r'h\*\*ps?://[^\s<>"\'{}|\\^`\[\]]*[^\s<>"\'{}|\\^`\[\].,;:]',  # h**ps://
