@@ -223,10 +223,6 @@ import base64
 logger.debug(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import base32_crockford
-logger.debug(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import binascii
 logger.debug(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -524,7 +520,6 @@ FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
 extensions_path = os.path.join(known_extensions_dir, "extensions.txt")
 antivirus_process_list_path = os.path.join(known_extensions_dir, "antivirus_process_list.txt")
-magic_bytes_path = os.path.join(known_extensions_dir, "magic_bytes.txt")
 meta_llama_dir = os.path.join(script_dir, "meta_llama")
 vmprotect_unpacked_dir = os.path.join(script_dir, "vmprotect_unpacked")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
@@ -545,7 +540,6 @@ seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
 general_extracted_with_7z_dir = os.path.join(script_dir, "general_extracted_with_7z")
 nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
 advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_extracted")
-processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_db_dir = os.path.join(detectiteasy_dir, "db")
 memory_dir = os.path.join(script_dir, "memory")
@@ -907,23 +901,20 @@ CHAINED_JOIN = re.compile(
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
 # Base directories common to both lists
-COMMON_DIRECTORIES = [
+MANAGED_DIRECTORIES = [
     hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
     FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir, ole2_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
     pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, pyarmor7_extracted_dir,
     seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
-    advanced_installer_extracted_dir, processed_dir, python_source_code_dir,
+    advanced_installer_extracted_dir, python_source_code_dir,
     pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
     decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
 ]
-
-# Final directory lists
-MANAGED_DIRECTORIES = COMMON_DIRECTORIES + MANAGED_ONLY_DIRECTORIES
 
 for make_directory in MANAGED_DIRECTORIES:
     if os.path.exists(make_directory):
@@ -1203,27 +1194,6 @@ logger.info(f"Antivirus process list read from {antivirus_process_list_path}: {a
 
 pe_file_paths = []  # List to store the PE file paths
 
-# Initialize an empty dictionary for magic_bytes
-magic_bytes = {}
-
-try:
-    # Read the magicbytes.txt file and populate the dictionary
-    with open(magic_bytes_path, "r") as file:
-        for line in file:
-            # Split each line into magic bytes and file type
-            parts = line.strip().split(": ")
-            if len(parts) == 2:
-                magic, file_type = parts
-                magic_bytes[magic] = file_type
-
-    # If reading and processing is successful, logger.info the dictionary
-    logger.info("Magic bytes have been successfully loaded.")
-
-except FileNotFoundError:
-    logger.error(f"Error: The file {magic_bytes_path} was not found.")
-except Exception as e:
-    logger.error(f"An error occurred: {e}")
-
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
     """
     Generate a unique output path by sanitizing the filename and adding timestamp/counter if needed.
@@ -1426,44 +1396,6 @@ def debloat_pe_file(file_path):
     except Exception as ex:
         logger.error("Error during debloating of %s: %s", file_path, ex)
 
-def remove_magic_bytes(data_content, die_output):
-    """Remove magic bytes from data, considering it might be hex-encoded."""
-    try:
-        if is_plain_text_file_from_output(die_output):
-            # Convert binary data to hex representation for easier pattern removal
-            hex_data = binascii.hexlify(data_content).decode("utf-8", errors="ignore")
-
-            # Remove magic bytes by applying regex patterns
-            for magic_byte in magic_bytes.keys():
-                pattern = re.compile(rf'{magic_byte}', re.IGNORECASE)
-                hex_data = pattern.sub('', hex_data)
-
-            # Convert hex data back to binary
-            return binascii.unhexlify(hex_data)
-        else:
-            try:
-                # Decode the data using UTF-8
-                decoded_content = data_content.decode("utf-8", errors="ignore")
-            except (AttributeError, TypeError) as ex:
-                logger.error(f"Error decoding data: {ex}")
-                return data_content  # Return original data if decoding fails
-
-            # Convert decoded content back to bytes for magic byte removal
-            hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="ignore")
-
-            for magic_byte in magic_bytes.keys():
-                pattern = re.compile(rf'{magic_byte}', re.IGNORECASE)
-                hex_data = pattern.sub('', hex_data)
-
-            try:
-                return binascii.unhexlify(hex_data)
-            except Exception as ex:
-                logger.error(f"Error unhexlifying data: {ex}")
-                return data_content  # Return original data if unhexlifying fails
-    except Exception as ex:
-        logger.error(f"Unexpected error in remove_magic_bytes: {ex}")
-        return data_content  # Return original data in case of unexpected errors
-
 def DecryptString(key, tag, nonce, _input):
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
     decryptor = cipher.decryptor()
@@ -1537,95 +1469,11 @@ def decode_b64_import(match: re.Match) -> str:
     except Exception:
         return match.group(0)
 
-def decode_base32(data_content):
-    """Decode base32-encoded data."""
-    try:
-        # Ensure the input is bytes
-        if isinstance(data_content, str):
-            data_content = data_content.encode("utf-8")
-        return base32_crockford.decode(data_content)
-    except (binascii.Error, ValueError) as ex:
-        logger.error(f"Base32 decoding error: {ex}")
-        return None
-
 # match only Base64 characters plus 0_2 padding"="
 _BASE64_RE = re.compile(br'^[A-Za-z0-9+/]+={0,2}$')
 
 # match only Base32 chars A_Z2_7 plus up to 6"=" padding at end
 _BASE32_RE = re.compile(br'^[A-Z2-7]+={0,6}$')
-
-def is_base32(data: bytes) -> bool:
-    """
-    Return True if `data` consists entirely of Base32 chars
-    and up to six '=' padding bytes at the end.
-    """
-    # strip whitespace/newlines before testing
-    data = data.strip().upper()  # Base32 is case insensitive, normalize to uppercase
-    return bool(_BASE32_RE.fullmatch(data))
-
-def is_base64(data: bytes) -> bool:
-    """
-    Return True if `data` consists entirely of Base64 chars
-    and up to two '=' padding bytes at the end.
-    """
-    # strip any whitespace/newlines before testing
-    data = data.strip()
-    return bool(_BASE64_RE.fullmatch(data))
-
-def process_file_data(file_path, die_output):
-    """Process file data by decoding, removing magic bytes, and emitting a reversed lines version, saving outputs with .txt extension."""
-    try:
-        with open(file_path, 'rb') as data_file:
-            data_content = data_file.read()
-
-        # Peel off Base64/Base32 layers
-        while True:
-            # Base-64 first
-            if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
-                decoded = decode_base64(data_content)
-                if decoded is not None:
-                    logger.info("Base64 layer removed.")
-                    data_content = decoded
-                    continue
-
-            # then Base-32
-            if isinstance(data_content, (bytes, bytearray)) and is_base32(data_content):
-                decoded = decode_base32(data_content)
-                if decoded is not None:
-                    logger.info("Base32 layer removed.")
-                    data_content = decoded
-                    continue
-
-            logger.info("No more base64 or base32 encoded data found.")
-            break
-
-        # strip out your magic bytes
-        processed_data = remove_magic_bytes(data_content, die_output)
-
-        # write the normal processed output with .txt extension
-        base_name = os.path.basename(file_path)
-        output_file_path = os.path.join(
-            processed_dir,
-            f'processed_{base_name}.txt'
-        )
-        with open(output_file_path, 'wb') as processed_file:
-            processed_file.write(processed_data)
-        logger.info(f"Processed data from {file_path} saved to {output_file_path}")
-
-        # now create a reversed lines variant with .txt extension
-        lines = processed_data.splitlines(keepends=True)
-        reversed_lines_data = b''.join(lines[::-1])
-
-        reversed_output_path = os.path.join(
-            processed_dir,
-            f'processed_reversed_lines_{base_name}.txt'
-        )
-        with open(reversed_output_path, 'wb') as rev_file:
-            rev_file.write(reversed_lines_data)
-        logger.info(f"Reversed lines data from {file_path} saved to {reversed_output_path}")
-
-    except Exception as ex:
-        logger.error(f"Error processing file {file_path}: {ex}")
 
 # --- PE Analysis and Feature Extraction Functions ---
 
@@ -2946,7 +2794,6 @@ def detect_obfuscated_urls(text):
 
     return results
 
-# Also update your build_url_regex function with these additional patterns:
 def build_url_regex():
     parts = [
         # Normal protocols
@@ -2971,12 +2818,12 @@ def build_url_regex():
         r'[a-zA-Z0-9-]+\(\.\)[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
         r'[a-zA-Z0-9-]+\{[\.\]dot]\}[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
 
-        # Base64-obfuscated protocols (your existing code)
+        # Base64-obfuscated protocols
         _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/]*={0,2}",   # https://
         _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",   # http://
         _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",    # ftp://
 
-        # Reversed/obfuscated (your existing code)
+        # Reversed/obfuscated
         r'//:[a-z]{4,5}sptth',
         r'//:[a-z]{4}ptth',
         r'//:[a-z]{3}ptf',
@@ -12118,15 +11965,6 @@ def scan_and_warn(file_path,
                 thread.start()
 
         # ========== COMMON PROCESSING FOR ALL FILES ==========
-
-        # File processing thread (heavy I/O)
-        def file_processing_thread():
-            try:
-                if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
-                    process_file_data(norm_path, die_output)
-            except Exception as e:
-                logger.error(f"Error in file processing for {norm_path}: {e}")
-
         # Fake size check thread (heavy I/O for large files)
         def fake_size_check_thread():
             try:
@@ -12229,7 +12067,6 @@ def scan_and_warn(file_path,
 
         # Start common processing threads
         common_threads = [
-            threading.Thread(target=file_processing_thread),
             threading.Thread(target=fake_size_check_thread),
             threading.Thread(target=realtime_malware_thread),
             threading.Thread(target=filename_detection_thread),

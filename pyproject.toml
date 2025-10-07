@@ -23,7 +23,6 @@ dependencies = [
     "watchdog>=6.0.0,<7.0.0",
     "notify-py>=0.3.43,<0.4.0",
     "pywin32>=310,<311",
-    "base32-crockford>=0.3.0,<0.4.0",
     "accelerate>=1.8.1,<2.0.0",
     "py7zr>=1.0.0,<2.0.0",
     "chardet>=5.2.0,<6.0.0",
