@@ -1,0 +1,130 @@
+deep_analysis_gui.py:16:1: E402 module level import not at top of file
+deep_analysis_gui.py:17:1: E402 module level import not at top of file
+deep_analysis_gui.py:23:1: E402 module level import not at top of file
+deep_analysis_gui.py:24:80: E501 line too long (89 > 79 characters)
+deep_analysis_gui.py:25:80: E501 line too long (106 > 79 characters)
+deep_analysis_gui.py:26:1: E402 module level import not at top of file
+deep_analysis_gui.py:27:80: E501 line too long (93 > 79 characters)
+deep_analysis_gui.py:28:1: E402 module level import not at top of file
+deep_analysis_gui.py:30:1: E402 module level import not at top of file
+deep_analysis_gui.py:31:15: W291 trailing whitespace
+deep_analysis_gui.py:33:23: W291 trailing whitespace
+deep_analysis_gui.py:45:1: E302 expected 2 blank lines, found 1
+deep_analysis_gui.py:53:80: E501 line too long (85 > 79 characters)
+deep_analysis_gui.py:98:80: E501 line too long (93 > 79 characters)
+deep_analysis_gui.py:215:80: E501 line too long (90 > 79 characters)
+deep_analysis_gui.py:217:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:225:31: E128 continuation line under-indented for visual indent
+deep_analysis_gui.py:269:31: E128 continuation line under-indented for visual indent
+deep_analysis_gui.py:269:80: E501 line too long (82 > 79 characters)
+deep_analysis_gui.py:271:28: E128 continuation line under-indented for visual indent
+deep_analysis_gui.py:273:28: E128 continuation line under-indented for visual indent
+deep_analysis_gui.py:330:1: W293 blank line contains whitespace
+deep_analysis_gui.py:374:1: E302 expected 2 blank lines, found 1
+deep_analysis_gui.py:376:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:396:18: E111 indentation is not a multiple of 4
+deep_analysis_gui.py:396:18: E117 over-indented
+deep_analysis_gui.py:396:80: E501 line too long (121 > 79 characters)
+deep_analysis_gui.py:397:18: E111 indentation is not a multiple of 4
+deep_analysis_gui.py:401:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:405:22: E261 at least two spaces before inline comment
+deep_analysis_gui.py:410:80: E501 line too long (102 > 79 characters)
+deep_analysis_gui.py:411:80: E501 line too long (93 > 79 characters)
+deep_analysis_gui.py:412:80: E501 line too long (124 > 79 characters)
+deep_analysis_gui.py:415:80: E501 line too long (111 > 79 characters)
+deep_analysis_gui.py:418:80: E501 line too long (112 > 79 characters)
+deep_analysis_gui.py:420:80: E501 line too long (82 > 79 characters)
+deep_analysis_gui.py:422:80: E501 line too long (80 > 79 characters)
+deep_analysis_gui.py:434:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:436:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:438:80: E501 line too long (85 > 79 characters)
+deep_analysis_gui.py:444:80: E501 line too long (80 > 79 characters)
+deep_analysis_gui.py:451:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:468:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:470:80: E501 line too long (98 > 79 characters)
+deep_analysis_gui.py:473:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:480:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:484:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:489:80: E501 line too long (86 > 79 characters)
+deep_analysis_gui.py:494:80: E501 line too long (94 > 79 characters)
+deep_analysis_gui.py:495:80: E501 line too long (95 > 79 characters)
+deep_analysis_gui.py:497:80: E501 line too long (92 > 79 characters)
+deep_analysis_gui.py:498:80: E501 line too long (94 > 79 characters)
+deep_analysis_gui.py:515:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:521:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:525:80: E501 line too long (92 > 79 characters)
+deep_analysis_gui.py:528:80: E501 line too long (101 > 79 characters)
+deep_analysis_gui.py:530:80: E501 line too long (108 > 79 characters)
+deep_analysis_gui.py:532:80: E501 line too long (88 > 79 characters)
+deep_analysis_gui.py:534:80: E501 line too long (100 > 79 characters)
+deep_analysis_gui.py:536:80: E501 line too long (85 > 79 characters)
+deep_analysis_gui.py:540:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:543:80: E501 line too long (94 > 79 characters)
+deep_analysis_gui.py:547:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:552:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:554:80: E501 line too long (86 > 79 characters)
+deep_analysis_gui.py:557:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:577:80: E501 line too long (86 > 79 characters)
+deep_analysis_gui.py:583:80: E501 line too long (92 > 79 characters)
+deep_analysis_gui.py:587:80: E501 line too long (100 > 79 characters)
+deep_analysis_gui.py:589:80: E501 line too long (90 > 79 characters)
+deep_analysis_gui.py:590:80: E501 line too long (80 > 79 characters)
+deep_analysis_gui.py:595:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:597:80: E501 line too long (88 > 79 characters)
+deep_analysis_gui.py:599:80: E501 line too long (89 > 79 characters)
+deep_analysis_gui.py:601:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:608:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:612:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:617:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:619:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:621:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:635:80: E501 line too long (93 > 79 characters)
+deep_analysis_gui.py:641:80: E501 line too long (92 > 79 characters)
+deep_analysis_gui.py:647:80: E501 line too long (82 > 79 characters)
+deep_analysis_gui.py:649:80: E501 line too long (94 > 79 characters)
+deep_analysis_gui.py:651:80: E501 line too long (96 > 79 characters)
+deep_analysis_gui.py:653:80: E501 line too long (90 > 79 characters)
+deep_analysis_gui.py:657:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:660:80: E501 line too long (85 > 79 characters)
+deep_analysis_gui.py:664:80: E501 line too long (97 > 79 characters)
+deep_analysis_gui.py:669:80: E501 line too long (85 > 79 characters)
+deep_analysis_gui.py:681:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:683:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:696:80: E501 line too long (89 > 79 characters)
+deep_analysis_gui.py:697:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:702:80: E501 line too long (96 > 79 characters)
+deep_analysis_gui.py:705:80: E501 line too long (116 > 79 characters)
+deep_analysis_gui.py:707:80: E501 line too long (95 > 79 characters)
+deep_analysis_gui.py:709:80: E501 line too long (106 > 79 characters)
+deep_analysis_gui.py:711:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:713:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:719:1: W293 blank line contains whitespace
+deep_analysis_gui.py:723:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:738:80: E501 line too long (83 > 79 characters)
+deep_analysis_gui.py:744:1: E302 expected 2 blank lines, found 1
+deep_analysis_gui.py:776:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:1021:80: E501 line too long (86 > 79 characters)
+deep_analysis_gui.py:1024:80: E501 line too long (105 > 79 characters)
+deep_analysis_gui.py:1026:80: E501 line too long (82 > 79 characters)
+deep_analysis_gui.py:1042:80: E501 line too long (84 > 79 characters)
+deep_analysis_gui.py:1043:5: E129 visually indented line with same indent as next logical line
+deep_analysis_gui.py:1048:80: E501 line too long (100 > 79 characters)
+deep_analysis_gui.py:1062:80: E501 line too long (93 > 79 characters)
+deep_analysis_gui.py:1069:80: E501 line too long (90 > 79 characters)
+deep_analysis_gui.py:1145:1: W293 blank line contains whitespace
+deep_analysis_gui.py:1151:1: W293 blank line contains whitespace
+deep_analysis_gui.py:1157:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:1159:1: W293 blank line contains whitespace
+deep_analysis_gui.py:1189:80: E501 line too long (105 > 79 characters)
+deep_analysis_gui.py:1190:80: E501 line too long (110 > 79 characters)
+deep_analysis_gui.py:1199:80: E501 line too long (92 > 79 characters)
+deep_analysis_gui.py:1220:80: E501 line too long (87 > 79 characters)
+deep_analysis_gui.py:1222:80: E501 line too long (91 > 79 characters)
+deep_analysis_gui.py:1225:80: E501 line too long (80 > 79 characters)
+deep_analysis_gui.py:1244:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:1254:80: E501 line too long (126 > 79 characters)
+deep_analysis_gui.py:1265:34: W291 trailing whitespace
+deep_analysis_gui.py:1267:80: E501 line too long (81 > 79 characters)
+deep_analysis_gui.py:1312:80: E501 line too long (99 > 79 characters)
+deep_analysis_gui.py:1339:1: E302 expected 2 blank lines, found 1
+deep_analysis_gui.py:1345:1: E305 expected 2 blank lines after class or function definition, found 1

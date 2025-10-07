@@ -3,7 +3,6 @@ import os
 import threading
 import time
 import webbrowser
-import json
 import subprocess
 
 # Ensure the script's directory is the working directory
@@ -23,8 +22,7 @@ from hydra_logger import (
 )
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
-                               QFrame, QStackedWidget, QLineEdit,
-                               QApplication, QButtonGroup, QGroupBox, QFileDialog)
+                               QFrame, QStackedWidget, QApplication, QButtonGroup, QGroupBox, QFileDialog)
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
@@ -33,9 +31,7 @@ from hydradragon.antivirus_scripts.antivirus import (
     icon_path, 
     freshclam_path,
     clamav_file_paths, 
-    reports_dir,                      
-    run_analysis_with_yield,
-    scan_code_for_links,
+    start_real_time_protection,
     reload_clamav_database,
     run_suricata,
     is_suricata_running,
@@ -44,12 +40,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     hayabusa_path,
     evtx_logs_path,
 )
-
-# ----- Global Variables to hold captured data -----
-pre_analysis_log_path = None
-post_analysis_log_path = None
-pre_analysis_entries = None
-post_analysis_entries = None
 
 # --- Custom Hydra Icon Widget ---
 class HydraIconWidget(QWidget):
@@ -722,12 +712,23 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa metrics: {str(e)}")
 
+    def run_real_time_protection(self):
+        """Run the start real time protection"""
+        try:
+            self.output_signal.emit("[*] Starting real time protection...")
+            
+            for output in start_real_time_protection():
+                self.output_signal.emit(output)
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error during real time protection: {str(e)}")
+
     def run(self):
         """The entry point for the thread."""
         try:
             task_mapping = {
                 "update_defs": self.update_definitions,
                 "update_hayabusa_rules": self.update_hayabusa_rules,
+                "run_real_time_protection": self.run_real_time_protection,
             }
 
             task_function = task_mapping.get(self.task_type)
@@ -750,6 +751,12 @@ class AntivirusApp(QWidget):
 
         self.apply_extreme_stylesheet()
         self.setup_ui()
+        QTimer.singleShot(1000, self.run_startup_task)
+
+    def run_startup_task(self):
+        """Run automatic real time protection on startup"""
+        self.append_log_output("[*] Running automatic real time protection...")
+        self.start_worker("run_real_time_protection")
 
     def apply_extreme_stylesheet(self):
         stylesheet = """
@@ -992,7 +999,7 @@ class AntivirusApp(QWidget):
                 if hasattr(self, 'shield_widget'):
                     self.shield_widget.set_status(True)
                 if hasattr(self, 'status_text'):
-                    self.status_text.setText("Ready for analysis!")
+                    self.status_text.setText("Ready for real time protection!")
 
     def _update_ui_for_worker_start(self, task_type):
         self.append_log_output(f"[*] Task '{task_type}' started.")
@@ -1012,37 +1019,6 @@ class AntivirusApp(QWidget):
             self._update_ui_for_worker_start(task_type)
         except Exception as e:
             self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
-
-    def stop_analysis(self):
-        if not self.workers:
-            self.append_log_output("[!] No running tasks to stop.")
-            return
-        self.append_log_output("[*] Requesting stop for all running tasks...")
-        for worker in self.workers[:]:
-            if worker.isRunning():
-                worker.request_stop()
-                self.append_log_output(f"[*] Stop requested for task: {worker.task_type}")
-        threading.Timer(1.0, self.force_stop_remaining_workers).start()
-
-    def force_stop_remaining_workers(self):
-        remaining_workers = [w for w in self.workers if w.isRunning()]
-        if remaining_workers:
-            self.append_log_output(f"[*] Force stopping {len(remaining_workers)} remaining tasks...")
-            for worker in remaining_workers:
-                try:
-                    worker.terminate()
-                    worker.wait(2000)
-                    if worker.isRunning():
-                        self.append_log_output(f"[!] Could not stop task: {worker.task_type}")
-                    else:
-                        self.append_log_output(f"[+] Force stopped task: {worker.task_type}")
-                except Exception as e:
-                    self.append_log_output(f"[!] Error stopping task {worker.task_type}: {str(e)}")
-        self.workers.clear()
-        if hasattr(self, 'shield_widget'):
-            self.shield_widget.set_status(True)
-        if hasattr(self, 'status_text'):
-            self.status_text.setText("Ready for analysis!")
 
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
@@ -1087,16 +1063,10 @@ class AntivirusApp(QWidget):
         self.animation_group.start()
 
     def closeEvent(self, event):
-        if self.workers:
-            self.append_log_output("[*] Stopping all running tasks before exit...")
-            for worker in self.workers:
-                if worker.isRunning():
-                    worker.request_stop()
-            for worker in self.workers:
-                if worker.isRunning():
-                    worker.terminate()
-                    worker.wait(3000)
-        event.accept()
+        # Don't close, just hide the window
+        event.ignore()
+        self.hide()
+        self.append_log_output("[*] Application minimized to system tray (window hidden)")
 
     def create_status_page(self):
         page = QWidget()
@@ -1136,7 +1106,7 @@ class AntivirusApp(QWidget):
 
         title = QLabel("System Status")
         title.setObjectName("page_title")
-        self.status_text = QLabel("Ready for analysis!")
+        self.status_text = QLabel("Ready for real time protection!")
         self.status_text.setObjectName("page_subtitle")
 
         version_label = QLabel(WINDOW_TITLE)
@@ -1229,52 +1199,7 @@ class AntivirusApp(QWidget):
         update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
         layout.addWidget(update_rules_btn)
 
-        timeline_layout = QHBoxLayout()
-        timeline_layout.setSpacing(15)
-
-        csv_timeline_btn = QPushButton("Generate CSV Timeline")
-        csv_timeline_btn.setObjectName("action_button")
-        csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
-
-        json_timeline_btn = QPushButton("Generate JSON Timeline")
-        json_timeline_btn.setObjectName("action_button")
-        json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
-
-        timeline_layout.addWidget(csv_timeline_btn)
-        timeline_layout.addWidget(json_timeline_btn)
-        timeline_layout.addStretch()
-        layout.addLayout(timeline_layout)
-
-        search_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
-        self.search_input.setMinimumHeight(42)
-
-        search_btn = QPushButton("Search Events")
-        search_btn.setObjectName("action_button")
-        search_btn.clicked.connect(self.perform_hayabusa_search)
-
-        search_layout.addWidget(self.search_input, 1)
-        search_layout.addWidget(search_btn)
-        layout.addLayout(search_layout)
-
-        analysis_layout = QHBoxLayout()
-        analysis_layout.setSpacing(15)
-
-        logon_summary_btn = QPushButton("Logon Summary")
-        logon_summary_btn.setObjectName("action_button")
-        logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
-
-        metrics_btn = QPushButton("System Metrics")
-        metrics_btn.setObjectName("action_button")
-        metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
-
-        analysis_layout.addWidget(logon_summary_btn)
-        analysis_layout.addWidget(metrics_btn)
-        analysis_layout.addStretch()
-        layout.addLayout(analysis_layout)
-
-        log_output = QTextEdit("Hayabusa analysis results will appear here...")
+        log_output = QTextEdit("Hayabusa update logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
