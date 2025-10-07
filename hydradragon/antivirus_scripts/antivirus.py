@@ -6161,6 +6161,7 @@ def monitor_suricata_log():
                 logger.info(f"Error processing line: {ex}")
 
 reload_clamav_database()
+restart_owlyshield_threaded()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
@@ -7560,8 +7561,8 @@ def ransomware_alert(file_path):
 
             # When detections reach a threshold, notify the user with a generic flag.
             if ransomware_detection_count >= 10:
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
-                logger.critical(f"User has been notified about potential ransomware in {main_file_path}")
+                notify_user_ransomware("Unknown", "HEUR:Win32.Ransom.gen")
+                logger.critical(f"User has been notified about potential ransomware")
 
     except Exception as ex:
         logger.error(f"Error in ransomware_alert: {ex}")
@@ -7610,7 +7611,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         if HiJackThis_flag:
             initial_message = prefix + (
                 "Meta Llama-3.2-1B Report for HiJackThis log analysis:\n"
-                "The following report is produced based on HiJackThis log differences. "
+                "The following report is produced based on HiJackThis log. "
                 "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
                 "Include the following four lines in your response:\n"
                 "- Malware: [Yes/No/Maybe]\n"
@@ -14726,8 +14727,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         def stop_callback():
             return stop_flag.is_set()
 
-        restart_owlyshield_threaded()
-
         threads_to_start = [
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
@@ -15065,24 +15064,33 @@ def force_remove_log():
         except Exception as e:
             logger.error("Failed to remove previous log: %s", e)
 
-def run_and_copy_log(label="orig"):
+def run_and_copy_log():
     """
-    Remove any existing log file, launch HiJackThis via Sandboxie,
-    then wait until that log file is actually written (modification time changes),
-    copy it to a timestamped file, and return its path.
+    Remove any existing log file, launch HiJackThis,
+    wait until the log file is written, copy it to a timestamped file, and return its path.
 
-    :param label: Prefix for the copied log filename
     :returns: Path to the copied log file
     """
     force_remove_log()
 
-    # Launch the tool
-    cmd = [sandboxie_path, f'/box:{sandboxie_box}', '/elevate', HiJackThis_exe]
+    # Launch HiJackThis directly (outside sandbox)
+    cmd = [HiJackThis_exe]
+    
+    # Alternative: If you still want Sandboxie for isolation, use this instead:
+    # cmd = [sandboxie_path, f'/box:{sandboxie_box}', '/elevate', HiJackThis_exe]
+    
     subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
     logger.debug("HiJackThis launched.")
 
-    # Wait until the log file appears _and_ has been modified with content
+    # Wait until the log file appears and has content
+    timeout = 1200  # Maximum wait time in seconds
+    start_time = time.time()
+    
     while True:
+        if time.time() - start_time > timeout:
+            logger.error("Timeout waiting for HiJackThis log file")
+            raise TimeoutError("HiJackThis log file was not created within timeout period")
+            
         if os.path.exists(HiJackThis_log_path):
             stat = os.stat(HiJackThis_log_path)
             if stat.st_size > 0:
@@ -15090,7 +15098,7 @@ def run_and_copy_log(label="orig"):
 
     # Copy to timestamped destination
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = os.path.join(HiJackThis_logs_dir, f"{label}_{ts}.txt")
+    dest = os.path.join(HiJackThis_logs_dir, f"hijackthis_{ts}.txt")
     shutil.copy(HiJackThis_log_path, dest)
     logger.info("Log copied to %s", dest)
     return dest

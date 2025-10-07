@@ -36,6 +36,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
 - Meta Llama 3.2-1B Location: Copy the contents of meta-llama.7z to the following directory: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\meta-llama
 - Please allow a minimum of two hours (local time) for the antivirus to fully decompile the file and complete its analysis. Otherwise, it cannot achieve a 90%+ detection rate against fresh samples with fewer false positives.
+- Currently, only Sanctum and OwlyShield terminate malware. We are now switching to non-sandbox analysis, which assumes you are in a VM, but it carries some risk. However, it is required for maximum detection. This puts your machine at high risk.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -79,10 +80,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
-- Don't forget to take a HiJackThis report with logs (and update the signatures first) before starting the scan to detect malware for the final analysis.
-- The final analysis doesn't clean anything, so don't start a new scan afterward it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
-- The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
-- Make your username hydradragonav (for example).
+- Make your username hydradragonav (for example and for avoid anti analysis).
 - Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
 

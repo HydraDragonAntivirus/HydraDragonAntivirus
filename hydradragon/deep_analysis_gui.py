@@ -489,30 +489,32 @@ class Worker(QThread):
         else:
             self.output_signal.emit("[!] Both pre and post-analysis captures have already been completed.")
 
-    def compare_analysis_logs(self):
-        if not pre_analysis_log_path or not post_analysis_log_path:
-            self.output_signal.emit("[!] Please capture both pre and post-analysis logs first!")
-            return
+    def run_hijackthis_analysis(self):
+        """
+        Run HiJackThis once, capture the log, and analyze it directly with Llama.
+        """
         try:
-            with open(pre_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                pre_lines = f.readlines()
-            with open(post_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                post_lines = f.readlines()
-
-            diff = difflib.ndiff(pre_lines, post_lines)
-            filtered_diff = [line for line in diff if line.startswith(('+', '-'))]
-
-            diff_file_path = os.path.join(log_directory, 'HiJackThis_diff.log')
-            with open(diff_file_path, 'w', encoding='utf-8') as df:
-                df.writelines(filtered_diff)
-            self.output_signal.emit(f"[+] Diff log created at: {diff_file_path}")
-
-            llama_response = scan_file_with_meta_llama(diff_file_path, HiJackThis_flag=True)
-            self.output_signal.emit("\n[*] Llama analysis of the diff log:")
+            self.output_signal.emit("[*] Running HiJackThis analysis...")
+            
+            # Run HiJackThis and get the log path
+            log_path = run_and_copy_log()
+            
+            if not log_path or not os.path.exists(log_path):
+                self.output_signal.emit("[!] Failed to capture HiJackThis log!")
+                return
+            
+            self.output_signal.emit(f"[+] Log captured at: {log_path}")
+            
+            # Analyze the log directly with Llama
+            self.output_signal.emit("[*] Analyzing log with Llama...")
+            llama_response = scan_file_with_meta_llama(log_path, HiJackThis_flag=True)
+            
+            self.output_signal.emit("\n[*] Llama Analysis Results:")
             self.output_signal.emit(llama_response)
-
+            
         except Exception as e:
-            self.output_signal.emit(f"[!] Error comparing logs: {str(e)}")
+            self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
+
 
     def update_definitions(self):
         try:
@@ -1173,7 +1175,7 @@ class Worker(QThread):
         try:
             task_mapping = {
                 "capture_analysis_logs": self.capture_analysis_logs,
-                "compare_analysis_logs": self.compare_analysis_logs,
+                "run_hijackthis_analysis": self.run_hijackthis_analysis,
                 "update_defs": self.update_definitions,
                 "generate_whitelist_db": self.generate_whitelist_db,
                 "rootkit_scan": self.perform_rootkit_scan,
@@ -1678,10 +1680,9 @@ class AntivirusApp(QWidget):
             "<b>Recommended Workflow:</b><br>"
             "1. Update ClamAV and Hayabusa Virus Definitions<br>"
             "2. Generate Clean DB with HydraDragonDumper x64 (Highly Recommended) <br>"
-            "3. Capture Pre-analysis Logs<br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
-            "6. Capture Post-analysis Logs and Compare Results (with Llama AI)<br>"
+            "6. Capture Post-infection Logs and Analysis Results (with Llama AI)<br>"
             "7. Rootkit Scan<br>"
             "8. Hayabusa SIGMA SIEM CSV-timeline Scan<br>"
             "9. Cleanup Environment<br><br>"
@@ -1901,7 +1902,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_generate_whitelist_db_page())
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Analyze Logs with Llama AI", "run_hijackthis_analysis"))
         self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
         self.main_stack.addWidget(self.create_hayabusa_page())
         self.main_stack.addWidget(self.create_cleanup_page())
@@ -1937,11 +1938,11 @@ class AntivirusApp(QWidget):
             ("🗃️", "Generate Clean DB"),
             ("🔍", "Analyze File"),
             ("📋", "Capture Logs"),
-            ("🤖", "Compare Logs"),
+            ("🤖", "Analyze Logs"),
             ("🛡️", "Rootkit Scan"),
             ("📊", "Hayabusa Analysis"),
             ("🧹", "Cleanup"),
-            ("ℹ️", "About & AI")
+            ("i", "About & AI")
         ]
 
         self.nav_group = QButtonGroup(self)
