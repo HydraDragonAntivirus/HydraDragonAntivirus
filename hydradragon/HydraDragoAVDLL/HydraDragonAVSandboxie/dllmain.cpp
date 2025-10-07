@@ -749,8 +749,8 @@ void ransomware_alert(const std::wstring& file_path)
         // When detections reach a threshold, notify the user.
         if (g_ransomware_detection_count >= 10)
         {
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.gen@FileTrap", L"Potential ransomware detected in main file");
-            SafeWriteSigmaLog(L"ransomware_alert", L"User has been notified about potential ransomware in main file.");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.gen@FileTrap", L"Potential ransomware detected in system.");
+            SafeWriteSigmaLog(L"ransomware_alert", L"User has been notified about potential ransomware in system.");
         }
     }
 }

@@ -24,6 +24,7 @@
     <ProjectGuid>{3887e04b-0621-4dbc-9f03-d4e6736a5e69}</ProjectGuid>
     <RootNamespace>HydraDragonAVSandboxie</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>HydraDragonAVDLL</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

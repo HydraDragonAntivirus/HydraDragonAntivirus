@@ -1,3 +1,6 @@
+from hydra_logger import logger
+import os
+
 # --------------------------------------------------------------------------
 # Helper function to generate platform-specific signatures
 def get_signature(base_signature, **flags):
@@ -24,3 +27,24 @@ def get_signature(base_signature, **flags):
             return f"HEUR:Win32.{platform}.{base_signature}"
 
     return f"HEUR:Win32.{base_signature}"
+
+def get_all_drives():
+    """
+    Get all available drive letters on Windows (C:\, D:\, etc.)
+    Returns a list of drive paths that exist.
+    """
+    drives = []
+    
+    # Check drive letters from A to Z
+    for letter in range(ord('A'), ord('Z') + 1):
+        drive = f"{chr(letter)}:\\"
+        if os.path.exists(drive):
+            try:
+                # Verify the drive is accessible
+                os.listdir(drive)
+                drives.append(drive)
+                logger.info(f"Found accessible drive: {drive}")
+            except (PermissionError, OSError) as e:
+                logger.warning(f"Drive {drive} exists but is not accessible: {e}")
+    
+    return drives

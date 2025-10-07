@@ -355,8 +355,8 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .utils import get_signature
-logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")
+from .utils import get_signature, get_all_drives
+logger.debug(f"utils.get_signature, get_all_drives module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from . import clamav
@@ -729,31 +729,7 @@ eve_log_path = os.path.join(suricata_log_dir, "eve.json")
 suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
 
-sandboxie_dir = os.path.join(program_files, "Sandboxie")
-sandboxie_path = os.path.join(sandboxie_dir, "Start.exe")
-sandboxie_control_path = os.path.join(sandboxie_dir, "SbieCtrl.exe")
 username = os.getlogin()
-sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
-main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
-
-def get_sandbox_path(original_path: str | Path) -> Path:
-    original_path = Path(original_path)
-    sandboxie_folder_path = Path(sandboxie_folder)
-
-    drive_letter = original_path.drive.rstrip(":")  # e.g., "C"
-    rest_path = original_path.relative_to(original_path.anchor).parts
-
-    sandbox_path = sandboxie_folder_path / "drive" / drive_letter / Path(*rest_path)
-    return sandbox_path
-
-# Derived sandbox system root path
-sandbox_system_root_directory = get_sandbox_path(system_root)
-
-# Derived sandbox system32 path
-sandbox_system32_directory = get_sandbox_path(system32_dir)
-
-# Derived sandbox scan report path
-sandbox_scan_report_path = get_sandbox_path(scan_report_path)
 
 # Constant special item ID list value for desktop folder
 CSIDL_DESKTOPDIRECTORY = 0x0010
@@ -4397,111 +4373,6 @@ def scan_yara(file_path):
     except Exception as ex:
         logger.error(f"An error occurred during YARA scan: {ex}")
         return None, None, None
-
-def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
-    """
-    Compare the NtTraceEvent bytes in the sandboxed ntdll.dll file against the original
-    on-disk ntdll.dll in System32.
-    Logs a warning if the sandboxed copy is tampered (bytes differ).
-    Returns True if tampered, False otherwise.
-    """
-    try:
-        if not os.path.isfile(ntdll_path):
-            logger.error(f"[ETW Sandbox Detection] Original ntdll.dll not found at {ntdll_path}")
-            return False
-        if not os.path.isfile(moved_sandboxed_ntdll_path):
-            logger.error(f"[ETW Sandbox Detection] Sandboxed ntdll.dll not found at {moved_sandboxed_ntdll_path}")
-            return False
-
-        # Load original PE to find NtTraceEvent RVA
-        try:
-            pe_orig = pefile.PE(ntdll_path, fast_load=True)
-            pe_orig.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Failed to parse original PE: {e}")
-            return False
-
-        nttrace_rva = None
-        for exp in getattr(pe_orig, 'DIRECTORY_ENTRY_EXPORT', []).symbols:
-            if exp.name and exp.name.decode(errors='ignore') == "NtTraceEvent":
-                nttrace_rva = exp.address
-                break
-        if nttrace_rva is None:
-            logger.error("[ETW Sandbox Detection] Export NtTraceEvent not found in original ntdll.dll")
-            return False
-
-        # Compute offset in original file
-        try:
-            orig_offset = pe_orig.get_offset_from_rva(nttrace_rva)
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Cannot compute offset in original for RVA {hex(nttrace_rva)}: {e}")
-            return False
-
-        # Load sandboxed PE to compute offset there
-        try:
-            pe_sandbox = pefile.PE(moved_sandboxed_ntdll_path, fast_load=True)
-            pe_sandbox.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Failed to parse sandboxed PE: {e}")
-            return False
-
-        # Verify that sandboxed export table contains NtTraceEvent (optional but good)
-        found_in_sandbox = False
-        for exp in getattr(pe_sandbox, 'DIRECTORY_ENTRY_EXPORT', []).symbols:
-            if exp.name and exp.name.decode(errors='ignore') == "NtTraceEvent":
-                found_in_sandbox = True
-                break
-        if not found_in_sandbox:
-            logger.error("[ETW Sandbox Detection] Export NtTraceEvent not found in sandboxed ntdll.dll")
-            return False
-
-        # Compute offset in sandboxed file
-        try:
-            sandbox_offset = pe_sandbox.get_offset_from_rva(nttrace_rva)
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Cannot compute offset in sandboxed for RVA {hex(nttrace_rva)}: {e}")
-            return False
-
-        # Read bytes
-        length = 16
-        try:
-            with open(ntdll_path, "rb") as f_orig:
-                f_orig.seek(orig_offset)
-                orig_bytes = f_orig.read(length)
-            if len(orig_bytes) < length:
-                logger.error(f"[ETW Sandbox Detection] Could not read {length} bytes from original ntdll.dll")
-                return False
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Error reading original file: {e}")
-            return False
-
-        try:
-            with open(moved_sandboxed_ntdll_path, "rb") as f_s:
-                f_s.seek(sandbox_offset)
-                sandbox_bytes = f_s.read(length)
-            if len(sandbox_bytes) < length:
-                logger.error(f"[ETW Sandbox Detection] Could not read {length} bytes from sandboxed ntdll.dll")
-                return False
-        except Exception as e:
-            logger.error(f"[ETW Sandbox Detection] Error reading sandboxed file: {e}")
-            return False
-
-        # Compare
-        if sandbox_bytes != orig_bytes:
-            orig_hex = orig_bytes[:8].hex()
-            sand_hex = sandbox_bytes[:8].hex()
-            logger.critical(
-                f"[ETW Sandbox Detection] Sandboxed ntdll.dll NtTraceEvent seems patched: "
-                f"original bytes={orig_hex}, sandbox bytes={sand_hex}"
-            )
-            return True
-
-        # No tampering detected
-        return False
-
-    except Exception as ex:
-        logger.error(f"[ETW Sandbox Detection] Unexpected error: {ex}")
-        return False
 
 # Constants for CryptQueryObject
 CERT_QUERY_OBJECT_FILE = 0x00000001
@@ -11540,21 +11411,6 @@ def scan_and_warn(file_path,
                 perform_special_scan = True
                 dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
                 if dest is not None:
-                    # Run ETW tampering detection in a thread
-                    def etw_detection_task():
-                        try:
-                            is_tampered = detect_etw_tampering_sandbox(dest)
-                            if is_tampered:
-                                scan_flags.etw_tampered = True
-                                virus_name = "HEUR:Win32.Trojan.EDR.Killer.gen"
-                                logger.critical("[ETW Tampering] Detected tampering in sandboxed ntdll.dll")
-                                notify_user_etw_tampering(normalized_path, virus_name)
-                        except Exception as e:
-                            logger.error(f"[ETW Detection Thread] Error: {e}")
-
-                    etw_thread = threading.Thread(target=etw_detection_task, daemon=True)
-                    etw_thread.start()
-
                     run_scan_thread(dest, scan_flags)
 
             perform_special_scan = True
@@ -13177,76 +13033,6 @@ def monitor_saved_paths():
                     seen.add(path)
                     threading.Thread(target=scan_and_warn, args=(path,)).start()
 
-# Constants for all notification filters
-NOTIFY_FILTER = (
-    win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
-    win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
-    win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
-    win32con.FILE_NOTIFY_CHANGE_SIZE |
-    win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
-    win32con.FILE_NOTIFY_CHANGE_SECURITY |
-    FILE_NOTIFY_CHANGE_LAST_ACCESS |
-    FILE_NOTIFY_CHANGE_CREATION |
-    FILE_NOTIFY_CHANGE_EA |
-    FILE_NOTIFY_CHANGE_STREAM_NAME |
-    FILE_NOTIFY_CHANGE_STREAM_SIZE |
-    FILE_NOTIFY_CHANGE_STREAM_WRITE
-)
-
-def monitor_directory(path):
-    """
-    Monitor a single directory for changes and invoke scan_and_warn on new/modified items.
-    """
-    if not os.path.exists(path):
-        logger.error(f"The directory does not exist: {path}")
-        return
-
-    hDir = win32file.CreateFile(
-        path,
-        1,
-        win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
-        None,
-        win32con.OPEN_EXISTING,
-        win32con.FILE_FLAG_BACKUP_SEMANTICS,
-        None
-    )
-
-    try:
-        while True:
-            results = win32file.ReadDirectoryChangesW(
-                hDir,
-                1024,
-                True,
-                NOTIFY_FILTER,
-                None,
-                None
-            )
-            for action, filename in results:
-                full_path = os.path.join(path, filename)
-                if os.path.exists(full_path):
-                    logger.info(f"Detected change in: {full_path}")
-                    threading.Thread(target=scan_and_warn, args=(full_path,)).start()
-                else:
-                    logger.error(f"File or folder not found: {full_path}")
-    except Exception as e:
-        logger.error(f"Error monitoring {path}: {e}")
-    finally:
-        win32file.CloseHandle(hDir)
-
-def monitor_directories():
-    """
-    Start a background thread for each directory in the list.
-    """
-    threads = []
-    for d in directories_to_scan:
-        t = threading.Thread(target=monitor_directory, args=(d,))
-        t.start()
-        threads.append(t)
-        logger.info(f"Started monitoring thread for: {d}")
-
-def start_monitoring_sandbox():
-    threading.Thread(target=monitor_directories).start()
-
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
     # Define the paths to check
@@ -13516,65 +13302,6 @@ def check_uefi_directories():
                     threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
                     known_uefi_files.append(file_path)
-
-class ScanAndWarnHandler(FileSystemEventHandler):
-
-    def process_file(self, file_path):
-        try:
-            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-            logger.info(f"Processed file: {file_path}")
-        except Exception as ex:
-            logger.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
-
-    def process_directory(self, dir_path):
-        try:
-            for root, _, files in os.walk(dir_path):
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    self.process_file(file_path)
-            logger.info(f"Processed all files in directory: {dir_path}")
-        except Exception as ex:
-            logger.error(f"Error processing directory {dir_path}: {ex}")
-
-    def on_any_event(self, event):
-        if event.is_directory:
-            self.process_directory(event.src_path)
-            logger.info(f"Directory event detected: {event.src_path}")
-        else:
-            logger.info(f"Event detected: {event.event_type} for file: {event.src_path}")
-
-    def on_created(self, event):
-        if event.is_directory:
-            self.process_directory(event.src_path)
-            logger.info(f"Directory created: {event.src_path}")
-        else:
-            self.process_file(event.src_path)
-            logger.info(f"File created: {event.src_path}")
-
-    def on_modified(self, event):
-        if not event.is_directory:
-            self.process_file(event.src_path)
-            logger.info(f"File modified: {event.src_path}")
-
-    def on_moved(self, event):
-        if event.is_directory:
-            self.process_directory(event.dest_path)
-            logger.info(f"Directory moved: {event.src_path} to {event.dest_path}")
-        else:
-            self.process_file(event.dest_path)
-            logger.info(f"File moved: {event.src_path} to {event.dest_path}")
-
-
-def monitor_directories_with_watchdog():
-    """
-    Use watchdog Observer to monitor multiple directories with the ScanAndWarnHandler.
-    """
-    event_handler = ScanAndWarnHandler()
-    observer = Observer()
-    for path in directories_to_scan:
-        observer.schedule(event_handler, path=path, recursive=False)
-        logger.info(f"Scheduled watchdog observer for: {path}")
-    observer.start()
 
 def run_sandboxie_control():
     try:
@@ -14566,44 +14293,6 @@ class MonitorMessageCommandLine:
 
 monitor_message = MonitorMessageCommandLine()
 
-def monitor_sandboxie_directory():
-    """
-    Monitor sandboxie folder for new or modified files and scan/copy them.
-    """
-    try:
-        alerted_files = set()
-        scanned_files = set()
-        file_mod_times = {}
-
-        while True:
-            for directory in directories_to_scan:
-                if not os.path.isdir(directory):
-                    continue
-
-                for root, _, files in os.walk(directory):
-                    for filename in files:
-                        file_path = os.path.join(root, filename)
-                        last_mod_time = os.path.getmtime(file_path)
-
-                        # on first sight: alert + scan + copy
-                        if file_path not in alerted_files:
-                            logger.info(f"New file detected in {root}: {filename}")
-                            alerted_files.add(file_path)
-                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-
-                        # on modification: rescan + recopy
-                        if file_path not in scanned_files:
-                            scanned_files.add(file_path)
-                            file_mod_times[file_path] = last_mod_time
-                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()  # Scan immediately
-                        elif file_mod_times[file_path] != last_mod_time:
-                            logger.info(f"File modified in {root}: {filename}")
-                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-                            file_mod_times[file_path] = last_mod_time
-
-    except Exception as ex:
-        logger.error(f"Error in monitor_sandboxie_directory: {ex}")
-
 def _async_raise(tid, exctype):
     if not isinstance(exctype, type):
         raise TypeError("Only types can be raised")
@@ -14705,9 +14394,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (run_sandboxie_plugin,),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
-            (monitor_directories_with_watchdog,),
-            (start_monitoring_sandbox,),
-            (monitor_sandboxie_directory,),
             (check_startup_directories,),
             (monitor_hosts_file,),
             (check_uefi_directories,),
