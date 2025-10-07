@@ -5,6 +5,7 @@
 </p>
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
+![Rust Kernel Driver EDR Sanctum](hydradraogn/assets/sanctum-cover.webp)
 
 ## Description
 Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
@@ -112,6 +113,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - I used these projects for AI.
 
 - https://github.com/HydraDragonAntivirus/Owlyshield
+- https://github.com/HydraDragonAntivirus/Sanctum
 
 - I used these projects for EDR.
 
