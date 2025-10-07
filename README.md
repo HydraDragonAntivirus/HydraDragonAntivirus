@@ -6,7 +6,7 @@
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 </p>
-<img src="hydradraogn/assets/sanctum-cover.webp" width= 1024px>
+<img src="hydradragon/assets/sanctum-cover.webp" width= 1024px>
 </p>
 ## Description
 Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
