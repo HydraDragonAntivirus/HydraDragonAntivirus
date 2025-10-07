@@ -21,10 +21,7 @@ from hydra_logger import (
     logger,
     setup_gui_mode,
     get_alert_counts,
-    application_log_file,
     log_directory,
-    script_dir,
-    reinitialize_hydra_logger
 )
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
@@ -38,8 +35,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     icon_path, 
     freshclam_path,
     clamav_file_paths, 
-    sandboxie_path, 
-    sandboxie_box, 
     reports_dir,                      
     run_analysis_with_yield,
     scan_code_for_links,
@@ -48,23 +43,14 @@ from hydradragon.antivirus_scripts.antivirus import (
     scan_report_path,
     run_sandboxie_control,
     reload_clamav_database,
-    restart_owlyshield_threaded,
-    stop_suricata,
     run_suricata,
     is_suricata_running,
-    reset_flags,
-    clear_pe_cache,
-    av_events_json_file_path,
-    remove_log_file,
-    MANAGED_DIRECTORIES,
     get_latest_clamav_def_time,
     WINDOW_TITLE,
     hayabusa_path,
     evtx_logs_path,
     run_and_copy_log,
     parse_report,
-    stdout_console_log_file,
-    stderr_console_log_file
 )
 
 # ----- Global Variables to hold captured data -----
@@ -583,52 +569,6 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")
 
-    def full_cleanup_sandbox(self):
-        """
-        Fully cleans up the Sandboxie environment by terminating and deleting the DefaultBox sandbox.
-        """
-        try:
-            self.output_signal.emit("[*] Starting full sandbox cleanup using Start.exe termination commands...")
-            cmds = [
-                [sandboxie_path, "/terminate"],
-                [sandboxie_path, f"/box:{sandboxie_box}", "/terminate"],
-                [sandboxie_path, "/terminate_all"],
-            ]
-            for cmd in cmds:
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    self.output_signal.emit(f"[!] Command {' '.join(cmd)} failed: {result.stderr.strip()}")
-                else:
-                    self.output_signal.emit(f"[+] Command {' '.join(cmd)} successful.")
-                time.sleep(1)
-
-            # Delete (cleanup) the DefaultBox sandbox
-            cleanup_cmd = [sandboxie_path, "delete_sandbox"]
-            result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                self.output_signal.emit(f"[!] Sandbox delete command failed: {result.stderr.strip()}")
-            else:
-                self.output_signal.emit("[+] Sandbox 'DefaultBox' deleted successfully.")
-
-        except Exception as ex:
-            self.output_signal.emit(f"[!] Full sandbox cleanup encountered an exception: {ex}")
-
-    def cleanup_directories(self):
-        """
-        Removes all the managed directories and their contents.
-        """
-        cleaned_count = 0
-        for directory in MANAGED_DIRECTORIES:
-            try:
-                if os.path.exists(directory):
-                    shutil.rmtree(directory)
-                    self.output_signal.emit(f"[+] Cleaned directory: {directory}")
-                    cleaned_count += 1
-            except Exception as e:
-                self.output_signal.emit(f"[!] Error cleaning directory {directory}: {str(e)}")
-
-        self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
-
     def restart_suricata(self):
         """Restart Suricata with proper status reporting"""
         # Restart Suricata
@@ -646,174 +586,6 @@ class Worker(QThread):
                 self.output_signal.emit("[-] Failed to start Suricata - check logs.")
         except Exception as ex:
             self.output_signal.emit(f"[-] Suricata startup error: {ex}")
-
-    def restart_services(self):
-        """
-        Restarts ClamAV and Suricata services.
-        """
-        try:
-            # Restart ClamAV
-            self.output_signal.emit("[*] Restarting Owlyshield and ClamAV wrapper...")
-            reload_clamav_database()
-            restart_owlyshield_threaded(stop_only=True)
-            self.output_signal.emit("[+] Owlyshield stopped and ClamAV wrapper restarted.")
-
-            # Stop Suricata and cleanup logs
-            self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            stop_suricata()
-
-            # Restart Suricata with proper status reporting
-            self.restart_suricata()
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
-
-    def recreate_directories(self):
-        """
-        Recreates all the managed directories after cleanup.
-        """
-        created_count = 0
-        for directory in MANAGED_DIRECTORIES:
-            try:
-                # Skip log_directory as it shouldn't be recreated in the normal workflow
-                if directory == log_directory:
-                    continue
-
-                os.makedirs(directory, exist_ok=True)
-                created_count += 1
-            except Exception as e:
-                self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
-
-        self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
-
-    def cleanup_logging_files(self):
-        """
-        Stops logging and removes/cleans up log files.
-        """
-        try:
-            # Get the main script directory
-            log_directory = os.path.join(script_dir, "log")
-
-            # Close current stdout/stderr redirections
-            if hasattr(sys.stdout, 'close') and sys.stdout != sys.__stdout__:
-                sys.stdout.close()
-            if hasattr(sys.stderr, 'close') and sys.stderr != sys.__stderr__:
-                sys.stderr.close()
-
-            # Restore original stdout/stderr
-            sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__
-
-            # Stop the logging handlers
-            logger.shutdown()
-
-            # Remove log files if they exist
-            log_files = [stdout_console_log_file, stderr_console_log_file,
-                         application_log_file]
-
-            for log_file in log_files:
-                if os.path.exists(log_file):
-                    try:
-                        os.remove(log_file)
-                        self.output_signal.emit(f"[+] Removed log file: {log_file}")
-                    except (OSError, PermissionError) as e:
-                        self.output_signal.emit(f"[!] Could not remove {log_file}: {str(e)}")
-
-            # Optionally remove the entire log directory if empty
-            if os.path.exists(log_directory) and not os.listdir(log_directory):
-                try:
-                    os.rmdir(log_directory)
-                    self.output_signal.emit(f"[+] Removed empty log directory: {log_directory}")
-                except (OSError, PermissionError) as e:
-                    self.output_signal.emit(f"[!] Could not remove log directory: {str(e)}")
-
-            self.output_signal.emit("[+] Logging cleanup completed successfully!")
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during logging cleanup: {str(e)}")
-
-    def reinitialize_logging(self):
-        """
-        Reinitializes logging after cleanup using hydra_logger.
-        Keeps stdout/stderr redirection.
-        """
-        try:
-            log_directory = os.path.join(script_dir, "log")
-            os.makedirs(log_directory, exist_ok=True)
-
-            # Define log file paths
-            stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
-            stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
-
-            # --- Reset Hydra logger via hydra_logger.py ---
-            reinitialize_hydra_logger()
-
-            # --- Stdout/Stderr redirection ---
-            sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
-            sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
-
-            # --- Log reinitialization event ---
-            from datetime import datetime
-            logger.info("Logging reinitialized at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-            self.output_signal.emit("[+] Logging reinitialized successfully!")
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during logging reinitialization: {str(e)}")
-
-    def perform_cleanup(self):
-        """
-        Performs comprehensive cleanup of the environment including logging files.
-        """
-        try:
-            global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
-
-            self.output_signal.emit("[*] Starting comprehensive environment cleanup...")
-
-            # Step 1: Stop Snort and cleanup logs
-            self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            stop_suricata()
-
-            # Step 2: Cleanup Sandboxie
-            self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
-            self.full_cleanup_sandbox()
-            self.full_cleanup_sandbox()
-
-            # Step 3: Clean up directories
-            self.output_signal.emit("[*] Step 3: Cleaning up generated directories...")
-            self.cleanup_directories()
-            self.cleanup_directories()
-
-            # Step 4: Stop and cleanup logging files
-            self.output_signal.emit("[*] Step 4: Stopping logging and cleaning log files...")
-            self.cleanup_logging_files()
-            self.reinitialize_logging()
-
-            # Step 5: Reset global variables
-            self.output_signal.emit("[*] Step 5: Resetting analysis state...")
-            pre_analysis_log_path = None
-            post_analysis_log_path = None
-            pre_analysis_entries = None
-            post_analysis_entries = None
-            reset_flags()
-            clear_pe_cache()
-
-            # Step 6: Restart services
-            self.output_signal.emit("[*] Step 6: Restarting services...")
-            self.restart_services()
-
-            # Step 7: Remove Owlyshield av events json file
-            remove_log_file(av_events_json_file_path)
-
-            # Step 8: Recreate directories
-            self.output_signal.emit("[*] Step 8: Recreating clean directories...")
-            self.recreate_directories()
-
-            self.output_signal.emit("[+] Environment cleanup completed successfully!")
-            self.output_signal.emit("[+] System is ready for new analysis.")
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
 
     def update_hayabusa_rules(self):
         """
@@ -1680,29 +1452,6 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         return page
 
-    def create_cleanup_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
-
-        title = QLabel("System Cleanup & Reset")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-
-        cleanup_button = QPushButton("Perform Full Environment Cleanup")
-        cleanup_button.setObjectName("action_button_danger")
-        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
-        layout.addWidget(cleanup_button)
-
-        log_output = QTextEdit("Cleanup process logs will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-
-        self.log_outputs.append(log_output)
-        return page
-
     def create_about_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -1764,9 +1513,7 @@ class AntivirusApp(QWidget):
         nav_buttons = [
             ("🏠", "Status"),
             ("🔄", "Update ClamAV"),
-            ("🔍", "Analyze File"),
             ("📊", "Hayabusa Analysis"),
-            ("🧹", "Cleanup"),
             ("i", "About")
         ]
 

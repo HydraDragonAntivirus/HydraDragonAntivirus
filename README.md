@@ -17,10 +17,10 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT
-- After you reset, please enable test signing mode to allow the driver to install; otherwise, the EDR will not work.
-- You have to set (manually of course) this part mega_optimization_with_anti_false_positive=True if you don't care about false positives and optimization. This setting is true because every antivirus on virustotal avoids false positives this way.
+- Like in modern antiviruses this antivirus also directly removes threats, so be careful!
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
+- So we ignore files looks like junk data (fully unknown)
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
 - Please allow a minimum of two hours (local time) for the antivirus to fully decompile the file and complete its analysis. Otherwise, it cannot achieve a 90%+ detection rate against fresh samples with fewer false positives.
 
@@ -78,7 +78,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
 **Note 2:**
-- If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
+- If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Due to risks please only use in a VM.
 
 **Note 3:**
 
@@ -152,7 +152,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Tip 1:**
 
-- Don't use suspicious VM names on your machine. (victim, etc.)
+- Don't use suspicious VM names on your machine. (John Doe, etc.)
 
 **Tip 2:**
 
@@ -160,7 +160,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Tip 3:**
 
-- Close the Windows Firewall on the VM to avoid any firewall blocking.
+- Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing antivirus not Windows Firewall.
 
 **Tip 4:**
 

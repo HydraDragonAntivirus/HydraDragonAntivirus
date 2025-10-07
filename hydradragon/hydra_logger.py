@@ -55,12 +55,6 @@ class AlertTracker(QObject):
         with self.lock:
             return self.critical_count
 
-    def reset_counts(self):
-        """Reset only the critical alert count."""
-        with self.lock:
-            self.critical_count = 0
-
-
 # Global instance
 alert_tracker = AlertTracker()
 
@@ -352,28 +346,6 @@ def alert_on_critical(record):
 callback_id = logger.add_callback(alert_on_critical)
 
 
-def reinitialize_hydra_logger():
-    """Reset Hydra logger handlers and reapply file handler."""
-    logger.remove_all()
-
-    logger.add("console")
-
-    logger.add(
-        application_log_file,
-        rotation="daily",
-        retention=7,
-        date_enabled=True,
-        async_write=True,
-    )
-
-    logger.configure(level="DEBUG", color=True, show_time=True, json=False)
-
-    # Re-add callback
-    logger.add_callback(alert_on_critical)
-
-    return logger
-
-
 def setup_gui_mode(main_window_instance):
     """Call this from your main GUI to enable GUI features"""
     alert_tracker.is_gui_mode = True
@@ -386,9 +358,3 @@ def setup_gui_mode(main_window_instance):
 def get_alert_counts():
     """Return the current critical alert count (int)."""
     return alert_tracker.get_counts()
-
-
-def reset_alert_counts():
-    """Reset critical alert count only."""
-    alert_tracker.reset_counts()
-    logger.info("Alert counts reset")
