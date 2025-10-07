@@ -312,7 +312,6 @@ def start_dual_pipe_integration():
     # Start the threat event listener thread (Pipe 1)
     threat_listener_thread = threading.Thread(
         target=monitor_threat_events_from_av,
-        daemon=True,
         name="HydraDragon-ThreatListener"
     )
     threat_listener_thread.start()

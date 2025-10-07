@@ -126,12 +126,6 @@ import win32serviceutil
 logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import win32pipe
-import win32file
-import pywintypes
-logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import wmi
 logger.debug(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
