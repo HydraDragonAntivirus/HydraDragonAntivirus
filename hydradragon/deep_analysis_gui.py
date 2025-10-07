@@ -3,10 +3,8 @@ import os
 import threading
 import time
 import webbrowser
-import shutil
 import json
 import subprocess
-import difflib
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,10 +36,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     reports_dir,                      
     run_analysis_with_yield,
     scan_code_for_links,
-    run_sandboxie_plugin_script,
-    get_sandbox_path,
-    scan_report_path,
-    run_sandboxie_control,
     reload_clamav_database,
     run_suricata,
     is_suricata_running,
@@ -49,8 +43,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     WINDOW_TITLE,
     hayabusa_path,
     evtx_logs_path,
-    run_and_copy_log,
-    parse_report,
 )
 
 # ----- Global Variables to hold captured data -----
@@ -404,21 +396,6 @@ class Worker(QThread):
     def request_stop(self):
         """Public method to request stopping the worker"""
         self.stop_requested = True
-    # --- Task-Specific Methods (Called by run()) ---
-    def capture_analysis_logs(self):
-        global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
-        if pre_analysis_log_path is None:
-            path = run_and_copy_log(label="pre")
-            pre_analysis_log_path = path
-            pre_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Pre-analysis log captured. Don't forget to capture the post-analysis logger.: {os.path.basename(path)}")
-        elif post_analysis_log_path is None:
-            path = run_and_copy_log(label="post")
-            post_analysis_log_path = path
-            post_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Post-analysis log captured: {os.path.basename(path)}")
-        else:
-            self.output_signal.emit("[!] Both pre and post-analysis captures have already been completed.")
 
     def update_definitions(self):
         try:
@@ -453,121 +430,6 @@ class Worker(QThread):
                 self.output_signal.emit("[*] Definitions are already up-to-date.")
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
-
-    def analyze_file_worker(self, file_path):
-        """
-        Runs file analysis in a separate thread without freezing.
-        Results or errors are emitted via output_signal.
-        """
-
-        if self.stop_requested:
-            self.output_signal.emit("[!] Analysis stopped by user request")
-            return
-
-        self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
-
-        # Stop callback
-        def check_stop():
-            return self.stop_requested
-
-        # Analysis task to run in a separate thread
-        def analysis_task():
-            try:
-                result = run_analysis_with_yield(file_path, stop_callback=check_stop)
-                if not self.stop_requested:
-                    self.output_signal.emit(result)
-                    self.output_signal.emit("[+] File analysis completed successfully")
-                else:
-                    self.output_signal.emit("[!] Analysis stopped by user")
-            except Exception as e:
-                self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
-                logger.error(f"File analysis error: {str(e)}")
-
-        # Start analysis in a background thread - fully non-blocking
-        threading.Thread(target=analysis_task).start()
-
-    def scan_network_indicators(self, network_indicators: list):
-        """
-        Scan the already extracted network indicators using the existing scanning functions.
-        """
-        try:
-            self.output_signal.emit(f"\n[*] Scanning {len(network_indicators)} network indicators...")
-
-            for indicator in network_indicators:
-                # Assuming indicator is a string (URL, IP, domain, etc.)
-                self.output_signal.emit(f"[*] Scanning indicator: {indicator}")
-
-                # Create mock decompiled code containing the indicator
-                mock_code = f"Network indicator from rootkit scan: {indicator}"
-
-                # Use the existing scan_code_for_links function with registry_flag=True
-                scan_code_for_links(
-                    mock_code,
-                    "registry_indicator",
-                    registry_flag=True
-                )
-
-        except Exception as e:
-            logger.error(f"Error scanning network indicators: {str(e)}")
-            self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
-
-    def check_and_scan_network_indicators(self):
-        """
-        Check for network indicators file and scan the indicators only if file exists.
-        """
-        try:
-            network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
-
-            # Only proceed if network indicators file exists
-            if os.path.exists(network_indicators_path):
-                self.output_signal.emit(f"[*] Found network indicators file: {network_indicators_path}")
-
-                # Load network indicators from file
-                with open(network_indicators_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                # Extract indicators from the JSON structure
-                if 'indicators' in data:
-                    file_indicators = data['indicators']
-                    if isinstance(file_indicators, list) and file_indicators:
-                        self.output_signal.emit(f"[+] Loaded {len(file_indicators)} network indicators from file")
-                        self.scan_network_indicators(file_indicators)
-                    else:
-                        self.output_signal.emit("[!] No indicators found in the file")
-                else:
-                    self.output_signal.emit("[!] Invalid network indicators file format")
-            # No message if file doesn't exist - just silently skip
-
-        except Exception as e:
-            logger.error(f"Error checking network indicators: {str(e)}")
-            self.output_signal.emit(f"[!] Error checking network indicators: {str(e)}")
-
-    def perform_rootkit_scan(self):
-        """
-        Runs the rootkit scan script and displays the report.
-        """
-        try:
-            self.output_signal.emit("[*] Starting Rootkit Scan via Sandboxie Plugin...")
-            run_sandboxie_plugin_script()  # This creates the report file
-
-            # Get the path to the generated report
-            sandbox_scan_report_path = get_sandbox_path(scan_report_path)
-            self.output_signal.emit(f"[+] Rootkit scan finished. Report located at: {sandbox_scan_report_path}")
-
-            if os.path.exists(sandbox_scan_report_path):
-                with open(sandbox_scan_report_path, 'r', encoding='utf-8') as f:
-                    report_content = f.read()
-                self.output_signal.emit("\n--- Rootkit Scan Report ---")
-                self.output_signal.emit(report_content)
-                self.output_signal.emit("--- End of Report ---")
-            else:
-                self.output_signal.emit("[!] Error: Sandboxie report file was not found after the scan.")
-
-            # Check for network indicators file and scan them if file exists
-            self.check_and_scan_network_indicators()
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")
 
     def restart_suricata(self):
         """Restart Suricata with proper status reporting"""
@@ -864,18 +726,8 @@ class Worker(QThread):
         """The entry point for the thread."""
         try:
             task_mapping = {
-                "capture_analysis_logs": self.capture_analysis_logs,
-                "run_hijackthis_analysis": self.run_hijackthis_analysis,
                 "update_defs": self.update_definitions,
-                "generate_whitelist_db": self.generate_whitelist_db,
-                "rootkit_scan": self.perform_rootkit_scan,
                 "update_hayabusa_rules": self.update_hayabusa_rules,
-                "hayabusa_timeline_csv": lambda: self.run_hayabusa_timeline("csv"),
-                "hayabusa_timeline_json": lambda: self.run_hayabusa_timeline("json"),
-                "hayabusa_logon_summary": self.run_hayabusa_logon_summary,
-                "hayabusa_metrics": self.run_hayabusa_metrics,
-                "analyze_file": lambda: self.analyze_file_worker(*self.args),
-                "hayabusa_search": lambda: self.run_hayabusa_search(*self.args)
             }
 
             task_function = task_mapping.get(self.task_type)
@@ -1192,17 +1044,6 @@ class AntivirusApp(QWidget):
         if hasattr(self, 'status_text'):
             self.status_text.setText("Ready for analysis!")
 
-    def open_sandboxie_control(self):
-        self.append_log_output("[*] Opening Sandboxie Control window...")
-        def run_thread():
-            try:
-                run_sandboxie_control()
-                self.append_log_output("[+] Sandboxie Control window opened successfully.")
-            except Exception as e:
-                self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
-        thread = threading.Thread(target=run_thread)
-        thread.start()
-
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
         if file_path:
@@ -1316,7 +1157,7 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(None)
         return page
 
-    def create_task_page(self, title_text, task_name):
+    def create_task_page(self, title_text, task_name, additional_tasks=None):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -1330,10 +1171,22 @@ class AntivirusApp(QWidget):
         layout.addLayout(header_layout)
 
         button_container = QHBoxLayout()
+        button_container.setSpacing(15)
+        
+        # Main button
         button = QPushButton(f"Run {title_text}")
         button.setObjectName("action_button")
         button.clicked.connect(lambda: self.start_worker(task_name))
         button_container.addWidget(button)
+        
+        # Additional buttons if provided
+        if additional_tasks:
+            for btn_text, task in additional_tasks:
+                extra_btn = QPushButton(btn_text)
+                extra_btn.setObjectName("action_button")
+                extra_btn.clicked.connect(lambda checked, t=task: self.start_worker(t))
+                button_container.addWidget(extra_btn)
+        
         button_container.addStretch()
         layout.addLayout(button_container)
 
@@ -1348,7 +1201,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(log_output, 1)
 
         self.log_outputs.append(log_output)
-        return pagee
+        return page
 
     def create_hayabusa_page(self):
         page = QWidget()
@@ -1482,7 +1335,12 @@ class AntivirusApp(QWidget):
     def create_main_content(self):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update ClamAV Definitions", "update_defs"))
+        # Updated line below:
+        self.main_stack.addWidget(self.create_task_page(
+            "Update Definitions", 
+            "update_defs",
+            additional_tasks=[("Update Hayabusa Rules", "update_hayabusa_rules")]
+        ))
         self.main_stack.addWidget(self.create_hayabusa_page())
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
@@ -1512,8 +1370,7 @@ class AntivirusApp(QWidget):
 
         nav_buttons = [
             ("🏠", "Status"),
-            ("🔄", "Update ClamAV"),
-            ("📊", "Hayabusa Analysis"),
+            ("🔄", "Update Definitions"),
             ("i", "About")
         ]
 
