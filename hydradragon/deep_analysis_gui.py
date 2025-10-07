@@ -484,7 +484,7 @@ class Worker(QThread):
                 logger.error(f"File analysis error: {str(e)}")
 
         # Start analysis in a background thread - fully non-blocking
-        threading.Thread(target=analysis_task).start()
+        threading.Thread(daemon=True, target=analysis_task).start()
 
     def scan_network_indicators(self, network_indicators: list):
         """
@@ -1200,7 +1200,7 @@ class AntivirusApp(QWidget):
                 self.append_log_output("[+] Sandboxie Control window opened successfully.")
             except Exception as e:
                 self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
-        thread = threading.Thread(target=run_thread)
+        thread = threading.Thread(daemon=True, target=run_thread)
         thread.start()
 
     def analyze_file(self):
