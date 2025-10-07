@@ -16,10 +16,11 @@ keywords = ["antivirus", "reverse engineering", "bytecode", "python", "decompile
 dependencies = [
     # Antivirus dependencies
     "yara-python==4.5.4",
-    "yara-x==1.6.0",
+    "yara-x==1.8.1",
     "joblib>=1.5.1,<2.0.0",
     "pefile>=2024.8.26,<2025.0.0",
     "psutil>=7.0.0,<8.0.0",
+    "watchdog>=6.0.0,<7.0.0",
     "notify-py>=0.3.43,<0.4.0",
     "pywin32>=310,<311",
     "accelerate>=1.8.1,<2.0.0",

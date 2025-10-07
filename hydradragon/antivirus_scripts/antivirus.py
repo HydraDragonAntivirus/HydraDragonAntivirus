@@ -58,10 +58,6 @@ import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import tempfile
-logger.debug(f"tempfile module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from uuid import uuid4 as uniquename
 logger.debug(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
 
@@ -122,6 +118,14 @@ import psutil
 logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from watchdog.observers import Observer
+logger.debug(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from watchdog.events import FileSystemEventHandler
+logger.debug(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import win32service
 logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -145,10 +149,6 @@ from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.sendrecv import sniff
 
 logger.debug(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import atexit
-logger.debug(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
@@ -181,10 +181,6 @@ logger.debug(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import struct
 logger.debug(f"struct module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import importlib
-logger.debug(f"importlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from importlib.util import MAGIC_NUMBER
@@ -331,8 +327,8 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .utils import get_signature, get_all_drives
-logger.debug(f"utils.get_signature, get_all_drives module loaded in {time.time() - start_time:.6f} seconds")
+from .utils import get_signature
+logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from . import clamav
@@ -381,7 +377,6 @@ from .notify_user import (
     notify_user,
     notify_user_pua,
     notify_user_for_malicious_source_code,
-    notify_user_for_meta_llama,
     notify_user_size_warning,
     notify_susp_archive_file_name_warning,
     notify_user_susp_name,
@@ -446,6 +441,7 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+appdata_roaming = os.environ.get('APPDATA', '')
 nexe_javascript_unpacked_dir = os.path.join(script_dir, "nexe_unpacked")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
@@ -456,6 +452,7 @@ hayabusa_dir = os.path.join(script_dir, "hayabusa")
 webcrack_javascript_deobfuscated_dir = os.path.join(script_dir, "webcrack_javascript_deobfuscated")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.5.0-win-x64.exe")
+av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
 network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
@@ -690,36 +687,7 @@ eve_log_path = os.path.join(suricata_log_dir, "eve.json")
 suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
 
-username = os.getlogin()
-
-# Constant special item ID list value for desktop folder
-CSIDL_DESKTOPDIRECTORY = 0x0010
-
-# Flag for SHGetFolderPath
-SHGFP_TYPE_CURRENT = 0
-
-# Convenient shorthand for this function
-SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
-
 thread_lock = threading.Lock()
-
-def _get_folder_path(csidl):
-    """Get the path of a folder identified by a CSIDL value."""
-    # Create a buffer to hold the return value from SHGetFolderPathW
-    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
-
-    # Return the path as a string
-    SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
-    return str(buf.value)
-
-
-def get_desktop():
-    """Return the current user's Desktop folder."""
-    return _get_folder_path(CSIDL_DESKTOPDIRECTORY)
-
-def get_critical_log_folder():
-    """Return the sandboxie log folder path on the desktop."""
-    return f'{get_desktop()}\\DONTREMOVEHydraDragonAntivirusLogs'
 
 drivers_path = os.path.join(system32_dir, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
@@ -943,7 +911,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
     (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
     (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
-    (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
     (lambda fp: fp == main_file_path, "This is the main file."),
     (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
     (lambda fp: fp.startswith(resource_extractor_dir), "It's an RCData resources extracted directory."),
@@ -1168,7 +1135,7 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
     Args:
         output_dir: Directory where the file will be created
-        base_name: Base filename (can be string or Path)
+        g: Base filename (can be string or Path)
 
     Returns:
         Path: Unique file path that doesn't exist yet
@@ -1177,7 +1144,6 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert to Path object to easily extract stem and suffix
-    base_name = Path(base_name)
     stem = sanitize_filename(base_name.stem)
     suffix = base_name.suffix
 
@@ -1239,9 +1205,6 @@ def analyze_file_with_die(file_path):
     """
     try:
         logger.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Define the base name for the output text file
-        base_name = Path(file_path).with_suffix(".txt")
 
         # Run the DIE command once with the -p flag for plain output
         result = subprocess.run(
@@ -3762,7 +3725,7 @@ def scan_yara(file_path):
     }
 
     # Lock for thread-safe access to shared variables
-    thread_lock = threading.Lock()
+    thread_lock_yara = threading.Lock()
     threads = []
 
     try:
@@ -3967,7 +3930,7 @@ def scan_yara(file_path):
                             local_matched_results.append(match_details)
 
                     # Update shared results
-                    with thread_lock:
+                    with thread_lock_yara:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                         if local_is_vmprotect:
@@ -3994,7 +3957,7 @@ def scan_yara(file_path):
                             logger.info(f"Rule {match.rule} is excluded from yarGen_rule.")
 
                     # Update shared results
-                    with thread_lock:
+                    with thread_lock_yara:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -4019,7 +3982,7 @@ def scan_yara(file_path):
                             logger.info(f"Rule {match.rule} is excluded from icewater_rule.")
 
                     # Update shared results
-                    with thread_lock:
+                    with thread_lock_yara:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -4044,7 +4007,7 @@ def scan_yara(file_path):
                             logger.info(f"Rule {match.rule} is excluded from valhalla_rule.")
 
                     # Update shared results
-                    with thread_lock:
+                    with thread_lock_yara:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -4317,10 +4280,7 @@ def check_signature(file_path: str) -> dict:
             "is_valid": False,
             "status": "File not found",
             "signature_status_issues": False,
-            "no_signature": True,
-            "has_microsoft_signature": False,
-            "has_valid_goodsign_signature": False,
-            "matches_antivirus_signature": False
+            "no_signature": True
         }
 
     if file_path in file_md5_cache:
@@ -4353,10 +4313,7 @@ def check_signature(file_path: str) -> dict:
             "is_valid": False,
             "status": "No signature",
             "signature_status_issues": False,
-            "no_signature": True,
-            "has_microsoft_signature": False,
-            "has_valid_goodsign_signature": False,
-            "matches_antivirus_signature": False
+            "no_signature": True
         }
         file_md5_cache[file_path] = (md5, result)
         return result
@@ -4368,10 +4325,7 @@ def check_signature(file_path: str) -> dict:
                 "is_valid": False,
                 "status": "No signature",
                 "signature_status_issues": False,
-                "no_signature": True,
-                "has_microsoft_signature": False,
-                "has_valid_goodsign_signature": False,
-                "matches_antivirus_signature": False
+                "no_signature": True
             }
             file_md5_cache[file_path] = (md5, result)
             return result
@@ -4397,29 +4351,11 @@ def check_signature(file_path: str) -> dict:
 
         signature_status_issues = (not is_valid) and (not no_sig)
 
-        has_ms_sig = False
-        has_goodsign = False
-        matches_av = False
-        if is_valid:
-            (cert_info, raw) = get_signer_cert_details(file_path)
-            subj_iss = (cert_info["Subject"] + cert_info["Issuer"]).upper()
-            has_ms_sig = "MICROSOFT" in subj_iss
-            has_goodsign = any(s.upper() in subj_iss for s in goodsign_signatures)
-            if raw:
-                hex_buf = raw.hex().upper()
-                for sig in antivirus_signatures:
-                    if sig.upper() in hex_buf:
-                        matches_av = True
-                        break
-
         result = {
             "is_valid": is_valid,
             "status": status,
             "signature_status_issues": signature_status_issues,
             "no_signature": no_sig,
-            "has_microsoft_signature": has_ms_sig,
-            "has_valid_goodsign_signature": has_goodsign,
-            "matches_antivirus_signature": matches_av
         }
 
         # save to cache
@@ -5166,7 +5102,7 @@ def scan_file_real_time(
         'vmprotect_path': None
     }
 
-    thread_lock = threading.Lock()
+    thread_lock_real_time = threading.Lock()
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
     def pe_scan_worker():
@@ -5186,7 +5122,7 @@ def scan_file_real_time(
                     result = f"{result}.SIG"
                 logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
-                with thread_lock:
+                with thread_lock_real_time:
                     if not results['malware_found']:  # first detection wins
                         results['malware_found'] = True
                         results['virus_name'] = result
@@ -5210,7 +5146,7 @@ def scan_file_real_time(
                     f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
                 )
 
-                with thread_lock:
+                with thread_lock_real_time:
                     if not results.get('malware_found'):
                         results['malware_found'] = True
                         results['virus_name'] = yara_match
@@ -5219,7 +5155,7 @@ def scan_file_real_time(
                     results['is_vmprotect'] = bool(is_vmprotect)
             else:
                 logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-                with thread_lock:
+                with thread_lock_real_time:
                     results.setdefault('malware_found', False)
                     # still set the boolean flag in the clean case too
                     results['is_vmprotect'] = bool(is_vmprotect)
@@ -5238,7 +5174,7 @@ def scan_file_real_time(
                         virus_str = f"{virus_str}.SIG"
                     logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
 
-                    with thread_lock:
+                    with thread_lock_real_time:
                         if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_str
@@ -5262,7 +5198,7 @@ def scan_file_real_time(
                         virus_name = f"{virus_name}.SIG"
                     logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
 
-                    with thread_lock:
+                    with thread_lock_real_time:
                         if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
@@ -5286,7 +5222,7 @@ def scan_file_real_time(
                         virus_name = f"{virus_name}.SIG"
                     logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
 
-                    with thread_lock:
+                    with thread_lock_real_time:
                         if not results['malware_found']:
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
@@ -5350,23 +5286,9 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                         file_path = proc.info['exe']
                         if file_path:
                             logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-
-                            # Only proceed with files in the Sandboxie folder or the main file path
-                            if sandboxie_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
-                                continue
-
-                            signature_info = check_signature(file_path)
-                            if status == "Info":
-                                if not signature_info["is_valid"]:
-                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
-                                else:
-                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
-                            else:
-                                if not signature_info["is_valid"]:
-                                    logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
-                                    notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
-                                else:
-                                    logger.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                            if not status == "Info":
+                                logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. Alert Line: {alert_line}")
+                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
 
         except psutil.ZombieProcess:
             logger.error(f"Zombie process encountered: {proc.info.get('pid')}")
@@ -6978,239 +6900,6 @@ def log_directory_type(file_path):
     except Exception as ex:
         logger.error(f"Error logging directory type for {file_path}: {ex}")
 
-def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=False, capa_flag=False):
-    """
-    Processes a file and analyzes it using Meta Llama-3.2-1B.
-    If decompiled_flag is True, a normal summary is generated with
-    an additional note indicating that the file was decompiled by our tool and is Python source code.
-
-    Args:
-        file_path (str): The path to the file to be scanned.
-        decompiled_flag (bool): If True, indicates that the file was decompiled by our tool.
-    """
-    if not meta_llama_1b_model or not meta_llama_1b_tokenizer:
-        logger.error("Llama model is not loaded. Cannot perform analysis.")
-        return "Llama model is not loaded. Cannot perform analysis."
-
-    try:
-
-        # 1) Find and log the first matching directory message, also save it for the prompt
-        dir_note = None
-        for condition, message in DIRECTORY_MESSAGES:
-            if condition(file_path):
-                logger.info(f"{file_path}: {message}")
-                dir_note = message
-                break
-        if dir_note is None:
-            dir_note = "No special directory context."
-
-        # 2) Build a prefix that includes the directory note
-        prefix = f"[Context] {dir_note}\n\n"
-
-        # 3) Build the initial message. Prepend prefix to every branch.
-        if HiJackThis_flag:
-            initial_message = prefix + (
-                "Meta Llama-3.2-1B Report for HiJackThis log analysis:\n"
-                "The following report is produced based on HiJackThis log. "
-                "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
-                "Include the following four lines in your response:\n"
-                "- Malware: [Yes/No/Maybe]\n"
-                "- Virus Name:\n"
-                "- Confidence: [percentage]\n"
-                "- Malicious Content: [Explanation]\n"
-                f"File name: {os.path.basename(file_path)}\n"
-                f"File path: {file_path}\n"
-            )
-        if capa_flag:
-            initial_message = prefix + (
-                "Meta Llama-3.2-1B Report for CAPA detects capabilities in executable PE files:\n"
-                "The following report is produced based on CAPA analysis. "
-                "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
-                "Include the following four lines in your response:\n"
-                "- Malware: [Yes/No/Maybe]\n"
-                "- Virus Name:\n"
-                "- Confidence: [percentage]\n"
-                "- Malicious Content: [Explanation]\n"
-                f"File name: {os.path.basename(file_path)}\n"
-                f"File path: {file_path}\n"
-            )
-        elif decompiled_flag:
-            initial_message = prefix + (
-                "The result should always include four lines. Here are the lines that you must include all of them:\n"
-                "- Malware: [Yes/No/Maybe]\n"
-                "- Virus Name:\n"
-                "- Confidence: [percentage]\n"
-                "- Malicious Content: [Explanation]\n"
-                f"File name: {os.path.basename(file_path)}\n"
-                f"File path: {file_path}\n\n"
-                "This file was decompiled by our tool and is Python source code.\n"
-                "Based on the file name, file path, and file content analysis:\n\n"
-                "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
-                "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
-                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
-                "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
-                "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup (shell:common startup or shell:startup)\n"
-                "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
-                "Decode any encoded strings, such as base64 or base32, as needed.\n"
-            )
-        else:
-            initial_message = prefix + (
-                "The result should always include four lines. Here are the lines that you must include all of them:\n"
-                "- Malware: [Yes/No/Maybe]\n"
-                "- Virus Name:\n"
-                "- Confidence: [percentage]\n"
-                "- Malicious Content: [Explanation]\n"
-                f"File name: {os.path.basename(file_path)}\n"
-                f"File path: {file_path}\n\n"
-                f"This file is categorized as:\n"
-                f"- Sandboxie environment file: {sandboxie_folder}\n"
-                f"- Main file: {main_file_path}\n"
-                "Based on the file name, file path, and file content analysis:\n\n"
-                "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
-                "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
-                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful.\n"
-                "Decode any encoded strings, such as base64 or base32, as needed.\n"
-            )
-
-        # Tokenize the initial message
-        initial_inputs = meta_llama_1b_tokenizer(initial_message, return_tensors="pt")
-        initial_token_length = initial_inputs['input_ids'].shape[1]
-
-        # Define token limits
-        max_tokens = 2048
-        remaining_tokens = max_tokens - initial_token_length
-
-        # Read the file content
-        readable_file_content = ""
-        line_count = 0
-        max_lines = 10000  # Maximum number of lines to read
-
-        try:
-            with open(file_path, 'r', encoding="utf-8", errors="ignore") as meta_llama_file:
-                for line in meta_llama_file:
-                    if line_count < max_lines:
-                        readable_file_content += line
-                        line_count += 1
-                    else:
-                        break
-        except Exception as ex:
-            logger.error(f"Error reading file {file_path}: {ex}")
-            return None
-
-        # Tokenize the readable file content
-        file_inputs = meta_llama_1b_tokenizer(readable_file_content, return_tensors="pt")
-        file_token_length = file_inputs['input_ids'].shape[1]
-
-        # Truncate the file content if needed
-        if file_token_length > remaining_tokens:
-            truncated_file_content = meta_llama_1b_tokenizer.decode(
-                file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
-        else:
-            truncated_file_content = readable_file_content
-
-        # Combine the initial message with the truncated file content
-        combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
-
-        # Padding token
-        meta_llama_1b_tokenizer.pad_token = meta_llama_1b_tokenizer.eos_token
-
-        # === Updated tokenization: include padding, truncation, and attention mask ===
-        inputs = meta_llama_1b_tokenizer(
-            combined_message,
-            return_tensors="pt",
-            padding=True,             # pad to batch max
-            truncation=True,          # cut off anything beyond context window
-            max_length=meta_llama_1b_model.config.max_position_embeddings,
-            return_attention_mask=True
-        )
-
-        # === Updated generate: pass attention_mask and pad_token_id ===
-        try:
-            response_ids = accelerator.unwrap_model(meta_llama_1b_model).generate(
-                input_ids=inputs["input_ids"].to(device),
-                attention_mask=inputs["attention_mask"].to(device),
-                pad_token_id=meta_llama_1b_tokenizer.eos_token_id,
-                max_new_tokens=1000,
-                num_return_sequences=1
-            )
-            response = meta_llama_1b_tokenizer.decode(response_ids[0], skip_special_tokens=True).strip()
-        except Exception as ex:
-            logger.error(f"Error generating response: {ex}")
-            return
-
-        # Extract the relevant part of the response
-        start_index = response.lower().find("based on the analysis:")
-        if start_index != -1:
-            start_index += len("Based on the analysis:")
-        else:
-            start_index = 0
-
-        relevant_response = response[start_index:].strip()
-
-        # Initialize variables to store extracted information
-        malware = "Unknown"
-        confidence = "Unknown"
-        virus_name = "Unknown"
-        explanation = "No explanation provided"
-
-        # Extract the required four lines from the response
-        for line in relevant_response.split("\n"):
-            line_lower = line.lower()
-            if "malware:" in line_lower:
-                malware = line.split(":")[-1].strip()
-            if "virus name:" in line_lower:
-                potential_name = line.split(":")[-1].strip()
-                if os.path.basename(file_path) not in potential_name:
-                    virus_name = potential_name
-            if "confidence:" in line_lower:
-                confidence = line.split(":")[-1].strip()
-            if "malicious content:" in line_lower:
-                explanation = line.split(":")[-1].strip()
-
-        # Build the final summary response
-        final_response = (
-            f"Malware: {malware}\n"
-            f"Virus Name: {virus_name}\n"
-            f"Confidence: {confidence}\n"
-            f"Malicious Content: {explanation}\n"
-        )
-
-        logger.info(final_response)
-
-        # Log the raw model response
-        answer_log_path = os.path.join(script_dir, "log", "answer.log")
-        try:
-            with open(answer_log_path, "a") as answer_log_file:
-                answer_log_file.write(relevant_response + "\n\n")
-        except Exception as ex:
-            logger.error(f"Error writing to log file {answer_log_path}: {ex}")
-
-        # Log the final summary
-        log_file_path = os.path.join(script_dir, "log", "Meta Llama-3.2-1B.log")
-        try:
-            with open(log_file_path, "a") as log_file:
-                log_file.write(final_response + "\n")
-        except Exception as ex:
-            logger.error(f"Error writing to log file {log_file_path}: {ex}")
-
-        # If malware is detected (Maybe or Yes), notify the user
-        if malware.lower() in ["maybe", "yes"]:
-            try:
-                if HiJackThis_flag:
-                    notify_user_for_meta_llama(main_file_path, virus_name, malware, HiJackThis_flag=True)
-                else:
-                    notify_user_for_meta_llama(file_path, virus_name, malware)
-            except Exception as ex:
-                logger.error(f"Error notifying user: {ex}")
-
-        # Otherwise, log and do not return (implicit None)
-        logger.info("Meta Llama analysis completed.")
-        return final_response
-
-    except Exception as ex:
-        logger.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
-        return f"[!] Llama analysis failed: {ex}"
-
 def is_exela_v2_payload(content):
     # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
     keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
@@ -7783,143 +7472,141 @@ def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
         # Optional: write cleaned original as fallback
         output_path.write_text(cleaned, encoding="utf-8")
 
-def process_pyarmor7_in_sandbox(
+def process_pyarmor7(
     target_path: str,
     timeout: int = 600
 ) -> List[str]:
     """
-    Run bypass_pyarmor7.py inside Sandboxie and collect unpacked files.
+    Run bypass_pyarmor7.py directly (without Sandboxie) and collect unpacked files.
 
-    - target_path: path to the protected .py / .pyc to unpack (host path).
+    - target_path: path to the protected .py / .pyc to unpack.
     - timeout: total seconds to wait for dump to appear and stabilize.
 
-    Returns list of absolute host paths to extracted files (copied into `pyarmor7_extracted_dir`).
+    Returns list of absolute paths to extracted files.
     """
     unpacked_files: List[str] = []
-    # Require global locations (adjust if you prefer passing as params)
-    try:
-        sandboxie_exe = str(sandboxie_path)
-    except NameError:
-        logger.error("process_pyarmor7_in_sandbox: sandboxie_path global not set")
-        return unpacked_files
-
-    try:
-        sandbox_inner_dump_dir = Path(pyarmor7_bypass_sandboxie_dir)  # inside-sandbox path where helper writes dump/
-    except NameError:
-        logger.error("process_pyarmor7_in_sandbox: pyarmor_bypass_sandboxie_dir global not set")
-        return unpacked_files
-
-    try:
-        extracted_base = Path(pyarmor8_and_9_extracted_dir)
-    except NameError:
-        # fallback: create `pyarmor8_and_9_extracted` next to script
-        extracted_base = Path(pyarmor7_extracted_dir)
-
-    # Validate inputs
-    if not os.path.exists(target_path):
-        logger.error(f"process_pyarmor7_in_sandbox: target does not exist: {target_path}")
-        return unpacked_files
-
+    
+    # Validate bypass helper exists
     if not os.path.isfile(bypass_pyarmor7_path):
-        logger.error(f"process_pyarmor7_in_sandbox: bypass helper not found: {bypass_pyarmor7_path}")
+        logger.error(f"bypass helper not found: {bypass_pyarmor7_path}")
+        return unpacked_files
+    
+    # Validate target exists
+    if not os.path.exists(target_path):
+        logger.error(f"target does not exist: {target_path}")
         return unpacked_files
 
-    # Build sandbox command: Sandboxie -> python -> helper target
-    # We launch helper with the filename argument; helper will create dump/ in its CWD (inside sandbox)
+    # Setup directories
+    try:
+        extracted_base = Path(pyarmor7_extracted_dir)
+        extracted_base.mkdir(parents=True, exist_ok=True)
+    except NameError:
+        extracted_base = Path("pyarmor7_extracted")
+        extracted_base.mkdir(parents=True, exist_ok=True)
+        logger.warning(f"pyarmor7_extracted_dir not set, using: {extracted_base}")
+    except Exception as e:
+        logger.error(f"Could not create extracted dir: {e}")
+        return unpacked_files
+
+    # Working directory for helper (where dump/ will be created)
+    helper_cwd = os.path.dirname(bypass_pyarmor7_path)
+    dump_dir = Path(helper_cwd) / "dump"
+    
+    # Target file name
     target_name = os.path.basename(target_path)
     bypass_helper = str(bypass_pyarmor7_path)
 
-    # Prepare shell command with output redirection
-    # Using quoted arguments to be safe on Windows
-    shell_cmd = (
-        f'"{sandboxie_exe}" /box:{sandboxie_box} /elevate '
-        f'"{python_path}" "{bypass_helper}" "{target_name}" '
-        f'> "{pyarmor7_console_log_file}" 2>&1'
-    )
+    # Build command
+    cmd = [
+        python_path,
+        bypass_helper,
+        target_name
+    ]
 
-    logger.info(f"[SANDBOX] Running PyArmor7 bypass helper in sandbox: {shell_cmd!r}")
-    logger.info(f"[SANDBOX] Console output will be logged to: {pyarmor7_console_log_file}")
-    logger.info(f"[SANDBOX] Expect dump at sandbox inner location: {sandbox_inner_dump_dir}/dump")
+    logger.info(f"Running PyArmor7 bypass helper: {' '.join(cmd)}")
+    logger.info(f"Working directory: {helper_cwd}")
+    logger.info(f"Expected dump location: {dump_dir}")
 
-    # Run with working dir = directory containing the bypass helper (so helper finds the target name in that CWD)
-    helper_cwd = os.path.dirname(bypass_pyarmor7_path)
-
+    # Run the bypass helper
     try:
-        subprocess.run(
-            shell_cmd,
-            shell=True,
-            check=True,
+        result = subprocess.run(
+            cmd,
             cwd=helper_cwd,
-            timeout=timeout if timeout < 120 else 120,  # let run finish quickly; we'll rely on stability loop for full timeout
+            capture_output=True,
+            text=True,
+            timeout=min(timeout, 120),  # Initial run timeout
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         )
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"[SANDBOX] Helper returned non-zero: {ex}")
-        logger.error(f"[SANDBOX] Check log file for details: {pyarmor7_console_log_file}")
-        # continue to check for any produced dumps
+        
+        # Log output
+        if result.stdout:
+            logger.info(f"Helper stdout:\n{result.stdout}")
+        if result.stderr:
+            logger.warning(f"Helper stderr:\n{result.stderr}")
+        
+        if result.returncode != 0:
+            logger.error(f"Helper returned non-zero exit code: {result.returncode}")
+            # Continue to check for dumps anyway
+            
     except subprocess.TimeoutExpired:
-        logger.warning(f"[SANDBOX] Helper process timed out (short-run). Proceeding to wait for dump (up to {timeout}s).")
+        logger.warning("Helper process timed out. Proceeding to check for dumps...")
     except Exception as e:
-        logger.error(f"[SANDBOX] Failed to launch helper in sandbox: {e}")
+        logger.error(f"Failed to run helper: {e}")
         return unpacked_files
 
-    # Wait for dump directory to appear and stabilize (files stop changing size)
-    sandbox_dump_dir = sandbox_inner_dump_dir / "dump"
+    # Wait for dump directory to stabilize
     deadline = time.monotonic() + timeout
-    stable_threshold = 3  # number of checks unchanged before we consider stable
+    stable_threshold = 3  # consecutive unchanged checks
     check_interval = 1.0
     last_sizes = {}
     stable_counts = {}
 
-    logger.info("[SANDBOX] Waiting for dump folder to appear inside sandbox...")
+    logger.info("Waiting for dump folder to stabilize...")
 
     while time.monotonic() < deadline:
         try:
-            if sandbox_dump_dir.exists() and sandbox_dump_dir.is_dir():
-                # enumerate files
-                all_files = list(sandbox_dump_dir.rglob("*"))
-                # compute sizes
+            if dump_dir.exists() and dump_dir.is_dir():
+                all_files = list(dump_dir.rglob("*"))
+                
+                # Track file sizes
                 for p in all_files:
                     if p.is_file():
                         try:
                             size = p.stat().st_size
                         except (FileNotFoundError, OSError):
                             size = -1
+                        
                         prev = last_sizes.get(str(p))
                         if prev is None or prev != size:
                             last_sizes[str(p)] = size
                             stable_counts[str(p)] = 0
                         else:
                             stable_counts[str(p)] = stable_counts.get(str(p), 0) + 1
-                # If there are no files yet, wait
+                
+                # Wait if no files yet
                 if not all_files:
                     time.sleep(check_interval)
                     continue
 
-                # If all files have reached stable threshold, break
-                if all(stable_counts.get(str(p), 0) >= stable_threshold for p in all_files if p.is_file()):
-                    logger.info("[SANDBOX] Dump directory appears stable, collecting files.")
+                # Check if all files are stable
+                if all(stable_counts.get(str(p), 0) >= stable_threshold 
+                       for p in all_files if p.is_file()):
+                    logger.info("Dump directory stabilized, collecting files.")
                     break
 
             time.sleep(check_interval)
+            
         except Exception as e:
-            logger.debug(f"[SANDBOX] Wait loop exception: {e}")
+            logger.debug(f"Wait loop exception: {e}")
             time.sleep(check_interval)
     else:
-        logger.error("[SANDBOX] Timed out waiting for sandbox dump to stabilize.")
+        logger.error("Timed out waiting for dump to stabilize.")
         return unpacked_files
 
-    # Copy files from sandbox dump to persistent extracted folder on host
+    # Copy files from dump to extracted directory
     try:
-        extracted_base.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        logger.error(f"Could not create extracted dir {extracted_base}: {e}")
-        return unpacked_files
-
-    # sandbox_dump_dir may contain subdirectories — mirror the structure
-    try:
-        for root, _, files in os.walk(sandbox_dump_dir):
-            rel_root = os.path.relpath(root, sandbox_dump_dir)
+        for root, _, files in os.walk(dump_dir):
+            rel_root = os.path.relpath(root, dump_dir)
             dest_dir = extracted_base if rel_root in (".", "") else extracted_base / rel_root
             os.makedirs(dest_dir, exist_ok=True)
 
@@ -7927,100 +7614,121 @@ def process_pyarmor7_in_sandbox(
                 src = Path(root) / fname
                 dest = Path(dest_dir) / fname
                 try:
-                    # read from sandbox path; in some Sandboxie setups, sandbox-inner paths may be accessible via host FS mapping
-                    # If not accessible, user must ensure sandbox paths are visible to the host (Sandboxie does this for /box:DefaultBox).
                     shutil.copy2(src, dest)
                     unpacked_files.append(str(dest.resolve()))
-                    logger.info(f"[SANDBOX] Copied unpacked file: {dest}")
+                    logger.info(f"Extracted: {dest}")
                 except Exception as e:
-                    logger.error(f"[SANDBOX] Failed to copy {src} -> {dest}: {e}")
+                    logger.error(f"Failed to copy {src} -> {dest}: {e}")
+                    
     except Exception as e:
-        logger.error(f"[SANDBOX] Error during copy from sandbox dump: {e}")
+        logger.error(f"Error copying from dump: {e}")
         return unpacked_files
 
-    logger.info(f"[SANDBOX] Completed PyArmor7 unpack for {target_path}; {len(unpacked_files)} files extracted.")
+    # Optional: Clean up dump directory after copying
+    try:
+        shutil.rmtree(dump_dir)
+        logger.info(f"Cleaned up dump directory: {dump_dir}")
+    except Exception as e:
+        logger.debug(f"Could not clean dump dir: {e}")
+
+    logger.info(f"Completed PyArmor7 unpack for {target_path}; {len(unpacked_files)} files extracted.")
     return unpacked_files
 
-def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
+def deobfuscate_file(transformed_path: Path, timeout: int = 600) -> Optional[Path]:
     """
-    Runs the Python deobfuscator inside Sandboxie (DefaultBox),
-    expecting the AST-transformed script to write '<script_stem>_execs.py'.
-    Waits until the file is fully written before copying it back to the host.
-    Returns the copied path or None if it failed.
+    Run the AST-transformed script directly (no Sandboxie) and wait for it to
+    write '<stem>_execs.py'. When the execs file stabilizes, copy it to
+    '<stem>_deobf.py' inside `python_deobfuscated_dir`.
+
+    Returns the path to the copied file, or None on failure.
     """
     name = transformed_path.stem
     execs_filename = f"{name}_execs.py"
-    sandbox_inner_execs = Path(python_deobfuscated_sandboxie_dir) / execs_filename
-    sandbox_inner_execs.parent.mkdir(parents=True, exist_ok=True)
 
-    sandboxie_exe = str(sandboxie_path)
+    # candidate locations where the transformed script might write the execs file
+    candidates = [
+        transformed_path.parent / execs_filename,        # next to the transformed script
+        Path.cwd() / execs_filename,                     # current working directory
+        Path(python_deobfuscated_dir) / execs_filename,  # configured output dir (if script writes here)
+    ]
+
     python_exe = str(python_path)
     script_path = str(transformed_path)
 
-    shell_cmd = (
-        f'"{sandboxie_exe}" /box:{sandboxie_box} /elevate '
-        f'"{python_exe}" "{script_path}"'
-    )
-
-    exec_path_str = sandbox_inner_execs.as_posix().replace('/', '\\')
-    logger.info(f"[SANDBOX] Running shell command: {shell_cmd!r}")
-    logger.info(f"[SANDBOX] Expect exec output at: {exec_path_str}")
+    logger.info(f"Running deobfuscator script: {python_exe!r} {script_path!r}")
 
     try:
+        # Run the transformed script directly. Use cwd=transformed_path.parent so relative writes
+        # by the script land next to the transformed file (most common behavior).
         subprocess.run(
-            shell_cmd,
-            shell=True,
+            [python_exe, script_path],
             check=True,
-            timeout=600,
-            creationflags=subprocess.CREATE_NO_WINDOW
+            timeout=timeout,
+            cwd=str(transformed_path.parent),
         )
     except Exception as e:
-        logger.error(f"[SANDBOX] Run failed: {e}")
+        logger.error(f"Run failed: {e}")
         return None
 
-    # Real-time file watch loop with stability check (10 minutes timeout)
-    deadline = time.monotonic() + 600
+    # Real-time file watch loop with stability check
+    deadline = time.monotonic() + timeout
     last_size = -1
     stable_count = 0
+    found_path: Optional[Path] = None
 
     while time.monotonic() < deadline:
-        try:
-            if sandbox_inner_execs.exists():
-                size = sandbox_inner_execs.stat().st_size
-                if size > 0:
-                    if size == last_size:
-                        stable_count += 1
+        for candidate in candidates:
+            try:
+                if candidate.exists():
+                    size = candidate.stat().st_size
+                    if size > 0:
+                        if candidate == found_path and size == last_size:
+                            stable_count += 1
+                        else:
+                            # new candidate or size changed -> reset stability counters
+                            found_path = candidate
+                            last_size = size
+                            stable_count = 0
+
+                        logger.debug(f"Observed {candidate} size={size} stable_count={stable_count}")
+
+                        if stable_count >= 3:
+                            break
                     else:
+                        # zero-byte file seen: treat as not-yet-written
+                        found_path = None
+                        last_size = -1
                         stable_count = 0
-                    last_size = size
+            except (FileNotFoundError, OSError):
+                # transient filesystem issue; ignore and continue polling
+                continue
+        else:
+            # inner loop did not break -> no candidate stabilized yet
+            time.sleep(0.5)
+            continue
 
-                    if stable_count >= 3:
-                        break
-                else:
-                    last_size = -1
-                    stable_count = 0
-        except (FileNotFoundError, OSError):
-            pass
+        # one of the candidates stabilized
+        break
 
-    else:
-        logger.error("[SANDBOX] Timed out waiting for execs file to stabilize.")
+    if not found_path or not found_path.exists():
+        logger.error("Timed out waiting for execs file to stabilize.")
         return None
 
-    # Copy result back to host
+    # Copy result to configured output dir as '<stem>_deobf.py'
     host_output_dir = Path(python_deobfuscated_dir)
     host_output_dir.mkdir(parents=True, exist_ok=True)
     host_target = host_output_dir / f"{name}_deobf.py"
 
     try:
-        content = sandbox_inner_execs.read_bytes()
+        content = found_path.read_bytes()
         if not content:
-            logger.error("[SANDBOX] Execs file content empty on read, aborting.")
+            logger.error("Execs file content empty on read, aborting.")
             return None
         host_target.write_bytes(content)
-        logger.info(f"[SANDBOX] Copied execs output back to host: {host_target}")
+        logger.info(f"Copied execs output: {host_target}")
         return host_target
     except Exception as copy_exc:
-        logger.error(f"[SANDBOX] Failed to copy from sandbox: {copy_exc}")
+        logger.error(f"Failed to copy execs file: {copy_exc}")
         return None
 
 # Main loop: apply exec->file and remove unused imports, with stuck-detection
@@ -8068,7 +7776,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                             if state2 not in seen_hashes:
                                 new_path = get_unique_output_path(
                                     Path(python_deobfuscated_dir),
-                                    Path(f"{base_name[:8]}_d{depth}_m.py")
+                                    f"{base_name[:8]}_d{depth}_m.py"
                                 )
                                 new_path.write_text(extracted_src, encoding="utf-8")
                                 logger.info(f"[MARSHAL] Extracted and wrote: {new_path}")
@@ -8143,7 +7851,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                 else:
                     logger.debug("[CLEAN_SYNTAX] Skipping clean_syntax (already cleaned)")
 
-                # Stage 4: Sandbox simulation
+                # Stage 4: Direct processing (no sandbox)
                 try:
                     # Re-read the on-disk content (post-clean or post-AST)
                     disk_text = candidate_path.read_text(encoding="utf-8", errors="replace")
@@ -8160,48 +7868,41 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         )
                         return final_candidate
 
-                    # Otherwise, still needs sandbox (either offloaded or exec remains)
-                    if pyinstaller_archive and Path(pyinstaller_archive).is_dir() and pyz_version_match:
-                        sandbox_copy = Path(pyinstaller_archive) / candidate_path.name
-                        shutil.copy(candidate_path, sandbox_copy)
-                    else:
-                        sandbox_copy = candidate_path
+                    # Otherwise, treat candidate file itself as the processed result
+                    result = disk_text
+                    result_hash = compute_md5_via_text(result)
 
-                    output_path = sandbox_deobfuscate_file(sandbox_copy)
-                    if output_path and output_path.exists() and output_path.stat().st_size > 0:
-                        result = output_path.read_text(encoding="utf-8", errors="replace")
-                        result_hash = compute_md5_via_text(result)
+                    logger.info(f"Processed candidate: {candidate_path}")
 
-                        logger.info(f"[SANDBOX] Produced sandbox output: {output_path}")
+                    # After processing, queue as new "original" (offloaded=False)
+                    next_queue.append((depth + 1, "original", False, False, candidate_path))
+                    seen_hashes.add(("direct", False, False, result_hash))
 
-                        # After sandbox, queue as new "original" (offloaded=False)
-                        next_queue.append((depth + 1, "original", False, False, output_path))
-                        seen_hashes.add(("sandbox", False, False, result_hash))
+                    # If result is clean, prune and save final
+                    if not contains_exec_calls(result) and "eval" not in result:
+                        final_candidate = get_unique_output_path(
+                            Path(python_deobfuscated_dir),
+                            f"{base_name[:8]}_final.py"
+                        )
+                        prune_ifs_and_write(final_candidate, result)
+                        logger.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
+                        return final_candidate
 
-                        # If sandbox result is truly clean, prune and save final
-                        if not contains_exec_calls(result) and "eval" not in result:
-                            final_candidate = get_unique_output_path(
-                                Path(python_deobfuscated_dir),
-                                f"{base_name[:8]}_final.py"
-                            )
-                            prune_ifs_and_write(final_candidate, result)
-                            logger.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
-                            return final_candidate
-
-                        continue
-                    else:
-                        logger.error(f"[SANDBOX] No output for {candidate_path}; dropping it")
-                        seen_hashes.add(("sandbox", False, False, content_hash))
-                        continue
+                    continue
 
                 except Exception as e:
-                    logger.error(f"[SANDBOX] Failed on {candidate_path}: {e}")
-                    seen_hashes.add(("sandbox", False, False, content_hash))
+                    logger.error(f"Stage4 failed on {candidate_path}: {e}")
+                    # mark the content as seen to avoid retrying
+                    seen_hashes.add(("direct", False, False, content_hash))
                     continue
 
             except Exception as e:
-                logger.error(f"[ERROR] While processing {candidate_path}: {e}")
-                seen_hashes.add((stage_tag, cleaned, offloaded, compute_md5_via_text(candidate_path.read_text(encoding="utf-8", errors="replace"))))
+                logger.error(f"While processing {candidate_path}: {e}")
+                try:
+                    bad_hash = compute_md5_via_text(candidate_path.read_text(encoding="utf-8", errors="replace"))
+                    seen_hashes.add((stage_tag, cleaned, offloaded, bad_hash))
+                except Exception:
+                    pass
                 continue
 
         processing_queue = next_queue
@@ -8330,7 +8031,7 @@ def process_decompiled_code(output_file):
             logger.info(f"[*] Detected PyArmor-protected file ({pa_reason}). Treating as PyArmor v7.")
 
             # Run sandbox unpacking and get list of unpacked files
-            unpacked_files = process_pyarmor7_in_sandbox(output_file)
+            unpacked_files = process_pyarmor7(output_file)
 
             if unpacked_files:
                 for extracted_file in unpacked_files:
@@ -8536,95 +8237,6 @@ def decompile_dotnet_file(file_path):
 
     except Exception as ex:
         logger.error(f"Error decompiling .NET file {file_path}: {ex}")
-
-def run_capa_analysis(file_path):
-    """
-    Runs CAPA analysis on a file using capa.exe and saves results.
-
-    :param file_path: Path to the file to analyze
-    :return: Path to the text results file or None if failed
-    """
-    try:
-        logger.info(f"Running CAPA analysis on: {file_path}")
-
-        # Create a unique numbered subdirectory under capa_results_dir
-        folder_number = 1
-        while os.path.exists(os.path.join(capa_results_dir, str(folder_number))):
-            folder_number += 1
-        capa_output_dir = os.path.join(capa_results_dir, str(folder_number))
-        os.makedirs(capa_output_dir, exist_ok=True)
-
-        # Generate output file name
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        txt_output_file = os.path.join(capa_output_dir, f"{base_name}_capa_results.txt")
-
-        # Run CAPA analysis command for human-readable text output
-        capa_command = [
-            "capa.exe",
-            "-s", capa_rules_dir,  # Use the signatures (rules) directory
-            "-r", capa_rules_dir,  # Use the rules directory
-            "-v",                  # Verbose output for more details
-            file_path
-        ]
-
-        # Execute CAPA and capture output
-        result = subprocess.run(
-            capa_command,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8'
-        )
-
-        # Save text results
-        with open(txt_output_file, "w", encoding="utf-8") as f:
-            f.write(result.stdout)
-
-        logger.info(f"CAPA text results saved to: {txt_output_file}")
-        logger.info(f"CAPA analysis completed successfully for {file_path}")
-        return txt_output_file
-
-    except subprocess.CalledProcessError as ex:
-        logger.error(f"CAPA analysis failed for {file_path}: {ex}")
-        logger.error(f"CAPA stderr: {ex.stderr}")
-
-        # Save error information
-        if 'capa_output_dir' in locals():
-            error_file = os.path.join(capa_output_dir, f"{base_name}_capa_error.txt")
-            with open(error_file, "w", encoding="utf-8") as f:
-                f.write(f"CAPA Error for {file_path}\n")
-                f.write(f"Return code: {ex.returncode}\n")
-                f.write(f"STDOUT:\n{ex.stdout}\n")
-                f.write(f"STDERR:\n{ex.stderr}\n")
-            logger.info(f"Error details saved to: {error_file}")
-
-        return None
-
-    except Exception as ex:
-        logger.error(f"Error running CAPA analysis on {file_path}: {ex}")
-        return None
-
-def analyze_file_with_capa(file_path):
-    """
-    Wrapper function that runs CAPA analysis and returns JSON file path.
-
-    :param file_path: Path to the file to analyze
-    :return: Path to JSON results file or None if failed
-    """
-    try:
-        # Run CAPA analysis
-        capa_file_path = run_capa_analysis(file_path)
-
-        if not capa_file_path:
-            logger.info(f"No CAPA results obtained for {file_path}")
-            return None
-
-        logger.info(f"CAPA analysis completed for {file_path}, results: {capa_file_path}")
-        return capa_file_path
-
-    except Exception as ex:
-        logger.error(f"Error processing CAPA results for {file_path}: {ex}")
-        return None
 
 def extract_npm_file(file_path):
     """
@@ -10017,52 +9629,6 @@ def copy_from_shadow(shadow_root, rel_path, dest_path):
         logger.error(f"Failed to copy from shadow: {e}")
         return False
 
-def _copy_to_dest(file_path, dest_root):
-    """
-    Copy file_path into dest_root, preserving the original directory structure.
-    Returns the copied-destination path on success, or None on failure.
-    Uses Volume Shadow Copy on Windows to handle locked files.
-    """
-    if not os.path.exists(file_path):
-        logger.error(f"Source does not exist: {file_path}")
-        return None
-
-    if file_path.startswith(sandboxie_folder):
-        # File is in sandboxie, preserve structure relative to sandboxie folder
-        rel_path = os.path.relpath(file_path, sandboxie_folder)
-        dest_path = os.path.join(dest_root, rel_path)
-    else:
-        # File is not in sandboxie, create under main file folder
-        file_name = os.path.basename(file_path)
-        dest_path = os.path.join(dest_root, file_name)
-
-    # Create destination directory structure
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-
-    # Try normal copy first
-    try:
-        shutil.copy2(file_path, dest_path)
-        logger.info(f"Copied '{file_path}' to '{dest_path}'")
-        return dest_path
-    except Exception as e:
-        logger.error(f"Normal copy failed ({e}), attempting shadow copy")
-
-    # Fallback: shadow copy
-    drive = os.path.splitdrive(file_path)[0]  # e.g. "C:"
-    shadow_root = create_shadow_copy(drive)
-    if shadow_root:
-        if file_path.startswith(sandboxie_folder):
-            shadow_rel_path = os.path.relpath(file_path, sandboxie_folder)
-        else:
-            shadow_rel_path = os.path.basename(file_path)
-
-        if copy_from_shadow(shadow_root, shadow_rel_path, dest_path):
-            logger.info(f"Copied from shadow '{file_path}' to '{dest_path}'")
-            return dest_path
-
-    logger.error(f"All copy methods failed for: {file_path}")
-    return None
-
 def decompile_cx_freeze(executable_path):
     """
     Extracts <exe_name>__main__.pyc from a cx_Freeze library.zip using pyzipper,
@@ -10183,7 +9749,7 @@ def show_code_with_pylingual_pycdas(
 
 def run_themida_unlicense(file_path, x64=False):
     """
-    Runs Themida/WinLicense unpacker inside Sandboxie.
+    Runs Themida/WinLicense unpacker directly (no Sandboxie).
     Uses unlicense.exe (x86) or unlicense-x64.exe (x64) based on arch.
     The unpacker creates a new file with 'unpacked_' prefix in the same directory,
     which we then move into themida_unpacked_dir for consistency.
@@ -10198,19 +9764,11 @@ def run_themida_unlicense(file_path, x64=False):
         logger.error(f"Unpacker not found: {unpacker}")
         return None
 
-    # build Sandboxie command
-    HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
-    cmd = [
-        HydraDragonAntivirus_sandboxie_path,
-        f"/box:{sandboxie_box}",
-        "/elevate",
-        unpacker,
-        file_path
-    ]
+    cmd = [unpacker, file_path]
 
     try:
-        subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logger.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
+        subprocess.run(cmd, check=True)
+        logger.info(f"Unlicense unpacking succeeded for {file_path}")
 
         # Expected unpacked file in same directory
         unpacked_path = os.path.join(
@@ -10239,7 +9797,7 @@ def run_themida_unlicense(file_path, x64=False):
             return None
 
     except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
+        logger.error(f"Failed to run unlicense on {file_path}: {ex}")
         return None
 
 
@@ -10805,22 +10363,6 @@ class OLE2Handler:
 
         return iocs
 
-@dataclass
-class ScanFlags:
-    mega_optimization_with_anti_false_positive: bool
-    command_flag: bool
-    flag_debloat: bool
-    flag_obfuscar: bool
-    flag_de4dot: bool
-    flag_fernflower: bool
-    nsis_flag: bool
-    flag_confuserex: bool
-    flag_vmprotect: bool
-
-def run_scan_thread(dest: str, scan_flags: ScanFlags):
-    """Start a scan_and_warn thread with flags packed in ScanFlags."""
-    threading.Thread(target=scan_and_warn, args=(dest, scan_flags)).start()
-
 def nexe_unpacker(file_path) -> list:
     """
     Unpacks a nexe executable and extracts the embedded JavaScript bundle.
@@ -10884,11 +10426,9 @@ def scan_and_warn(file_path,
     """
     try:
         # Initialize variables
-        perform_special_scan = False
         is_decompiled = False
         pe_file = False
         signature_check = {
-            "has_microsoft_signature": False,
             "is_valid": False,
             "signature_status_issues": False
         }
@@ -10933,36 +10473,6 @@ def scan_and_warn(file_path,
         # SNAPSHOT the cache entry _once_ up front:
         initial_md5_in_cache = file_md5_cache.get(norm_path)
 
-        normalized_path = norm_path.lower()
-
-        # Create one flags object up front
-        scan_flags = ScanFlags(
-            mega_optimization_with_anti_false_positive,
-            command_flag,
-            flag_debloat,
-            flag_obfuscar,
-            flag_de4dot,
-            flag_fernflower,
-            nsis_flag,
-            flag_confuserex,
-            flag_vmprotect
-        )
-
-        # --- Route files based on origin folder ---
-        if normalized_path.startswith(normalized_de4dot):
-            perform_special_scan = True
-            dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
-            if dest is not None:
-                run_scan_thread(dest, scan_flags)
-
-        elif normalized_path.startswith(normalized_sandbox):
-            perform_special_scan = True
-            dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
-            if dest is not None:
-                run_scan_thread(dest, scan_flags)
-
-        # 1) Is this the first time we've seen this path?
-        is_first_pass = norm_path not in file_md5_cache
         file_name = os.path.basename(norm_path)
 
         # ========== CRITICAL PATH - NO THREADING (affects return behavior) ==========
@@ -11090,7 +10600,6 @@ def scan_and_warn(file_path,
                                 f.write(unpacked_data)
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-                            already_vmprotect_unpacked = True
 
                             threading.Thread(target=scan_and_warn, args=(unpacked_path,), kwargs={"flag_vmprotect": True}).start()
 
@@ -11321,16 +10830,13 @@ def scan_and_warn(file_path,
                 else:
                     input_dir = norm_path
 
-                normalized_input = os.path.abspath(input_dir).lower()
+                if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
+                    de4dot_thread = threading.Thread(target=run_de4dot, args=(input_dir,))
+                    de4dot_thread.start()
 
-                if normalized_input.startswith(normalized_sandbox):
-                    if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
-                        de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
-                        de4dot_thread.start()
-
-                        if "Probably No Protector" in dotnet_result or "Already Deobfuscated" in dotnet_result:
-                            dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
-                            dotnet_thread.start()
+                    if "Probably No Protector" in dotnet_result or "Already Deobfuscated" in dotnet_result:
+                        dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
+                        dotnet_thread.start()
 
                 with thread_lock:
                     thread_results['dotnet_result'] = dotnet_result
@@ -11518,38 +11024,13 @@ def scan_and_warn(file_path,
             # Wait for signature check to complete (needed for PE logic)
             signature_thread.join()
             signature_check = thread_results.get('signature_check', {
-                "has_microsoft_signature": False,
                 "is_valid": False,
                 "signature_status_issues": False
             })
 
-            # CRITICAL: Early returns for valid signatures - NO THREADING
-            if signature_check["has_microsoft_signature"]:
-                logger.info(f"Valid Microsoft signature detected for file: {norm_path}")
-                return False
-
-            if signature_check.get("valid_goodsign_signatures"):
-                logger.info(f"Valid good signature(s) detected for file: {norm_path}")
-                return False
-
-            # Handle signature validation
-            if signature_check["is_valid"]:
-                logger.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
-            elif signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
+            if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                 threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature")).start()
-
-            # PE-specific threaded operations
-            def capa_analysis_thread():
-                try:
-                    capa_analysis_results = analyze_file_with_capa(norm_path)
-                    if capa_analysis_results:
-                        threading.Thread(target=scan_file_with_meta_llama,
-                                       args=(capa_analysis_results,),
-                                       kwargs={"capa_flag": True}).start()
-                        threading.Thread(target=scan_and_warn, args=(capa_analysis_results,)).start()
-                except Exception as e:
-                    logger.error(f"Error in CAPA analysis for {norm_path}: {e}")
 
             def scr_detection_thread():
                 try:
@@ -11626,7 +11107,6 @@ def scan_and_warn(file_path,
 
             # Start PE processing threads
             pe_threads = [
-                threading.Thread(target=capa_analysis_thread),
                 threading.Thread(target=scr_detection_thread),
                 threading.Thread(target=decompile_thread),
                 threading.Thread(target=pe_section_thread),
@@ -11828,7 +11308,6 @@ def scan_and_warn(file_path,
 
             # Wait for file reading to complete
             file_read_thread.join()
-            lines = thread_results['file_lines']
 
         # If file is a .js file, deobfuscate it first
         if norm_path.lower().endswith(".js"):
@@ -11874,52 +11353,6 @@ def scan_and_warn(file_path,
             if norm_path.startswith(decompiled_dir):
                 logger.info(f"File {norm_path} is in decompiled_dir.")
                 is_decompiled = True
-
-            # Meta Llama scanning for text files (threaded)
-            def meta_llama_text_thread():
-                try:
-                    source_dirs = [
-                        Path(decompiled_dir).resolve(),
-                        Path(FernFlower_decompiled_dir).resolve(),
-                        Path(dotnet_dir).resolve(),
-                        Path(nuitka_source_code_dir).resolve(),
-                    ]
-
-                    norm_path_resolved = Path(norm_path).resolve()
-                    ext = norm_path_resolved.suffix.lower()
-
-                    if meta_llama_1b_model and meta_llama_1b_tokenizer:
-                        if ext in script_exts:
-                            threading.Thread(target=scan_file_with_meta_llama, args=(norm_path,)).start()
-                        else:
-                            for src in source_dirs:
-                                try:
-                                    norm_path_resolved.relative_to(src)
-                                except ValueError:
-                                    continue
-                                else:
-                                    threading.Thread(target=scan_file_with_meta_llama, args=(norm_path,)).start()
-                                    break
-                except Exception as e:
-                    logger.error(f"Error in Meta Llama text processing for {norm_path}: {e}")
-
-            # Real-time malware detection for command flag (threaded)
-            def command_flag_thread():
-                try:
-                    if command_flag:
-                        logger.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
-                        monitor_message.detect_malware(norm_path)
-                except Exception as e:
-                    logger.error(f"Error in command flag processing for {norm_path}: {e}")
-
-            # Start text processing threads
-            text_threads = [
-                threading.Thread(target=meta_llama_text_thread),
-                threading.Thread(target=command_flag_thread)
-            ]
-
-            for thread in text_threads:
-                thread.start()
 
         # ========== COMMON PROCESSING FOR ALL FILES ==========
         # Fake size check thread (heavy I/O for large files)
@@ -12046,25 +11479,210 @@ def scan_and_warn(file_path,
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
-
-def remove_log_file(json_file_path: str):
-    """
-    Removes the specified log file if it exists.
-
-    Args:
-        json_file_path (str): The path to the av_events.json file to be removed.
-    """
-    logger.info("Owlyshield has stopped. Cleaning up event file.")
+def _normalize_path_for_compare(p: str) -> str:
+    """Return a normalized lower-case absolute path for reliable comparison."""
     try:
-        if os.path.exists(json_file_path):
-            os.remove(json_file_path)
-            logger.info(f"Successfully removed log file: {json_file_path}")
-        else:
-            logger.error(f"Log file not found, nothing to remove: {json_file_path}")
-    except OSError as e:
-        logger.error(f"Error removing file {json_file_path}: {e}")
+        abs_p = os.path.abspath(p)
+    except Exception:
+        abs_p = p
+    # normcase will lower-case on Windows and normalize slashes
+    return os.path.normcase(os.path.normpath(abs_p))
+
+def _path_is_under(prefix: str, candidate: str) -> bool:
+    """Return True if candidate is the same as or is under prefix."""
+    prefix_n = _normalize_path_for_compare(prefix)
+    candidate_n = _normalize_path_for_compare(candidate)
+    if candidate_n == prefix_n:
+        return True
+    # Ensure we only treat a true ancestor as match (avoid partial-name matches)
+    return candidate_n.startswith(prefix_n + os.sep)
+
+def _contains_hydradragon_ancestor(path: str) -> bool:
+    """Return True if any ancestor directory is named 'HydraDragonAntivirus' (case-insensitive)."""
+    try:
+        parts = Path(path).parts
+    except Exception:
+        parts = _normalize_path_for_compare(path).split(os.sep)
+    for part in parts:
+        if part.lower() == "hydradragonantivirus":
+            return True
+    return False
+
+# Constant special item ID list value for desktop folder
+CSIDL_DESKTOPDIRECTORY = 0x0010
+
+# Flag for SHGetFolderPath
+SHGFP_TYPE_CURRENT = 0
+
+# Convenient shorthand for this function
+SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
+
+def _get_folder_path(csidl):
+    """Get the path of a folder identified by a CSIDL value."""
+    # Create a buffer to hold the return value from SHGetFolderPathW
+    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+
+    # Return the path as a string
+    SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
+    return str(buf.value)
+
+
+def get_desktop():
+    """Return the current user's Desktop folder."""
+    return _get_folder_path(CSIDL_DESKTOPDIRECTORY)
+
+def _is_protected_path(candidate_path: str) -> bool:
+    """Return True if candidate_path is within a protected/special folder we should NOT scan."""
+    candidate = _normalize_path_for_compare(candidate_path)
+
+    # Program Files HydraDragonAntivirus (look up PROGRAMFILES env)
+    program_files = os.environ.get("PROGRAMFILES") or r"C:\Program Files"
+    pf_hda = os.path.join(program_files, "HydraDragonAntivirus")
+    if _path_is_under(pf_hda, candidate):
+        return True
+
+    # %APPDATA%\Sanctum
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        app_sanctum = os.path.join(appdata, "Sanctum")
+        if _path_is_under(app_sanctum, candidate):
+            return True
+
+    # Desktop\Sanctum
+    try:
+        desktop = get_desktop()
+    except Exception:
+        desktop = None
+    if desktop:
+        desktop_sanctum = os.path.join(desktop, "Sanctum")
+        if _path_is_under(desktop_sanctum, candidate):
+            return True
+
+    # Also skip if any ancestor folder is named HydraDragonAntivirus
+    if _contains_hydradragon_ancestor(candidate):
+        return True
+
+    return False
+
+
+class LogFileEventHandler(FileSystemEventHandler):
+    """Watches one JSON log file and reacts to changes — but skips protected paths."""
+
+    def __init__(self, target_file_path: str, *, read_lines=50):
+        super().__init__()
+        self.target_file = _normalize_path_for_compare(target_file_path)
+        self.read_lines = read_lines
+
+    def _should_process(self, src_path: str) -> bool:
+        src_norm = _normalize_path_for_compare(src_path)
+        # Only act on the exact target file (ignore other files in directory).
+        if src_norm != self.target_file:
+            return False
+        # Skip protected directories
+        if _is_protected_path(src_norm):
+            logger.info(f"Skipping scan for protected path: {src_path}")
+            return False
+        return True
+
+    def _process_file(self):
+        """Do the minimal safe processing when the file changes.
+        This reads the file (thread-locked) and attempts to parse JSON. If parsing fails,
+        we fall back to reading the last N lines so the caller can decide what to do.
+        """
+        with thread_lock:
+            try:
+                with open(self.target_file, "r", encoding="utf-8", errors="replace") as fh:
+                    data = fh.read()
+            except Exception as e:
+                logger.error(f"Failed to read monitored log file {self.target_file}: {e}")
+                return
+
+        # Try to parse as JSON object/array first.
+        try:
+            parsed = json.loads(data)
+            logger.debug(f"Log file parsed as JSON (type={type(parsed).__name__}) for {self.target_file}")
+            # If you have a handler that consumes parsed JSON, call it here:
+            if "handle_parsed_log_json" in globals() and callable(globals()["handle_parsed_log_json"]):
+                try:
+                    globals()["handle_parsed_log_json"](parsed, self.target_file)
+                except Exception as e:
+                    logger.exception(f"handle_parsed_log_json failed: {e}")
+            return
+        except Exception:
+            # Not a top-level JSON document — try newline-delimited JSON or fallback
+            lines = data.splitlines()
+            tail = lines[-self.read_lines :] if len(lines) > 0 else []
+            logger.debug(f"Read {len(lines)} lines from log; delivering last {len(tail)} lines for {self.target_file}")
+            if "handle_log_lines" in globals() and callable(globals()["handle_log_lines"]):
+                try:
+                    globals()["handle_log_lines"](tail, self.target_file)
+                except Exception as e:
+                    logger.exception(f"handle_log_lines failed: {e}")
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        try:
+            if self._should_process(event.src_path):
+                self._process_file()
+        except Exception as e:
+            logger.exception(f"Error handling modification event for {event.src_path}: {e}")
+
+    def on_created(self, event):
+        # Treat created same as modified for monitoring purposes
+        if event.is_directory:
+            return
+        try:
+            if self._should_process(event.src_path):
+                self._process_file()
+        except Exception as e:
+            logger.exception(f"Error handling creation event for {event.src_path}: {e}")
+
+
+def monitor_log_file(json_file_path: str):
+    """
+    Monitors a JSON log file for new entries using filesystem events.
+    Skips scanning if the file is in protected locations (Program Files\\HydraDragonAntivirus,
+    %APPDATA%\\Sanctum, or Desktop\\Sanctum) or if an ancestor folder is named HydraDragonAntivirus.
+    """
+    logger.info(f"Starting to monitor log file: {json_file_path}")
+
+    # Ensure the file and its directory exist before starting the observer.
+    log_dir = os.path.dirname(os.path.abspath(json_file_path))
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+        logger.info(f"Created directory: {log_dir}")
+
+    if not os.path.exists(json_file_path):
+        # create an empty file so the observer has something to watch (and handlers can open it)
+        with open(json_file_path, "w", encoding="utf-8"):
+            pass
+        logger.info(f"Log file not found. Created an empty file at: {json_file_path}")
+
+    # If the target file path itself is in a protected location, do not start monitoring it at all.
+    if _is_protected_path(json_file_path):
+        logger.info(f"Not monitoring {json_file_path} because it is inside a protected location.")
+        return
+
+    event_handler = LogFileEventHandler(json_file_path)
+    observer = Observer()
+    # We watch the directory containing the file, not the file itself.
+    observer.schedule(event_handler, log_dir, recursive=False)
+
+    logger.info(f"Observer started. Watching directory: '{log_dir}' for file '{json_file_path}'")
+    observer.start()
+
+    try:
+        # keep the main thread alive (sleep a bit to avoid busy-loop)
+        while True:
+            time.sleep(0.005)
+    except KeyboardInterrupt:
+        observer.stop()
+        logger.info("Observer stopped by user.")
     except Exception as e:
-        logger.error(f"An unexpected error occurred during file removal: {e}")
+        logger.exception(f"Observer encountered an error: {e}")
+        observer.stop()
+    observer.join()
 
 def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
@@ -12192,9 +11810,6 @@ class ProcessInfo:
     name: str
     exe_path: str
     rss: int
-    is_in_sandbox: bool
-    is_main_file: bool
-
 
 class SafeProcessMonitor:
     """Thread-safe process monitor with proper resource management"""
@@ -12278,8 +11893,6 @@ class SafeProcessMonitor:
                 name=name,
                 exe_path=exe_path,
                 rss=rss,
-                is_in_sandbox=is_in_sandbox,
-                is_main_file=is_main_file
             )
 
         except Exception as e:
@@ -12537,7 +12150,6 @@ def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
     # Get environment paths
     user_profile = os.environ.get('USERPROFILE', '')
-    appdata_roaming = os.environ.get('APPDATA', '')
     programdata = os.environ.get('PROGRAMDATA', '')
     
     # Define the paths to check
@@ -12788,8 +12400,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         analysis_threads = []
         thread_function_map = {}
 
-        main_dest = _copy_to_dest(file_path, copied_sandbox_and_main_files_dir)
-
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
 
@@ -12817,12 +12427,12 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             return stop_flag.is_set()
 
         threads_to_start = [
-            (scan_and_warn, (main_dest,)),
             (monitor_memory_changes, (), {'change_threshold_bytes': 1024, 'stop_callback': stop_callback}),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
             (check_startup_directories,),
             (monitor_hosts_file,),
+            (monitor_log_file, (av_events_json_file_path,)),
         ]
 
         for thread_info in threads_to_start:
@@ -12835,8 +12445,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
 
             thread = create_monitored_thread(target_func, *args)
             thread.start()
-
-        logger.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
         # Instead of blocking loop, use a monitoring thread
         def monitor_threads():
@@ -12917,35 +12525,9 @@ def run_analysis_with_yield(file_path: str, stop_callback=None):
         yield_stop_event.set()
         yield_thread.join(timeout=1.0)  # Wait max 1 second for thread to finish
 
-def run_anti_self_delete_check():
-    # normalize main_file_path (assumes main_file_path variable exists)
-    mp = Path(main_file_path)
-
-    # report file
-    report_path = Path("main_file_path_report.txt")
-
-    # Line 1: existence check label
-    line1 = f"Checking existence of: {mp}"
-
-    # Existence boolean
-    exists = mp.exists()
-
-    # Line 2: minimal details with timestamp and existence status
-    checked_at = datetime.now().isoformat()
-    line2 = f"Anti-Self-Delete details: Checked at: {checked_at} - Exists: {'Yes' if exists else 'No'}"
-
-    # Write the two-line report
-    try:
-        with report_path.open("w", encoding="utf-8", errors="ignore") as fh:
-            fh.write(line1 + "\n")
-            fh.write(line2 + "\n")
-        logger.info("Main-file existence report written.")
-    except Exception as e:
-        logger.error(f"Failed to write report file: {e}")
-
-def run_de4dot_in_sandbox(file_path):
+def run_de4dot(file_path):
     """
-    Runs de4dot inside Sandboxie to avoid contaminating the host.
+    Runs de4dot inside host.
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
@@ -12958,9 +12540,6 @@ def run_de4dot_in_sandbox(file_path):
 
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
-        sandboxie_path,
-        f"/box:{sandboxie_box}",
-        "/elevate",
         de4dot_cex_x64_path,
         "-r",
         input_dir,

@@ -6549,6 +6549,49 @@ files = [
 colorama = {version = ">=0.4.6", markers = "sys_platform == \"win32\" and python_version >= \"3.7\""}
 
 [[package]]
+name = "watchdog"
+version = "6.0.0"
+description = "Filesystem events monitoring"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "watchdog-6.0.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:d1cdb490583ebd691c012b3d6dae011000fe42edb7a82ece80965b42abd61f26"},
+    {file = "watchdog-6.0.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:bc64ab3bdb6a04d69d4023b29422170b74681784ffb9463ed4870cf2f3e66112"},
+    {file = "watchdog-6.0.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:c897ac1b55c5a1461e16dae288d22bb2e412ba9807df8397a635d88f671d36c3"},
+    {file = "watchdog-6.0.0-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:6eb11feb5a0d452ee41f824e271ca311a09e250441c262ca2fd7ebcf2461a06c"},
+    {file = "watchdog-6.0.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:ef810fbf7b781a5a593894e4f439773830bdecb885e6880d957d5b9382a960d2"},
+    {file = "watchdog-6.0.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:afd0fe1b2270917c5e23c2a65ce50c2a4abb63daafb0d419fde368e272a76b7c"},
+    {file = "watchdog-6.0.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:bdd4e6f14b8b18c334febb9c4425a878a2ac20efd1e0b231978e7b150f92a948"},
+    {file = "watchdog-6.0.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:c7c15dda13c4eb00d6fb6fc508b3c0ed88b9d5d374056b239c4ad1611125c860"},
+    {file = "watchdog-6.0.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:6f10cb2d5902447c7d0da897e2c6768bca89174d0c6e1e30abec5421af97a5b0"},
+    {file = "watchdog-6.0.0-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:490ab2ef84f11129844c23fb14ecf30ef3d8a6abafd3754a6f75ca1e6654136c"},
+    {file = "watchdog-6.0.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:76aae96b00ae814b181bb25b1b98076d5fc84e8a53cd8885a318b42b6d3a5134"},
+    {file = "watchdog-6.0.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:a175f755fc2279e0b7312c0035d52e27211a5bc39719dd529625b1930917345b"},
+    {file = "watchdog-6.0.0-cp39-cp39-macosx_10_9_universal2.whl", hash = "sha256:e6f0e77c9417e7cd62af82529b10563db3423625c5fce018430b249bf977f9e8"},
+    {file = "watchdog-6.0.0-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:90c8e78f3b94014f7aaae121e6b909674df5b46ec24d6bebc45c44c56729af2a"},
+    {file = "watchdog-6.0.0-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:e7631a77ffb1f7d2eefa4445ebbee491c720a5661ddf6df3498ebecae5ed375c"},
+    {file = "watchdog-6.0.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:c7ac31a19f4545dd92fc25d200694098f42c9a8e391bc00bdd362c5736dbf881"},
+    {file = "watchdog-6.0.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:9513f27a1a582d9808cf21a07dae516f0fab1cf2d7683a742c498b93eedabb11"},
+    {file = "watchdog-6.0.0-pp39-pypy39_pp73-macosx_10_15_x86_64.whl", hash = "sha256:7a0e56874cfbc4b9b05c60c8a1926fedf56324bb08cfbc188969777940aef3aa"},
+    {file = "watchdog-6.0.0-pp39-pypy39_pp73-macosx_11_0_arm64.whl", hash = "sha256:e6439e374fc012255b4ec786ae3c4bc838cd7309a540e5fe0952d03687d8804e"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:7607498efa04a3542ae3e05e64da8202e58159aa1fa4acddf7678d34a35d4f13"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_armv7l.whl", hash = "sha256:9041567ee8953024c83343288ccc458fd0a2d811d6a0fd68c4c22609e3490379"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_i686.whl", hash = "sha256:82dc3e3143c7e38ec49d61af98d6558288c415eac98486a5c581726e0737c00e"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_ppc64.whl", hash = "sha256:212ac9b8bf1161dc91bd09c048048a95ca3a4c4f5e5d4a7d1b1a7d5752a7f96f"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_ppc64le.whl", hash = "sha256:e3df4cbb9a450c6d49318f6d14f4bbc80d763fa587ba46ec86f99f9e6876bb26"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_s390x.whl", hash = "sha256:2cce7cfc2008eb51feb6aab51251fd79b85d9894e98ba847408f662b3395ca3c"},
+    {file = "watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:20ffe5b202af80ab4266dcd3e91aae72bf2da48c0d33bdb15c66658e685e94e2"},
+    {file = "watchdog-6.0.0-py3-none-win32.whl", hash = "sha256:07df1fdd701c5d4c8e55ef6cf55b8f0120fe1aef7ef39a1c6fc6bc2e606d517a"},
+    {file = "watchdog-6.0.0-py3-none-win_amd64.whl", hash = "sha256:cbafb470cf848d93b5d013e2ecb245d4aa1c8fd0504e863ccefa32445359d680"},
+    {file = "watchdog-6.0.0-py3-none-win_ia64.whl", hash = "sha256:a1914259fa9e1454315171103c6a30961236f508b9b623eae470268bbcc6a22f"},
+    {file = "watchdog-6.0.0.tar.gz", hash = "sha256:9ddf7c82fda3ae8e24decda1338ede66e1c99883db93711d8fb941eaa2d8c282"},
+]
+
+[package.extras]
+watchmedo = ["PyYAML (>=3.10)"]
+
+[[package]]
 name = "wcwidth"
 version = "0.2.13"
 description = "Measures the displayed width of unicode strings in a terminal"
@@ -6965,22 +7008,22 @@ files = [
 
 [[package]]
 name = "yara-x"
-version = "1.6.0"
+version = "1.8.1"
 description = "Python bindings for YARA-X"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "yara_x-1.6.0-cp38-abi3-macosx_14_0_arm64.whl", hash = "sha256:96cda624add5f3720799fc5fac4bb0e68c4b83bda3c5d2f72234de7d9a5d39a2"},
-    {file = "yara_x-1.6.0-cp38-abi3-macosx_14_0_x86_64.whl", hash = "sha256:44fc2ed49d60b3f5a8f7fb2efb02efaf759e2be9ab2345f4ff9e004db8f30e01"},
-    {file = "yara_x-1.6.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:b3a5f1d006ba81ec5593c353168b18f1c52e03b7bbf956ca3926a696171647e2"},
-    {file = "yara_x-1.6.0-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:093999bfbc7a18a9f1abe6e2decbf6def2a228e228973026c61b476604e42b31"},
-    {file = "yara_x-1.6.0-cp38-abi3-win_amd64.whl", hash = "sha256:b0334d2ab12abb1a709c96cdf8114be2412b6dad80ec02e61c99bd045654eee1"},
-    {file = "yara_x-1.6.0-pp310-pypy310_pp73-macosx_14_0_arm64.whl", hash = "sha256:d92d4817047871c2bef4d7c6bde5f7dad88b958893dad78898aba422ac71acdd"},
-    {file = "yara_x-1.6.0-pp310-pypy310_pp73-macosx_14_0_x86_64.whl", hash = "sha256:bc6f9e64baa8d84c951c00fb1161da47e6c61f819f57663c19c312d19801a6d7"},
-    {file = "yara_x-1.6.0-pp310-pypy310_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:9ed8f394e54298ba6116598e2d5bf844e83fe5a84f3d964b839715420f3dd4f7"},
-    {file = "yara_x-1.6.0-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:cbb712cd01be0b301ffe1540d101eb3f04929438ebef9f9d77456e25cedaf9bc"},
-    {file = "yara_x-1.6.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:e3d8b62759db907009ee2b7f3a5041cc0041bdc84600785bd9d3dcde43891544"},
+    {file = "yara_x-1.8.1-cp38-abi3-macosx_14_0_arm64.whl", hash = "sha256:dbb1fd289f24a05c113b8f0713d4750331cb9c39722d212fea108b8aa69c8594"},
+    {file = "yara_x-1.8.1-cp38-abi3-macosx_14_0_x86_64.whl", hash = "sha256:b41f4c4b9326905d584b38cf84d52037eb6864e70154844db4f59672107a5a1a"},
+    {file = "yara_x-1.8.1-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:bcee1686b937fd8d75df3faae354e45c64256561b384bdf97ff79be32770c7a8"},
+    {file = "yara_x-1.8.1-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:c6936ac7a316ce86e78e570bca73724319c2daa33db147974adbe3c8e502f27a"},
+    {file = "yara_x-1.8.1-cp38-abi3-win_amd64.whl", hash = "sha256:25c3e4554ba3428968f1749004efaaf47a111f2ac7db51d08915f66140c7d53d"},
+    {file = "yara_x-1.8.1-pp311-pypy311_pp73-macosx_14_0_arm64.whl", hash = "sha256:3565c776476c71a15cd997463b52578c38b4c20aae538157baf070b83339d7b4"},
+    {file = "yara_x-1.8.1-pp311-pypy311_pp73-macosx_14_0_x86_64.whl", hash = "sha256:b0fb608e107e92fb240cac8229160637c6219fe06811e113aca0cc7a85190e80"},
+    {file = "yara_x-1.8.1-pp311-pypy311_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:4d3ceaf7571b8d6ce6a2e644e3083c4f5656e4726885d98d12b75bbbb23262f7"},
+    {file = "yara_x-1.8.1-pp311-pypy311_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:7f2e42b980e0b4388e633d11c3ac4a7d70d10e3099e008ba3dadf8c6f9a33fb9"},
+    {file = "yara_x-1.8.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:6a31f5f7e17b0231e9b0ef00ca0c91fb6c2a7b21c1973a42c0a459288ed7fd71"},
 ]
 
 [[package]]
@@ -7218,4 +7261,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "1aa7b0cff4a0241e3da0582c46b465e4a7bc144cd26ffe5be3342fe9debf2698"
+content-hash = "8290952d8537081d9c72358f74082e07179885db896337a6a09a6be75b06e581"
