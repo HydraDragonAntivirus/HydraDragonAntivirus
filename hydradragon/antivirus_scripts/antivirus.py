@@ -118,20 +118,18 @@ import psutil
 logger.debug(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from watchdog.observers import Observer
-logger.debug(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from watchdog.events import FileSystemEventHandler
-logger.debug(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import win32service
 logger.debug(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32serviceutil
 logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import win32pipe
+import win32file
+import pywintypes
+logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import wmi
@@ -388,7 +386,6 @@ from .notify_user import (
     notify_user_exela_stealer_v2,
     notify_user_hosts,
     notify_user_for_web,
-    notify_user_for_hips,
     notify_user_for_detected_hips_file,
     notify_user_with_homepage
 )
@@ -452,7 +449,6 @@ hayabusa_dir = os.path.join(script_dir, "hayabusa")
 webcrack_javascript_deobfuscated_dir = os.path.join(script_dir, "webcrack_javascript_deobfuscated")
 pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.5.0-win-x64.exe")
-av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
 network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
@@ -5337,10 +5333,6 @@ def process_alert_data(priority, src_ip, dest_ip):
         if priority == 1:
             logger.critical(
                 f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority} | Threat: {threat_type}")
-            try:
-                notify_user_for_hips(ip_address=src_ip, dst_ip_address=dest_ip)
-            except Exception as ex:
-                logger.error(f"Error notifying user for HIPS (malicious): {ex}")
             convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
             return True
         elif priority == 2:
@@ -11479,211 +11471,6 @@ def scan_and_warn(file_path,
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
-def _normalize_path_for_compare(p: str) -> str:
-    """Return a normalized lower-case absolute path for reliable comparison."""
-    try:
-        abs_p = os.path.abspath(p)
-    except Exception:
-        abs_p = p
-    # normcase will lower-case on Windows and normalize slashes
-    return os.path.normcase(os.path.normpath(abs_p))
-
-def _path_is_under(prefix: str, candidate: str) -> bool:
-    """Return True if candidate is the same as or is under prefix."""
-    prefix_n = _normalize_path_for_compare(prefix)
-    candidate_n = _normalize_path_for_compare(candidate)
-    if candidate_n == prefix_n:
-        return True
-    # Ensure we only treat a true ancestor as match (avoid partial-name matches)
-    return candidate_n.startswith(prefix_n + os.sep)
-
-def _contains_hydradragon_ancestor(path: str) -> bool:
-    """Return True if any ancestor directory is named 'HydraDragonAntivirus' (case-insensitive)."""
-    try:
-        parts = Path(path).parts
-    except Exception:
-        parts = _normalize_path_for_compare(path).split(os.sep)
-    for part in parts:
-        if part.lower() == "hydradragonantivirus":
-            return True
-    return False
-
-# Constant special item ID list value for desktop folder
-CSIDL_DESKTOPDIRECTORY = 0x0010
-
-# Flag for SHGetFolderPath
-SHGFP_TYPE_CURRENT = 0
-
-# Convenient shorthand for this function
-SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
-
-def _get_folder_path(csidl):
-    """Get the path of a folder identified by a CSIDL value."""
-    # Create a buffer to hold the return value from SHGetFolderPathW
-    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
-
-    # Return the path as a string
-    SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
-    return str(buf.value)
-
-
-def get_desktop():
-    """Return the current user's Desktop folder."""
-    return _get_folder_path(CSIDL_DESKTOPDIRECTORY)
-
-def _is_protected_path(candidate_path: str) -> bool:
-    """Return True if candidate_path is within a protected/special folder we should NOT scan."""
-    candidate = _normalize_path_for_compare(candidate_path)
-
-    # Program Files HydraDragonAntivirus (look up PROGRAMFILES env)
-    program_files = os.environ.get("PROGRAMFILES") or r"C:\Program Files"
-    pf_hda = os.path.join(program_files, "HydraDragonAntivirus")
-    if _path_is_under(pf_hda, candidate):
-        return True
-
-    # %APPDATA%\Sanctum
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        app_sanctum = os.path.join(appdata, "Sanctum")
-        if _path_is_under(app_sanctum, candidate):
-            return True
-
-    # Desktop\Sanctum
-    try:
-        desktop = get_desktop()
-    except Exception:
-        desktop = None
-    if desktop:
-        desktop_sanctum = os.path.join(desktop, "Sanctum")
-        if _path_is_under(desktop_sanctum, candidate):
-            return True
-
-    # Also skip if any ancestor folder is named HydraDragonAntivirus
-    if _contains_hydradragon_ancestor(candidate):
-        return True
-
-    return False
-
-
-class LogFileEventHandler(FileSystemEventHandler):
-    """Watches one JSON log file and reacts to changes — but skips protected paths."""
-
-    def __init__(self, target_file_path: str, *, read_lines=50):
-        super().__init__()
-        self.target_file = _normalize_path_for_compare(target_file_path)
-        self.read_lines = read_lines
-
-    def _should_process(self, src_path: str) -> bool:
-        src_norm = _normalize_path_for_compare(src_path)
-        # Only act on the exact target file (ignore other files in directory).
-        if src_norm != self.target_file:
-            return False
-        # Skip protected directories
-        if _is_protected_path(src_norm):
-            logger.info(f"Skipping scan for protected path: {src_path}")
-            return False
-        return True
-
-    def _process_file(self):
-        """Do the minimal safe processing when the file changes.
-        This reads the file (thread-locked) and attempts to parse JSON. If parsing fails,
-        we fall back to reading the last N lines so the caller can decide what to do.
-        """
-        with thread_lock:
-            try:
-                with open(self.target_file, "r", encoding="utf-8", errors="replace") as fh:
-                    data = fh.read()
-            except Exception as e:
-                logger.error(f"Failed to read monitored log file {self.target_file}: {e}")
-                return
-
-        # Try to parse as JSON object/array first.
-        try:
-            parsed = json.loads(data)
-            logger.debug(f"Log file parsed as JSON (type={type(parsed).__name__}) for {self.target_file}")
-            # If you have a handler that consumes parsed JSON, call it here:
-            if "handle_parsed_log_json" in globals() and callable(globals()["handle_parsed_log_json"]):
-                try:
-                    globals()["handle_parsed_log_json"](parsed, self.target_file)
-                except Exception as e:
-                    logger.exception(f"handle_parsed_log_json failed: {e}")
-            return
-        except Exception:
-            # Not a top-level JSON document — try newline-delimited JSON or fallback
-            lines = data.splitlines()
-            tail = lines[-self.read_lines :] if len(lines) > 0 else []
-            logger.debug(f"Read {len(lines)} lines from log; delivering last {len(tail)} lines for {self.target_file}")
-            if "handle_log_lines" in globals() and callable(globals()["handle_log_lines"]):
-                try:
-                    globals()["handle_log_lines"](tail, self.target_file)
-                except Exception as e:
-                    logger.exception(f"handle_log_lines failed: {e}")
-
-    def on_modified(self, event):
-        if event.is_directory:
-            return
-        try:
-            if self._should_process(event.src_path):
-                self._process_file()
-        except Exception as e:
-            logger.exception(f"Error handling modification event for {event.src_path}: {e}")
-
-    def on_created(self, event):
-        # Treat created same as modified for monitoring purposes
-        if event.is_directory:
-            return
-        try:
-            if self._should_process(event.src_path):
-                self._process_file()
-        except Exception as e:
-            logger.exception(f"Error handling creation event for {event.src_path}: {e}")
-
-
-def monitor_log_file(json_file_path: str):
-    """
-    Monitors a JSON log file for new entries using filesystem events.
-    Skips scanning if the file is in protected locations (Program Files\\HydraDragonAntivirus,
-    %APPDATA%\\Sanctum, or Desktop\\Sanctum) or if an ancestor folder is named HydraDragonAntivirus.
-    """
-    logger.info(f"Starting to monitor log file: {json_file_path}")
-
-    # Ensure the file and its directory exist before starting the observer.
-    log_dir = os.path.dirname(os.path.abspath(json_file_path))
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir, exist_ok=True)
-        logger.info(f"Created directory: {log_dir}")
-
-    if not os.path.exists(json_file_path):
-        # create an empty file so the observer has something to watch (and handlers can open it)
-        with open(json_file_path, "w", encoding="utf-8"):
-            pass
-        logger.info(f"Log file not found. Created an empty file at: {json_file_path}")
-
-    # If the target file path itself is in a protected location, do not start monitoring it at all.
-    if _is_protected_path(json_file_path):
-        logger.info(f"Not monitoring {json_file_path} because it is inside a protected location.")
-        return
-
-    event_handler = LogFileEventHandler(json_file_path)
-    observer = Observer()
-    # We watch the directory containing the file, not the file itself.
-    observer.schedule(event_handler, log_dir, recursive=False)
-
-    logger.info(f"Observer started. Watching directory: '{log_dir}' for file '{json_file_path}'")
-    observer.start()
-
-    try:
-        # keep the main thread alive (sleep a bit to avoid busy-loop)
-        while True:
-            time.sleep(0.005)
-    except KeyboardInterrupt:
-        observer.stop()
-        logger.info("Observer stopped by user.")
-    except Exception as e:
-        logger.exception(f"Observer encountered an error: {e}")
-        observer.stop()
-    observer.join()
-
 def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     """
     Analyze a specific process by name or path. Uses HydraDragonDumper (Mega Dumper CLI)
@@ -12432,7 +12219,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (web_protection_observer.begin_observing,),
             (check_startup_directories,),
             (monitor_hosts_file,),
-            (monitor_log_file, (av_events_json_file_path,)),
+            (monitor_pipe_events),
         ]
 
         for thread_info in threads_to_start:
