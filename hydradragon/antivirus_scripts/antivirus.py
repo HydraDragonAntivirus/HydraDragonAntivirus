@@ -499,7 +499,6 @@ known_extensions_dir = os.path.join(script_dir, "known_extensions")
 FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
 extensions_path = os.path.join(known_extensions_dir, "extensions.txt")
-antivirus_process_list_path = os.path.join(known_extensions_dir, "antivirus_process_list.txt")
 meta_llama_dir = os.path.join(script_dir, "meta_llama")
 vmprotect_unpacked_dir = os.path.join(script_dir, "vmprotect_unpacked")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
@@ -1160,17 +1159,6 @@ except Exception as ex:
     logger.info(f"Error reading {extensions_path}: {ex}")
 
 logger.info(f"File types read from {extensions_path}: {fileTypes}")
-
-# Read antivirus process list from antivirusprocesslist.txt with try-except.
-antivirus_process_list = []
-try:
-    if os.path.exists(antivirus_process_list_path):
-        with open(antivirus_process_list_path, 'r') as av_file:
-            antivirus_process_list = [line.strip() for line in av_file if line.strip()]
-except Exception as ex:
-    logger.info(f"Error reading {antivirus_process_list_path}: {ex}")
-
-logger.info(f"Antivirus process list read from {antivirus_process_list_path}: {antivirus_process_list}")
 
 pe_file_paths = []  # List to store the PE file paths
 
