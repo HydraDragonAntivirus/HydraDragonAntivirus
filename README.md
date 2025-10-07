@@ -27,7 +27,7 @@ See the [LICENSE](./LICENSE) file for more information.
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
 - **Benign Database:** [Download Link](https://drive.google.com/file/d/12L1s4FC3tGmxhrzi_Q1VTgPy6l7S4Hwe)
-- **Note:** Only contains PE files.
+- **Note:** Only contains PE files and my USB still broken so some Benign Database not exist which I have.
 - **Password:** infected
 
 ## Machine Learning Training Guide
