@@ -3,16 +3,6 @@
 <p align="center">
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
 </p>
-<p align="center">
-<img src="hydradragon/assets/hayabusa.png" width=555px>
-</p>
-<p align="center">
-<img src="hydradragon/assets/Sigma_0.3.png" width=200px>
-</p>
-<p align="center">
-<img src="hydradragon/assets/Owlyshield.png" width=256px>
-</p>
-<p align="center">
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
