@@ -3556,34 +3556,6 @@ def reload_clamav_database():
     except Exception as ex:
         logger.error(f"Failed to reload ClamAV database: {ex}")
 
-def restart_owlyshield_threaded(stop_only=False):
-    """Restart or stop Owlyshield services in a separate thread."""
-    def manage_owlyshield():
-        try:
-            logger.info(f"{'Stopping' if stop_only else 'Restarting'} OwlyshieldRansomFilter service...")
-            if restart_service('OwlyshieldRansomFilter', stop_only=stop_only):
-                logger.info(f"OwlyshieldRansomFilter service {'stopped' if stop_only else 'restarted'} successfully.")
-            else:
-                logger.error(f"OwlyshieldRansomFilter service {'stop' if stop_only else 'restart'} failed.")
-        except Exception as ex:
-            logger.error(f"Exception during OwlyshieldRansomFilter {'stop' if stop_only else 'restart'}: {ex}")
-
-        try:
-            logger.info(f"{'Stopping' if stop_only else 'Restarting'} Owlyshield Service...")
-            if restart_service('Owlyshield Service', stop_only=stop_only):
-                logger.info(f"Owlyshield Service {'stopped' if stop_only else 'restarted'} successfully.")
-            else:
-                logger.error(f"Owlyshield Service {'stop' if stop_only else 'restart'} failed.")
-        except Exception as ex:
-            logger.error(f"Exception during Owlyshield Service {'stop' if stop_only else 'restart'}: {ex}")
-
-    try:
-        thread = threading.Thread(target=manage_owlyshield)
-        thread.start()
-        thread.join()  # Wait for the thread to finish
-    except Exception as ex:
-        logger.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
-
 def scan_file_with_clamav(file_path):
     """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
     try:
@@ -6161,7 +6133,6 @@ def monitor_suricata_log():
                 logger.info(f"Error processing line: {ex}")
 
 reload_clamav_database()
-restart_owlyshield_threaded()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
