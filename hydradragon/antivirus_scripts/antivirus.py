@@ -1723,10 +1723,14 @@ def scan_html_content(html_content, html_content_file_path, **flags):
     Scan extracted HTML content for potential threats.
     Stops immediately after the first confirmed detection.
     """
+    # MODIFIED: Prioritize main_file_path from flags
+    local_flags = dict(flags) if flags else {}
+    primary_main_file_path = local_flags.get('main_file_path', html_content_file_path)
+
 
     # --- 1. Discord / Telegram check ---
     try:
-        if contains_discord_or_telegram_code(html_content, html_content_file_path, main_file_path=html_content_file_path, **flags):
+        if contains_discord_or_telegram_code(html_content, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
             logger.info(f"Early exit: Discord/Telegram indicator detected in HTML: {html_content_file_path}")
             return True
     except Exception as e:
@@ -1738,21 +1742,21 @@ def scan_html_content(html_content, html_content_file_path, **flags):
         for url in urls:
             # Scan URL-level indicators
             try:
-                if scan_url_general(url, html_content_file_path, main_file_path=html_content_file_path, **flags):
+                if scan_url_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Malicious URL detected in HTML: {url}")
                     return True
             except Exception as e:
                 logger.error(f"Error in scan_url_general for {url}: {e}")
 
             try:
-                if scan_domain_general(url, html_content_file_path, main_file_path=html_content_file_path, **flags):
+                if scan_domain_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Malicious domain detected in HTML: {url}")
                     return True
             except Exception as e:
                 logger.error(f"Error in scan_domain_general for {url}: {e}")
 
             try:
-                if scan_spam_email_365_general(url, html_content_file_path, main_file_path=html_content_file_path, **flags):
+                if scan_spam_email_365_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Spam/email indicator detected in HTML: {url}")
                     return True
             except Exception as e:
@@ -1771,7 +1775,7 @@ def scan_html_content(html_content, html_content_file_path, **flags):
             ip_addresses = set(re.findall(pattern, html_content))
             for ip in ip_addresses:
                 try:
-                    if scan_ip_address_general(ip, file_path=html_content_file_path, main_file_path=html_content_file_path, **flags):
+                    if scan_ip_address_general(ip, file_path=html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                         logger.info(f"Early exit: Malicious {ip_type} detected in HTML: {ip}")
                         return True
                 except Exception as e:
@@ -1876,12 +1880,14 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     IP addresses, and obfuscated URLs. Stops immediately after the first detection.
     Ensures file_path/main_file_path are forwarded to downstream scanners and notifications.
     """
-
+    # MODIFIED: Prioritize main_file_path from flags
     local_flags = dict(flags) if flags else {}
+    primary_main_file_path = local_flags.get('main_file_path', file_path)
+
 
     # --- 1. Discord / Telegram check ---
     try:
-        if contains_discord_or_telegram_code(decompiled_code, file_path, main_file_path=file_path, **local_flags):
+        if contains_discord_or_telegram_code(decompiled_code, file_path, main_file_path=primary_main_file_path, **local_flags):
             logger.info(f"Early exit: Discord/Telegram indicator detected in {file_path}")
             return True  # Stop scanning immediately
     except Exception as e:
@@ -1927,7 +1933,7 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
                     if contains_discord_or_telegram_code(
                         html_content,
                         html_content_file_path,
-                        main_file_path=file_path,
+                        main_file_path=primary_main_file_path,
                         **local_flags
                     ):
                         logger.info(f"Early exit: Discord/Telegram detected in HTML from {url}")
@@ -1940,7 +1946,7 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
                         html_content,
                         html_content_file_path,
                         file_path=html_content_file_path,
-                        main_file_path=file_path,
+                        main_file_path=primary_main_file_path,
                         **local_flags
                     ):
                         logger.info(f"Early exit: Malicious indicator detected in HTML content for {url}")
@@ -1950,21 +1956,21 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
 
             # --- Scan URL/domain ---
             try:
-                if scan_url_general(url, file_path=file_path, main_file_path=file_path, **local_flags):
+                if scan_url_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Malicious URL detected: {url}")
                     return True
             except Exception as e:
                 logger.error(f"Error in scan_url_general for {url}: {e}")
 
             try:
-                if scan_domain_general(url, file_path=file_path, main_file_path=file_path, **local_flags):
+                if scan_domain_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Malicious domain detected: {url}")
                     return True
             except Exception as e:
                 logger.error(f"Error in scan_domain_general for {url}: {e}")
 
             try:
-                if scan_spam_email_365_general(url, file_path=file_path, main_file_path=file_path, **local_flags):
+                if scan_spam_email_365_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Spam/email indicator detected: {url}")
                     return True
             except Exception as e:
@@ -1984,7 +1990,7 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
             for m in re.finditer(pattern, decompiled_code):
                 ip = m.group(0)
                 try:
-                    if scan_ip_address_general(ip, file_path=file_path, main_file_path=file_path, **local_flags):
+                    if scan_ip_address_general(ip, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
                         logger.info(f"Early exit: Malicious IP detected: {ip}")
                         return True
                     processed_ips += 1
@@ -5924,7 +5930,7 @@ def extract_line(content, prefix):
     lines = [line for line in content.splitlines() if line.startswith(prefix)]
     return lines[0] if lines else None
 
-def process_exela_v2_payload(output_file):
+def process_exela_v2_payload(output_file, main_file_path: Optional[str] = None):
     """
     Processes a decompiled Exela v2 payload:
     - Performs two-stage AES decryption.
@@ -5983,7 +5989,8 @@ def process_exela_v2_payload(output_file):
         if webhooks:
             logger.critical(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
+                # MODIFIED: Pass main_file_path to the notifier
+                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen', main_file_path=main_file_path)
                 return True
             else:
                 logger.error("Failed to save the final decrypted source code.")
@@ -7026,11 +7033,10 @@ def process_sourcedefender_payload(output_file):
         logger.error(f"[!] Error processing SourceDefender payload: {ex}")
         return None
 
-def process_decompiled_code(output_file):
+def process_decompiled_code(output_file, main_file_path: Optional[str] = None):
     """
     Dispatches payload processing based on type.
     Detects whether the payload is pyarmor7, Exela v2, SourceDefender, or generic.
-
     Returns
     -------
     bool
@@ -7056,7 +7062,8 @@ def process_decompiled_code(output_file):
 
                     # Process each extracted file synchronously and propagate detection
                     try:
-                        if process_decompiled_code(extracted_file):
+                        # MODIFIED: Pass main_file_path recursively
+                        if process_decompiled_code(extracted_file, main_file_path=main_file_path):
                             malware_found = True
                     except Exception as ex:
                         logger.error(f"Error while processing extracted file {extracted_file}: {ex}")
@@ -7071,7 +7078,8 @@ def process_decompiled_code(output_file):
             logger.info("[*] Detected SourceDefender protected file.")
             # Expect process_sourcedefender_payload to return True if malicious, False otherwise
             try:
-                return bool(process_sourcedefender_payload(output_file))
+                # MODIFIED: Pass main_file_path (although process_sourcedefender_payload doesn't use it yet, good practice)
+                return bool(process_sourcedefender_payload(output_file, main_file_path=main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing SourceDefender payload: {ex}")
                 return False
@@ -7084,7 +7092,8 @@ def process_decompiled_code(output_file):
         if is_exela_v2_payload(content):
             logger.info("[*] Detected Exela Stealer v2 payload.")
             try:
-                return bool(process_exela_v2_payload(output_file))
+                # MODIFIED: Pass main_file_path to the handler
+                return bool(process_exela_v2_payload(output_file, main_file_path=main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing Exela v2 payload: {ex}")
                 return False
@@ -7096,17 +7105,19 @@ def process_decompiled_code(output_file):
 
         else:
             logger.info("[*] Detected non-Exela payload. Using generic processing.")
-            deobfuscated = deobfuscate_until_clean(output_file)
+            deobfuscated = deobfuscate_until_clean(Path(output_file))
             if deobfuscated:
                 with deobfuscated_paths_lock:
-                    deobfuscated_saved_paths.append(deobfuscated)
+                    deobfuscated_saved_paths.append(str(deobfuscated))
                 logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
 
                 # Notify user / telemetry about malicious source code. Assume this indicates malware.
                 try:
+                    # MODIFIED: Pass main_file_path to the notifier
                     notify_user_for_malicious_source_code(
-                        deobfuscated,
-                        "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen"
+                        str(deobfuscated),
+                        "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen",
+                        main_file_path=main_file_path
                     )
                     return True
                 except Exception as ex:
@@ -7230,12 +7241,13 @@ def decompile_apk_file(file_path):
     except Exception as ex:
         logger.error(f"Error decompiling APK {file_path}: {ex}")
 
-def decompile_dotnet_file(file_path):
+def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
     """
     Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files
     for URLs, IP addresses, domains, and Discord webhooks.
 
     :param file_path: Path to the .NET assembly file.
+    :param main_file_path: The original file path for threat tracing.
     """
     try:
         logger.info(f"Detected .NET assembly: {file_path}")
@@ -7268,8 +7280,8 @@ def decompile_dotnet_file(file_path):
                         with open(cs_file_path, "r", encoding="utf-8", errors="ignore") as f:
                             cs_file_content = f.read()
 
-                        # Scan for links, IPs, domains, and Discord webhooks
-                        scan_code_for_links(cs_file_content, cs_file_path, dotnet_flag=True)
+                        # MODIFIED: Pass main_file_path to the scanner
+                        scan_code_for_links(cs_file_content, cs_file_path, dotnet_flag=True, main_file_path=main_file_path)
 
                     except Exception as ex:
                         logger.error(f"Error scanning .cs file {cs_file_path}: {ex}")
@@ -9466,6 +9478,10 @@ def scan_and_warn(file_path,
         main_file_path: Original main file that initiated this scan chain (for tracking)
     """
     try:
+        # MODIFIED: Set main_file_path to the current file_path if it's None at the top level
+        if main_file_path is None:
+            main_file_path = file_path
+
         # Initialize variables
         is_decompiled = False
         pe_file = False
@@ -9582,7 +9598,8 @@ def scan_and_warn(file_path,
 
             if malware_type:
                 logger.critical(f"Suspicious startup file detected: {file_path} ({malware_type})")
-                notify_user_startup(file_path, f"Startup malware detected: {file_path}")
+                # MODIFIED: Pass main_file_path to notifier
+                notify_user_startup(file_path, f"Startup malware detected: {file_path}", main_file_path=main_file_path)
                 return True
 
         # ========== THREADED OPERATIONS START HERE ==========
@@ -9728,10 +9745,11 @@ def scan_and_warn(file_path,
                                 with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
                                     content = f.read()
 
+                                # MODIFIED: Pass main_file_path to the scanner thread
                                 threading.Thread(
                                     target=scan_code_for_links,
                                     args=(content, file_path_full),
-                                    kwargs={"nexe_flag": True}
+                                    kwargs={"nexe_flag": True, "main_file_path": main_file_path}
                                 ).start()
 
                                 threading.Thread(
@@ -9832,10 +9850,11 @@ def scan_and_warn(file_path,
                         with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
 
+                        # MODIFIED: Pass main_file_path to the scanner thread
                         threading.Thread(
                             target=scan_code_for_links,
                             args=(content, file_path_full),
-                            kwargs={"jsc_flag": True}
+                            kwargs={"jsc_flag": True, "main_file_path": main_file_path}
                         ).start()
 
                         threading.Thread(
@@ -9882,7 +9901,8 @@ def scan_and_warn(file_path,
 
                 logger.info(f"File {norm_path} is a valid APK file.")
 
-                decompiled_files = decompile_apk_file(norm_path)
+                # MODIFIED: Pass main_file_path to the decompiler
+                decompiled_files = decompile_apk_file(norm_path, main_file_path=main_file_path)
 
                 if not decompiled_files:
                     logger.error(f"Failed to decompile {norm_path} (no files returned).")
@@ -9916,7 +9936,8 @@ def scan_and_warn(file_path,
                     de4dot_thread.start()
 
                     if "Probably No Protector" in dotnet_result or "Already Deobfuscated" in dotnet_result:
-                        dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
+                        # MODIFIED: Pass main_file_path to decompile_dotnet_file thread
+                        dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,), kwargs={"main_file_path": main_file_path})
                         dotnet_thread.start()
 
                 with thread_lock:
@@ -10071,13 +10092,14 @@ def scan_and_warn(file_path,
                             pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
                             if pylingual:
-                                for fname in pylingual.keys():
+                                for fname in pylingual: # MODIFIED: pylingual is a list
                                     threading.Thread(target=scan_and_warn, kwargs={"file_path": fname,
                                                    "main_file_path": main_file_path}).start()
-                                    threading.Thread(target=process_decompiled_code, args=(fname,)).start()
+                                    # MODIFIED: Pass main_file_path to process_decompiled_code
+                                    threading.Thread(target=process_decompiled_code, args=(fname,), kwargs={"main_file_path": main_file_path}).start()
 
                             if pycdas:
-                                for rname in pycdas.keys():
+                                for rname in pycdas: # MODIFIED: pycdas is a list
                                     threading.Thread(target=scan_and_warn, kwargs={"file_path": rname,
                                                    "main_file_path": main_file_path}).start()
 
@@ -10122,7 +10144,8 @@ def scan_and_warn(file_path,
 
             if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
-                threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature", main_file_path)).start()
+                # MODIFIED: Pass main_file_path
+                threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature"), kwargs={"main_file_path": main_file_path}).start()
                 # One detection enough
                 return False
 
@@ -10130,7 +10153,8 @@ def scan_and_warn(file_path,
                 try:
                     if norm_path.lower().endswith(".scr"):
                         logger.critical(f"Suspicious .scr file detected: {norm_path}")
-                        threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen", main_file_path)).start()
+                        # MODIFIED: Pass main_file_path
+                        threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen"), kwargs={"main_file_path": main_file_path}).start()
                         # One detection enough
                         return False
                 except Exception as e:
@@ -10223,7 +10247,7 @@ def scan_and_warn(file_path,
 
         # Wait for dotnet analysis to complete (needed for obfuscation logic)
         for thread in analysis_threads:
-            if 'dotnet' in thread.name.lower():
+            if thread.name and 'dotnet' in thread.name.lower():
                 thread.join()
                 break
 
@@ -10341,7 +10365,7 @@ def scan_and_warn(file_path,
                         # Thread 2: Scan code for suspicious links (with OLE2 flag)
                         threading.Thread(
                             target=lambda p=extracted_path: _thread_wrapper(
-                                scan_code_for_links, p, ole2_flag=True
+                                scan_code_for_links, "", p, ole2_flag=True, main_file_path=main_file_path
                             ),
                         ).start()
 
@@ -10426,7 +10450,7 @@ def scan_and_warn(file_path,
                                 threading.Thread(
                                     target=scan_code_for_links,
                                     args=(content, file_path_full),
-                                    kwargs={"javascript_deobfuscated_flag": True}
+                                    kwargs={"javascript_deobfuscated_flag": True, "main_file_path": main_file_path}
                                 ).start()
 
                                 # Optional additional scanning/warnings
@@ -10463,7 +10487,8 @@ def scan_and_warn(file_path,
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
                                 fake_size = "HEUR:SIG.Win32.FakeSize.gen"
-                            threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size, main_file_path)).start()
+                            # MODIFIED: Pass main_file_path
+                            threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size), kwargs={"main_file_path": main_file_path}).start()
                             # One detection enough
                             return False
             except Exception as e:
@@ -10480,11 +10505,13 @@ def scan_and_warn(file_path,
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
-                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
+                        # MODIFIED: Pass main_file_path
+                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         # One detection enough
                         return False
                     else:
-                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
+                        # MODIFIED: Pass main_file_path
+                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         # One detection enough
                         return False
 
@@ -10543,7 +10570,8 @@ def scan_and_warn(file_path,
                         attack_types.append("MultiExt")
 
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
-                    threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name, main_file_path)).start()
+                    # MODIFIED: Pass main_file_path
+                    threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name), kwargs={"main_file_path": main_file_path}).start()
                     # One detection enough
                     return False
             except Exception as e:
