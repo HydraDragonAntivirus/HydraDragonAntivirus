@@ -1,3 +1,4 @@
+import os
 import capstone
 import pefile
 import numpy as np

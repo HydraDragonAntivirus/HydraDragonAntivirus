@@ -187,10 +187,6 @@ import base64
 logger.debug(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import binascii
-logger.debug(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from accelerate import Accelerator
 logger.debug(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -261,10 +257,6 @@ logger.debug(f"functoools.wraps module loaded in {time.time() - start_time:.6f} 
 start_time = time.time()
 from xdis.unmarshal import load_code
 logger.debug(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import capstone
-logger.debug(f"capstone imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import nltk
