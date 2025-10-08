@@ -377,8 +377,7 @@ from .notify_user import (
     notify_user_exela_stealer_v2,
     notify_user_hosts,
     notify_user_for_web,
-    notify_user_for_detected_hips_file,
-    notify_user_with_homepage
+    notify_user_for_detected_hips_file
 )
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
