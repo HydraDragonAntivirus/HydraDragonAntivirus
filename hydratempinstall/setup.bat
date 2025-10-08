@@ -11,6 +11,9 @@ set "CLEAN_VM_PSB_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum\clean_vm\installer
 set "SANCTUM_APPDATA_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum\AppData"
 set "SANCTUM_APPDATA_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum"
 
+set "MAX_RETRIES=3"
+set "RETRY_DELAY=5"
+
 rem 1. Copy clamavconfig
 if exist "%HYDRADRAGON_PATH%\clamavconfig" (
     xcopy /Y "%HYDRADRAGON_PATH%\clamavconfig\*.*" "%CLAMAV_DIR%\"
@@ -51,14 +54,9 @@ if exist "%HYDRADRAGON_PATH%\database" (
     echo database directory not found.
 )
 
-rem 6. Update ClamAV virus definitions
+rem 6. Update ClamAV virus definitions with retry
 echo Updating ClamAV virus definitions...
-"%CLAMAV_DIR%\freshclam.exe"
-if %errorlevel% equ 0 (
-    echo ClamAV virus definitions updated successfully.
-) else (
-    echo Failed to update ClamAV virus definitions.
-)
+call :retry_command "%CLAMAV_DIR%\freshclam.exe" "ClamAV virus definitions update"
 
 rem ------------------------------------------------------------------------
 rem 7. Run installer_clean_vm.ps1 if present (silent, bypass policy)
@@ -120,11 +118,8 @@ if errorlevel 1 (
     goto :end
 )
 
-py.exe -3.12 -m venv venv
-if %errorlevel% neq 0 (
-    echo Failed to create Python virtual environment.
-    goto :end
-)
+call :retry_command "py.exe -3.12 -m venv venv" "Python virtual environment creation"
+if !cmd_success! equ 0 goto :end
 
 rem 11. Activate virtual environment
 echo Activating virtual environment...
@@ -134,72 +129,39 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 12. Upgrade pip
+rem 12. Upgrade pip with retry
 echo Upgrading pip...
-py.exe -3.12 -m pip install --upgrade pip
-if %errorlevel% equ 0 (
-    echo pip was upgraded successfully.
-) else (
-    echo Failed to upgrade pip.
-)
+call :retry_command "py.exe -3.12 -m pip install --upgrade pip" "pip upgrade"
 
-rem 13. Install Poetry in the activated virtual environment
+rem 13. Install Poetry in the activated virtual environment with retry
 echo Installing Poetry in virtual environment...
-pip install poetry
-if %errorlevel% neq 0 (
-    echo Failed to install Poetry.
-    goto :cleanup
-)
-echo Poetry installed successfully.
+call :retry_command "pip install poetry" "Poetry installation"
+if !cmd_success! equ 0 goto :cleanup
 
-rem 14. Install dependencies with Poetry (if pyproject.toml exists)
+rem 14. Install dependencies with Poetry (if pyproject.toml exists) with retry
 if exist "pyproject.toml" (
     echo Installing project dependencies with Poetry...
-    poetry install
-    if %errorlevel% neq 0 (
-        echo Failed to install dependencies with Poetry.
-        goto :cleanup
-    )
-    echo Dependencies installed successfully.
+    call :retry_command "poetry install" "Poetry dependency installation"
+    if !cmd_success! equ 0 goto :cleanup
 ) else (
     echo No pyproject.toml found, skipping Poetry dependency installation.
 )
 
-rem 15. Install spaCy English medium model
+rem 15. Install spaCy English medium model with retry
 echo Installing spaCy 'en_core_web_md' model...
-python -m spacy download en_core_web_md
-if %errorlevel% equ 0 (
-    echo spaCy model 'en_core_web_md' installed successfully.
-) else (
-    echo Failed to install spaCy model 'en_core_web_md'.
-)
+call :retry_command "python -m spacy download en_core_web_md" "spaCy model installation"
 
-rem 16. Install asar globally with npm
+rem 16. Install asar globally with npm with retry
 echo Installing 'asar' npm package globally...
-"%NODEJS_PATH%\npm.cmd" install -g asar
-if %errorlevel% equ 0 (
-    echo 'asar' package installed successfully.
-) else (
-    echo Failed to install 'asar' package.
-)
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g asar" "asar installation"
 
-rem 17. Install webcrack globally with npm
+rem 17. Install webcrack globally with npm with retry
 echo Installing 'webcrack' npm package globally...
-"%NODEJS_PATH%\npm.cmd" install -g webcrack
-if %errorlevel% equ 0 (
-    echo 'webcrack' package installed successfully.
-) else (
-    echo Failed to install 'webcrack' package.
-)
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g webcrack" "webcrack installation"
 
-rem 18. Install nexe_unpacker globally with npm
+rem 18. Install nexe_unpacker globally with npm with retry
 echo Installing 'nexe_unpacker' npm package globally...
-"%NODEJS_PATH%\npm.cmd" install -g nexe_unpacker
-if %errorlevel% equ 0 (
-    echo 'nexe_unpacker' package installed successfully.
-) else (
-    echo Failed to install 'nexe_unpacker' package.
-)
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g nexe_unpacker" "nexe_unpacker installation"
 
 rem --------------------------------------------------------------------------
 rem 19. Navigate to HydraDragon pkg-unpacker folder and build npm project
@@ -211,28 +173,87 @@ if exist "%PKG_UNPACKER_DIR%" (
         goto :end
     )
 
-    rem Install npm dependencies
+    rem Install npm dependencies with retry
     echo Installing npm dependencies...
-    "%NODEJS_PATH%\npm.cmd" install
-    if %errorlevel% neq 0 (
-        echo Failed to install npm dependencies.
-        goto :end
-    )
-    echo npm dependencies installed successfully.
+    call :retry_command_npm "%NODEJS_PATH%\npm.cmd install" "npm dependencies installation"
+    if !cmd_success! equ 0 goto :end
 
-    rem Build the npm project
+    rem Build the npm project with retry
     echo Building npm project...
-    "%NODEJS_PATH%\npm.cmd" run build
-    if %errorlevel% neq 0 (
-        echo Failed to build npm project.
-        goto :end
-    )
-    echo npm project built successfully.
+    call :retry_command_npm "%NODEJS_PATH%\npm.cmd run build" "npm project build"
+    if !cmd_success! equ 0 goto :end
 ) else (
     echo HydraDragon pkg-unpacker folder not found, skipping npm build.
 )
 
 echo Setup completed successfully!
+goto :end
+
+rem ============================================================================
+rem RETRY FUNCTION FOR GENERAL COMMANDS
+rem ============================================================================
+:retry_command
+set "command=%~1"
+set "description=%~2"
+set "attempt=1"
+set "cmd_success=0"
+
+:retry_loop
+echo [Attempt %attempt%/%MAX_RETRIES%] Running: %description%...
+%command%
+if %errorlevel% equ 0 (
+    echo %description% completed successfully.
+    set "cmd_success=1"
+    goto :eof
+) else (
+    echo %description% failed with error code %errorlevel%.
+    if %attempt% lss %MAX_RETRIES% (
+        echo Waiting %RETRY_DELAY% seconds before retry...
+        timeout /t %RETRY_DELAY% /nobreak >nul
+        set /a attempt+=1
+        goto :retry_loop
+    ) else (
+        echo ERROR: %description% failed after %MAX_RETRIES% attempts.
+        set "cmd_success=0"
+        goto :eof
+    )
+)
+
+rem ============================================================================
+rem RETRY FUNCTION FOR NPM COMMANDS (clears cache on retry)
+rem ============================================================================
+:retry_command_npm
+set "command=%~1"
+set "description=%~2"
+set "attempt=1"
+set "cmd_success=0"
+
+:retry_npm_loop
+echo [Attempt %attempt%/%MAX_RETRIES%] Running: %description%...
+%command%
+if %errorlevel% equ 0 (
+    echo %description% completed successfully.
+    set "cmd_success=1"
+    goto :eof
+) else (
+    echo %description% failed with error code %errorlevel%.
+    if %attempt% lss %MAX_RETRIES% (
+        echo Clearing npm cache...
+        "%NODEJS_PATH%\npm.cmd" cache clean --force
+        echo Waiting %RETRY_DELAY% seconds before retry...
+        timeout /t %RETRY_DELAY% /nobreak >nul
+        set /a attempt+=1
+        goto :retry_npm_loop
+    ) else (
+        echo ERROR: %description% failed after %MAX_RETRIES% attempts.
+        set "cmd_success=0"
+        goto :eof
+    )
+)
+
+:cleanup
+call deactivate 2>nul
+goto :end
 
 :end
 echo.
