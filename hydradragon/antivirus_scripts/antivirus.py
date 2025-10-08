@@ -7197,7 +7197,7 @@ def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) 
 
     return pyarmor_files, main_decrypted_output
 
-def decompile_apk_file(file_path):
+def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
     """
     Decompile an Android APK using Androguard (via subprocess) and scan
     all decompiled files for URLs, IPs, domains, and Discord webhooks.
@@ -7232,7 +7232,8 @@ def decompile_apk_file(file_path):
                     try:
                         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
-                        scan_code_for_links(content, full_path, androguard_flag=True)
+                        # MODIFIED: Pass main_file_path to the scanner
+                        scan_code_for_links(content, full_path, androguard_flag=True, main_file_path=main_file_path)
                     except Exception as ex:
                         logger.error(f"Error scanning {full_path}: {ex}")
 
