@@ -4909,30 +4909,42 @@ def get_next_project_name(base_name):
     except Exception as ex:
         logger.error(f"An error occurred while generating project name: {ex}")
 
-def decompile_file(file_path):
-    """Decompile the file using Ghidra."""
-    try:
-        logger.info(f"Decompiling file: {file_path}")
+def decompile_file(file_path, main_file_path=None, timeout=1500, return_first=True, auto_scan=False):
+    """
+    Run Ghidra analyzeHeadless and return decompiled/exported artifact paths.
 
-        # Path to Ghidra's analyzeHeadless.bat
+    Args:
+        file_path (str): input file to decompile.
+        main_file_path (str|None): initiator path to propagate to scans.
+        timeout (int): seconds for analyzeHeadless to finish.
+        return_first (bool): if True return a single best path (or None),
+                             if False return a list (possibly empty) of candidate paths.
+        auto_scan (bool): if True, spawn threads that call scan_and_warn(...) for every
+                          file (and every file inside returned directories). main_file_path
+                          is forwarded in kwargs to scan_and_warn.
+
+    Returns:
+        str|None or list: if return_first True => str or None; else => list of paths.
+    """
+    try:
+        logger.info(f"Decompiling file: {file_path} (initiator: {main_file_path})")
+
         analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
         project_location = os.path.join(script_dir, 'ghidra_projects')
+        os.makedirs(project_location, exist_ok=True)
 
-        # Ensure the project location exists
-        if not os.path.exists(project_location):
-            os.makedirs(project_location)
-
-        # Generate a unique project name
         base_project_name = 'temporary'
         try:
             project_name = get_next_project_name(base_project_name)
         except Exception as ex:
             logger.error(f"Failed to generate project name: {ex}")
-            return  # Exit the function if project name generation fails
+            return None if return_first else []
 
-        existing_projects.append(project_name)
+        try:
+            existing_projects.append(project_name)
+        except Exception:
+            pass
 
-        # Build the command to run analyzeHeadless.bat
         command = [
             analyze_headless_path,
             project_location,
@@ -4943,19 +4955,97 @@ def decompile_file(file_path):
             '-log', os.path.join(ghidra_logs_dir, 'analyze.log')
         ]
 
-        # Run the command
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+        start_time = time.time()
 
-        # Check and log the results
-        if result.returncode == 0:
-            logger.info(f"Decompilation completed successfully for file: {file_path}")
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='ignore',
+            timeout=timeout
+        )
+
+        if result.returncode != 0:
+            logger.error(f"Decompilation failed for file: {file_path}. Return code: {result.returncode}")
+            logger.error(f"stderr: {result.stderr}")
+            logger.error(f"stdout: {result.stdout}")
+            return None if return_first else []
+
+        # Collect candidates (files created/modified during this run)
+        stem = Path(file_path).stem.lower()
+        candidates = []
+
+        for root, _, files in os.walk(project_location):
+            for fname in files:
+                try:
+                    full = os.path.join(root, fname)
+                    mtime = os.path.getmtime(full)
+                    if mtime + 1 >= start_time:
+                        lname = fname.lower()
+                        score = 0
+                        if stem in lname: score += 100
+                        if 'decompiled' in lname: score += 80
+                        if lname.endswith(('.c', '.cpp', '.java', '.idb', '.bytes', '.asm', '.txt', '.json')): score += 30
+                        # Use negative time for sorting as secondary key (newer better)
+                        candidates.append((score, mtime, full))
+                except Exception:
+                    continue
+
+        # fallback scan for near-recent files if none found
+        if not candidates:
+            for root, _, files in os.walk(project_location):
+                for fname in files:
+                    try:
+                        full = os.path.join(root, fname)
+                        mtime = os.path.getmtime(full)
+                        if mtime + 1 >= (start_time - 10):
+                            candidates.append((10, mtime, full))
+                    except Exception:
+                        continue
+
+        # Sort candidates by score then mtime (descending)
+        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        paths = [c[2] for c in candidates]
+
+        if not paths:
+            logger.warning(f"No decompiled artifact found for {file_path} under {project_location}")
+            return None if return_first else []
+
+        # If auto_scan requested, queue everything to scan_and_warn (files) or walk directories
+        if auto_scan:
+            for p in paths:
+                try:
+                    if os.path.isdir(p):
+                        for root, _, files in os.walk(p):
+                            for fname in files:
+                                fp = os.path.join(root, fname)
+                                threading.Thread(
+                                    target=scan_and_warn,
+                                    args=(fp,),
+                                    kwargs={"main_file_path": main_file_path}
+                                ).start()
+                    else:
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(p,),
+                            kwargs={"main_file_path": main_file_path}
+                        ).start()
+                except Exception as e:
+                    logger.error(f"Failed to queue scan for '{p}': {e}")
+
+        # Return
+        if return_first:
+            return paths[0]
         else:
-            logger.error(f"Decompilation failed for file: {file_path}.")
-            logger.error(f"Return code: {result.returncode}")
-            logger.error(f"Error output: {result.stderr}")
-            logger.error(f"Standard output: {result.stdout}")
+            return paths
+
+    except subprocess.TimeoutExpired as te:
+        logger.error(f"Ghidra analyzeHeadless timed out for {file_path}: {te}")
+        return None if return_first else []
     except Exception as ex:
-        logger.error(f"An error occurred during decompilation: {ex}")
+        logger.error(f"An error occurred during decompilation of {file_path}: {ex}")
+        return None if return_first else []
 
 def extract_original_norm_path_from_decompiled(file_path):
     try:
@@ -10162,10 +10252,52 @@ def scan_and_warn(file_path,
                     logger.error(f"Error in SCR detection for {norm_path}: {e}")
 
             def decompile_thread():
+                """
+                Decompile norm_path (propagating main_file_path) and send any exported
+                artifact(s) into scan_and_warn for further processing.
+                Handles:
+                - single path returned (file or dir)
+                - list/tuple of paths
+                - directory outputs (walks and queues each file)
+                """
                 try:
-                    decompile_file(norm_path)
+                    exported = decompile_file(norm_path, main_file_path=main_file_path)
+                    if not exported:
+                        logger.debug(f"No exported decompilation path returned for {norm_path}")
+                        return
+
+                    # Normalize into list of paths
+                    if isinstance(exported, (list, tuple, set)):
+                        candidates = list(exported)
+                    else:
+                        candidates = [exported]
+
+                    for candidate in candidates:
+                        try:
+                            if not candidate:
+                                continue
+                            # If candidate is a directory, queue every file inside it
+                            if os.path.isdir(candidate):
+                                for root, _, files in os.walk(candidate):
+                                    for fname in files:
+                                        file_path_full = os.path.join(root, fname)
+                                        threading.Thread(
+                                            target=scan_and_warn,
+                                            args=(file_path_full,),
+                                            kwargs={"main_file_path": main_file_path}
+                                        ).start()
+                            else:
+                                # Single file - queue a scan directly
+                                threading.Thread(
+                                    target=scan_and_warn,
+                                    args=(candidate,),
+                                    kwargs={"main_file_path": main_file_path}
+                                ).start()
+                        except Exception as inner_e:
+                            logger.error(f"Failed to queue scan for decompiled artifact '{candidate}': {inner_e}")
+
                 except Exception as e:
-                    logger.error(f"Error in decompilation for {norm_path}: {e}")
+                    logger.error(f"Error in decompilation thread for {norm_path}: {e}")
 
             def pe_section_thread():
                 try:
