@@ -315,8 +315,8 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .utils import get_signature
-logger.debug(f"utils.get_signature module loaded in {time.time() - start_time:.6f} seconds")
+from .utils_and_helpers import get_signature
+logger.debug(f"utils_and_helpers.get_signature module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from . import clamav
@@ -1252,16 +1252,6 @@ def load_antivirus_list():
         return antivirus_domains_data
     except Exception as ex:
         logger.error(f"Error loading Antivirus domains: {ex}")
-        return []
-
-def load_digital_signatures(file_path, description="Digital signatures"):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            signatures = file.read().splitlines()
-        logger.info(f"{description} loaded successfully!")
-        return signatures
-    except Exception as ex:
-        logger.error(f"Error loading {description}: {ex}")
         return []
 
 def load_website_data():
