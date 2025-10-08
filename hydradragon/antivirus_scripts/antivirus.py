@@ -552,6 +552,7 @@ from .path_and_variables import (
     scanned_domains_general,
     scanned_ipv4_addresses_general,
     scanned_ipv6_addresses_general,
+    unified_pe_cache
 )
 logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 
