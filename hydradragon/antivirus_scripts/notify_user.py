@@ -20,7 +20,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.message = notification_message
     notification.send()
     logger.critical(notification_message)
-    _send_av_event_to_edr(file_path, virus_name, action="quarantine")
+    _send_av_event_to_edr(file_path, virus_name, action="kill_and_remove")
 
 def notify_user_hayabusa_critical(event_log, rule_title, details, computer):
     notification = Notify()
@@ -45,18 +45,6 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification.send()
     logger.error(notification_message)
     _send_av_event_to_edr(file_path, virus_name, action="monitor")
-
-def notify_user_for_detected_command(message, file_path):
-    notification = Notify()
-    notification.title = "Malware Message Alert"
-    notification.message = (
-        f"{message}\n\n"
-        f"Related to: {file_path}\n"
-        f"(This does not necessarily mean the file is malware.)"
-    )
-    notification.send()
-    logger.critical(f"Notification: {notification.message}")
-    _send_av_event_to_edr(file_path, f"Detected Command: {message}", action="monitor")
 
 def notify_user_size_warning(file_path, archive_type, virus_name):
     notification = Notify()
