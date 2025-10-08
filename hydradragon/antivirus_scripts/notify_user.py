@@ -205,6 +205,57 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
         threat_name = f"WebThreat: {domain or url or ipv4_address}"
         _send_to_edr(file_path, threat_name, action="kill_and_remove", main_file_path=main_file_path)
 
+def notify_user_for_web_source(
+    domain: Optional[str] = None,
+    ipv4_address: Optional[str] = None,
+    ipv6_address: Optional[str] = None,
+    url: Optional[str] = None,
+    file_path: Optional[str] = None,
+    detection_type: Optional[str] = None,
+    main_file_path: Optional[str] = None
+):
+    """
+    Web-related notification that includes source file context (if available).
+    - file_path: the file that *directly* references the web artifact (e.g. downloaded HTML, script)
+    - main_file_path: the primary source file that triggered the web detection (e.g. decompiled source)
+    If either file_path or main_file_path is present, the function will forward an EDR event containing
+    that path using _send_to_edr(..., main_file_path=...).
+    """
+    notification = Notify()
+    notification.title = "Malicious Web/Phishing Alert (with source)"
+    message_parts = []
+    if detection_type:
+        message_parts.append(f"Detection Type: {detection_type}")
+    if domain:
+        message_parts.append(f"Domain: {domain}")
+    if ipv4_address:
+        message_parts.append(f"IPv4 Address: {ipv4_address}")
+    if ipv6_address:
+        message_parts.append(f"IPv6 Address: {ipv6_address}")
+    if url:
+        message_parts.append(f"URL: {url}")
+    if file_path:
+        message_parts.append(f"Associated File: {file_path}")
+    if main_file_path:
+        message_parts.append(f"Source File: {main_file_path}")
+
+    notification_message = "Phishing or Malicious web activity detected:\n" + "\n".join(message_parts)
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+
+    # Prefer the directly associated file_path for EDR; otherwise use main_file_path.
+    edr_file_param = file_path or main_file_path
+
+    # Build a reasonable threat name for EDR
+    threat_name = f"WebThreat: {domain or url or ipv4_address or ipv6_address or detection_type}"
+
+    # Only forward to EDR when we have a file context (to avoid sending domain-only alerts as file events)
+    if edr_file_param:
+        _send_to_edr(edr_file_param, threat_name, action="kill_and_remove", main_file_path=main_file_path)
+    else:
+        # No file available; do not send file-based EDR event. If you want web-only EDR events, change to monitor.
+        logger.info("No file context available — not forwarding web-only alert to EDR as a file event.")
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status, main_file_path: Optional[str] = None):
     notification = Notify()
