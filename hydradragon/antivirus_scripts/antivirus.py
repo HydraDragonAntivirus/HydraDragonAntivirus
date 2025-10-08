@@ -50,10 +50,6 @@ from PySide6.QtWidgets import QApplication
 logger.debug(f"PySide6.QtWidgets.QApplication module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import hashlib
-logger.debug(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -556,7 +552,7 @@ from .path_and_variables import (
     die_cache,
     binary_die_cache,
     malicious_hashes,
-    malicious_hashes_lock, 
+    malicious_hashes_lock,
     decompile_outputs,
     decompile_outputs_lock,
     get_startup_paths
@@ -2757,7 +2753,7 @@ def scan_yara(file_path):
     attempt to unpack the PE or write any metadata file. Instead we set
     a boolean flag `is_vmprotect` which is returned as the third
     return value.
-    
+
     Note: YARA-X scanning is performed sequentially (not in a thread) due to
     Rust thread safety constraints. The yara_x.Scanner and compiled rules
     cannot be safely shared across threads.
@@ -3087,7 +3083,7 @@ def scan_yara(file_path):
                 # create scanner on THIS thread
                 yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
                 scan_results = yaraxtr_scanner.scan(data_content)
-                
+
                 for rule in getattr(scan_results, "matching_rules", []) or []:
                     if rule.identifier not in excluded_rules:
                         results['matched_rules'].append(rule.identifier)
@@ -3095,7 +3091,7 @@ def scan_yara(file_path):
                         results['matched_results'].append(match_details)
                     else:
                         logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-                        
+
             except Exception as e:
                 logger.error(f"Error scanning with yaraxtr_rule: {e}")
             finally:
@@ -6645,12 +6641,12 @@ def process_pyarmor7(
     Returns list of absolute paths to extracted files.
     """
     unpacked_files: List[str] = []
-    
+
     # Validate bypass helper exists
     if not os.path.isfile(bypass_pyarmor7_path):
         logger.error(f"bypass helper not found: {bypass_pyarmor7_path}")
         return unpacked_files
-    
+
     # Validate target exists
     if not os.path.exists(target_path):
         logger.error(f"target does not exist: {target_path}")
@@ -6671,7 +6667,7 @@ def process_pyarmor7(
     # Working directory for helper (where dump/ will be created)
     helper_cwd = os.path.dirname(bypass_pyarmor7_path)
     dump_dir = Path(helper_cwd) / "dump"
-    
+
     # Target file name
     target_name = os.path.basename(target_path)
     bypass_helper = str(bypass_pyarmor7_path)
@@ -6697,17 +6693,17 @@ def process_pyarmor7(
             timeout=min(timeout, 120),  # Initial run timeout
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         )
-        
+
         # Log output
         if result.stdout:
             logger.info(f"Helper stdout:\n{result.stdout}")
         if result.stderr:
             logger.warning(f"Helper stderr:\n{result.stderr}")
-        
+
         if result.returncode != 0:
             logger.error(f"Helper returned non-zero exit code: {result.returncode}")
             # Continue to check for dumps anyway
-            
+
     except subprocess.TimeoutExpired:
         logger.warning("Helper process timed out. Proceeding to check for dumps...")
     except Exception as e:
@@ -6727,7 +6723,7 @@ def process_pyarmor7(
         try:
             if dump_dir.exists() and dump_dir.is_dir():
                 all_files = list(dump_dir.rglob("*"))
-                
+
                 # Track file sizes
                 for p in all_files:
                     if p.is_file():
@@ -6735,27 +6731,27 @@ def process_pyarmor7(
                             size = p.stat().st_size
                         except (FileNotFoundError, OSError):
                             size = -1
-                        
+
                         prev = last_sizes.get(str(p))
                         if prev is None or prev != size:
                             last_sizes[str(p)] = size
                             stable_counts[str(p)] = 0
                         else:
                             stable_counts[str(p)] = stable_counts.get(str(p), 0) + 1
-                
+
                 # Wait if no files yet
                 if not all_files:
                     time.sleep(check_interval)
                     continue
 
                 # Check if all files are stable
-                if all(stable_counts.get(str(p), 0) >= stable_threshold 
+                if all(stable_counts.get(str(p), 0) >= stable_threshold
                        for p in all_files if p.is_file()):
                     logger.info("Dump directory stabilized, collecting files.")
                     break
 
             time.sleep(check_interval)
-            
+
         except Exception as e:
             logger.debug(f"Wait loop exception: {e}")
             time.sleep(check_interval)
@@ -6779,7 +6775,7 @@ def process_pyarmor7(
                     logger.info(f"Extracted: {dest}")
                 except Exception as e:
                     logger.error(f"Failed to copy {src} -> {dest}: {e}")
-                    
+
     except Exception as e:
         logger.error(f"Error copying from dump: {e}")
         return unpacked_files
@@ -9573,7 +9569,7 @@ def nexe_unpacker(file_path) -> list:
 
         # Get the base filename without extension for directory naming
         base_filename = os.path.splitext(os.path.basename(file_path))[0]
-        
+
         # Create a unique numbered subdirectory under nexe_javascript_unpacked_dir
         folder_number = 1
         while os.path.exists(os.path.join(nexe_javascript_unpacked_dir, f"{base_filename}_{folder_number}")):
@@ -9620,7 +9616,7 @@ def scan_and_warn(file_path,
                   main_file_path=None):
     """
     Scans a file for potential issues with comprehensive threading for performance.
-    
+
     Args:
         main_file_path: Original main file that initiated this scan chain (for tracking)
     """
@@ -9835,7 +9831,7 @@ def scan_and_warn(file_path,
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
-                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), 
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,),
                                            kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}).start()
 
                     except Exception as e:
@@ -9850,12 +9846,12 @@ def scan_and_warn(file_path,
                 if is_themida_protected == "PE32 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 32 bit.")
                     run_themida_unlicense(norm_path)
-                    threading.Thread(target=scan_and_warn, args=(norm_path,), 
+                    threading.Thread(target=scan_and_warn, args=(norm_path,),
                                    kwargs={"main_file_path": main_file_path}).start()
                 elif is_themida_protected == "PE64 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 64 bit.")
                     run_themida_unlicense(norm_path, x64=True)
-                    threading.Thread(target=scan_and_warn, args=(norm_path,), 
+                    threading.Thread(target=scan_and_warn, args=(norm_path,),
                                    kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Themida detection for {norm_path}: {e}")
@@ -9864,12 +9860,12 @@ def scan_and_warn(file_path,
             try:
                 if is_nexe_file_from_output(die_output):
                     logger.info(f"Checking if the file {norm_path} contains nexe executable")
-                    
+
                     # Step 1: Extract nexe files
                     nexe_files = nexe_unpacker(norm_path)
                     if not nexe_files:
                         return
-                    
+
                     for extracted_file in nexe_files:
                         # Step 2: Optionally deobfuscate with Webcrack
                         try:
@@ -10848,7 +10844,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                 # Scan main Dumps folder (non-recursive)
                 dumps_folder = pid_hydra_dir
                 files_to_scan = []
-                
+
                 # First priority: scan UnknownName folder (non-recursive)
                 # Look for files directly in the folder (no subfolders)
                 if os.path.exists(dumps_folder):
@@ -10862,7 +10858,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                             # Then add other files
                             elif not fname.lower().startswith('vdump_'):
                                 files_to_scan.append(full_path)
-                
+
                 # If no files found, fallback to any .exe files in the folder
                 if not files_to_scan:
                     if os.path.exists(dumps_folder):
@@ -10871,7 +10867,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                                 full_path = os.path.join(dumps_folder, fname)
                                 if os.path.isfile(full_path):
                                     files_to_scan.append(full_path)
-                
+
                 # Process collected files
                 for full_path in files_to_scan:
                     try:
@@ -11160,7 +11156,7 @@ class SafeProcessMonitor:
                 # Run DIE on the result_file to check for protector
                 die_output = get_die_output_binary(result_file)
                 protector_name = is_protector_from_output(die_output)
-                
+
                 if protector_name:
                     logger.info(f"Protector detected in dump: {protector_name}")
             except Exception as prot_err:
@@ -11169,7 +11165,7 @@ class SafeProcessMonitor:
             # If protector found, try to send to main process
             if protector_name:
                 target_norm = os.path.normcase(os.path.abspath(self.main_file_path))
-                
+
                 try:
                     for proc in psutil.process_iter(['pid', 'exe']):
                         try:

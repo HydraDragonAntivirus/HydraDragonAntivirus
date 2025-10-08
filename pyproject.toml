@@ -73,7 +73,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hydradragon = "hydradragon.deep_analysis_gui:main"
+hydradragon = "hydradragon.engine:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

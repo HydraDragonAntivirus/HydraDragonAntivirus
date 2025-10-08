@@ -29,7 +29,7 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 from hydradragon.antivirus_scripts.antivirus import (
-    clamav_file_paths, 
+    clamav_file_paths,
     start_real_time_protection,
     reload_clamav_database,
     run_suricata,
@@ -38,7 +38,7 @@ from hydradragon.antivirus_scripts.antivirus import (
 )
 from hydradragon.antivirus_scripts.path_and_variables import (
     freshclam_path,
-    icon_path, 
+    icon_path,
     hayabusa_path,
     WINDOW_TITLE,
 )
@@ -329,7 +329,7 @@ class StatusCard(QFrame):
         """Animate widget scaling on hover"""
         if self._hover_scale == value:
             return
-            
+
         self._hover_scale = value
 
         # Only animate if we have valid dimensions
@@ -478,7 +478,7 @@ class Worker(QThread):
         """Run the start real time protection"""
         try:
             self.output_signal.emit("[*] Starting real time protection...")
-            
+
             for output in start_real_time_protection():
                 self.output_signal.emit(output)
         except Exception as e:
@@ -488,21 +488,21 @@ class Worker(QThread):
         """Analyze Hayabusa CSV results and notify on critical alerts only"""
         try:
             self.output_signal.emit(f"[*] Analyzing Hayabusa results from: {csv_file_path}")
-            
+
             if not os.path.exists(csv_file_path):
                 self.output_signal.emit(f"[!] Results file not found: {csv_file_path}")
                 return
-            
+
             import csv
             critical_count = 0
 
             with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 reader = csv.DictReader(f)
-                
+
                 for row in reader:
                     if self.stop_requested:
                         break
-                    
+
                     # Get key fields from CSV
                     timestamp = row.get('Timestamp', 'N/A')
                     computer = row.get('Computer', 'N/A')
@@ -511,7 +511,7 @@ class Worker(QThread):
                     level = row.get('Level', '').lower()
                     rule_title = row.get('RuleTitle', 'Unknown Rule')
                     details = row.get('Details', 'No details available')
-                    
+
                     # Only process critical alerts
                     if level == 'critical' or level == 'crit':
                         critical_count += 1
@@ -525,20 +525,20 @@ class Worker(QThread):
                         self.output_signal.emit(
                             f"[!] CRITICAL [{timestamp}]: {rule_title} | {computer} | {channel} | {details[:100]}"
                         )
-            
+
             # Output summary
             self.output_signal.emit("\n" + "="*60)
             self.output_signal.emit("[+] Hayabusa Analysis Summary:")
             self.output_signal.emit(f"    Critical Alerts: {critical_count}")
             self.output_signal.emit("="*60 + "\n")
-            
+
             if critical_count > 0:
                 self.output_signal.emit(
                     f"[!] ACTION REQUIRED: {critical_count} critical alerts detected!"
                 )
             else:
                 self.output_signal.emit("[+] No critical threats detected.")
-                
+
         except Exception as e:
             self.output_signal.emit(f"[!] Error analyzing Hayabusa results: {str(e)}")
 
@@ -566,7 +566,7 @@ class Worker(QThread):
             if rc == 0:
                 self.output_signal.emit("[+] Hayabusa live timeline analysis completed!")
                 self.output_signal.emit(f"[+] Output saved to: {output_file}")
-                
+
                 if os.path.exists(output_file):
                     file_size = os.path.getsize(output_file)
                     self.output_signal.emit(f"[+] Timeline file size: {file_size:,} bytes")
@@ -576,7 +576,7 @@ class Worker(QThread):
                             self.output_signal.emit(f"[+] Total critical events: {line_count - 1:,}")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not count events: {str(e)}")
-                    
+
                     # Analyze the results for critical threats only
                     self.output_signal.emit("\n[*] Analyzing results for critical threats...")
                     self.analyze_hayabusa_results(output_file)
@@ -1009,13 +1009,13 @@ class AntivirusApp(QWidget):
 
         button_container = QHBoxLayout()
         button_container.setSpacing(15)
-        
+
         # Main button
         button = QPushButton(f"Run {title_text}")
         button.setObjectName("action_button")
         button.clicked.connect(lambda: self.start_worker(task_name))
         button_container.addWidget(button)
-        
+
         # Additional buttons if provided
         if additional_tasks:
             for btn_text, task in additional_tasks:
@@ -1023,7 +1023,7 @@ class AntivirusApp(QWidget):
                 extra_btn.setObjectName("action_button")
                 extra_btn.clicked.connect(lambda checked, t=task: self.start_worker(t))
                 button_container.addWidget(extra_btn)
-        
+
         button_container.addStretch()
         layout.addLayout(button_container)
 
@@ -1129,7 +1129,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_status_page())
         # Updated line below:
         self.main_stack.addWidget(self.create_task_page(
-            "Update Definitions", 
+            "Update Definitions",
             "update_defs",
             additional_tasks=[("Update Hayabusa Rules", "update_hayabusa_rules")]
         ))
