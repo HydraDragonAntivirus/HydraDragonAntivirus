@@ -1396,54 +1396,39 @@ def load_website_data():
     logger.info("All domain and IP address CSV files loaded successfully!")
 
 # --------------------------------------------------------------------------
-# Check for Discord webhook URLs (including Canary)
+# Check for Discord and Telegram indicators in code
 def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs,
     or Telegram bot links. For every detection, log a warning and immediately
-    notify the user with an explicit unique heuristic signature that depends on the flags provided.
+    notify the user with a unique heuristic signature that depends on the flags provided.
     """
-    # Define detection patterns and their corresponding signatures
+
     detections = [
-        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord webhook URL", "Discord.Webhook"),
-        (re.findall(discord_attachment_pattern, decompiled_code, flags=re.IGNORECASE), "Discord attachment URL", "Discord.Attachment"),
-        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE), "Discord Canary webhook URL", "Discord.Canary.Webhook"),
-        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE), "Discord CDN attachment URL", "Discord.CDNAttachment")
+        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
+         "Discord webhook URL", "Discord.Webhook"),
+        (re.findall(discord_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
+         "Discord attachment URL", "Discord.Attachment"),
+        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
+         "Discord Canary webhook URL", "Discord.Canary.Webhook"),
+        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
+         "Discord CDN attachment URL", "Discord.CDNAttachment")
     ]
 
-    # Check for Telegram (requires both token and keyword matches)
+    # Telegram detection (token + keyword)
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
     telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
     if telegram_token_matches and telegram_keyword_matches:
         detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
 
-    # Process all detections
     for matches, description, signature_base in detections:
-        if matches:
-            # Use the new get_signature helper
-            signature = get_signature(signature_base, **flags)
+        if not matches:
+            continue
 
-            # Log appropriate message
-            if signature_base == "Telegram.Bot":
-                logger.info(f"{description} detected in decompiled code: {matches}")
-            else:
-                platform_desc_map = {
-                    "DotNET": ".NET source code file",
-                    "JavaScript.ByteCode.v8": "JavaScript ByteCode V8 file",
-                    "Nuitka": "Nuitka compiled file",
-                    "NSIS": "NSIS script compiled file (.nsi)",
-                    "PYC.Python": "Python Compiled Module file",
-                    "Android": "Android APK file",
-                    "Electron": "Electron ASAR file",
-                    "Registry": "Registry"
-                }
-                # Extract platform part from signature
-                platform_part = signature.split(".")[2] if len(signature.split(".")) > 2 else ""
-                platform_desc = platform_desc_map.get(platform_part, "decompiled code")
-                logger.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
+        signature = get_signature(signature_base, **flags)
+        logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
 
-            # Notify the user
-            notify_user_for_malicious_source_code(file_path, signature)
+        notify_user_for_web_source(file_path, signature)
 
 # --------------------------------------------------------------------------
 # Helper function to check if domain/IP exists in CSV data with reference support
@@ -1525,7 +1510,11 @@ def scan_domain_general(url, **flags):
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
-                    notify_user_with_homepage(full_domain, signature_suffix, **flags)
+                    # send web alert with source file context
+                    notify_user_for_web_source(domain=full_domain,
+                                               detection_type=signature_suffix,
+                                               file_path=file_path,
+                                               main_file_path=flags.get('main_file_path'))
                     return
 
         # Check main domain threats
@@ -1537,13 +1526,18 @@ def scan_domain_general(url, **flags):
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
                 logger.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
-                notify_user_with_homepage(domain_to_report, signature_suffix, **flags)
+                # send web alert with source file context
+                notify_user_for_web_source(domain=domain_to_report,
+                                           detection_type=signature_suffix,
+                                           file_path=file_path,
+                                           main_file_path=flags.get('main_file_path'))
                 return
 
         logger.info(f"Domain {full_domain} passed all checks.")
 
     except Exception as ex:
         logger.error(f"Error scanning domain {url}: {ex}")
+
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
@@ -1585,7 +1579,11 @@ def scan_ip_address_general(ip_address, **flags):
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
-                    notify_user_with_homepage(ip_address, signature_suffix, **flags)
+                    # send web alert with source file context
+                    notify_user_for_web_source(ipv6_address=ip_address,
+                                               detection_type=signature_suffix,
+                                               file_path=file_path,
+                                               main_file_path=flags.get('main_file_path'))
                     return
 
             logger.info(f"Unknown IPv6 address detected: {ip_address}")
@@ -1623,7 +1621,11 @@ def scan_ip_address_general(ip_address, **flags):
                     else:
                         logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
 
-                    notify_user_with_homepage(ip_address, signature_suffix, **flags)
+                    # send web alert with source file context
+                    notify_user_for_web_source(ipv4_address=ip_address,
+                                               detection_type=signature_suffix,
+                                               file_path=file_path,
+                                               main_file_path=flags.get('main_file_path'))
                     return
 
             logger.info(f"Unknown IPv4 address detected: {ip_address}")
@@ -1632,6 +1634,7 @@ def scan_ip_address_general(ip_address, **flags):
 
     except Exception as ex:
         logger.error(f"Error scanning IP address {ip_address}: {ex}")
+
 
 # --------------------------------------------------------------------------
 # Spam Email 365 Scanner
@@ -1647,7 +1650,11 @@ def scan_spam_email_365_general(email_content, **flags):
 
         if detected_spam_words:
             logger.critical(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
-            notify_user_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
+            # send web alert with source file context
+            notify_user_for_web_source(domain="EmailContent",
+                                       detection_type="Spam.Email365d",
+                                       file_path=file_path,
+                                       main_file_path=flags.get('main_file_path'))
             return True
         else:
             logger.info("Email content passed spam check - no spam indicators found.")
@@ -1656,6 +1663,7 @@ def scan_spam_email_365_general(email_content, **flags):
     except Exception as ex:
         logger.error(f"Error scanning email content for spam: {ex}")
         return False
+
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
@@ -1677,12 +1685,20 @@ def scan_url_general(url, **flags):
                           f"Threat: {entry['threat']}, Tags: {entry['tags']}\n"
                           f"URLhaus Link: {entry['urlhaus_link']}, Reporter: {entry['reporter']}")
                 logger.critical(message)
-                notify_user_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
+                # send web alert with source file context
+                notify_user_for_web_source(url=url,
+                                           detection_type="URLhaus.Match",
+                                           file_path=file_path,
+                                           main_file_path=flags.get('main_file_path'))
                 return
 
         # Heuristic check using uBlock Origin style detection
         if ublock_detect(url):
-            notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
+            # forward heuristic detection as a web threat including the file context
+            notify_user_for_web_source(url=url,
+                                       detection_type='HEUR:Phish.Steam.Community.gen',
+                                       file_path=file_path,
+                                       main_file_path=flags.get('main_file_path'))
             logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
             return
 
@@ -1853,10 +1869,17 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord-related URLs, general URLs, domains,
     IP addresses, and obfuscated URLs. The provided flags are passed along to each scanning function.
+    Ensures file_path/main_file_path are forwarded to downstream scanners and notifications.
     """
 
-    # Scan for Discord/Telegram
-    contains_discord_or_telegram_code(decompiled_code, file_path, **flags)
+    # Ensure flags is a dict copy we can safely modify when forwarding
+    local_flags = dict(flags) if flags else {}
+
+    # Scan for Discord/Telegram in the decompiled source (origin is file_path)
+    try:
+        contains_discord_or_telegram_code(decompiled_code, file_path, main_file_path=file_path, **local_flags)
+    except Exception as e:
+        logger.error(f"Error scanning decompiled content for Discord/Telegram: {e}")
 
     # Scan regular URLs
     url_regex = build_url_regex()
@@ -1888,18 +1911,49 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
             logger.debug(f"Processing URL: {url}")
             processed_urls += 1
 
-            # Fetch HTML content
+            # Fetch HTML content (if any) and get saved file path for the HTML artifact
             html_content, html_content_file_path = fetch_html(url, return_file_path=True)
 
-            # Scan the fetched HTML content
+            # If HTML was fetched, scan it and ensure the HTML artifact path is passed as file_path,
+            # while the original decompiled file remains main_file_path (origin).
             if html_content:
-                contains_discord_or_telegram_code(html_content, file_path, **flags)
-                scan_html_content(html_content, html_content_file_path, **flags)
+                try:
+                    contains_discord_or_telegram_code(
+                        html_content,
+                        html_content_file_path,
+                        main_file_path=file_path,
+                        **local_flags
+                    )
+                except Exception as e:
+                    logger.error(f"Error running contains_discord_or_telegram_code on fetched HTML: {e}")
 
-            # Perform various URL scans
-            scan_url_general(url, **flags)
-            scan_domain_general(url, **flags)
-            scan_spam_email_365_general(url, **flags)
+                try:
+                    # Pass html_content_file_path as file_path, and the origin decompiled file as main_file_path
+                    scan_html_content(
+                        html_content,
+                        html_content_file_path,
+                        file_path=html_content_file_path,
+                        main_file_path=file_path,
+                        **local_flags
+                    )
+                except Exception as e:
+                    logger.error(f"Error scanning fetched HTML content: {e}")
+
+            # For URL/domain-level scans, the originating file is the decompiled file (file_path).
+            try:
+                scan_url_general(url, file_path=file_path, main_file_path=file_path, **local_flags)
+            except Exception as e:
+                logger.error(f"Error in scan_url_general for {url}: {e}")
+
+            try:
+                scan_domain_general(url, file_path=file_path, main_file_path=file_path, **local_flags)
+            except Exception as e:
+                logger.error(f"Error in scan_domain_general for {url}: {e}")
+
+            try:
+                scan_spam_email_365_general(url, file_path=file_path, main_file_path=file_path, **local_flags)
+            except Exception as e:
+                logger.error(f"Error in scan_spam_email_365_general for {url}: {e}")
 
         except Exception as e:
             logger.error(f"Error processing URL {url}: {e}")
@@ -1907,14 +1961,14 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
 
     logger.info(f"Processed {processed_urls} URLs (including {len(obfuscated_results)} obfuscated)")
 
-    # Scan IPs
+    # Scan IPs (forward originating file as context)
     ip_patterns = build_ip_patterns()
     processed_ips = 0
     for pattern, ip_type in ip_patterns:
         for m in re.finditer(pattern, decompiled_code):
             ip = m.group(0)
             try:
-                scan_ip_address_general(ip, **flags)
+                scan_ip_address_general(ip, file_path=file_path, main_file_path=file_path, **local_flags)
                 processed_ips += 1
             except Exception as e:
                 logger.error(f"Error processing IP {ip}: {e}")
