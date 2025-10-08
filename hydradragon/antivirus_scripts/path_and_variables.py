@@ -200,6 +200,10 @@ binary_die_cache: dict[str, str] = {}
 malicious_hashes = set()
 malicious_hashes_lock = threading.Lock()
 
+# Thread-safe map of original input -> list of decompiled artifacts produced by Ghidra
+decompile_outputs = {}               # maps abs_input_path -> [artifact_path, ...]
+decompile_outputs_lock = threading.Lock()
+
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
     MAX_PATH = 260
