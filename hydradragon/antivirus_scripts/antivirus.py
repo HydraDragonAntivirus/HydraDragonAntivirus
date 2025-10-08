@@ -10384,14 +10384,14 @@ def nexe_unpacker(file_path) -> list:
 @run_in_thread
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
-                  command_flag=False,
                   flag_debloat=False,
                   flag_obfuscar=False,
                   flag_de4dot=False,
                   flag_fernflower=False,
                   nsis_flag=False,
                   flag_confuserex=False,
-                  flag_vmprotect=False):
+                  flag_vmprotect=False,
+                  main_file_path=None):
     """
     Scans a file for potential issues with comprehensive threading for performance.
     """
@@ -11499,50 +11499,68 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
             if extract_with_hydra(str(target_pid), pid_hydra_dir):
                 logger.info(f"HydraDragonDumper successfully extracted from PID {target_pid}")
 
-                # Scan all extracted files
-                for root, _, files in os.walk(pid_hydra_dir):
-                    for fname in files:
-                        full_path = os.path.join(root, fname)
-
-                        try:
-                            # Check file size before processing
-                            file_size = os.path.getsize(full_path)
-                            if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
-                                logger.info(f"Skipping large file: {full_path} ({file_size} bytes)")
-                                continue
-
-                            logger.info(f"Scanning HydraDragonDumper extracted file: {full_path}")
-
-                            # Extract strings from extracted file
-                            try:
-                                with open(full_path, 'rb') as f:
-                                    chunk_size = 1024 * 1024  # 1MB chunks
-                                    file_strings = []
-
-                                    while True:
-                                        chunk = f.read(chunk_size)
-                                        if not chunk:
-                                            break
-                                        chunk_strings = extract_ascii_strings(chunk)
-                                        if chunk_strings:
-                                            file_strings.extend(chunk_strings[:100])  # Limit per chunk
-
-                                        if len(file_strings) > 1000:
-                                            break
-
-                                    if file_strings:
-                                        extracted_strings.append(f"HydraDragonDumper extracted file {fname} Strings:")
-                                        extracted_strings.extend(file_strings[:500])  # Limit total per file
-
-                            except Exception as file_ex:
-                                logger.error(f"Could not read extracted file {full_path}: {file_ex}")
-
-                            # Scan the extracted file for threats
-                            scan_and_warn(full_path)
-
-                        except Exception as file_process_ex:
-                            logger.error(f"Error processing file {full_path}: {file_process_ex}")
+                # First, scan main Dumps folder (non-recursive)
+                dumps_folder = pid_hydra_dir
+                files_to_scan = []
+                
+                # Scan main Dumps folder only (no subfolders)
+                if os.path.exists(dumps_folder):
+                    for fname in os.listdir(dumps_folder):
+                        full_path = os.path.join(dumps_folder, fname)
+                        if os.path.isfile(full_path):
+                            files_to_scan.append(full_path)
+                
+                # If no files in main folder, check Dumps/vdump for .exe files
+                if not files_to_scan:
+                    vdump_folder = os.path.join(dumps_folder, "vdump")
+                    if os.path.exists(vdump_folder):
+                        for fname in os.listdir(vdump_folder):
+                            if fname.lower().endswith('.exe'):
+                                full_path = os.path.join(vdump_folder, fname)
+                                if os.path.isfile(full_path):
+                                    files_to_scan.append(full_path)
+                
+                # Process collected files
+                for full_path in files_to_scan:
+                    try:
+                        # Check file size before processing
+                        file_size = os.path.getsize(full_path)
+                        if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
+                            logger.info(f"Skipping large file: {full_path} ({file_size} bytes)")
                             continue
+
+                        logger.info(f"Scanning HydraDragonDumper extracted file: {full_path}")
+
+                        # Extract strings from extracted file
+                        try:
+                            with open(full_path, 'rb') as f:
+                                chunk_size = 1024 * 1024  # 1MB chunks
+                                file_strings = []
+
+                                while True:
+                                    chunk = f.read(chunk_size)
+                                    if not chunk:
+                                        break
+                                    chunk_strings = extract_ascii_strings(chunk)
+                                    if chunk_strings:
+                                        file_strings.extend(chunk_strings[:100])  # Limit per chunk
+
+                                    if len(file_strings) > 1000:
+                                        break
+
+                                if file_strings:
+                                    extracted_strings.append(f"HydraDragonDumper extracted file {os.path.basename(full_path)} Strings:")
+                                    extracted_strings.extend(file_strings[:500])  # Limit total per file
+
+                        except Exception as file_ex:
+                            logger.error(f"Could not read extracted file {full_path}: {file_ex}")
+
+                        # Scan the extracted file for threats (with main_file_path tracking)
+                        scan_and_warn(full_path, main_file_path=target_exe)
+
+                    except Exception as file_process_ex:
+                        logger.error(f"Error processing file {full_path}: {file_process_ex}")
+                        continue
 
             else:
                 logger.error(f"HydraDragonDumper extraction failed for PID {target_pid}")
@@ -11566,11 +11584,20 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         else:
             logger.error(f"No strings extracted from process {target_pid}")
 
+        # Clean up dumped files after scan complete
+        try:
+            if os.path.exists(pid_hydra_dir):
+                shutil.rmtree(pid_hydra_dir)
+                logger.info(f"Cleaned up dump directory: {pid_hydra_dir}")
+        except Exception as cleanup_ex:
+            logger.error(f"Failed to clean up dump directory {pid_hydra_dir}: {cleanup_ex}")
+
         return output_txt
 
     except Exception as overall_ex:
         logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
+
 
 @dataclass
 class ProcessInfo:
@@ -11579,6 +11606,7 @@ class ProcessInfo:
     name: str
     exe_path: str
     rss: int
+
 
 class SafeProcessMonitor:
     """Thread-safe process monitor with proper resource management
@@ -11772,7 +11800,7 @@ class SafeProcessMonitor:
              - Write marker file next to main executable with result_file path
              - Skip normal scan_and_warn
           3. Otherwise:
-             - Call normal scan_and_warn(result_file)
+             - Call normal scan_and_warn(result_file) with main_file_path tracking
         """
         try:
             # First check if this dump has a protector
@@ -11820,6 +11848,7 @@ class SafeProcessMonitor:
                                         mf.write(f"protector: {protector_name}\n")
                                         mf.write(f"result_file: {os.path.abspath(result_file)}\n")
                                         mf.write(f"source_pid: {proc_info.pid}\n")
+                                        mf.write(f"source_exe: {proc_info.exe_path}\n")
 
                                     logger.info(f"Wrote protector marker at: {marker_path}")
                                     return  # Exit early - don't call scan_and_warn
@@ -11838,9 +11867,9 @@ class SafeProcessMonitor:
                 except Exception as enum_err:
                     logger.debug(f"Failed to enumerate processes: {enum_err}")
 
-            # No protector or couldn't send to main - use normal scan
+            # No protector or couldn't send to main - use normal scan with main_file_path tracking
             try:
-                scan_and_warn(result_file)
+                scan_and_warn(result_file, main_file_path=proc_info.exe_path)
             except Exception as scan_err:
                 logger.error(f"scan_and_warn failed for {result_file}: {scan_err}")
 
