@@ -80,7 +80,7 @@ def notify_user_hayabusa_critical(event_log, rule_title, details, computer):
     notification.send()
     logger.critical(notification_message)
     threat_name = f"Hayabusa Critical: {rule_title}"
-    _send_to_edr(event_log, threat_name, action="kill_and_remove", main_file_path=None)
+    _send_to_edr(event_log, threat_name, action="kill_and_remove")
 
 
 def notify_user_for_malicious_source_code(file_path, virus_name, main_file_path: Optional[str] = None):
@@ -233,7 +233,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
     if file_path:
         threat_name = f"WebThreat: {domain or url or ipv4_address}"
         _add_malicious_hash(file_path, threat_name)
-        _send_to_edr(file_path, threat_name, action="kill_and_remove", main_file_path=None)
+        _send_to_edr(file_path, threat_name, action="kill_and_remove")
 
 
 def notify_user_for_web_source(
@@ -319,4 +319,4 @@ def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str):
     notification.send()
     logger.warning(notification_message)
     # Still send to EDR for tracking purposes
-    _send_to_edr(file_path, f"Duplicate: {known_virus_name}", action="kill_and_remove", main_file_path=None)
+    _send_to_edr(file_path, f"Duplicate: {known_virus_name}", action="kill_and_remove")
