@@ -410,7 +410,6 @@ logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} second
 start_time = time.time()
 from .path_and_variables import (
     python_path,
-    appdata_roaming,
     nexe_javascript_unpacked_dir,
     unlicense_path,
     unlicense_x64_path,
@@ -557,7 +556,8 @@ from .path_and_variables import (
     die_cache,
     binary_die_cache,
     malicious_hashes,
-    malicious_hashes_lock
+    malicious_hashes_lock, 
+    get_startup_paths
 )
 logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -568,11 +568,14 @@ from .pe_feature_extractor import (
 )
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
 
-
 # Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
 logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
+
+user_startup, common_startup = get_startup_paths()
+
+startup_dirs = [user_startup, common_startup]
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
@@ -9563,6 +9566,25 @@ def scan_and_warn(file_path,
         if norm_path == hosts_path:
             check_hosts_file_for_blocked_antivirus(norm_path)
 
+        file_norm = os.path.normpath(norm_path).lower()
+
+        # --- CHECK IF FILE IS IN STARTUP ---
+        if any(file_norm.startswith(os.path.normpath(d).lower()) for d in startup_dirs if d):
+            malware_type = None
+            if file_norm.endswith('.wll') and pe_file:
+                malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
+            else:
+                ext = Path(file_norm).suffix.lower()
+                if ext in script_exts:
+                    malware_type = "HEUR:Win32.Startup.Script.gen.Malware"
+                elif ext in ('.dll', '.jar', '.msi', '.scr', '.hta'):
+                    malware_type = "HEUR:Win32.Startup.Susp.Extension.gen.Malware"
+
+            if malware_type:
+                logger.critical(f"Suspicious startup file detected: {file_path} ({malware_type})")
+                notify_user_startup(file_path, f"Startup malware detected: {file_path}")
+                return True
+
         # ========== THREADED OPERATIONS START HERE ==========
         # Now we can safely use threading since no more early returns
 
@@ -11057,49 +11079,6 @@ class SafeProcessMonitor:
         finally:
             self.cleanup()
 
-def check_startup_directories():
-    """Monitor startup directories for new files and handle them."""
-    # Get environment paths
-    programdata = os.environ.get('PROGRAMDATA', '')
-    
-    # Define the paths to check
-    user_startup_folder = os.path.join(appdata_roaming, r'Microsoft\Windows\Start Menu\Programs\Startup')
-    programdata_startup_folder = os.path.join(programdata, r'Microsoft\Windows\Start Menu\Programs\Startup')
-
-    # List of directories to check
-    directories_to_check = [
-        user_startup_folder,
-        programdata_startup_folder
-    ]
-
-    # List to keep track of already alerted files
-    alerted_files = []
-
-    while True:
-        try:
-            for directory in directories_to_check:
-                if os.path.exists(directory):
-                    for file in os.listdir(directory):
-                        file_path = os.path.join(directory, file)
-                        if os.path.isfile(file_path) and file_path not in alerted_files:
-                            die_output = get_die_output_binary(file_path)
-                            if file_path.endswith('.wll') and is_pe_file_from_output(die_output, file_path):
-                                malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
-                                message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
-                            ext = Path(file_path).suffix.lower()
-                            if ext in script_exts:
-                                malware_type = "HEUR:Win32.Startup.Script.gen.Malware"
-                                message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
-                            elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
-                                malware_type = "HEUR:Win32.Startup.Susp.Extension.gen.Malware"
-                                message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
-                            logger.critical(f"Suspicious or malicious startup file detected in {directory}: {file}")
-                            notify_user_startup(file_path, message)
-                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-                            alerted_files.append(file_path)
-        except Exception as ex:
-            logger.error(f"An error occurred while checking startup directories: {ex}")
-
 def check_hosts_file_for_blocked_antivirus():
     """
     Scan hosts_path for any entries that match one of your lists:
@@ -11273,7 +11252,6 @@ def start_real_time_protection():
         threads_to_start = [
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
-            (check_startup_directories,),
             (start_dual_pipe_integration,),
         ]
 

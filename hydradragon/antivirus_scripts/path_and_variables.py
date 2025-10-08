@@ -1,13 +1,13 @@
 import os
 import sys
 import threading
+import ctypes
 from hydra_logger import script_dir
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
 
 # Define the paths
-appdata_roaming = os.environ.get('APPDATA', '')
 nexe_javascript_unpacked_dir = os.path.join(script_dir, "nexe_unpacked")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
@@ -199,3 +199,17 @@ binary_die_cache: dict[str, str] = {}
 # global, near top-level of module
 malicious_hashes = set()
 malicious_hashes_lock = threading.Lock()
+
+def get_startup_paths():
+    """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
+    MAX_PATH = 260
+    CSIDL_STARTUP = 0x0A       # User startup
+    CSIDL_COMMON_STARTUP = 0x19 # Common startup
+
+    buf_user = ctypes.create_unicode_buffer(MAX_PATH)
+    buf_common = ctypes.create_unicode_buffer(MAX_PATH)
+
+    ctypes.windll.shell32.SHGetSpecialFolderPathW(None, buf_user, CSIDL_STARTUP, False)
+    ctypes.windll.shell32.SHGetSpecialFolderPathW(None, buf_common, CSIDL_COMMON_STARTUP, False)
+
+    return buf_user.value, buf_common.value
