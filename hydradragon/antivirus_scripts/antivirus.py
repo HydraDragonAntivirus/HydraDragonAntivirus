@@ -2514,25 +2514,6 @@ def scan_html_content(html_content, html_content_file_path, **flags):
             scan_ip_address_general(ip, **flags)
 
 # --------------------------------------------------------------------------
-# Helpers for decoding regex fragments
-def _dec(b64: str) -> str:
-    """Decode Base64-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
-    # add padding if needed
-    pad = (-len(b64)) % 4
-    try:
-        return base64.b64decode(b64 + ('=' * pad)).decode("utf-8", errors="replace")
-    except Exception:
-        return ""  # fail gracefully
-
-def _dec32(b32: str) -> str:
-    """Decode Base32-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
-    pad = (-len(b32)) % 8
-    try:
-        return base64.b32decode(b32.upper() + ('=' * pad)).decode("utf-8", errors="replace")
-    except Exception:
-        return ""  # fail gracefully
-
-# --------------------------------------------------------------------------
 # Build URL regex at runtime
 def detect_obfuscated_urls(text):
     """

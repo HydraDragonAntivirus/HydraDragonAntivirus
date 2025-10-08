@@ -1,4 +1,5 @@
 import re
+import base64
 
 # IPv4 patterns (standard and all variations)
 IPv4_pattern_standard = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
@@ -108,6 +109,25 @@ CHAINED_JOIN = re.compile(
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
+# --------------------------------------------------------------------------
+# Helpers for decoding regex fragments
+def _dec(b64: str) -> str:
+    """Decode Base64-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
+    # add padding if needed
+    pad = (-len(b64)) % 4
+    try:
+        return base64.b64decode(b64 + ('=' * pad)).decode("utf-8", errors="replace")
+    except Exception:
+        return ""  # fail gracefully
+
+def _dec32(b32: str) -> str:
+    """Decode Base32-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
+    pad = (-len(b32)) % 8
+    try:
+        return base64.b32decode(b32.upper() + ('=' * pad)).decode("utf-8", errors="replace")
+    except Exception:
+        return ""  # fail gracefully
+
 
 def build_url_regex():
     parts = [
@@ -164,47 +184,148 @@ def build_url_regex():
 # --------------------------------------------------------------------------
 # Build IPv4/IPv6 regex at runtime
 def build_ip_patterns():
-    # IPv4
+    """
+    Returns (patterns_list, find_ips) where:
+      - patterns_list is [(compiled_regex, 'IPv4'|'IPv6'), ...] (backwards-compatible)
+      - find_ips(text) scans text for plain + obfuscated IPs, decodes when possible,
+        and returns a list of match dicts:
+          {'type': 'IPv4'|'IPv6',
+           'value': '1.2.3.4' or '2001:db8::1',
+           'span': (start,end),
+           'source': 'plain'|'base64'|'base32'|'reversed',
+           'original_fragment': matched_fragment}
+    """
+    # IPv4/IPv6 building blocks
     octet = r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
     ipv4_standard = r'\b(?:(?:' + octet + r')\.){3}(?:' + octet + r')\b'
     ipv4_nonstandard = r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}'
-    ipv4_base64 = r'[A-Za-z0-9+/]{8,24}={0,2}'
-    ipv4_base32 = r'[A-Z2-7]{8,40}={0,6}'
-    ipv4_reversed_like = r'\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b'
+    # keep a compact IPv4 matcher for decoded content searches (no word-boundary to catch mid-string)
+    ipv4_inner = r'(?:(?:' + octet + r')\.){3}(?:' + octet + r')'
 
-    IPv4_pattern = r'|'.join([
-        ipv4_standard,
-        ipv4_nonstandard,
-        ipv4_base64,
-        ipv4_base32,
-        ipv4_reversed_like,
-    ])
-
-    # IPv6
     h16 = r'[0-9a-fA-F]{1,4}'
     full_ipv6 = r'\b(?:' + h16 + r':){7}' + h16 + r'\b'
     compressed_leading = r'::(?:' + h16 + r':){0,6}' + h16
     compressed_trailing = r'(?:' + h16 + r':){1,7}::'
     various_compressed = r'(?:' + h16 + r':){1,6}:' + h16
     flexible = r'[0-9a-fA-F:]{15,39}'
-    ipv6_base64 = r'[A-Za-z0-9+/]{16,64}={0,2}'
-    ipv6_base32 = r'[A-Z2-7]{16,64}={0,6}'
-    reversed_compressed_leading = r'::(?:[Ff][A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}'
-    reversed_compressed_trailing = r'(?:[A-Fa-f0-9]{1,4}:){1,7}::'
+    ipv6_inner = r'(?:' + h16 + r':){1,7}' + h16 + r'|' + r'[0-9a-fA-F:]{15,39}'
 
-    IPv6_pattern = r'|'.join([
-        full_ipv6,
-        compressed_leading,
-        compressed_trailing,
-        various_compressed,
-        flexible,
-        ipv6_base64,
-        ipv6_base32,
-        reversed_compressed_leading,
-        reversed_compressed_trailing,
-    ])
+    IPv4_pattern = r'|'.join([ipv4_standard, ipv4_nonstandard])
+    IPv6_pattern = r'|'.join([full_ipv6, compressed_leading, compressed_trailing, various_compressed, flexible])
 
-    return [
-        (IPv4_pattern, 'IPv4'),
-        (IPv6_pattern, 'IPv6'),
-    ]
+    compiled_ipv4 = re.compile(IPv4_pattern)
+    compiled_ipv6 = re.compile(IPv6_pattern, re.IGNORECASE)
+
+    # patterns for finding encoded candidate blobs (we will attempt to decode them then search inside)
+    base64_candidate = re.compile(r'([A-Za-z0-9+/]{8,64}={0,2})')
+    base32_candidate = re.compile(r'([A-Z2-7]{8,64}={0,6})')
+    reversed_candidate = re.compile(r'([a-zA-Z0-9\-/._]{6,120})')  # broad; we'll reverse and test selectively
+
+    # helper: search for plain matches (returns dicts)
+    def _collect_plain(text):
+        results = []
+        for m in compiled_ipv4.finditer(text):
+            results.append({'type': 'IPv4', 'value': m.group(0), 'span': m.span(), 'source': 'plain', 'original_fragment': m.group(0)})
+        for m in compiled_ipv6.finditer(text):
+            results.append({'type': 'IPv6', 'value': m.group(0), 'span': m.span(), 'source': 'plain', 'original_fragment': m.group(0)})
+        return results
+
+    # helper: attempt decode of base64/base32 candidate and search inside decoded text
+    def _collect_from_encoded(text):
+        results = []
+
+        # base64 candidates
+        for m in base64_candidate.finditer(text):
+            frag = m.group(1)
+            dec = _dec(frag)
+            if not dec:
+                continue
+            # look for IPv4/IPv6 inside decoded
+            for im in re.finditer(ipv4_inner, dec):
+                results.append({'type': 'IPv4', 'value': im.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'base64', 'original_fragment': frag})
+            for im in re.finditer(ipv6_inner, dec, re.IGNORECASE):
+                results.append({'type': 'IPv6', 'value': im.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'base64', 'original_fragment': frag})
+
+        # base32 candidates
+        for m in base32_candidate.finditer(text):
+            frag = m.group(1)
+            dec = _dec32(frag)
+            if not dec:
+                continue
+            for im in re.finditer(ipv4_inner, dec):
+                results.append({'type': 'IPv4', 'value': im.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'base32', 'original_fragment': frag})
+            for im in re.finditer(ipv6_inner, dec, re.IGNORECASE):
+                results.append({'type': 'IPv6', 'value': im.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'base32', 'original_fragment': frag})
+
+        return results
+
+    # helper: reversed strings (e.g., '1.2.3.4' reversed inside text, or 'http' reversed etc)
+    def _collect_from_reversed(text):
+        results = []
+        # we will search for likely reversed substrings containing digits and dots/colons,
+        # reverse them and test for IPs.
+        reversed_candidates = re.finditer(r'([0-9\.\:\-\/_=A-Za-z+]{6,80})', text)
+        for m in reversed_candidates:
+            frag = m.group(1)
+            rev = frag[::-1]
+            # quick check: does reversed fragment contain an IPv4 or IPv6?
+            ipv4_match = re.search(ipv4_inner, rev)
+            ipv6_match = re.search(ipv6_inner, rev, re.IGNORECASE)
+            if ipv4_match:
+                results.append({'type': 'IPv4', 'value': ipv4_match.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'reversed', 'original_fragment': frag})
+            if ipv6_match:
+                results.append({'type': 'IPv6', 'value': ipv6_match.group(0), 'span': (m.start(1), m.end(1)),
+                                'source': 'reversed', 'original_fragment': frag})
+        return results
+
+    # public function: find_ips(text)
+    def find_ips(text):
+        """
+        Scan text for plain and obfuscated IPs.
+        Returns list of dicts (see docstring above).
+        """
+        found = []
+        # 1) Plain matches
+        found.extend(_collect_plain(text))
+
+        # 2) Encoded (base64/base32)
+        try:
+            found.extend(_collect_from_encoded(text))
+        except Exception:
+            # fail gracefully if decoding internals throw
+            pass
+
+        # 3) Reversed / simple reversed-like obfuscations
+        try:
+            found.extend(_collect_from_reversed(text))
+        except Exception:
+            pass
+
+        # deduplicate by (type,value,source,original_fragment) keeping earliest span
+        seen = {}
+        deduped = []
+        for item in found:
+            key = (item['type'], item['value'], item['source'], item.get('original_fragment'))
+            if key not in seen or item['span'][0] < seen[key]:
+                seen[key] = item['span'][0]
+                # replace to keep earliest (we'll rebuild after loop)
+        # build unique list preserving earliest occurrence
+        unique_keys = sorted(seen.items(), key=lambda kv: kv[1])
+        for k, _ in unique_keys:
+            typ, val, src, orig = k
+            # find first matching item to get full dict (span)
+            for item in found:
+                if item['type'] == typ and item['value'] == val and item['source'] == src and item.get('original_fragment') == orig:
+                    deduped.append(item)
+                    break
+
+        return deduped
+
+    # maintain backwards-compatible return (list of tuples) but also provide the helper
+    patterns_list = [(re.compile(IPv4_pattern), 'IPv4'), (re.compile(IPv6_pattern, re.IGNORECASE), 'IPv6')]
+    return patterns_list, find_ips
