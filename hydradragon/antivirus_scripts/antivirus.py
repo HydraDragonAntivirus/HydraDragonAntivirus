@@ -10380,7 +10380,7 @@ def nexe_unpacker(file_path) -> list:
         logger.error(f"Error processing nexe file {file_path}: {ex}")
         return []
 
-# --- Main Scanning Function ---
+# --- Updated scan_and_warn with main_file_path propagation ---
 @run_in_thread
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
@@ -10394,6 +10394,9 @@ def scan_and_warn(file_path,
                   main_file_path=None):
     """
     Scans a file for potential issues with comprehensive threading for performance.
+    
+    Args:
+        main_file_path: Original main file that initiated this scan chain (for tracking)
     """
     try:
         # Initialize variables
@@ -10514,7 +10517,6 @@ def scan_and_warn(file_path,
                         "signature_status_issues": False
                     }
 
-
             # Use the signature_check produced by the thread when calling ML fast-path
             sig_for_ml = thread_results.get('signature_check', None)
 
@@ -10575,7 +10577,8 @@ def scan_and_warn(file_path,
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
-                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), kwargs={"flag_vmprotect": True}).start()
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,), 
+                                           kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}).start()
 
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file '{file_path}': {e}")
@@ -10589,11 +10592,13 @@ def scan_and_warn(file_path,
                 if is_themida_protected == "PE32 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 32 bit.")
                     run_themida_unlicense(norm_path)
-                    threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
+                    threading.Thread(target=scan_and_warn, args=(norm_path,), 
+                                   kwargs={"main_file_path": main_file_path}).start()
                 elif is_themida_protected == "PE64 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 64 bit.")
                     run_themida_unlicense(norm_path, x64=True)
-                    threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
+                    threading.Thread(target=scan_and_warn, args=(norm_path,), 
+                                   kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Themida detection for {norm_path}: {e}")
 
@@ -10638,6 +10643,7 @@ def scan_and_warn(file_path,
                                 threading.Thread(
                                     target=scan_and_warn,
                                     args=(file_path_full,),
+                                    kwargs={"main_file_path": main_file_path}
                                 ).start()
 
                             except Exception as scan_err:
@@ -10652,7 +10658,8 @@ def scan_and_warn(file_path,
                     logger.info(f"File {norm_path} is a valid AutoIt file.")
                     extracted_autoit_files = extract_autoit(norm_path)
                     for extracted_autoit_file in extracted_autoit_files:
-                        threading.Thread(target=scan_and_warn, args=(extracted_autoit_file,)).start()
+                        threading.Thread(target=scan_and_warn, args=(extracted_autoit_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in AutoIt analysis for {norm_path}: {e}")
 
@@ -10662,7 +10669,8 @@ def scan_and_warn(file_path,
                     logger.info(f"File {norm_path} is a valid Asar Archive (Electron).")
                     extracted_asar_files = extract_asar_file(norm_path)
                     for extracted_asar_file in extracted_asar_files:
-                        threading.Thread(target=scan_and_warn, args=(extracted_asar_file,)).start()
+                        threading.Thread(target=scan_and_warn, args=(extracted_asar_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in ASAR analysis for {norm_path}: {e}")
 
@@ -10672,7 +10680,8 @@ def scan_and_warn(file_path,
                     logger.info(f"File {norm_path} is a valid npm package.")
                     extracted_npm_files = extract_npm_file(norm_path)
                     for extracted_file in extracted_npm_files:
-                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                        threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in npm analysis for {norm_path}: {e}")
 
@@ -10738,6 +10747,7 @@ def scan_and_warn(file_path,
                         threading.Thread(
                             target=scan_and_warn,
                             args=(file_path_full,),
+                            kwargs={"main_file_path": main_file_path}
                         ).start()
 
                     except Exception as scan_err:
@@ -10752,7 +10762,8 @@ def scan_and_warn(file_path,
                     logger.info(f"File {norm_path} is a valid Install Shield file.")
                     extracted_installshield_files = extract_installshield(norm_path)
                     for extracted_installshield_file in extracted_installshield_files:
-                        threading.Thread(target=scan_and_warn, args=(extracted_installshield_file,)).start()
+                        threading.Thread(target=scan_and_warn, args=(extracted_installshield_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in InstallShield analysis for {norm_path}: {e}")
 
@@ -10762,7 +10773,8 @@ def scan_and_warn(file_path,
                     logger.info(f"File {norm_path} is a valid Advanced Installer file.")
                     extracted_files = advanced_installer_extractor(norm_path)
                     for extracted_file in extracted_files:
-                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                        threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
@@ -10789,6 +10801,7 @@ def scan_and_warn(file_path,
                     t = threading.Thread(
                         target=scan_and_warn,
                         args=(f,),
+                        kwargs={"main_file_path": main_file_path}
                     )
                     t.start()
                     threads.append(t)
@@ -10823,7 +10836,8 @@ def scan_and_warn(file_path,
                     logger.info(f"Invoking cx_Freeze decompiler on {norm_path}")
                     cx_main_pyc = decompile_cx_freeze(norm_path)
                     if cx_main_pyc:
-                        threading.Thread(target=scan_and_warn, args=(cx_main_pyc,)).start()
+                        threading.Thread(target=scan_and_warn, args=(cx_main_pyc,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
@@ -10874,7 +10888,8 @@ def scan_and_warn(file_path,
                     if extracted_files:
                         logger.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
                         for extracted_file in extracted_files:
-                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error during extraction of {norm_path}: {e}")
 
@@ -10883,7 +10898,8 @@ def scan_and_warn(file_path,
                     if is_packer_upx_output(die_output):
                         upx_unpacked = extract_upx(norm_path)
                         if upx_unpacked:
-                            threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
+                            threading.Thread(target=scan_and_warn, args=(upx_unpacked,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
@@ -10892,7 +10908,8 @@ def scan_and_warn(file_path,
                     if is_packed_from_output(die_output):
                         unpacked_file = extract_with_unipacker(norm_path)
                         if unpacked_file:
-                            threading.Thread(target=scan_and_warn, args=(unpacked_file,)).start()
+                            threading.Thread(target=scan_and_warn, args=(unpacked_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Unipacker unpacking for {norm_path}: {e}")
 
@@ -10903,7 +10920,8 @@ def scan_and_warn(file_path,
                         if extracted is not None:
                             logger.info(f"Extracted {len(extracted)} files. Scanning...")
                             for inno_norm_path in extracted:
-                                threading.Thread(target=scan_and_warn, args=(inno_norm_path,)).start()
+                                threading.Thread(target=scan_and_warn, args=(inno_norm_path,),
+                                               kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
@@ -10915,59 +10933,65 @@ def scan_and_warn(file_path,
                         results = process_file_go(norm_path, output_path, string_output_path)
 
                         if results.get("patched_data"):
-                            threading.Thread(target=scan_and_warn, args=(output_path,)).start()
+                            threading.Thread(target=scan_and_warn, args=(output_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                         if results.get("decrypt_func_list"):
-                            threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
+                            threading.Thread(target=scan_and_warn, args=(string_output_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
-        def pyc_thread(norm_path, die_output):
-            """
-            Process a single .pyc file.
-            - If PyArmor-protected, extract and scan decrypted files.
-            - Always attempt Pylingual decompilation.
-            """
-            try:
-                # Check if this is a .pyc file
-                if is_pyc_file_from_output(die_output):
-                    logger.info(f"File {norm_path} is a .pyc file.")
+            def pyc_thread():
+                """
+                Process a single .pyc file.
+                - If PyArmor-protected, extract and scan decrypted files.
+                - Always attempt Pylingual decompilation.
+                """
+                try:
+                    # Check if this is a .pyc file
+                    if is_pyc_file_from_output(die_output):
+                        logger.info(f"File {norm_path} is a .pyc file.")
 
-                    # Handle PyArmor-protected .pyc
-                    if is_pyarmor_archive_from_output(die_output):
-                        logger.info(f"File {norm_path} is PyArmor-protected. Extracting...")
+                        # Handle PyArmor-protected .pyc
+                        if is_pyarmor_archive_from_output(die_output):
+                            logger.info(f"File {norm_path} is PyArmor-protected. Extracting...")
+                            try:
+                                pyarmor_files, main_decrypted_output = extract_and_return_pyarmor(norm_path)
+
+                                # Scan main decrypted output if present
+                                if main_decrypted_output:
+                                    threading.Thread(target=scan_and_warn, args=(main_decrypted_output,),
+                                                   kwargs={"main_file_path": main_file_path}).start()
+
+                                # Scan extracted PyArmor files
+                                if pyarmor_files:
+                                    for extracted_file in pyarmor_files:
+                                        threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                                       kwargs={"main_file_path": main_file_path}).start()
+                            except Exception as e_extract:
+                                logger.error(f"Error extracting PyArmor .pyc {norm_path}: {e_extract}")
+
+                        # Original Pylingual decompilation
                         try:
-                            pyarmor_files, main_decrypted_output = extract_and_return_pyarmor(norm_path)
+                            logger.info(f"Attempting Pylingual decompilation for {norm_path}...")
+                            pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
-                            # Scan main decrypted output if present
-                            if main_decrypted_output:
-                                threading.Thread(target=scan_and_warn, args=(main_decrypted_output,)).start()
+                            if pylingual:
+                                for fname in pylingual.keys():
+                                    threading.Thread(target=scan_and_warn, kwargs={"file_path": fname,
+                                                   "main_file_path": main_file_path}).start()
+                                    threading.Thread(target=process_decompiled_code, args=(fname,)).start()
 
-                            # Scan extracted PyArmor files
-                            if pyarmor_files:
-                                for extracted_file in pyarmor_files:
-                                    threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
-                        except Exception as e_extract:
-                            logger.error(f"Error extracting PyArmor .pyc {norm_path}: {e_extract}")
+                            if pycdas:
+                                for rname in pycdas.keys():
+                                    threading.Thread(target=scan_and_warn, kwargs={"file_path": rname,
+                                                   "main_file_path": main_file_path}).start()
 
-                    # Original Pylingual decompilation
-                    try:
-                        logger.info(f"Attempting Pylingual decompilation for {norm_path}...")
-                        pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
+                        except Exception as e_pyl:
+                            logger.error(f"Pylingual decompilation error for {norm_path}: {e_pyl}")
 
-                        if pylingual:
-                            for fname in pylingual.keys():
-                                threading.Thread(target=scan_and_warn, kwargs={"file_path": fname}).start()
-                                threading.Thread(target=process_decompiled_code, args=(fname,)).start()
-
-                        if pycdas:
-                            for rname in pycdas.keys():
-                                threading.Thread(target=scan_and_warn, kwargs={"file_path": rname}).start()
-
-                    except Exception as e_pyl:
-                        logger.error(f"Pylingual decompilation error for {norm_path}: {e_pyl}")
-
-            except Exception as e:
-                logger.error(f"Error in PYC processing for {norm_path}: {e}")
+                except Exception as e:
+                    logger.error(f"Error in PYC processing for {norm_path}: {e}")
 
             def nsis_thread():
                 try:
@@ -11004,13 +11028,13 @@ def scan_and_warn(file_path,
 
             if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
-                threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature")).start()
+                threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature", main_file_path)).start()
 
             def scr_detection_thread():
                 try:
                     if norm_path.lower().endswith(".scr"):
                         logger.critical(f"Suspicious .scr file detected: {norm_path}")
-                        threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")).start()
+                        threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen", main_file_path)).start()
                 except Exception as e:
                     logger.error(f"Error in SCR detection for {norm_path}: {e}")
 
@@ -11026,7 +11050,8 @@ def scan_and_warn(file_path,
                     if section_files:
                         logger.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                         for fpath in section_files:
-                            threading.Thread(target=scan_and_warn, args=(fpath,)).start()
+                            threading.Thread(target=scan_and_warn, args=(fpath,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in PE section extraction for {norm_path}: {e}")
 
@@ -11035,7 +11060,8 @@ def scan_and_warn(file_path,
                     extracted = extract_resources(norm_path, resource_extractor_dir)
                     if extracted:
                         for file in extracted:
-                            threading.Thread(target=scan_and_warn, args=(file,)).start()
+                            threading.Thread(target=scan_and_warn, args=(file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in resource extraction for {norm_path}: {e}")
 
@@ -11048,7 +11074,8 @@ def scan_and_warn(file_path,
                         rc_path = decompile_ahk_exe(norm_path)
                         if rc_path:
                             logger.info(f"Decompiled RCData.rc at {rc_path}. Scanning...")
-                            threading.Thread(target=scan_and_warn, args=(rc_path,)).start()
+                            threading.Thread(target=scan_and_warn, args=(rc_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                         else:
                             logger.warning(f"No RCData extracted from {norm_path}")
                     else:
@@ -11062,7 +11089,8 @@ def scan_and_warn(file_path,
                         extracted_path = try_unpack_enigma1(norm_path)
                         if extracted_path:
                             logger.info(f"Unpack succeeded. Files are in: {extracted_path}")
-                            threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
+                            threading.Thread(target=scan_and_warn, args=(extracted_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
 
@@ -11075,7 +11103,7 @@ def scan_and_warn(file_path,
                             logger.info(f"Debloated file saved at: {optimized_norm_path}")
                             threading.Thread(target=scan_and_warn,
                                            args=(optimized_norm_path,),
-                                           kwargs={'flag_debloat': True}).start()
+                                           kwargs={'flag_debloat': True, "main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error during debloating of {norm_path}: {e}")
 
@@ -11097,7 +11125,7 @@ def scan_and_warn(file_path,
 
         # Wait for dotnet analysis to complete (needed for obfuscation logic)
         for thread in analysis_threads:
-            if thread.name == 'dotnet_analysis':
+            if 'dotnet' in thread.name.lower():
                 thread.join()
                 break
 
@@ -11112,7 +11140,7 @@ def scan_and_warn(file_path,
                     if deobfuscated_path:
                         threading.Thread(target=scan_and_warn,
                                        args=(deobfuscated_path,),
-                                       kwargs={'flag_obfuscar': True}).start()
+                                       kwargs={'flag_obfuscar': True, "main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
 
@@ -11122,7 +11150,8 @@ def scan_and_warn(file_path,
                     logger.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
                     if deobfuscated_path:
-                        threading.Thread(target=scan_and_warn, args=(deobfuscated_path,)).start()
+                        threading.Thread(target=scan_and_warn, args=(deobfuscated_path,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
 
@@ -11137,8 +11166,6 @@ def scan_and_warn(file_path,
                 with the deobfuscated file and sets `flag_confuserex=True` in kwargs.
             """
             try:
-                # NOTE: dotnet_result, norm_path, file_name, flag_confuserex and scan_and_warn
-                # are expected to be available in the surrounding scope / caller.
                 if isinstance(dotnet_result, str) and "Protector: ConfuserEx" in dotnet_result and not flag_confuserex:
                     logger.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_confuserex(norm_path, file_name)
@@ -11146,7 +11173,7 @@ def scan_and_warn(file_path,
                         threading.Thread(
                             target=scan_and_warn,
                             args=(deobfuscated_path,),
-                            kwargs={'flag_confuserex': True}
+                            kwargs={'flag_confuserex': True, "main_file_path": main_file_path}
                         ).start()
 
             except Exception as e:
@@ -11160,7 +11187,7 @@ def scan_and_warn(file_path,
                         for jar_extractor_path in jar_extractor_paths:
                             threading.Thread(target=scan_and_warn,
                                            args=(jar_extractor_path,),
-                                           kwargs={'flag_fernflower': True}).start()
+                                           kwargs={'flag_fernflower': True, "main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in JAR analysis for {norm_path}: {e}")
 
@@ -11171,7 +11198,7 @@ def scan_and_warn(file_path,
                     if decompiled_file:
                         # Thread 1: scan_and_warn
                         threading.Thread(
-                            target=lambda: scan_and_warn(decompiled_file)
+                            target=lambda: scan_and_warn(decompiled_file, main_file_path=main_file_path)
                         ).start()
 
                         # Thread 2: scan_code_for_links with flag_fernflower
@@ -11186,13 +11213,6 @@ def scan_and_warn(file_path,
         def ole2_handler_thread():
             """
             Thread function to handle OLE2 file detection and extraction.
-
-            Args:
-                norm_path: Normalized path to the file
-                die_output: Output from DIE tool
-                script_dir: Base script directory
-                scan_and_warn: Function to scan extracted artifacts for threats
-                scan_code_for_links: Function to scan code for suspicious links
             """
 
             def _thread_wrapper(func, *args, **kwargs):
@@ -11217,7 +11237,7 @@ def scan_and_warn(file_path,
 
                         # Thread 1: Scan extracted artifacts for threats
                         threading.Thread(
-                            target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p),
+                            target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p, main_file_path=main_file_path),
                         ).start()
 
                         # Thread 2: Scan code for suspicious links (with OLE2 flag)
@@ -11242,7 +11262,8 @@ def scan_and_warn(file_path,
                     nuitka_files = extract_nuitka_file(norm_path, nuitka_type)
                     if nuitka_files:
                         for extracted_file in nuitka_files:
-                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
@@ -11252,11 +11273,13 @@ def scan_and_warn(file_path,
                     extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
 
                     if main_decompiled_output:
-                        threading.Thread(target=scan_and_warn, args=(main_decompiled_output,)).start()
+                        threading.Thread(target=scan_and_warn, args=(main_decompiled_output,),
+                                       kwargs={"main_file_path": main_file_path}).start()
 
                     if extracted_files_pyinstaller:
                         for extracted_file in extracted_files_pyinstaller:
-                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
 
@@ -11312,6 +11335,7 @@ def scan_and_warn(file_path,
                                 threading.Thread(
                                     target=scan_and_warn,
                                     args=(file_path_full,),
+                                    kwargs={"main_file_path": main_file_path}
                                 ).start()
 
                             except Exception as scan_err:
@@ -11341,7 +11365,7 @@ def scan_and_warn(file_path,
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
                                 fake_size = "HEUR:SIG.Win32.FakeSize.gen"
-                            threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size)).start()
+                            threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size, main_file_path)).start()
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
@@ -11356,9 +11380,9 @@ def scan_and_warn(file_path,
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
-                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
+                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
                     else:
-                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected)).start()
+                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
 
                 if already_vmprotect_unpacked:
                     return
@@ -11378,8 +11402,7 @@ def scan_and_warn(file_path,
                         if unpacked_data:
                             base_name, ext = os.path.splitext(os.path.basename(norm_path))
                             unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
-                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)  # Use dedicated VMProtect dir
-
+                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
 
                             # Write unpacked file
                             with open(unpacked_path, 'wb') as f:
@@ -11391,7 +11414,7 @@ def scan_and_warn(file_path,
                             threading.Thread(
                                 target=scan_and_warn,
                                 args=(unpacked_path,),
-                                kwargs={"flag_vmprotect": True}
+                                kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}
                             ).start()
                         else:
                             logger.warning(f"Unpacking VMProtect failed for {norm_path}")
@@ -11416,7 +11439,7 @@ def scan_and_warn(file_path,
                         attack_types.append("MultiExt")
 
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
-                    threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name)).start()
+                    threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name, main_file_path)).start()
             except Exception as e:
                 logger.error(f"Error in filename detection for {norm_path}: {e}")
 
@@ -11499,24 +11522,30 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
             if extract_with_hydra(str(target_pid), pid_hydra_dir):
                 logger.info(f"HydraDragonDumper successfully extracted from PID {target_pid}")
 
-                # First, scan main Dumps folder (non-recursive)
+                # Scan main Dumps folder (non-recursive)
                 dumps_folder = pid_hydra_dir
                 files_to_scan = []
                 
-                # Scan main Dumps folder only (no subfolders)
+                # First priority: scan UnknownName folder (non-recursive)
+                # Look for files directly in the folder (no subfolders)
                 if os.path.exists(dumps_folder):
                     for fname in os.listdir(dumps_folder):
                         full_path = os.path.join(dumps_folder, fname)
+                        # Only process files, skip directories
                         if os.path.isfile(full_path):
-                            files_to_scan.append(full_path)
+                            # Prioritize vdump_*.exe files first
+                            if fname.lower().startswith('vdump_') and fname.lower().endswith('.exe'):
+                                files_to_scan.insert(0, full_path)  # Add to front
+                            # Then add other files
+                            elif not fname.lower().startswith('vdump_'):
+                                files_to_scan.append(full_path)
                 
-                # If no files in main folder, check Dumps/vdump for .exe files
+                # If no files found, fallback to any .exe files in the folder
                 if not files_to_scan:
-                    vdump_folder = os.path.join(dumps_folder, "vdump")
-                    if os.path.exists(vdump_folder):
-                        for fname in os.listdir(vdump_folder):
+                    if os.path.exists(dumps_folder):
+                        for fname in os.listdir(dumps_folder):
                             if fname.lower().endswith('.exe'):
-                                full_path = os.path.join(vdump_folder, fname)
+                                full_path = os.path.join(dumps_folder, fname)
                                 if os.path.isfile(full_path):
                                     files_to_scan.append(full_path)
                 
@@ -11597,7 +11626,6 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     except Exception as overall_ex:
         logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
-
 
 @dataclass
 class ProcessInfo:
