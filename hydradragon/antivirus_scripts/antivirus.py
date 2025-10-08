@@ -4155,58 +4155,29 @@ def scan_file_real_time(
     thread_lock_real_time = threading.Lock()
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
-def pe_scan_worker():
-    """Worker function for PE file analysis.
-
-    Returns:
-        False if a detection happened (or an error/stop), True if worker completed without detections.
-    """
-    # If a global stop_event was set, treat as no-work / return False to indicate no-success
-    if stop_event.is_set():
-        return False
-
-    try:
-        if pe_file:
-            match_found = check_pe_file(file_path, signature_check, file_name)
-            if match_found:
-                # A match happened in the PE check — per request, return False to signal this.
-                logger.info(f"PE scan worker: detection found for {file_path}; returning False to caller.")
-                return False
-
-        # No match found during PE checks
-        return True
-
-    except Exception as ex:
-        logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
-        return False
-
-    def check_pe_file(file_path, signature_check, file_name):
-        """
-        Check a PE file for fake system file indicators after signature validation.
+    def pe_scan_worker():
+        """Worker function for PE file analysis.
 
         Returns:
-            True  -> detection found (e.g., fake system file)
-            False -> no detection
+            False if a detection happened (or an error/stop), True if worker completed without detections.
         """
-        try:
-            logger.info(f"File {file_path} is a valid PE file.")
-
-            # Defensive access to signature_check (in case it's missing keys)
-            is_valid_sig = bool(signature_check and signature_check.get("is_valid"))
-
-            # Check for fake system files after signature validation
-            if file_name in fake_system_files and os.path.abspath(file_path).startswith(system_drive):
-                # If signature is not valid, consider it a fake system file
-                if not is_valid_sig:
-                    logger.critical(f"Detected fake system file: {file_path}")
-                    notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
-                    return True
-
-            # No detection
+        # If a global stop_event was set, treat as no-work / return False to indicate no-success
+        if stop_event.is_set():
             return False
 
+        try:
+            if pe_file:
+                match_found = check_pe_file(file_path, signature_check, file_name)
+                if match_found:
+                    # A match happened in the PE check — per request, return False to signal this.
+                    logger.info(f"PE scan worker: detection found for {file_path}; returning False to caller.")
+                    return False
+
+            # No match found during PE checks
+            return True
+
         except Exception as ex:
-            logger.error(f"Error checking PE file {file_path}: {ex}")
+            logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
             return False
 
     def clamav_scan_worker():
