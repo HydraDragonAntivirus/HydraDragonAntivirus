@@ -7023,6 +7023,12 @@ def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
     Detects whether the payload is pyarmor7, Exela v2, SourceDefender, or generic.
+
+    Returns
+    -------
+    bool
+        True if the file (or any recursively processed extracted file) was identified as malware,
+        False otherwise.
     """
     try:
         # Check for PyArmor v7 protected files
@@ -7034,36 +7040,52 @@ def process_decompiled_code(output_file):
             unpacked_files = process_pyarmor7(output_file)
 
             if unpacked_files:
+                malware_found = False
                 for extracted_file in unpacked_files:
                     # Append extracted file to global deobfuscated_saved_paths (thread-safe)
                     with deobfuscated_paths_lock:
                         deobfuscated_saved_paths.append(extracted_file)
                     logger.info(f"Appended unpacked file to deobfuscated_saved_paths: {extracted_file}")
 
-                    # Schedule scanning and further decompiled code processing
-                    threading.Thread(target=process_decompiled_code, args=(extracted_file,)).start()
+                    # Process each extracted file synchronously and propagate detection
+                    try:
+                        if process_decompiled_code(extracted_file):
+                            malware_found = True
+                    except Exception as ex:
+                        logger.error(f"Error while processing extracted file {extracted_file}: {ex}")
+
+                return malware_found
             else:
                 logger.warning(f"[*] No files extracted from PyArmor v7 file: {output_file}")
-
-            return
+                return False
 
         # First check if it's a SourceDefender protected file
         if is_sourcedefender_file(output_file):
             logger.info("[*] Detected SourceDefender protected file.")
-            process_sourcedefender_payload(output_file)
-            return
+            # Expect process_sourcedefender_payload to return True if malicious, False otherwise
+            try:
+                return bool(process_sourcedefender_payload(output_file))
+            except Exception as ex:
+                logger.error(f"Error processing SourceDefender payload: {ex}")
+                return False
 
         # If not SourceDefender, read content for other checks
-        with open(output_file, 'r', encoding='utf-8') as file:
+        with open(output_file, 'r', encoding='utf-8', errors='ignore') as file:
             content = file.read()
 
+        # Exela v2 detection and handling
         if is_exela_v2_payload(content):
             logger.info("[*] Detected Exela Stealer v2 payload.")
-            if process_exela_v2_payload(output_file):
-                return True
+            try:
+                return bool(process_exela_v2_payload(output_file))
+            except Exception as ex:
+                logger.error(f"Error processing Exela v2 payload: {ex}")
+                return False
 
+        # Quick heuristic: if there's no exec() it's likely not obfuscated
         elif 'exec(' not in content:
             logger.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
+            return False
 
         else:
             logger.info("[*] Detected non-Exela payload. Using generic processing.")
@@ -7073,13 +7095,21 @@ def process_decompiled_code(output_file):
                     deobfuscated_saved_paths.append(deobfuscated)
                 logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
 
-                notify_user_for_malicious_source_code(
-                    deobfuscated,
-                    "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen"
-                )
+                # Notify user / telemetry about malicious source code. Assume this indicates malware.
+                try:
+                    notify_user_for_malicious_source_code(
+                        deobfuscated,
+                        "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen"
+                    )
+                    return True
+                except Exception as ex:
+                    logger.error(f"Error while notifying user about malicious source: {ex}")
+                    # Even if notification failed, treat the deobfuscated result as a detection
+                    return True
             else:
                 logger.error("[!] Generic deobfuscation failed; skipping scan and notification.")
-        return False
+                return False
+
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
         return False
