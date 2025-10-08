@@ -779,9 +779,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
 ]
 
-# Counter for ransomware detection
-ransomware_detection_count = 0
-
 # Global flags and caches
 pyinstaller_archive: str | None = None
 full_python_version: str | None = None
@@ -5848,82 +5845,6 @@ def extract_pyinstaller_archive(file_path):
     except Exception as ex:
         logger.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
         return None
-
-def has_known_extension(file_path):
-    try:
-        ext = os.path.splitext(file_path)[1].lower()
-        logger.info(f"Extracted extension '{ext}' for file '{file_path}'")
-        return ext in fileTypes
-    except Exception as ex:
-        logger.error(f"Error checking extension for file {file_path}: {ex}")
-        return False
-
-def is_readable(file_path):
-    try:
-        logger.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r') as readable_file:
-            file_data = readable_file.read(1024)
-            if file_data:  # Check if file has readable content
-                logger.info(f"File '{file_path}' is readable")
-                return True
-            return False
-    except UnicodeDecodeError:
-        logger.error(f"UnicodeDecodeError while reading file '{file_path}'")
-        return False
-    except Exception as ex:
-        logger.error(f"Error reading file {file_path}: {ex}")
-        return False
-
-def is_ransomware(file_path):
-    try:
-        filename = os.path.basename(file_path)
-        parts = filename.split('.')
-        logger.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
-
-        # Check if there are multiple extensions
-        if len(parts) < 3:
-            logger.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
-            return False
-
-        # Check if the second last extension is known
-        previous_extension = '.' + parts[-2].lower()
-        if previous_extension not in fileTypes:
-            logger.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
-            return False
-
-        # Check if the final extension is not in fileTypes
-        final_extension = '.' + parts[-1].lower()
-        if final_extension not in fileTypes:
-            logger.critical(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
-
-            # Check if the file has a known extension or is readable
-            if has_known_extension(file_path) or is_readable(file_path):
-                logger.info(f"File '{file_path}' is not ransomware")
-                return False
-            else:
-                logger.critical(f"File '{file_path}' might be a ransomware sign")
-                return True
-
-        logger.info(f"File '{file_path}' does not meet ransomware conditions")
-        return False
-
-    except Exception as ex:
-        logger.error(f"Error checking ransomware for file {file_path}: {ex}")
-        return False
-
-def search_files_with_same_extension(directory, extension):
-    try:
-        logger.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
-        files_with_same_extension = []
-        for root, _, files in os.walk(directory):
-            for search_file in files:
-                if search_file.endswith(extension):
-                    files_with_same_extension.append(os.path.join(root, search_file))
-        logger.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
-        return files_with_same_extension
-    except Exception as ex:
-        logger.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {ex}")
-        return []
 
 def log_directory_type(file_path):
     try:
