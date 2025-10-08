@@ -50,7 +50,7 @@ def notify_user_pua(file_path, virus_name, engine_detected, main_file_path: Opti
     _send_to_edr(file_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)
 
 
-def notify_user_hayabusa_critical(event_log, rule_title, details, computer, main_file_path: Optional[str] = None):
+def notify_user_hayabusa_critical(event_log, rule_title, details, computer):
     notification = Notify()
     notification.title = "Critical Security Event Detected"
     notification_message = (
@@ -64,7 +64,7 @@ def notify_user_hayabusa_critical(event_log, rule_title, details, computer, main
     notification.send()
     logger.critical(notification_message)
     threat_name = f"Hayabusa Critical: {rule_title}"
-    _send_to_edr(event_log, threat_name, action="kill_and_remove", main_file_path=main_file_path)
+    _send_to_edr(event_log, threat_name, action="kill_and_remove", main_file_path=None)
 
 
 def notify_user_for_malicious_source_code(file_path, virus_name, main_file_path: Optional[str] = None):
