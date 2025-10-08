@@ -11226,38 +11226,6 @@ def is_malicious_file(file_path, size_limit_kb):
     """ Check if the file is less than the given size limit """
     return os.path.getsize(file_path) < size_limit_kb * 1024
 
-def _async_raise(tid, exctype):
-    if not isinstance(exctype, type):
-        raise TypeError("Only types can be raised")
-    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-        ctypes.c_long(tid), ctypes.py_object(exctype)
-    )
-    if res == 0:
-        raise ValueError("Invalid thread ID")
-    elif res > 1:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)
-        raise SystemError("PyThreadState_SetAsyncExc failed")
-
-def kill_thread_silently(thread):
-    _async_raise(thread.ident, SystemExit)
-
-def terminate_analysis_threads_immediately():
-    logger.info("Forcefully terminating all analysis threads...")
-
-    for thread in analysis_threads:
-        if thread.is_alive():
-            name = thread_function_map.get(thread, thread.name)
-            logger.info(f"Killing thread: {name}")
-            kill_thread_silently(thread)
-
-    time.sleep(0.1)  # short delay to let threads exit
-
-    still_alive = [t.name for t in analysis_threads if t.is_alive()]
-    if still_alive:
-        logger.error(f"Some threads are still running: {still_alive}")
-    else:
-        logger.info("All analysis threads have been terminated.")
-
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
