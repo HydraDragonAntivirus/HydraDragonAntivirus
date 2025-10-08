@@ -4060,7 +4060,7 @@ def ml_fastpath_should_continue(
 ) -> bool:
     """
     ML fast-path:
-      - Return False => ML marked benign -> EARLY EXIT (skip heavy scan)
+      - Return False => ML marked benign or malicious -> EARLY EXIT (skip heavy scan)
       - Return True  => proceed with full realtime scan
     """
     if not pe_file:
@@ -4082,20 +4082,22 @@ def ml_fastpath_should_continue(
         logger.info("ML marked %s as benign (score=%s). Skipping full scan.", os.path.basename(norm_path), benign_score)
         return False
 
-    # ML detected malware -> notify but continue scanning
+    # ML detected malware -> notify and stop scanning
     if malware_found:
         if isinstance(virus_name, (list, tuple)):
             virus_name = ''.join(virus_name)
 
-        logger.critical("ML detected malware in %s. Virus: %s (continuing to full scan)", os.path.basename(norm_path), virus_name)
+        logger.critical("ML detected malware in %s. Virus: %s (stopping full scan)", os.path.basename(norm_path), virus_name)
 
-        # spawn notification but continue
+        # Spawn notification and stop further scanning for this file.
+        # NOTE: The calling function (scan_and_warn) must be modified to act on this
+        # False return value to actually stop the other scanning threads for this file.
         if virus_name.startswith("PUA."):
             threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, "ML"),).start()
         else:
             threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"),).start()
 
-        # Don't continue scan once malwaare found
+        # Tell the caller to stop scanning this file.
         return False
 
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
@@ -4121,7 +4123,8 @@ def scan_file_real_time(
         'malware_found': False,
         'virus_name': 'Clean',
         'engine': '',
-        'vmprotect_path': None
+        'vmprotect_path': None,
+        'is_vmprotect': False
     }
     stop_event = threading.Event()  # Event to signal all threads to stop
     thread_lock_real_time = threading.Lock()
@@ -4283,19 +4286,25 @@ def scan_file_real_time(
         threads = []
         for worker in workers:
             t = threading.Thread(target=worker)
+            t.daemon = True # Allows main thread to exit if workers are stuck
             t.start()
             threads.append(t)
 
-        # Wait for all threads to finish (they will exit early if stop_event is set)
-        for t in threads:
-            t.join()
+        # Wait for either the first detection or for all threads to complete.
+        while any(t.is_alive() for t in threads):
+            if stop_event.is_set():
+                logger.info(f"Detection found for {file_path}, stopping other scan threads.")
+                break
+            time.sleep(0.05)  # Polling interval to check for completion or stop signal
 
-        # Final decision:
-        if results.get('malware_found'):
-            return True, results.get('virus_name', ""), results.get('engine', ""), bool(results.get('is_vmprotect', False))
-        else:
-            logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-            return False, "Clean", "", bool(results.get('is_vmprotect', False))
+        # Final decision is made based on the 'results' dict, which is updated
+        # by the worker threads under a lock.
+        with thread_lock_real_time:
+            if results.get('malware_found'):
+                return True, results.get('virus_name', ""), results.get('engine', ""), results.get('is_vmprotect', False)
+            else:
+                logger.info(f"File is clean - no malware detected by any engine: {file_path}")
+                return False, "Clean", "", results.get('is_vmprotect', False)
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
