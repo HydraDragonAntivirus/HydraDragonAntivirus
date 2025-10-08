@@ -4110,25 +4110,27 @@ def scan_file_real_time(
 ) -> Tuple[bool, str, str, Optional[str]]:
     """
     Scan file in real-time using multiple engines in parallel.
-    Runs ALL workers to completion (no short-circuit). First detection wins.
+    Stops all workers on first detection.
 
     Returns: (malware_found: bool, virus_name: str, engine: str, vmprotect_path: Optional[str])
     """
     logger.info(f"Started scanning file: {file_path}")
 
-    # Shared results and synchronization primitive
+    # Shared results and synchronization primitives
     results = {
         'malware_found': False,
         'virus_name': 'Clean',
         'engine': '',
         'vmprotect_path': None
     }
-
+    stop_event = threading.Event()  # Event to signal all threads to stop
     thread_lock_real_time = threading.Lock()
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
     def pe_scan_worker():
         """Worker function for PE file analysis"""
+        if stop_event.is_set():
+            return
         try:
             if pe_file:
                 check_pe_file(file_path, signature_check, file_name)
@@ -4137,6 +4139,8 @@ def scan_file_real_time(
 
     def clamav_scan_worker():
         """Worker function for ClamAV scan"""
+        if stop_event.is_set():
+            return
         try:
             result = scan_file_with_clamav(file_path)
             if result not in ("Clean", "Error"):
@@ -4145,48 +4149,51 @@ def scan_file_real_time(
                 logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
                 with thread_lock_real_time:
-                    if not results['malware_found']:  # first detection wins
+                    if not results['malware_found']:  # First detection wins
                         results['malware_found'] = True
                         results['virus_name'] = result
                         results['engine'] = "ClamAV"
-                # continue running other workers (no return that short-circuits outside of this worker)
+                        stop_event.set()  # Signal other threads to stop
             else:
-                logger.info(f"No malware detected by ClamAV in file: {file_path}")
+                if not stop_event.is_set():
+                    logger.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
 
     def yara_scan_worker():
-        """Worker function for YARA scan (minimal: set is_vmprotect boolean only)."""
+        """Worker function for YARA scan."""
+        if stop_event.is_set():
+            return
         try:
-            # scan_yara -> (matched_rules, matched_results, is_vmprotect)
             yara_match, yara_result, is_vmprotect = scan_yara(file_path)
 
-            if yara_match is not None and yara_match not in ("Clean", ""):
-                if sig_valid:
-                    yara_match = f"{yara_match}.SIG"
-                logger.critical(
-                    f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
-                )
+            with thread_lock_real_time:
+                # Always update vmprotect status if found
+                if is_vmprotect:
+                    results['is_vmprotect'] = True
 
-                with thread_lock_real_time:
-                    if not results.get('malware_found'):
+                # If malware is found and no other thread has found malware yet
+                if yara_match and yara_match not in ("Clean", ""):
+                    if not results['malware_found']:
+                        if sig_valid:
+                            yara_match = f"{yara_match}.SIG"
+                        logger.critical(
+                            f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
+                        )
                         results['malware_found'] = True
                         results['virus_name'] = yara_match
                         results['engine'] = "YARA"
-                    # minimal change: set boolean flag only
-                    results['is_vmprotect'] = bool(is_vmprotect)
-            else:
-                logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-                with thread_lock_real_time:
-                    results.setdefault('malware_found', False)
-                    # still set the boolean flag in the clean case too
-                    results['is_vmprotect'] = bool(is_vmprotect)
+                        stop_event.set()  # Signal other threads to stop
+                elif not results['malware_found']:
+                     logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
 
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
     def tar_scan_worker():
         """Worker function for TAR scan"""
+        if stop_event.is_set():
+            return
         try:
             if tarfile.is_tarfile(file_path):
                 scan_result, virus_name = scan_tar_file(file_path)
@@ -4201,17 +4208,19 @@ def scan_file_real_time(
                             results['malware_found'] = True
                             results['virus_name'] = virus_str
                             results['engine'] = "TAR"
+                            stop_event.set()
                 else:
-                    logger.info(f"No malware detected in TAR file: {file_path}")
-        except PermissionError:
-            logger.error(f"Permission error occurred while scanning TAR file: {file_path}")
-        except FileNotFoundError:
-            logger.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in TAR file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning TAR file: {file_path}. Error: {ferr}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
 
     def zip_scan_worker():
         """Worker function for ZIP scan"""
+        if stop_event.is_set():
+            return
         try:
             if is_zip_file(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
@@ -4225,17 +4234,19 @@ def scan_file_real_time(
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
                             results['engine'] = "ZIP"
+                            stop_event.set()
                 else:
-                    logger.info(f"No malware detected in ZIP file: {file_path}")
-        except PermissionError:
-            logger.error(f"Permission error occurred while scanning ZIP file: {file_path}")
-        except FileNotFoundError:
-            logger.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in ZIP file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning ZIP file: {file_path}. Error: {ferr}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
 
     def sevenz_scan_worker():
         """Worker function for 7z scan"""
+        if stop_event.is_set():
+            return
         try:
             if is_7z_file_from_output(die_output):
                 scan_result, virus_name = scan_7z_file(file_path)
@@ -4249,17 +4260,17 @@ def scan_file_real_time(
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
                             results['engine'] = "7z"
+                            stop_event.set()
                 else:
-                    logger.info(f"No malware detected in 7z file: {file_path}")
-        except PermissionError:
-            logger.error(f"Permission error occurred while scanning 7Z file: {file_path}")
-        except FileNotFoundError:
-            logger.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in 7z file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning 7Z file: {file_path}. Error: {ferr}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
 
     try:
-        # Create and start all threads (no early-exit / cancel logic)
+        # Create and start all threads
         workers = [
             pe_scan_worker,
             clamav_scan_worker,
@@ -4271,11 +4282,11 @@ def scan_file_real_time(
 
         threads = []
         for worker in workers:
-            t = threading.Thread(target=worker,)
+            t = threading.Thread(target=worker)
             t.start()
             threads.append(t)
 
-        # Wait for all threads to finish
+        # Wait for all threads to finish (they will exit early if stop_event is set)
         for t in threads:
             t.join()
 
@@ -11196,11 +11207,10 @@ def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
 
-def periodic_yield_worker(stop_event, yield_interval=0.1):
-    """Background thread that yields CPU periodically until analysis finishes"""
-    while not stop_event.is_set():
-        windows_yield_cpu()
-        time.sleep(yield_interval)
+def periodic_yield_worker(yield_interval=0.1):
+    """Background thread that yields CPU periodically"""
+    windows_yield_cpu()
+    time.sleep(yield_interval)
 
 def start_real_time_protection():
     """
@@ -11267,11 +11277,8 @@ def run_real_time_protection_with_yield():
     Starts real-time protection with periodic CPU yielding for better system responsiveness.
     Runs a background thread that periodically yields CPU during protection.
     """
-    # Create stop event for background yielding thread
-    yield_stop_event = threading.Event()
-
     # Start background yielding thread
-    yield_thread = threading.Thread(target=periodic_yield_worker, args=(yield_stop_event, 0.1))
+    yield_thread = threading.Thread(target=periodic_yield_worker)
     yield_thread.start()
 
     try:
@@ -11294,11 +11301,6 @@ def run_real_time_protection_with_yield():
         error_message = f"An error occurred while starting real-time protection: {ex}"
         logger.error(error_message)
         return error_message
-
-    finally:
-        # Stop the background yielding thread
-        yield_stop_event.set()
-        yield_thread.join(timeout=1.0)  # Wait max 1 second for thread to finish
 
 def run_de4dot(file_path):
     """
