@@ -548,6 +548,8 @@ from .path_and_variables import (
     system_drive,
     program_files,
     system32_dir,
+    malicious_hashes,
+    malicious_hashes_lock
 )
 logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 

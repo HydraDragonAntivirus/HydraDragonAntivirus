@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from hydra_logger import script_dir
 
 # get the full path to the currently running Python interpreter
@@ -185,3 +186,7 @@ program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Fi
 system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
+
+# global, near top-level of module
+malicious_hashes = set()
+malicious_hashes_lock = threading.Lock()
