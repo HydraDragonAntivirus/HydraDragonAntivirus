@@ -5977,13 +5977,15 @@ def process_exela_v2_payload(output_file):
             logger.critical(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
                 notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
+                return True
             else:
                 logger.error("Failed to save the final decrypted source code.")
         else:
             logger.info("[!] No webhook URLs found in Exela v2 payload.")
-
+        return False
     except Exception as ex:
         logger.error(f"Error during Exela v2 payload processing: {ex}")
+        return False
 
 def decode_zip(match: re.Match) -> str:
     """Decode one zip->chr join."""
@@ -7057,7 +7059,8 @@ def process_decompiled_code(output_file):
 
         if is_exela_v2_payload(content):
             logger.info("[*] Detected Exela Stealer v2 payload.")
-            process_exela_v2_payload(output_file)
+            if process_exela_v2_payload(output_file):
+                return True
 
         elif 'exec(' not in content:
             logger.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
@@ -7076,9 +7079,10 @@ def process_decompiled_code(output_file):
                 )
             else:
                 logger.error("[!] Generic deobfuscation failed; skipping scan and notification.")
-
+        return False
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
+        return False
 
 def extract_and_return_pyinstaller(file_path):
     """
