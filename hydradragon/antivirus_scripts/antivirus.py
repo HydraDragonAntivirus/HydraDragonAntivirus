@@ -1960,53 +1960,6 @@ def save_extracted_strings(output_filename, extracted_strings):
     with open(output_filename, 'w', encoding='utf-8') as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
 
-def run_hydra_whitelist(whitelist_path: Optional[str] = None) -> bool:
-    """
-    Run HydraDragonDumper.exe with the --whitelist argument to generate/update the whitelist
-    file. If whitelist_path is provided, it will be passed as the next CLI argument and the
-    parent directory will be created if necessary.
-
-    Mirrors the CLI behavior:
-      Mega_Dumper.exe --whitelist [OptionalOutputFilePath.txt]
-
-    Args:
-        whitelist_path: Optional path to write the whitelist (defaults to 'whitelist_hashes.txt'
-                        in script_dir if None).
-
-    Returns:
-        bool: True on success, False on failure.
-    """
-    # Default filename if none provided
-    if not whitelist_path:
-        whitelist_path = os.path.join(script_dir, "whitelist_hashes.txt")
-    else:
-        # If user provided a relative path, make it relative to script_dir for consistency
-        if not os.path.isabs(whitelist_path):
-            whitelist_path = os.path.join(script_dir, whitelist_path)
-
-    # Ensure parent directory exists
-    parent_dir = os.path.dirname(whitelist_path)
-    if parent_dir:
-        try:
-            os.makedirs(parent_dir, exist_ok=True)
-        except Exception as e:
-            logger.error(f"Failed to create directory for whitelist path '{parent_dir}': {e}")
-            return False
-
-    # Build command: pass --whitelist and optionally the output path (only if it's not another flag)
-    cmd = [hydra_dragon_dumper_path, "--whitelist", whitelist_path]
-
-    try:
-        subprocess.run(cmd, check=True)
-        logger.info(f"HydraDragonDumper: whitelist generated at {whitelist_path}")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"HydraDragonDumper failed to generate whitelist: {e}")
-        return False
-    except FileNotFoundError:
-        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
-        return False
-
 def extract_with_hydra(pid: str, output_dir: str) -> bool:
     """
     Run HydraDragonDumper (Mega Dumper CLI) to dump suspicious modules from a process PID.
@@ -9443,7 +9396,7 @@ def scan_and_warn(file_path,
             die_output, plain_text_flag = get_die_output(norm_path)
             die_cache[md5] = (die_output, plain_text_flag)
 
-        # CRITICAL: Ransomware check that can cause early return - NO THREADING
+        # CRITICAL: Unknown file check that can cause early return - NO THREADING
         if is_file_fully_unknown(die_output):
             if mega_optimization_with_anti_false_positive:
                 logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
