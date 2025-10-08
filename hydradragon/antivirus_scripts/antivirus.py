@@ -374,7 +374,8 @@ from .notify_user import (
     notify_user_hosts,
     notify_user_for_web,
     notify_user_for_web_source,
-    notify_user_for_detected_hips_file
+    notify_user_for_detected_hips_file,
+    notify_user_duplicate
 )
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4024,8 +4025,7 @@ def ml_fastpath_should_continue(
 
         logger.critical("ML detected malware in %s. Virus: %s (stopping full scan)", os.path.basename(norm_path), virus_name)
 
-        # Spawn notification and stop further scanning for this file.
-        # NOTE: The calling function (scan_and_warn) must be modified to act on this
+        # Spawn notification and stop further scanning for this .
         # False return value to actually stop the other scanning threads for this file.
         if virus_name.startswith("PUA."):
             threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, "ML"),).start()
@@ -9357,12 +9357,20 @@ def scan_and_warn(file_path,
         # Compute a quick MD5
         md5 = compute_md5(norm_path)
 
+        # Check if this hash is already known to be malicious
+        with malicious_hashes_lock:
+            if md5 in malicious_hashes:
+                known_virus_name = malicious_hashes[md5]
+                logger.warning(f"File {norm_path} matches known malicious hash: {md5} -> {known_virus_name}")
+                notify_user_duplicate(norm_path, md5, known_virus_name)
+                return False  # Skip full scan, we already know it's bad
+
         # If we've already scanned this exact (path, hash), skip immediately
         key = (norm_path.lower(), md5)
         if key in seen_files:
             return False
 
-         # Mark it seen and proceed
+        # Mark it seen and proceed
         seen_files.add(key)
 
         # SNAPSHOT the cache entry _once_ up front:
