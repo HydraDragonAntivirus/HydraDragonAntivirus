@@ -1,3 +1,5 @@
+import hashlib
+
 # --------------------------------------------------------------------------
 # Helper function to generate platform-specific signatures
 def get_signature(base_signature, **flags):
@@ -24,3 +26,13 @@ def get_signature(base_signature, **flags):
             return f"HEUR:Win32.{platform}.{base_signature}"
 
     return f"HEUR:Win32.{base_signature}"
+
+def compute_md5_via_text(text: str) -> str:
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def compute_md5(path: str) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()

@@ -190,3 +190,17 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 # global, near top-level of module
 malicious_hashes = set()
 malicious_hashes_lock = threading.Lock()
+
+# Global flags and caches
+pyinstaller_archive: str | None = None
+full_python_version: str | None = None
+pyz_version_match: bool = False
+
+# Cache of { file_path: last_md5 }
+file_md5_cache: dict[str, str] = {}
+
+# Global cache: md5 -> (die_output, plain_text_flag)
+die_cache: dict[str, tuple[str, bool]] = {}
+
+# Separate cache for "binary-only" DIE results
+binary_die_cache: dict[str, str] = {}

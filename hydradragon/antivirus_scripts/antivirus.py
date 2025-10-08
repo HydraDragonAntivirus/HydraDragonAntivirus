@@ -307,8 +307,12 @@ from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .utils_and_helpers import get_signature
-logger.debug(f"utils_and_helpers.get_signature module loaded in {time.time() - start_time:.6f} seconds")
+from .utils_and_helpers import (
+    get_signature,
+    compute_md5_via_text,
+    compute_md5
+)
+logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from . import clamav
@@ -548,6 +552,9 @@ from .path_and_variables import (
     system_drive,
     program_files,
     system32_dir,
+    file_md5_cache,
+    die_cache,
+    binary_die_cache,
     malicious_hashes,
     malicious_hashes_lock
 )
@@ -778,30 +785,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx."),
     (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
 ]
-
-# Global flags and caches
-pyinstaller_archive: str | None = None
-full_python_version: str | None = None
-pyz_version_match: bool = False
-
-# Cache of { file_path: last_md5 }
-file_md5_cache: dict[str, str] = {}
-
-# Global cache: md5 -> (die_output, plain_text_flag)
-die_cache: dict[str, tuple[str, bool]] = {}
-
-# Separate cache for "binary-only" DIE results
-binary_die_cache: dict[str, str] = {}
-
-def compute_md5_via_text(text: str) -> str:
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
-
-def compute_md5(path: str) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 def try_unpack_enigma1(input_exe: str) -> str | None:
     """
