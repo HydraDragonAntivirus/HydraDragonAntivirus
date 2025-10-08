@@ -1441,7 +1441,7 @@ def check_in_csv_data(target, csv_data):
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
-def scan_domain_general(url, **flags):
+def scan_domain_general(url, file_path, **flags):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -1541,7 +1541,7 @@ def scan_domain_general(url, **flags):
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
-def scan_ip_address_general(ip_address, **flags):
+def scan_ip_address_general(ip_address, file_path, **flags):
     try:
         if is_valid_ip(ip_address):
             logger.info(f"Skipping non valid IP address: {ip_address}")
@@ -1638,7 +1638,7 @@ def scan_ip_address_general(ip_address, **flags):
 
 # --------------------------------------------------------------------------
 # Spam Email 365 Scanner
-def scan_spam_email_365_general(email_content, **flags):
+def scan_spam_email_365_general(email_content, file_path, **flags):
     """Scans email content for spam keywords from StopForum Spam Database."""
     try:
         if not email_content:
@@ -1667,7 +1667,7 @@ def scan_spam_email_365_general(email_content, **flags):
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, **flags):
+def scan_url_general(url, file_path, **flags):
     try:
         if url in scanned_urls_general:
             logger.info(f"URL {url} has already been scanned.")
@@ -1763,9 +1763,9 @@ def scan_html_content(html_content, html_content_file_path, **flags):
     # Extract and scan URLs
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
-        scan_url_general(url, **flags)
-        scan_domain_general(url, **flags)
-        scan_spam_email_365_general(url, **flags)
+        scan_url_general(url,  html_content_file_path, **flags)
+        scan_domain_general(url, html_content_file_path, **flags)
+        scan_spam_email_365_general(url, html_content_file_path, **flags)
 
     # Extract and scan IP addresses (IPv4 and IPv6)
     ip_patterns = [
