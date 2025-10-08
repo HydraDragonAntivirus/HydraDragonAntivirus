@@ -5049,7 +5049,8 @@ def ml_fastpath_should_continue(
         else:
             threading.Thread(target=notify_user, args=(norm_path, virus_name, "ML"),).start()
 
-        return True
+        # Don't continue scan once malwaare found
+        return False
 
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
