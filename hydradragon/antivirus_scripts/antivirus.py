@@ -1374,7 +1374,11 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
         if matches:
             signature = get_signature(signature_base, **flags)
             logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
-            notify_user_for_web_source(file_path, signature)
+            notify_user_for_web_source(
+                file_path=file_path,
+                detection_type=signature,
+                main_file_path=flags.get('main_file_path')
+            )
             return True  # Stop after first detection
 
     return False  # No detection

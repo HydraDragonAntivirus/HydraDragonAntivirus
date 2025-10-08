@@ -213,7 +213,7 @@ def notify_user_hosts(file_path, virus_name, main_file_path: Optional[str] = Non
     _send_to_edr(file_path, virus_name, action="monitor", main_file_path=main_file_path)
 
 
-def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None, main_file_path: Optional[str] = None):
+def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
     message_parts = []
@@ -233,7 +233,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
     if file_path:
         threat_name = f"WebThreat: {domain or url or ipv4_address}"
         _add_malicious_hash(file_path, threat_name)
-        _send_to_edr(file_path, threat_name, action="kill_and_remove", main_file_path=main_file_path)
+        _send_to_edr(file_path, threat_name, action="kill_and_remove", main_file_path=None)
 
 
 def notify_user_for_web_source(
