@@ -219,7 +219,6 @@ def build_ip_patterns():
     # patterns for finding encoded candidate blobs (we will attempt to decode them then search inside)
     base64_candidate = re.compile(r'([A-Za-z0-9+/]{8,64}={0,2})')
     base32_candidate = re.compile(r'([A-Z2-7]{8,64}={0,6})')
-    reversed_candidate = re.compile(r'([a-zA-Z0-9\-/._]{6,120})')  # broad; we'll reverse and test selectively
 
     # helper: search for plain matches (returns dicts)
     def _collect_plain(text):

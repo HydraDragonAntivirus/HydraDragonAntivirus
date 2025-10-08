@@ -130,10 +130,6 @@ import wmi
 logger.debug(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import numpy as np
-logger.debug(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
@@ -414,6 +410,159 @@ from .pattern import (
 )
 logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from .path_and_variables import (
+    python_path,
+    appdata_roaming,
+    nexe_javascript_unpacked_dir,
+    unlicense_path,
+    unlicense_x64_path,
+    webcrack_javascript_deobfuscated_dir,
+    pkg_unpacker_dir,
+    enigma1_extracted_dir,
+    upx_path,
+    upx_extracted_dir,
+    inno_unpack_path,
+    autohotkey_decompiled_dir,
+    inno_setup_unpacked_dir,
+    themida_unpacked_dir,
+    decompiled_dir,
+    pyinstaller_extracted_dir,
+    pyarmor8_and_9_extracted_dir,
+    pyarmor7_extracted_dir,
+    cx_freeze_extracted_dir,
+    ghidra_logs_dir,
+    ghidra_scripts_dir,
+    FernFlower_decompiled_dir,
+    jar_extracted_dir,
+    dotnet_dir,
+    obfuscar_dir,
+    androguard_dir,
+    decompiled_jsc_dir,
+    npm_pkg_extracted_dir,
+    asar_dir,
+    un_confuser_ex_path,
+    un_confuser_ex_extracted_dir,
+    net_reactor_slayer_x64_cli_path,
+    nuitka_dir,
+    ole2_dir,
+    FernFlower_path,
+    system_file_names_path,
+    extensions_path,
+    vmprotect_unpacked_dir,
+    python_source_code_dir,
+    python_deobfuscated_dir,
+    python_deobfuscated_marshal_pyc_dir,
+    pylingual_extracted_dir,
+    pycdas_extracted_dir,
+    de4dot_cex_x64_path,
+    net_reactor_extracted_dir,
+    de4dot_extracted_dir,
+    nuitka_source_code_dir,
+    pe_extracted_dir,
+    zip_extracted_dir,
+    tar_extracted_dir,
+    seven_zip_extracted_dir,
+    general_extracted_with_7z_dir,
+    nuitka_extracted_dir,
+    advanced_installer_extracted_dir,
+    memory_dir,
+    debloat_dir,
+    detectiteasy_console_path,
+    ilspycmd_path,
+    pycdas_path,
+    ISx_installshield_extractor_path,
+    installshield_extracted_dir,
+    autoit_extracted_dir,
+    hydra_dragon_dumper_path,
+    hydra_dragon_dumper_extracted_dir,
+    deobfuscar_path,
+    machine_learning_pickle_path,
+    resource_extractor_dir,
+    ungarbler_dir,
+    ungarbler_string_dir,
+    excluded_rules_path,
+    html_extracted_dir,
+    spam_email_365_path,
+    ipv4_addresses_path,
+    ipv4_addresses_spam_path,
+    ipv4_addresses_bruteforce_path,
+    ipv4_addresses_phishing_active_path,
+    ipv4_addresses_phishing_inactive_path,
+    ipv4_whitelist_path,
+    ipv6_addresses_path,
+    ipv6_addresses_spam_path,
+    ipv4_addresses_ddos_path,
+    ipv6_addresses_ddos_path,
+    ipv6_whitelist_path,
+    malware_domains_path,
+    malware_domains_mail_path,
+    phishing_domains_path,
+    abuse_domains_path,
+    mining_domains_path,
+    spam_domains_path,
+    whitelist_domains_path,
+    whitelist_domains_mail_path,
+    malware_sub_domains_path,
+    malware_mail_sub_domains_path,
+    phishing_sub_domains_path,
+    abuse_sub_domains_path,
+    mining_sub_domains_path,
+    spam_sub_domains_path,
+    whitelist_sub_domains_path,
+    whitelist_mail_sub_domains_path,
+    urlhaus_path,
+    antivirus_list_path,
+    yaraxtr_yrc_path,
+    clean_rules_path,
+    yarGen_rule_path,
+    icewater_rule_path,
+    valhalla_rule_path,
+    bypass_pyarmor7_path,
+    antivirus_domains_data,
+    ipv4_addresses_signatures_data,
+    ipv4_addresses_spam_signatures_data,
+    ipv4_addresses_bruteforce_signatures_data,
+    ipv4_addresses_phishing_active_signatures_data,
+    ipv4_addresses_phishing_inactive_signatures_data,
+    ipv4_addresses_ddos_signatures_data,
+    ipv6_addresses_signatures_data,
+    ipv6_addresses_spam_signatures_data,
+    ipv6_addresses_ddos_signatures_data,
+    ipv4_whitelist_data,
+    ipv6_whitelist_data,
+    urlhaus_data,
+    malware_domains_data,
+    malware_domains_mail_data,
+    phishing_domains_data,
+    abuse_domains_data,
+    mining_domains_data,
+    spam_domains_data,
+    whitelist_domains_data,
+    whitelist_domains_mail_data,
+    malware_sub_domains_data,
+    malware_mail_sub_domains_data,
+    phishing_sub_domains_data,
+    abuse_sub_domains_data,
+    mining_sub_domains_data,
+    spam_sub_domains_data,
+    whitelist_sub_domains_data,
+    whitelist_mail_sub_domains_data,
+    scanned_urls_general,
+    scanned_domains_general,
+    scanned_ipv4_addresses_general,
+    scanned_ipv6_addresses_general,
+)
+logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from .pe_feature_extractor import (
+    pe_extractor,
+    calculate_vector_similarity
+)
+logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
+
+
 # Calculate and logger.debug total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -456,186 +605,6 @@ except Exception as e:
 # Initialize the accelerator and device
 accelerator = Accelerator()
 device = accelerator.device
-
-# get the full path to the currently running Python interpreter
-python_path = sys.executable
-
-# Define the paths
-appdata_roaming = os.environ.get('APPDATA', '')
-nexe_javascript_unpacked_dir = os.path.join(script_dir, "nexe_unpacked")
-unlicense_dir = os.path.join(script_dir, "unlicense")
-unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
-unlicense_x64_path  = os.path.join(unlicense_dir, "unlicense-x64.exe")
-capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
-capa_results_dir = os.path.join(script_dir, "capa_results")
-hayabusa_dir = os.path.join(script_dir, "hayabusa")
-webcrack_javascript_deobfuscated_dir = os.path.join(script_dir, "webcrack_javascript_deobfuscated")
-pkg_unpacker_dir = os.path.join(script_dir, "pkg-unpacker")
-hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.5.0-win-x64.exe")
-reports_dir = os.path.join(script_dir, "reports")
-network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
-scan_report_path = os.path.join(reports_dir, "scan_report.json")
-enigma1_extracted_dir = os.path.join(script_dir, "enigma1_extracted")
-inno_unpack_dir = os.path.join(script_dir, "innounp-2")
-upx_dir = os.path.join(script_dir, "upx-5.0.2-win64")
-upx_path = os.path.join(upx_dir, "upx.exe")
-upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
-inno_unpack_path = os.path.join(inno_unpack_dir, "innounp.exe")
-autohotkey_decompiled_dir = os.path.join(script_dir, "autohotkey_decompiled")
-inno_setup_unpacked_dir = os.path.join(script_dir, "inno_setup_unpacked")
-themida_unpacked_dir = os.path.join(script_dir, "themida_unpacked")
-decompiled_dir = os.path.join(script_dir, "decompiled")
-assets_dir = os.path.join(script_dir, "assets")
-icon_path = os.path.join(assets_dir, "HydraDragonAVLogo.png")
-digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
-pyinstaller_extracted_dir = os.path.join(script_dir, "pyinstaller_extracted")
-pyarmor8_and_9_extracted_dir = os.path.join(script_dir, "pyarmor8_and_9_extracted")
-pyarmor7_extracted_dir = os.path.join(script_dir, "pyarmor7_extracted")
-cx_freeze_extracted_dir = os.path.join(script_dir, "cx_freeze_extracted")
-ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
-ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
-ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
-jar_decompiler_dir = os.path.join(script_dir, "jar_decompiler")
-FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
-jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
-dotnet_dir = os.path.join(script_dir, "dotnet")
-obfuscar_dir = os.path.join(script_dir, "obfuscar")
-androguard_dir = os.path.join(script_dir, "androguard")
-decompiled_jsc_dir = os.path.join(script_dir, "decompiled_jsc")
-npm_pkg_extracted_dir = os.path.join(script_dir, "npm_pkg_extracted")
-asar_dir = os.path.join(script_dir, "asar")
-un_confuser_ex_dir = os.path.join(script_dir, "UnConfuserEx")
-un_confuser_ex_path = os.path.join(un_confuser_ex_dir, "UnConfuserEx.exe")
-un_confuser_ex_extracted_dir = os.path.join(script_dir, "UnConfuserEx_extracted")
-net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
-net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
-nuitka_dir = os.path.join(script_dir, "nuitka")
-ole2_dir = os.path.join(script_dir, "ole2")
-known_extensions_dir = os.path.join(script_dir, "known_extensions")
-FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
-system_file_names_path = os.path.join(known_extensions_dir, "system_filenames.txt")
-extensions_path = os.path.join(known_extensions_dir, "extensions.txt")
-meta_llama_dir = os.path.join(script_dir, "meta_llama")
-vmprotect_unpacked_dir = os.path.join(script_dir, "vmprotect_unpacked")
-meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
-python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
-python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
-python_deobfuscated_marshal_pyc_dir = os.path.join(python_deobfuscated_dir, "python_deobfuscated_marshal_pyc")
-pylingual_extracted_dir = os.path.join(python_source_code_dir, "pylingual_extracted")
-pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
-de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
-de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot-x64.exe")
-net_reactor_extracted_dir = os.path.join(script_dir, "net_reactor_extracted")
-de4dot_extracted_dir = os.path.join(script_dir, "de4dot_extracted")
-nuitka_source_code_dir = os.path.join(script_dir, "nuitka_source_code")
-pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
-zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
-tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
-seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
-general_extracted_with_7z_dir = os.path.join(script_dir, "general_extracted_with_7z")
-nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
-advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_extracted")
-detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
-detectiteasy_db_dir = os.path.join(detectiteasy_dir, "db")
-memory_dir = os.path.join(script_dir, "memory")
-debloat_dir = os.path.join(script_dir, "debloat")
-detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
-ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
-pycdas_path = os.path.join(script_dir, "pycdas.exe")
-ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
-installshield_extracted_dir = os.path.join(script_dir, "installshield_extracted")
-autoit_extracted_dir = os.path.join(script_dir, "autoit_extracted")
-hydra_dragon_dumper_path = os.path.join(script_dir, "HydraDragonDumper.exe")
-hydra_dragon_dumper_extracted_dir = os.path.join(script_dir, "HydraDragonDumper_extracted")
-deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
-digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
-digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
-machine_learning_dir = os.path.join(script_dir, "machine_learning")
-machine_learning_pickle_path = os.path.join(machine_learning_dir, "results.pkl")
-resource_extractor_dir = os.path.join(script_dir, "resources_extracted")
-ungarbler_dir = os.path.join(script_dir, "ungarbler")
-ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
-yara_dir = os.path.join(script_dir, "yara")
-excluded_rules_dir = os.path.join(script_dir, "excluded")
-excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
-html_extracted_dir = os.path.join(script_dir, "html_extracted")
-website_rules_dir = os.path.join(script_dir, "website")
-# Email last 365 days
-spam_email_365_path = os.path.join(website_rules_dir, "listed_email_365.txt")
-# Define all website file paths
-ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.csv")
-ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.csv")
-ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.csv")
-ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.csv")
-ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.csv")
-ipv4_whitelist_path = os.path.join(website_rules_dir, "WhitelistIPv4.csv")
-ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.csv")
-ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.csv")
-ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.csv")
-ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.csv")
-ipv6_whitelist_path = os.path.join(website_rules_dir, "WhiteListIPv6.csv")
-malware_domains_path = os.path.join(website_rules_dir, "MalwareDomains.csv")
-malware_domains_mail_path = os.path.join(website_rules_dir, "MaliciousMailDomains.csv")
-phishing_domains_path = os.path.join(website_rules_dir, "PhishingDomains.csv")
-abuse_domains_path = os.path.join(website_rules_dir, "AbuseDomains.csv")
-mining_domains_path = os.path.join(website_rules_dir, "MiningDomains.csv")
-spam_domains_path = os.path.join(website_rules_dir, "SpamDomains.csv")
-whitelist_domains_path = os.path.join(website_rules_dir, "WhiteListDomains.csv")
-whitelist_domains_mail_path = os.path.join(website_rules_dir, "BenignMailDomains.csv")
-# Define corresponding subdomain files
-malware_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomains.csv")
-malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MaliciousMailSubDomains.csv")
-phishing_sub_domains_path = os.path.join(website_rules_dir, "PhishingSubDomains.csv")
-abuse_sub_domains_path = os.path.join(website_rules_dir, "AbuseSubDomains.csv")
-mining_sub_domains_path = os.path.join(website_rules_dir, "MiningSubDomains.csv")
-spam_sub_domains_path = os.path.join(website_rules_dir, "SpamSubDomains.csv")
-whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomains.csv")
-whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "BenignMailSubDomains.csv")
-urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
-antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
-yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
-clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
-yarGen_rule_path = os.path.join(yara_dir, "machine_learning.yrc")
-icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
-valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
-antivirus_scripts_dir = os.path.join(script_dir, "antivirus_scripts")
-decompilers_dir = os.path.join(script_dir, "decompilers")
-bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
-
-antivirus_domains_data = []
-ipv4_addresses_signatures_data = []
-ipv4_addresses_spam_signatures_data = []
-ipv4_addresses_bruteforce_signatures_data = []
-ipv4_addresses_phishing_active_signatures_data = []
-ipv4_addresses_phishing_inactive_signatures_data = []
-ipv4_addresses_ddos_signatures_data = []
-ipv6_addresses_signatures_data = []
-ipv6_addresses_spam_signatures_data = []
-ipv6_addresses_ddos_signatures_data = []
-ipv4_whitelist_data = []
-ipv6_whitelist_data = []
-urlhaus_data = []
-malware_domains_data = []
-malware_domains_mail_data = []
-phishing_domains_data = []
-abuse_domains_data = []
-mining_domains_data = []
-spam_domains_data = []
-whitelist_domains_data = []
-whitelist_domains_mail_data = []
-malware_sub_domains_data = []
-malware_mail_sub_domains_data = []
-phishing_sub_domains_data = []
-abuse_sub_domains_data = []
-mining_sub_domains_data = []
-spam_sub_domains_data = []
-whitelist_sub_domains_data = []
-whitelist_mail_sub_domains_data = []
-# Scanned entities with "_general" suffix
-scanned_urls_general = []
-scanned_domains_general = []
-scanned_ipv4_addresses_general = []
-scanned_ipv6_addresses_general = []
 
 APP_NAME = "HydraDragon Antivirus"
 APP_VERSION = "v0.1 (Beta 6)"
@@ -763,7 +732,7 @@ MANAGED_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
-    decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
+    decompiled_dir, vmprotect_unpacked_dir,
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -786,7 +755,6 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(hydra_dragon_dumper_extracted_dir), "Hydra Dragon Dumper (Mega Dumper Fork) output extracted."),
     (lambda fp: fp.startswith(enigma1_extracted_dir), "Enigma Virtual Box extracted."),
     (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
-    (lambda fp: fp.startswith(capa_results_dir), "CAPA program capabilities extracted."),
     (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
     (lambda fp: fp.startswith(webcrack_javascript_deobfuscated_dir), "JavaScript file deobfuscated with webcrack."),
     (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
@@ -1262,14 +1230,6 @@ def save_to_file(file_path, content):
         logger.error(f"Error saving file {file_path}: {ex}")
         return None
 
-def decode_base64(data_content):
-    """Decode base64-encoded data."""
-    try:
-        return base64.b64decode(data_content, validate=True)
-    except (binascii.Error, ValueError):
-        logger.error("Base64 decoding failed.")
-        return None
-
 def decode_b64_import(match: re.Match) -> str:
     """Decode base64 constant to literal bytes or string repr."""
     raw = match.group(2)
@@ -1282,717 +1242,6 @@ def decode_b64_import(match: re.Match) -> str:
             return repr(data)
     except Exception:
         return match.group(0)
-
-# match only Base64 characters plus 0_2 padding"="
-_BASE64_RE = re.compile(br'^[A-Za-z0-9+/]+={0,2}$')
-
-# match only Base32 chars A_Z2_7 plus up to 6"=" padding at end
-_BASE32_RE = re.compile(br'^[A-Z2-7]+={0,6}$')
-
-# --- PE Analysis and Feature Extraction Functions ---
-
-class PEFeatureExtractor:
-    def __init__(self):
-        self.features_cache = {}
-
-    def _calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy of binary data."""
-        if not data:
-            return 0.0
-
-        # Use a more efficient way to get byte counts
-        counts = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
-        total_bytes = len(data)
-
-        # Filter out zero counts to avoid log(0)
-        probs = counts[counts > 0] / total_bytes
-        entropy = -np.sum(probs * np.log2(probs))
-
-        return float(entropy)
-
-    def disassemble_all_sections(self, pe) -> Dict[str, Any]:
-        """
-        Disassembles all sections of the PE file using Capstone and returns
-        instruction counts and a packing heuristic for each section and the file overall.
-        """
-        analysis = {
-            'overall_analysis': {
-                'total_instructions': 0,
-                'add_count': 0,
-                'mov_count': 0,
-                'is_likely_packed': None
-            },
-            'sections': {},
-            'error': None
-        }
-
-        try:
-            # Determine architecture for Capstone
-            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386']:
-                md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64']:
-                md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-            else:
-                analysis['error'] = "Unsupported architecture."
-                return analysis
-
-            total_add_count = 0
-            total_mov_count = 0
-            grand_total_instructions = 0
-
-            # Disassemble each section individually
-            for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
-                code = section.get_data()
-                base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
-
-                instruction_counts = {}
-                total_instructions_in_section = 0
-
-                if not code:
-                    analysis['sections'][section_name] = {
-                        'instruction_counts': {},
-                        'total_instructions': 0,
-                        'add_count': 0,
-                        'mov_count': 0,
-                        'is_likely_packed': False
-                    }
-                    continue
-
-                instructions = md.disasm(code, base_address)
-
-                for i in instructions:
-                    mnemonic = i.mnemonic
-                    instruction_counts[mnemonic] = instruction_counts.get(mnemonic, 0) + 1
-                    total_instructions_in_section += 1
-
-                add_count = instruction_counts.get('add', 0)
-                mov_count = instruction_counts.get('mov', 0)
-
-                # Aggregate counts for overall file analysis
-                total_add_count += add_count
-                total_mov_count += mov_count
-                grand_total_instructions += total_instructions_in_section
-
-                # Per-section packing analysis
-                analysis['sections'][section_name] = {
-                    'instruction_counts': instruction_counts,
-                    'total_instructions': total_instructions_in_section,
-                    'add_count': add_count,
-                    'mov_count': mov_count,
-                    'is_likely_packed': add_count > mov_count if total_instructions_in_section > 0 else False
-                }
-
-            # Populate the overall, file-wide analysis
-            analysis['overall_analysis']['total_instructions'] = grand_total_instructions
-            analysis['overall_analysis']['add_count'] = total_add_count
-            analysis['overall_analysis']['mov_count'] = total_mov_count
-            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
-
-        except Exception as e:
-            logger.error(f"Capstone disassembly failed: {e}")
-            analysis['error'] = str(e)
-
-        return analysis
-
-    def extract_section_data(self, section) -> Dict[str, Any]:
-        """Extract comprehensive section data including entropy."""
-        raw_data = section.get_data()
-        return {
-            'name': section.Name.decode(errors='ignore').strip('\x00'),
-            'virtual_size': section.Misc_VirtualSize,
-            'virtual_address': section.VirtualAddress,
-            'raw_size': section.SizeOfRawData,
-            'pointer_to_raw_data': section.PointerToRawData,
-            'characteristics': section.Characteristics,
-            'entropy': self._calculate_entropy(raw_data),
-            'raw_data_size': len(raw_data) if raw_data else 0
-        }
-
-    def extract_imports(self, pe) -> List[Dict[str, Any]]:
-        """Extract detailed import information."""
-        imports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
-            for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                dll_imports = {
-                    'dll_name': entry.dll.decode() if entry.dll else None,
-                    'imports': [{
-                        'name': imp.name.decode() if imp.name else None,
-                        'address': imp.address,
-                        'ordinal': imp.ordinal
-                    } for imp in entry.imports]
-                }
-                imports.append(dll_imports)
-        return imports
-
-    def extract_exports(self, pe) -> List[Dict[str, Any]]:
-        """Extract detailed export information."""
-        exports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
-            for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                export_info = {
-                    'name': exp.name.decode() if exp.name else None,
-                    'address': exp.address,
-                    'ordinal': exp.ordinal,
-                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
-                }
-                exports.append(export_info)
-        return exports
-
-    def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
-        """Retrieve callback addresses from the TLS directory."""
-        try:
-            callback_addresses = []
-            # Read callback addresses from the memory-mapped file
-            while True:
-                callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
-                if callback_address == 0:
-                    break  # End of callback list
-                callback_addresses.append(callback_address)
-                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
-
-            return callback_addresses
-        except Exception as e:
-            logger.error(f"Error retrieving TLS callback addresses: {e}")
-            return []
-
-    def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
-        """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
-        try:
-            tls_callbacks = {}
-            # Check if the PE file has a TLS directory
-            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
-                tls = pe.DIRECTORY_ENTRY_TLS.struct
-                tls_callbacks = {
-                    'start_address_raw_data': tls.StartAddressOfRawData,
-                    'end_address_raw_data': tls.EndAddressOfRawData,
-                    'address_of_index': tls.AddressOfIndex,
-                    'address_of_callbacks': tls.AddressOfCallBacks,
-                    'size_of_zero_fill': tls.SizeOfZeroFill,
-                    'characteristics': tls.Characteristics,
-                    'callbacks': []
-                }
-
-                # If there are callbacks, extract their addresses
-                if tls.AddressOfCallBacks:
-                    callback_array = self._get_callback_addresses(pe, tls.AddressOfCallBacks)
-                    if callback_array:
-                        tls_callbacks['callbacks'] = callback_array
-
-            return tls_callbacks
-        except Exception as e:
-            logger.error(f"Error analyzing TLS callbacks: {e}")
-            return {}
-
-    def analyze_dos_stub(self, pe) -> Dict[str, Any]:
-        """Analyze DOS stub program."""
-        try:
-            dos_stub = {
-                'exists': False,
-                'size': 0,
-                'entropy': 0.0,
-            }
-
-            if hasattr(pe, 'DOS_HEADER'):
-                stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
-                if stub_offset > 0:
-                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
-                    if dos_stub_data:
-                        dos_stub['exists'] = True
-                        dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
-
-            return dos_stub
-        except Exception as e:
-            logger.error(f"Error analyzing DOS stub: {e}")
-            return {}
-
-    def analyze_certificates(self, pe) -> Dict[str, Any]:
-        """Analyze security certificates."""
-        try:
-            cert_info = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
-                cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
-                cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
-
-                # Extract certificate attributes if available
-                if hasattr(pe, 'VS_FIXEDFILEINFO'):
-                    cert_info['fixed_file_info'] = {
-                        'signature': pe.VS_FIXEDFILEINFO.Signature,
-                        'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                        'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
-                        'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
-                        'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
-                        'file_os': pe.VS_FIXEDFILEINFO.FileOS,
-                        'file_type': pe.VS_FIXEDFILEINFO.FileType,
-                        'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
-                    }
-
-            return cert_info
-        except Exception as e:
-            logger.error(f"Error analyzing certificates: {e}")
-            return {}
-
-    def analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyze delay-load imports with error handling for missing attributes."""
-        try:
-            delay_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
-                for entry in pe.DIRECTORY_ENTRY_DELAY_IMPORT:
-                    imports = []
-                    for imp in entry.imports:
-                        import_info = {
-                            'name': imp.name.decode() if imp.name else None,
-                            'address': imp.address,
-                            'ordinal': imp.ordinal,
-                        }
-                        imports.append(import_info)
-
-                    delay_import = {
-                        'dll': entry.dll.decode() if entry.dll else None,
-                        'attributes': getattr(entry.struct, 'Attributes', None),  # Use getattr for safe access
-                        'name': getattr(entry.struct, 'Name', None),
-                        'handle': getattr(entry.struct, 'Handle', None),
-                        'iat': getattr(entry.struct, 'IAT', None),
-                        'bound_iat': getattr(entry.struct, 'BoundIAT', None),
-                        'unload_iat': getattr(entry.struct, 'UnloadIAT', None),
-                        'timestamp': getattr(entry.struct, 'TimeDateStamp', None),
-                        'imports': imports
-                    }
-                    delay_imports.append(delay_import)
-
-            return delay_imports
-        except Exception as e:
-            logger.error(f"Error analyzing delay imports: {e}")
-            return []
-
-    def analyze_load_config(self, pe) -> Dict[str, Any]:
-        """Analyze load configuration."""
-        try:
-            load_config = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
-                config = pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct
-                load_config = {
-                    'size': config.Size,
-                    'timestamp': config.TimeDateStamp,
-                    'major_version': config.MajorVersion,
-                    'minor_version': config.MinorVersion,
-                    'global_flags_clear': config.GlobalFlagsClear,
-                    'global_flags_set': config.GlobalFlagsSet,
-                    'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
-                    'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
-                    'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
-                    'security_cookie': config.SecurityCookie,
-                    'se_handler_table': config.SEHandlerTable,
-                    'se_handler_count': config.SEHandlerCount
-                }
-
-            return load_config
-        except Exception as e:
-            logger.error(f"Error analyzing load config: {e}")
-            return {}
-
-    def analyze_relocations(self, pe) -> List[Dict[str, Any]]:
-        """Analyze base relocations with summarized entries."""
-        try:
-            relocations = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
-                for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
-                    # Summarize relocation entries
-                    entry_types = {}
-                    offsets = []
-
-                    for entry in base_reloc.entries:
-                        entry_types[entry.type] = entry_types.get(entry.type, 0) + 1
-                        offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
-
-                    reloc_info = {
-                        'virtual_address': base_reloc.struct.VirtualAddress,
-                        'size_of_block': base_reloc.struct.SizeOfBlock,
-                        'summary': {
-                            'total_entries': len(base_reloc.entries),
-                            'types': entry_types,  # Counts of each relocation type
-                            'offset_range': (min(offsets), max(offsets)) if offsets else None
-                        }
-                    }
-
-                    relocations.append(reloc_info)
-
-            return relocations
-        except Exception as e:
-            logger.error(f"Error analyzing relocations: {e}")
-            return []
-
-    def analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyze bound imports with robust error handling."""
-        try:
-            bound_imports = []
-            if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
-                for bound_imp in pe.DIRECTORY_ENTRY_BOUND_IMPORT:
-                    bound_import = {
-                        'name': bound_imp.name.decode() if bound_imp.name else None,
-                        'timestamp': bound_imp.struct.TimeDateStamp,
-                        'references': []
-                    }
-
-                    # Check if `references` exists
-                    if hasattr(bound_imp, 'references') and bound_imp.references:
-                        for ref in bound_imp.references:
-                            reference = {
-                                'name': ref.name.decode() if ref.name else None,
-                                'timestamp': getattr(ref.struct, 'TimeDateStamp', None)
-                            }
-                            bound_import['references'].append(reference)
-                    else:
-                        logger.warning(f"Bound import {bound_import['name']} has no references.")
-
-                    bound_imports.append(bound_import)
-
-            return bound_imports
-        except Exception as e:
-            logger.error(f"Error analyzing bound imports: {e}")
-            return []
-
-    def analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
-        """Analyze detailed section characteristics."""
-        try:
-            characteristics = {}
-            for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
-                flags = section.Characteristics
-
-                # Decode section characteristics flags
-                section_flags = {
-                    'CODE': bool(flags & 0x20),
-                    'INITIALIZED_DATA': bool(flags & 0x40),
-                    'UNINITIALIZED_DATA': bool(flags & 0x80),
-                    'MEM_DISCARDABLE': bool(flags & 0x2000000),
-                    'MEM_NOT_CACHED': bool(flags & 0x4000000),
-                    'MEM_NOT_PAGED': bool(flags & 0x8000000),
-                    'MEM_SHARED': bool(flags & 0x10000000),
-                    'MEM_EXECUTE': bool(flags & 0x20000000),
-                    'MEM_READ': bool(flags & 0x40000000),
-                    'MEM_WRITE': bool(flags & 0x80000000)
-                }
-
-                characteristics[section_name] = {
-                    'flags': section_flags,
-                    'entropy': self._calculate_entropy(section.get_data()),
-                    'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
-                    'pointer_to_raw_data': section.PointerToRawData,
-                    'pointer_to_relocations': section.PointerToRelocations,
-                    'pointer_to_line_numbers': section.PointerToLinenumbers,
-                    'number_of_relocations': section.NumberOfRelocations,
-                    'number_of_line_numbers': section.NumberOfLinenumbers,
-                }
-
-            return characteristics
-        except Exception as e:
-            logger.error(f"Error analyzing section characteristics: {e}")
-            return {}
-
-    def analyze_extended_headers(self, pe) -> Dict[str, Any]:
-        """Analyze extended header information."""
-        try:
-            headers = {
-                'dos_header': {
-                    'e_magic': pe.DOS_HEADER.e_magic,
-                    'e_cblp': pe.DOS_HEADER.e_cblp,
-                    'e_cp': pe.DOS_HEADER.e_cp,
-                    'e_crlc': pe.DOS_HEADER.e_crlc,
-                    'e_cparhdr': pe.DOS_HEADER.e_cparhdr,
-                    'e_minalloc': pe.DOS_HEADER.e_minalloc,
-                    'e_maxalloc': pe.DOS_HEADER.e_maxalloc,
-                    'e_ss': pe.DOS_HEADER.e_ss,
-                    'e_sp': pe.DOS_HEADER.e_sp,
-                    'e_csum': pe.DOS_HEADER.e_csum,
-                    'e_ip': pe.DOS_HEADER.e_ip,
-                    'e_cs': pe.DOS_HEADER.e_cs,
-                    'e_lfarlc': pe.DOS_HEADER.e_lfarlc,
-                    'e_ovno': pe.DOS_HEADER.e_ovno,
-                    'e_oemid': pe.DOS_HEADER.e_oemid,
-                    'e_oeminfo': pe.DOS_HEADER.e_oeminfo
-                },
-                'nt_headers': {}
-            }
-
-            # Ensure NT_HEADERS exists and contains FileHeader
-            if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
-                nt_headers = pe.NT_HEADERS
-                if hasattr(nt_headers, 'FileHeader'):
-                    headers['nt_headers'] = {
-                        'signature': nt_headers.Signature,
-                        'machine': nt_headers.FileHeader.Machine,
-                        'number_of_sections': nt_headers.FileHeader.NumberOfSections,
-                        'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
-                        'characteristics': nt_headers.FileHeader.Characteristics
-                    }
-
-            return headers
-        except Exception as e:
-            logger.error(f"Error analyzing extended headers: {e}")
-            return {}
-
-    def serialize_data(self, data) -> Any:
-        """Serialize data for output, ensuring compatibility."""
-        try:
-            return list(data) if data else None
-        except Exception:
-            return None
-
-    def analyze_rich_header(self, pe) -> Dict[str, Any]:
-        """Analyze Rich header details."""
-        try:
-            rich_header = {}
-            if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
-                rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
-                rich_header['values'] = self.serialize_data(pe.RICH_HEADER.values)
-                rich_header['clear_data'] = self.serialize_data(pe.RICH_HEADER.clear_data)
-                rich_header['key'] = self.serialize_data(pe.RICH_HEADER.key)
-                rich_header['raw_data'] = self.serialize_data(pe.RICH_HEADER.raw_data)
-
-                # Decode CompID and build number information
-                compid_info = []
-                if rich_header['values']:
-                    for i in range(0, len(rich_header['values']), 2):
-                        if i + 1 < len(rich_header['values']):
-                            comp_id = rich_header['values'][i] >> 16
-                            build_number = rich_header['values'][i] & 0xFFFF
-                            count = rich_header['values'][i + 1]
-                            compid_info.append({
-                                'comp_id': comp_id,
-                                'build_number': build_number,
-                                'count': count
-                            })
-                rich_header['comp_id_info'] = compid_info
-
-            return rich_header
-        except Exception as e:
-            logger.error(f"Error analyzing Rich header: {e}")
-            return {}
-
-    def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
-        """Analyze file overlay (data appended after the PE structure)."""
-        try:
-            overlay_info = {
-                'exists': False,
-                'offset': 0,
-                'size': 0,
-                'entropy': 0.0
-            }
-
-            # Calculate the end of the PE structure
-            if not pe.sections:
-                 return overlay_info
-
-            last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
-            end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
-
-            # Get file size
-            file_size = os.path.getsize(file_path)
-
-            # Check for overlay
-            if file_size > end_of_pe:
-                with open(file_path, 'rb') as f:
-                    f.seek(end_of_pe)
-                    overlay_data = f.read()
-
-                    overlay_info['exists'] = True
-                    overlay_info['offset'] = end_of_pe
-                    overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
-
-            return overlay_info
-        except Exception as e:
-            logger.error(f"Error analyzing overlay: {e}")
-            return {}
-
-    def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """
-        Extract numeric features of a file using pefile.
-        Ensures pefile.PE is closed even on exceptions to avoid leaking file handles on Windows.
-        """
-        pe = None
-        try:
-
-            try:
-                # Attempt to load PE file directly
-                pe = pefile.PE(file_path, fast_load=True)
-            except pefile.PEFormatError:
-                logger.error(f"{file_path} is not a valid PE file.")
-                return None
-            except Exception as ex:
-                logger.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
-                return None
-            try:
-                pe.parse_data_directories()
-            except Exception:
-                logger.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
-
-            # Extract features
-            numeric_features = {
-                # Capstone analysis for packing
-                'section_disassembly': self.disassemble_all_sections(pe),
-
-                # Optional Header Features
-                'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
-                'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
-                'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
-                'SizeOfCode': pe.OPTIONAL_HEADER.SizeOfCode,
-                'SizeOfInitializedData': pe.OPTIONAL_HEADER.SizeOfInitializedData,
-                'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-                'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-                'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
-                'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
-                'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
-                'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
-                'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-                'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-                'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
-                'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
-                'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
-                'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
-                'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
-                'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
-                'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
-                'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
-                'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-                'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
-                'SizeOfStackCommit': pe.OPTIONAL_HEADER.SizeOfStackCommit,
-                'SizeOfHeapReserve': pe.OPTIONAL_HEADER.SizeOfHeapReserve,
-                'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
-                'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
-                'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-
-                # Section Headers
-                'sections': [
-                    {
-                        'name': section.Name.decode(errors='ignore').strip('\x00'),
-                        'virtual_size': section.Misc_VirtualSize,
-                        'virtual_address': section.VirtualAddress,
-                        'size_of_raw_data': section.SizeOfRawData,
-                        'pointer_to_raw_data': section.PointerToRawData,
-                        'characteristics': section.Characteristics,
-                    }
-                    for section in pe.sections
-                ],
-
-                # Imported Functions
-                'imports': [
-                    imp.name.decode(errors='ignore') if imp.name else "Unknown"
-                    for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
-                    for imp in getattr(entry, 'imports', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
-
-                # Exported Functions
-                'exports': [
-                    exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                    for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
-
-                # Resources
-                'resources': [
-                    {
-                        'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
-                        'resource_id': getattr(getattr(resource_id, 'struct', None), 'Id', None),
-                        'lang_id': getattr(getattr(resource_lang, 'struct', None), 'Id', None),
-                        'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
-                        'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
-                    }
-                    for resource_type in
-                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
-                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
-                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
-                    if hasattr(resource_lang, 'data')
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
-
-                # Debug Information
-                'debug': [
-                    {
-                        'type': debug.struct.Type,
-                        'timestamp': debug.struct.TimeDateStamp,
-                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
-                        'size': debug.struct.SizeOfData,
-                    }
-                    for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
-
-                # Certificates
-                'certificates': self.analyze_certificates(pe),  # Analyze certificates
-
-                # DOS Stub Analysis
-                'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
-
-                # TLS Callbacks
-                'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
-
-                # Delay Imports
-                'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
-
-                # Load Config
-                'load_config': self.analyze_load_config(pe),  # Load config analysis here
-
-                # Bound Imports
-                'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
-
-                # Section Characteristics
-                'section_characteristics': self.analyze_section_characteristics(pe),
-                # Section characteristics analysis here
-
-                # Extended Headers
-                'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
-
-                # Rich Header
-                'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
-
-                # Overlay
-                'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
-
-                #Relocations
-                'relocations': self.analyze_relocations(pe) #Relocations analysis here
-            }
-
-            # Add numeric tag if provided
-            if rank is not None:
-                numeric_features['numeric_tag'] = rank
-
-            return numeric_features
-
-        except Exception as ex:
-            logger.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
-            return None
-        finally:
-            # ensure PE handle is closed to release underlying file descriptor
-            try:
-                if pe is not None:
-                    pe.close()
-            except Exception:
-                logger.debug(f"Failed to close pe for {file_path}", exc_info=True)
-
-pe_extractor = PEFeatureExtractor()
-
-def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """Calculates similarity between two numeric vectors using cosine similarity."""
-    if not vec1 or not vec2 or len(vec1) != len(vec2):
-        return 0.0
-
-    # Convert to numpy arrays for vector operations
-    vec1 = np.array(vec1, dtype=np.float64)
-    vec2 = np.array(vec2, dtype=np.float64)
-
-    # Calculate cosine similarity
-    dot_product = np.dot(vec1, vec2)
-    norm_vec1 = np.linalg.norm(vec1)
-    norm_vec2 = np.linalg.norm(vec2)
-
-    if norm_vec1 == 0 or norm_vec2 == 0:
-        return 1.0 if norm_vec1 == norm_vec2 else 0.0
-
-    # The result of dot_product / (norm_vec1 * norm_vec2) is between -1 and 1.
-    # We scale it to be in the [0, 1] range for easier interpretation.
-    cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
-    return (cosine_similarity + 1) / 2
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -2840,9 +2089,6 @@ def extract_with_unipacker(file_path):
     except Exception as e:
         logger.error(f"Unipacker extraction failed for {file_path}: {e}")
         return None
-
-# Unified cache for all PE feature extractions
-unified_pe_cache = {}
 
 def clear_pe_cache():
     """Clear the unified PE feature cache."""
@@ -5561,10 +4807,6 @@ icewater_rule = load_yara_rule(icewater_rule_path, display_name="Icewater Rules"
 valhalla_rule = load_yara_rule(valhalla_rule_path, display_name="Vallhalla Demo Rules")
 clean_rules   = load_yara_rule(clean_rules_path, display_name="(clean) YARA Rules")
 yaraxtr_rule  = load_yara_rule(yaraxtr_yrc_path, display_name="YARA-X yaraxtr Rules", is_yara_x=True)
-
-# Initialize variables as None (empty)
-meta_llama_1b_model = None
-meta_llama_1b_tokenizer = None
 
 # List to keep track of existing project names
 existing_projects = []
@@ -8952,7 +8194,6 @@ def run_fernflower_decompiler(file_path):
     try:
 
         # Build the path to fernflower.jar.
-        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
         base_name = os.path.splitext(os.path.basename(file_path))[0]
 
         # Find the next available numbered subfolder

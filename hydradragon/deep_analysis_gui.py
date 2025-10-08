@@ -29,8 +29,6 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 from hydradragon.antivirus_scripts.antivirus import (
-    icon_path, 
-    freshclam_path,
     clamav_file_paths, 
     start_real_time_protection,
     reload_clamav_database,
@@ -38,6 +36,10 @@ from hydradragon.antivirus_scripts.antivirus import (
     is_suricata_running,
     get_latest_clamav_def_time,
     WINDOW_TITLE,
+)
+from hydradragon.antivirus_scripts.path_and_variables import (
+    freshclam_path,
+    icon_path, 
     hayabusa_path,
 )
 
