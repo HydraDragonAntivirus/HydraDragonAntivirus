@@ -35,12 +35,12 @@ from hydradragon.antivirus_scripts.antivirus import (
     run_suricata,
     is_suricata_running,
     get_latest_clamav_def_time,
-    WINDOW_TITLE,
 )
 from hydradragon.antivirus_scripts.path_and_variables import (
     freshclam_path,
     icon_path, 
     hayabusa_path,
+    WINDOW_TITLE,
 )
 
 # --- Custom Hydra Icon Widget ---

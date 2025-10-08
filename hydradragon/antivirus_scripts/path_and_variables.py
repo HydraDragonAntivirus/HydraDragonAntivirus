@@ -172,3 +172,16 @@ scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 # Unified cache for all PE feature extractions
 unified_pe_cache = {}
+
+APP_NAME = "HydraDragon Antivirus"
+APP_VERSION = "v0.1 (Beta 6)"
+WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
+
+# Resolve system drive path
+system_drive = os.getenv("SystemDrive", "C:") + os.sep
+# Resolve Program Files directory via environment (fallback to standard path)
+program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
+# Get SystemRoot (usually C:\Windows)
+system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
+# Fallback to %SystemRoot%\System32 if %System32% is not set
+system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
