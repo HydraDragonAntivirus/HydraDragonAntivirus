@@ -1431,15 +1431,6 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
         notify_user_for_web_source(file_path, signature)
 
 # --------------------------------------------------------------------------
-# Helper function to check if domain/IP exists in CSV data with reference support
-def check_in_csv_data(target, csv_data):
-    """Check if target exists in CSV data and return reference if found"""
-    for entry in csv_data:
-        if entry['address'] == target:
-            return True, entry['reference']
-    return False, None
-
-# --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
 def scan_domain_general(url, file_path, **flags):
     try:
