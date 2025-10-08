@@ -10521,7 +10521,7 @@ def scan_and_warn(file_path,
             # Use the signature_check produced by the thread when calling ML fast-path
             sig_for_ml = thread_results.get('signature_check', None)
 
-            # ML fast-path: if returns False -> ML marked benign => EARLY EXIT (do not start realtime thread)
+            # ML fast-path: if returns False -> ML marked benign or malware => EARLY EXIT (do not start realtime thread)
             if not ml_fastpath_should_continue(norm_path, sig_for_ml, pe_file):
                 return False
 
