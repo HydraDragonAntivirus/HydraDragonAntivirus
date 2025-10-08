@@ -1349,8 +1349,7 @@ def load_website_data():
 def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs,
-    or Telegram bot links. For every detection, log a warning and immediately
-    notify the user with a unique heuristic signature that depends on the flags provided.
+    or Telegram bot links. Stop immediately after the first valid detection.
     """
 
     detections = [
@@ -1370,14 +1369,15 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     if telegram_token_matches and telegram_keyword_matches:
         detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
 
+    # Stop after first detection
     for matches, description, signature_base in detections:
-        if not matches:
-            continue
+        if matches:
+            signature = get_signature(signature_base, **flags)
+            logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
+            notify_user_for_web_source(file_path, signature)
+            return True  # Stop after first detection
 
-        signature = get_signature(signature_base, **flags)
-        logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
-
-        notify_user_for_web_source(file_path, signature)
+    return False  # No detection
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
@@ -9958,12 +9958,16 @@ def scan_and_warn(file_path,
             if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                 threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature", main_file_path)).start()
+                # One detection enough
+                return False
 
             def scr_detection_thread():
                 try:
                     if norm_path.lower().endswith(".scr"):
                         logger.critical(f"Suspicious .scr file detected: {norm_path}")
                         threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen", main_file_path)).start()
+                        # One detection enough
+                        return False
                 except Exception as e:
                     logger.error(f"Error in SCR detection for {norm_path}: {e}")
 
@@ -10295,6 +10299,8 @@ def scan_and_warn(file_path,
                             if signature_check and signature_check["is_valid"]:
                                 fake_size = "HEUR:SIG.Win32.FakeSize.gen"
                             threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size, main_file_path)).start()
+                            # One detection enough
+                            return False
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
@@ -10310,8 +10316,12 @@ def scan_and_warn(file_path,
 
                     if virus_name.startswith("PUA."):
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
+                        # One detection enough
+                        return False
                     else:
                         threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected, main_file_path)).start()
+                        # One detection enough
+                        return False
 
                 if already_vmprotect_unpacked:
                     return
@@ -10369,6 +10379,8 @@ def scan_and_warn(file_path,
 
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
                     threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name, main_file_path)).start()
+                    # One detection enough
+                    return False
             except Exception as e:
                 logger.error(f"Error in filename detection for {norm_path}: {e}")
 
