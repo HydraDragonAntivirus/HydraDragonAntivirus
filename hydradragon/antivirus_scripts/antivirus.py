@@ -155,10 +155,6 @@ from urllib.parse import urlparse
 logger.debug(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import spacy
-logger.debug(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import csv
 logger.debug(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -574,10 +570,6 @@ logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
 user_startup, common_startup = get_startup_paths()
 
 startup_dirs = [user_startup, common_startup]
-
-# Load the spaCy model globally
-nlp_spacy_lang = spacy.load("en_core_web_md")
-logger.debug("spaCy model 'en_core_web_md' loaded successfully")
 
 try:
     nltk.data.find('tokenizers/punkt')

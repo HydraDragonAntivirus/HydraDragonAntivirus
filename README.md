@@ -10,7 +10,7 @@
 </p>
 
 ## Description
-Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
+Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
 
 ## License
 
