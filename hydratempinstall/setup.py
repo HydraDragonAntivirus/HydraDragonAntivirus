@@ -531,18 +531,21 @@ def main():
     # 15. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists():
-        log.info("pyproject.toml found, running poetry install")
-        # Prefer calling poetry via python -m poetry (installed into venv)
-        rc = run_cmd([str(venv_python), "-m", "poetry", "install"], "Poetry dependency installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+        log.info("pyproject.toml found, running poetry install (verbose)")
+        # Ensure poetry installs into the current venv (avoid nested virtualenvs)
+        run_cmd([str(venv_python), "-m", "poetry", "config", "virtualenvs.create", "false"], "poetry config virtualenvs.create false")
+
+        # Run poetry with verbose output and non-interactive flags so we capture full diagnostics.
+        rc = run_cmd(
+            [str(venv_python), "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
+            "Poetry dependency installation",
+            retries=MAX_RETRIES,
+            retry_delay=RETRY_DELAY,
+        )
         if rc != 0:
             errors.append(("poetry install deps", rc))
     else:
         log.info("No pyproject.toml found, skipping Poetry dependency installation.")
-
-    # 16. Install spaCy model
-    rc = run_cmd([str(venv_python), "-m", "spacy", "download", "en_core_web_md"], "spaCy model installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
-    if rc != 0:
-        errors.append(("spacy model", rc))
 
     # ------------------------------
     # NPM PACKAGES INSTALLATION
@@ -565,14 +568,14 @@ def main():
         cmd = [npm_cmd] + args_list
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
-    # 17. asar
+    # 16. asar
     npm_run(["install", "-g", "asar"], "asar installation")
-    # 18. webcrack
+    # 17. webcrack
     npm_run(["install", "-g", "webcrack"], "webcrack installation")
-    # 19. nexe_unpacker
+    # 18. nexe_unpacker
     npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
 
-    # 20. pkg-unpacker build
+    # 19. pkg-unpacker build
     if PKG_UNPACKER_DIR.exists():
         log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
         # cd + npm install + npm run build
