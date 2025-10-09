@@ -11,6 +11,11 @@ set "CLEAN_VM_PSB_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum\clean_vm\installer
 set "SANCTUM_APPDATA_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum\AppData"
 set "SANCTUM_APPDATA_PATH=%HYDRADRAGON_PATH%\hydradragon\Sanctum"
 
+if "%ProgramW6432%"=="" (
+    echo WARNING: ProgramW6432 is not defined — falling back to %%ProgramFiles%%.
+    set "ProgramW6432=%ProgramFiles%"
+)
+
 set "MAX_RETRIES=3"
 set "RETRY_DELAY=5"
 
@@ -96,6 +101,7 @@ if exist "%SANCTUM_APPDATA_PATH%" (
     echo Sanctum source folder "%SANCTUM_APPDATA_PATH%" not found — skipping copy.
 )
 
+rem ------------------------------------------------------------------------
 rem 9. Now copy any remaining Sanctum data (if any) to Desktop\sanctum
 if exist "%SANCTUM_APPDATA_PATH%" (
     echo Copying any remaining Sanctum files to "%DESKTOP_SANCTUM%"...
@@ -153,15 +159,15 @@ call :retry_command "python -m spacy download en_core_web_md" "spaCy model insta
 
 rem 16. Install asar globally with npm with retry
 echo Installing 'asar' npm package globally...
-call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g asar" "asar installation"
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g asar" "asar installation"
 
 rem 17. Install webcrack globally with npm with retry
 echo Installing 'webcrack' npm package globally...
-call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g webcrack" "webcrack installation"
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g webcrack" "webcrack installation"
 
 rem 18. Install nexe_unpacker globally with npm with retry
 echo Installing 'nexe_unpacker' npm package globally...
-call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g nexe_unpacker" "nexe_unpacker installation"
+call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g nexe_unpacker" "nexe_unpacker installation"
 
 rem --------------------------------------------------------------------------
 rem 19. Navigate to HydraDragon pkg-unpacker folder and build npm project
@@ -175,12 +181,12 @@ if exist "%PKG_UNPACKER_DIR%" (
 
     rem Install npm dependencies with retry
     echo Installing npm dependencies...
-    call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install" "npm dependencies installation"
+    call :retry_command_npm "%NODEJS_PATH%\npm.cmd install" "npm dependencies installation"
     if !cmd_success! equ 0 goto :end
 
     rem Build the npm project with retry
     echo Building npm project...
-    call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" run build" "npm project build"
+    call :retry_command_npm "%NODEJS_PATH%\npm.cmd run build" "npm project build"
     if !cmd_success! equ 0 goto :end
 ) else (
     echo HydraDragon pkg-unpacker folder not found, skipping npm build.
@@ -190,54 +196,58 @@ echo Setup completed successfully!
 goto :end
 
 rem ============================================================================
-rem RETRY FUNCTION FOR GENERAL COMMANDS
+rem Robust RETRY FUNCTION FOR GENERAL COMMANDS
+rem Usage: call :retry_command "<full command line>" "Description"
 rem ============================================================================
 :retry_command
-set "command=%~1"
+setlocal EnableDelayedExpansion
+set "fullcmd=%~1"
 set "description=%~2"
 set "attempt=1"
 set "cmd_success=0"
 
-:retry_loop
-echo [Attempt %attempt%/%MAX_RETRIES%] Running: %description%...
-%command%
-if %errorlevel% equ 0 (
-    echo %description% completed successfully.
-    set "cmd_success=1"
-    goto :eof
+n:retry_loop
+echo [Attempt !attempt!/%MAX_RETRIES%] Running: !description!...
+rem Use cmd /c to execute the full commandline. %~1 preserves inner quotes.
+cmd /c ""%fullcmd%""
+set "rc=%errorlevel%"
+if %rc% equ 0 (
+    echo !description! completed successfully.
+    endlocal & set "cmd_success=1" & goto :eof
 ) else (
-    echo %description% failed with error code %errorlevel%.
-    if %attempt% lss %MAX_RETRIES% (
+    echo !description! failed with error code %rc%.
+    if !attempt! lss %MAX_RETRIES% (
         echo Waiting %RETRY_DELAY% seconds before retry...
         timeout /t %RETRY_DELAY% /nobreak >nul
         set /a attempt+=1
         goto :retry_loop
     ) else (
-        echo ERROR: %description% failed after %MAX_RETRIES% attempts.
-        set "cmd_success=0"
-        goto :eof
+        echo ERROR: !description! failed after %MAX_RETRIES% attempts.
+        endlocal & set "cmd_success=0" & goto :eof
     )
 )
 
 rem ============================================================================
-rem RETRY FUNCTION FOR NPM COMMANDS (clears cache on retry)
+rem Robust RETRY FUNCTION FOR NPM COMMANDS (clears cache on retry)
+rem Usage: call :retry_command_npm "<full npm cmdline>" "Description"
 rem ============================================================================
 :retry_command_npm
-set "command=%~1"
+setlocal EnableDelayedExpansion
+set "fullcmd=%~1"
 set "description=%~2"
 set "attempt=1"
 set "cmd_success=0"
 
-:retry_npm_loop
-echo [Attempt %attempt%/%MAX_RETRIES%] Running: %description%...
-%command%
-if %errorlevel% equ 0 (
-    echo %description% completed successfully.
-    set "cmd_success=1"
-    goto :eof
+n:retry_npm_loop
+echo [Attempt !attempt!/%MAX_RETRIES%] Running: !description!...
+cmd /c ""%fullcmd%""
+set "rc=%errorlevel%"
+if %rc% equ 0 (
+    echo !description! completed successfully.
+    endlocal & set "cmd_success=1" & goto :eof
 ) else (
-    echo %description% failed with error code %errorlevel%.
-    if %attempt% lss %MAX_RETRIES% (
+    echo !description! failed with error code %rc%.
+    if !attempt! lss %MAX_RETRIES% (
         echo Clearing npm cache...
         "%NODEJS_PATH%\npm.cmd" cache clean --force
         echo Waiting %RETRY_DELAY% seconds before retry...
@@ -245,9 +255,8 @@ if %errorlevel% equ 0 (
         set /a attempt+=1
         goto :retry_npm_loop
     ) else (
-        echo ERROR: %description% failed after %MAX_RETRIES% attempts.
-        set "cmd_success=0"
-        goto :eof
+        echo ERROR: !description! failed after %MAX_RETRIES% attempts.
+        endlocal & set "cmd_success=0" & goto :eof
     )
 )
 
