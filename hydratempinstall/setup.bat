@@ -118,12 +118,12 @@ if errorlevel 1 (
     goto :end
 )
 
-call :retry_command "py.exe -3.12 -m venv venv" "Python virtual environment creation"
+call :retry_command "py.exe -3.12 -m venv "%HYDRADRAGON_ROOT_PATH%\venv"" "Python virtual environment creation"
 if !cmd_success! equ 0 goto :end
 
 rem 11. Activate virtual environment
 echo Activating virtual environment...
-call "venv\Scripts\activate.bat"
+call "%HYDRADRAGON_ROOT_PATH%\venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
     echo Failed to activate virtual environment.
     goto :end
@@ -139,7 +139,7 @@ call :retry_command "pip install poetry" "Poetry installation"
 if !cmd_success! equ 0 goto :cleanup
 
 rem 14. Install dependencies with Poetry (if pyproject.toml exists) with retry
-if exist "pyproject.toml" (
+if exist "%HYDRADRAGON_ROOT_PATH%\pyproject.toml" (
     echo Installing project dependencies with Poetry...
     call :retry_command "poetry install" "Poetry dependency installation"
     if !cmd_success! equ 0 goto :cleanup
@@ -153,15 +153,15 @@ call :retry_command "python -m spacy download en_core_web_md" "spaCy model insta
 
 rem 16. Install asar globally with npm with retry
 echo Installing 'asar' npm package globally...
-call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g asar" "asar installation"
+call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g asar" "asar installation"
 
 rem 17. Install webcrack globally with npm with retry
 echo Installing 'webcrack' npm package globally...
-call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g webcrack" "webcrack installation"
+call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g webcrack" "webcrack installation"
 
 rem 18. Install nexe_unpacker globally with npm with retry
 echo Installing 'nexe_unpacker' npm package globally...
-call :retry_command_npm "%NODEJS_PATH%\npm.cmd install -g nexe_unpacker" "nexe_unpacker installation"
+call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install -g nexe_unpacker" "nexe_unpacker installation"
 
 rem --------------------------------------------------------------------------
 rem 19. Navigate to HydraDragon pkg-unpacker folder and build npm project
@@ -169,18 +169,18 @@ if exist "%PKG_UNPACKER_DIR%" (
     echo Navigating to HydraDragon pkg-unpacker folder...
     cd /d "%PKG_UNPACKER_DIR%"
     if errorlevel 1 (
-        echo ERROR: Failed to change directory to %PKG_UNPACKER_DIR%
+        echo ERROR: Failed to change directory to "%PKG_UNPACKER_DIR%"
         goto :end
     )
 
     rem Install npm dependencies with retry
     echo Installing npm dependencies...
-    call :retry_command_npm "%NODEJS_PATH%\npm.cmd install" "npm dependencies installation"
+    call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" install" "npm dependencies installation"
     if !cmd_success! equ 0 goto :end
 
     rem Build the npm project with retry
     echo Building npm project...
-    call :retry_command_npm "%NODEJS_PATH%\npm.cmd run build" "npm project build"
+    call :retry_command_npm ""%NODEJS_PATH%\npm.cmd" run build" "npm project build"
     if !cmd_success! equ 0 goto :end
 ) else (
     echo HydraDragon pkg-unpacker folder not found, skipping npm build.
