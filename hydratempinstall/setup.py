@@ -4,39 +4,51 @@ setup.py - Robust Windows setup script to replace the .bat installer.
 Run with: py -3.12 setup.py
 
 Options:
-  --dry-run       : print actions but don't perform destructive operations
+  --dry-run       : print actions but don't perform them
   --log-file PATH : write verbose log to PATH (default: ./setup.log)
+  --retries N     : number of retry attempts for commands (default: 3)
+  --retry-delay S : seconds between retries (default: 5)
 """
 
+from __future__ import annotations
 import argparse
 import logging
+import locale
 import os
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List
+from typing import Iterable, List, Optional, Sequence, Set
+import ctypes
+from ctypes import wintypes
 
 # ----------------------
-# Configuration / Defaults
+# CLI / configuration
 # ----------------------
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 5  # seconds
 
-parser = argparse.ArgumentParser()
+# --- Windows Shell API helper for special folders ---
+CSIDL_DESKTOPDIRECTORY = 0x0010
+SHGFP_TYPE_CURRENT = 0
+
+parser = argparse.ArgumentParser(description="Robust Windows setup script for HydraDragonAntivirus")
 parser.add_argument("--dry-run", action="store_true", help="Show actions without performing them")
 parser.add_argument("--log-file", default="setup.log", help="Path to log file")
 parser.add_argument("--retries", type=int, default=DEFAULT_MAX_RETRIES, help="Number of retry attempts")
 parser.add_argument("--retry-delay", type=int, default=DEFAULT_RETRY_DELAY, help="Seconds between retries")
 args = parser.parse_args()
 
-LOGFILE = Path(args.log_file)
-DRY_RUN = args.dry_run
-MAX_RETRIES = args.retries
-RETRY_DELAY = args.retry_delay
+DRY_RUN: bool = args.dry_run
+MAX_RETRIES: int = args.retries
+RETRY_DELAY: int = args.retry_delay
+LOGFILE: Path = Path(args.log_file)
 
-# Setup logging
+# ----------------------
+# Logging
+# ----------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -48,46 +60,82 @@ logging.basicConfig(
 log = logging.getLogger("setup")
 
 # ----------------------
-# Platform checks
+# Platform guard
 # ----------------------
 if os.name != "nt":
     log.error("This script targets Windows only. Aborting.")
     sys.exit(2)
 
 # ----------------------
-# Helper utilities
+# Helpers
 # ----------------------
-def run_cmd(cmd: List[str], description: str, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=False) -> int:
-    """Run a command with retries. Returns final returncode."""
+def run_cmd(
+    cmd: Sequence[str],
+    description: str,
+    retries: int = MAX_RETRIES,
+    retry_delay: int = RETRY_DELAY,
+    npm_clear_on_retry: bool = False,
+    success_exit_codes: Optional[Iterable[int]] = None,
+) -> int:
+    """
+    Run a command with retries. Capture stdout as bytes and decode safely.
+    - cmd: list of command + args (shell=False).
+    - description: human-friendly description for logging.
+    - retries/retry_delay: retry policy.
+    - npm_clear_on_retry: if True and command looks like npm, run npm cache clean between attempts.
+    - success_exit_codes: iterable of ints considered success; default {0}. If any returned rc is in this set, function returns 0.
+    Returns:
+        0 on success (rc in success_exit_codes), non-zero last rc on failure.
+    """
+    if success_exit_codes is None:
+        success_codes: Set[int] = {0}
+    else:
+        success_codes = set(success_exit_codes)
+
     last_rc = 1
+    prefer_enc = locale.getpreferredencoding(False) or "utf-8"
+
     for attempt in range(1, retries + 1):
         log.info("[%d/%d] %s: %s", attempt, retries, description, " ".join(cmd))
         if DRY_RUN:
             log.info("DRY RUN - would run: %s", " ".join(cmd))
             return 0
         try:
-            proc = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False)
             last_rc = proc.returncode
-            log.debug(proc.stdout)
-            if last_rc == 0:
-                log.info("%s completed successfully.", description)
+            raw = proc.stdout or b""
+            # Try decoding reasonably: preferred encoding -> utf-8 -> latin-1 (replace)
+            out = None
+            try:
+                out = raw.decode(prefer_enc, errors="strict")
+            except Exception:
+                try:
+                    out = raw.decode("utf-8", errors="strict")
+                except Exception:
+                    out = raw.decode("latin-1", errors="replace")
+            if out:
+                log.debug("%s output:\n%s", description, out)
+            if last_rc in success_codes:
+                log.info("%s completed successfully (rc=%d).", description, last_rc)
                 return 0
             else:
-                log.warning("%s failed with exit code %d.", description, last_rc)
-        except Exception as e:
-            log.exception("Exception while running %s: %s", description, e)
+                log.warning("%s returned rc=%d (not in success codes).", description, last_rc)
+        except Exception:
+            log.exception("Exception while running %s:", description)
             last_rc = 1
 
+        # Retry handling
         if attempt < retries:
-            if npm_clear_on_retry and "npm" in cmd[0].lower():
+            if npm_clear_on_retry and cmd and "npm" in Path(cmd[0]).name.lower():
                 try:
                     log.info("Clearing npm cache (force) before retry.")
                     if not DRY_RUN:
                         subprocess.run([cmd[0], "cache", "clean", "--force"], check=False)
                 except Exception:
-                    log.exception("npm cache clean failed (ignored).")
-            log.info("Retrying after %d seconds...", retry_delay)
+                    log.exception("npm cache clear failed (ignored).")
+            log.info("Waiting %d seconds before retry...", retry_delay)
             time.sleep(retry_delay)
+
     log.error("%s failed after %d attempts (last rc=%d).", description, retries, last_rc)
     return last_rc
 
@@ -95,51 +143,50 @@ def ensure_parent(path: Path):
     parent = path.parent
     if not parent.exists():
         if DRY_RUN:
-            log.info("DRY RUN - would create parent: %s", parent)
+            log.info("DRY RUN - would create parent dir: %s", parent)
         else:
             parent.mkdir(parents=True, exist_ok=True)
 
 def safe_delete_dir(target: Path) -> int:
     """
-    Try to remove a directory tree robustly.
-    Returns 0 on success, non-zero error code on failure.
+    Robust directory deletion.
+    Returns 0 on success, non-zero on failure.
     """
     desc = f"Remove dir {target}"
     if not target.exists():
-        log.info("%s - not present, considered removed.", desc)
+        log.info("%s - not present (treated as removed).", desc)
         return 0
 
-    # Try shutil.rmtree first
+    # Try a few attempts
     for attempt in range(1, MAX_RETRIES + 1):
+        log.info("[%d/%d] Attempt delete: %s", attempt, MAX_RETRIES, target)
+        if DRY_RUN:
+            log.info("DRY RUN - would shutil.rmtree %s", target)
+            return 0
         try:
-            log.info("[%d/%d] Attempt delete: %s", attempt, MAX_RETRIES, target)
-            if DRY_RUN:
-                log.info("DRY RUN - would rmtree %s", target)
-                return 0
-            shutil.rmtree(target, ignore_errors=False)
+            shutil.rmtree(target)
             log.info("Deleted %s (shutil.rmtree)", target)
             return 0
         except Exception as e:
             log.warning("shutil.rmtree failed for %s: %s", target, e)
 
-        # try to fix permissions and retry
+        # Try takeown/icacls to fix permission issues
         try:
-            log.info("Attempting takeown/icacls to reset permissions...")
-            if not DRY_RUN:
-                subprocess.run(["takeown", "/F", str(target), "/R", "/A"], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                subprocess.run(["icacls", str(target), "/grant", "Administrators:F", "/T", "/C"], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            log.info("Attempting takeown/icacls for %s", target)
+            subprocess.run(["takeown", "/F", str(target), "/R", "/A"], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            subprocess.run(["icacls", str(target), "/grant", "Administrators:F", "/T", "/C"], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         except Exception:
             log.exception("takeown/icacls attempt failed (ignored).")
 
-        # Next try PowerShell Remove-Item with -Force -Recurse
+        # PowerShell Remove-Item fallback (force, recurse). Make PowerShell output UTF-8.
         try:
             ps_cmd = [
                 "powershell",
                 "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
                 "-Command",
-                f"Try {{ Remove-Item -LiteralPath '{str(target)}' -Recurse -Force -ErrorAction Stop; exit 0 }} Catch {{ exit 1 }}"
+                f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Try {{ Remove-Item -LiteralPath '{str(target)}' -Recurse -Force -ErrorAction Stop; exit 0 }} Catch {{ exit 1 }}"
             ]
-            log.info("Attempting PowerShell Remove-Item fallback.")
             rc = run_cmd(ps_cmd, f"PowerShell Remove-Item {target}", retries=1, retry_delay=0)
             if rc == 0:
                 log.info("PowerShell Remove-Item succeeded for %s", target)
@@ -147,26 +194,27 @@ def safe_delete_dir(target: Path) -> int:
         except Exception:
             log.exception("PowerShell fallback failed (ignored).")
 
-        # Try rename and then delete the renamed location
+        # Try rename to break locks and delete renamed folder
         try:
             alt = target.parent / (target.name + "_DELETE_" + str(int(time.time())))
-            log.info("Attempting rename %s -> %s to break locks", target, alt)
-            if DRY_RUN:
-                log.info("DRY RUN - would rename")
-                return 0
-            target.rename(alt)
-            # try to remove renamed
+            log.info("Attempting rename %s -> %s", target, alt)
             try:
-                shutil.rmtree(alt)
-                log.info("Deleted renamed %s", alt)
-                return 0
+                target.rename(alt)
             except Exception:
-                log.warning("Failed to delete renamed %s; giving up on this attempt.", alt)
+                log.debug("Rename failed (probably locked) for %s", target)
+                alt = None
+            if alt and alt.exists():
+                try:
+                    shutil.rmtree(alt)
+                    log.info("Deleted renamed %s", alt)
+                    return 0
+                except Exception:
+                    log.warning("Failed to delete renamed %s", alt)
         except Exception:
-            log.debug("Rename attempt failed (likely locked).")
+            log.debug("Rename attempt failed (ignored).")
 
         if attempt < MAX_RETRIES:
-            log.info("Waiting %d seconds before next delete attempt...", RETRY_DELAY)
+            log.info("Retrying delete after %d seconds...", RETRY_DELAY)
             time.sleep(RETRY_DELAY)
 
     log.error("Failed to remove directory after %d attempts: %s", MAX_RETRIES, target)
@@ -174,55 +222,52 @@ def safe_delete_dir(target: Path) -> int:
 
 def safe_copy_dir(src: Path, dst: Path) -> int:
     """
-    Copy a directory tree with retries. Uses shutil.copytree when possible, falls back to robocopy for robustness.
-    Returns 0 on success.
+    Copy a directory tree robustly. Prefer robocopy when available.
+    Returns 0 on success, non-zero on failure.
     """
     desc = f"Copy {src} -> {dst}"
     if not src.exists():
         log.error("Source not found: %s", src)
         return 2
-    # robocopy is robust for large trees and windows features; prefer when available
+
     robocopy = shutil.which("robocopy")
     if robocopy:
-        # robocopy's syntax: robocopy <src> <dst> <filespec> /E /COPYALL /R:2 /W:2
+        # Ensure dest parent exists
         ensure_parent(dst)
-        for attempt in range(1, MAX_RETRIES + 1):
-            cmd = [robocopy, str(src), str(dst), "/E", "/COPYALL", "/R:2", "/W:2", "/NFL", "/NDL"]
-            rc = run_cmd(cmd, desc, retries=1, retry_delay=0)
-            # robocopy returns bitmapped codes; <8 is success-ish
-            if rc < 8:
-                log.info("robocopy finished with %d (treated as success)", rc)
-                return 0
-            log.warning("robocopy returned %d", rc)
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-        log.error("robocopy failed for %s -> %s", src, dst)
-        return rc
-    else:
-        # pure shutil fallback
-        try:
-            if DRY_RUN:
-                log.info("DRY RUN - would copytree %s -> %s", src, dst)
-                return 0
-            if dst.exists():
-                # copy contents into existing dir
-                for root, dirs, files in os.walk(src):
-                    rel = Path(root).relative_to(src)
-                    dest_dir = dst / rel
-                    dest_dir.mkdir(parents=True, exist_ok=True)
-                    for f in files:
-                        s = Path(root) / f
-                        d = dest_dir / f
-                        shutil.copy2(s, d)
-                log.info("Copied (shutil) %s -> %s", src, dst)
-                return 0
-            else:
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-                log.info("Copied (shutil.copytree) %s -> %s", src, dst)
-                return 0
-        except Exception as e:
-            log.exception("shutil copy failed: %s", e)
-            return 1
+        # Robocopy returns bitmapped codes; 0-7 are success-ish
+        cmd = [robocopy, str(src), str(dst), "/E", "/COPYALL", "/R:2", "/W:2", "/NFL", "/NDL"]
+        # Let run_cmd treat 0..7 as success set; return 0 when success
+        rc = run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=False, success_exit_codes=range(0, 8))
+        if rc == 0:
+            log.info("robocopy treated as success for %s -> %s", src, dst)
+            return 0
+        else:
+            log.warning("robocopy failed for %s -> %s with rc=%d", src, dst, rc)
+            # fallback to shutil copy
+    # shutil fallback
+    try:
+        if DRY_RUN:
+            log.info("DRY RUN - would copytree/shutil copy %s -> %s", src, dst)
+            return 0
+        if dst.exists():
+            # Copy contents into existing dir
+            for root, dirs, files in os.walk(src):
+                rel = Path(root).relative_to(src)
+                dest_dir = dst / rel
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                for f in files:
+                    sfile = Path(root) / f
+                    dfile = dest_dir / f
+                    shutil.copy2(sfile, dfile)
+            log.info("Copied (shutil) %s -> %s", src, dst)
+            return 0
+        else:
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            log.info("Copied (shutil.copytree) %s -> %s", src, dst)
+            return 0
+    except Exception as e:
+        log.exception("shutil copy failed: %s", e)
+        return 1
 
 def get_env_programw6432() -> Path:
     programw6432 = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
@@ -231,29 +276,58 @@ def get_env_programw6432() -> Path:
         programw6432 = r"C:\Program Files"
     return Path(programw6432)
 
+def _get_folder_path(csidl: int) -> str:
+    """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
+    buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+    # SHGetFolderPathW returns 0 on success
+    res = ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
+    if res != 0:
+        raise OSError(f"SHGetFolderPathW failed with code {res}")
+    return buf.value
+
+def get_desktop() -> Path:
+    """Return Path of current user's Desktop folder. Falls back to ~/Desktop on error."""
+    try:
+        p = _get_folder_path(CSIDL_DESKTOPDIRECTORY)
+        return Path(p)
+    except Exception as e:
+        # Fallback for unusual environments
+        log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
+        return Path(os.path.expanduser("~")) / "Desktop"
+
 # ----------------------
-# Paths (mirror your batch)
+# Path configuration (mirror your batch)
 # ----------------------
 PROGRAMW6432 = get_env_programw6432()
-HYDRADRAGON_PATH = Path(PROGRAMW6432) / "HydraDragonAntivirus" / "hydradragon"
-HYDRADRAGON_ROOT_PATH = Path(PROGRAMW6432) / "HydraDragonAntivirus"
-CLAMAV_DIR = Path(PROGRAMW6432) / "ClamAV"
-SURICATA_DIR = Path(PROGRAMW6432) / "Suricata"
-NODEJS_PATH = Path(PROGRAMW6432) / "nodejs"
+HYDRADRAGON_PATH = PROGRAMW6432 / "HydraDragonAntivirus" / "hydradragon"
+HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
+CLAMAV_DIR = PROGRAMW6432 / "ClamAV"
+SURICATA_DIR = PROGRAMW6432 / "Suricata"
+NODEJS_PATH = PROGRAMW6432 / "nodejs"
 PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
 CLEAN_VM_PSB_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.ps1"
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
 SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
 ROAMING_SANCTUM = Path(os.environ.get("APPDATA", "")) / "Sanctum"
-DESKTOP_SANCTUM = Path(os.path.expanduser("~")) / "Desktop" / "sanctum"
+DESKTOP_SANCTUM = get_desktop() / "sanctum"
 
 # ----------------------
-# Main workflow (mirrors your batch)
+# Main workflow
 # ----------------------
+def summary_and_exit(errors: List[tuple]):
+    if errors:
+        log.error("Setup completed with errors:")
+        for label, rc in errors:
+            log.error(" - %s (rc=%s)", label, rc)
+        log.error("See %s for full logs.", LOGFILE)
+        sys.exit(3)
+    else:
+        log.info("Setup completed successfully.")
+        sys.exit(0)
+
 def main():
-    errors = []
-
+    errors: List[tuple] = []
     log.info("Starting setup (DRY_RUN=%s)", DRY_RUN)
 
     # 1. Copy clamavconfig
@@ -265,6 +339,7 @@ def main():
             rc_del = safe_delete_dir(clamavconf_src)
             if rc_del != 0:
                 log.warning("Failed to remove clamavconfig after copy. rc=%d", rc_del)
+                errors.append(("clamavconfig delete", rc_del))
         else:
             errors.append(("clamavconfig copy", rc))
     else:
@@ -300,10 +375,10 @@ def main():
                 log.info("Copied emerging-all.rules to %s", rules_dst_dir)
             else:
                 log.info("emerging-all.rules missing in hips.")
-            # remove hips folder
             rc_del = safe_delete_dir(hips_dir)
             if rc_del != 0:
                 log.warning("Failed to remove hips directory.")
+                errors.append(("hips delete", rc_del))
         except Exception:
             log.exception("hips copy/remove failed")
             errors.append(("hips copy/remove", 1))
@@ -318,6 +393,7 @@ def main():
             rc_del = safe_delete_dir(database_src)
             if rc_del != 0:
                 log.warning("Failed to remove database folder after copy.")
+                errors.append(("database delete", rc_del))
         else:
             errors.append(("database copy", rc))
     else:
@@ -326,7 +402,7 @@ def main():
     # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
-        rc = run_cmd([str(freshclam),], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+        rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
         if rc != 0:
             errors.append(("freshclam", rc))
     else:
@@ -337,13 +413,21 @@ def main():
     # ------------------------------
     log.info("Processing Sanctum folder...")
 
-    # 7. Run installer_clean_vm.ps1 if present
+    # 7. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
     if CLEAN_VM_PSB_PATH.exists():
         log.info("Running installer_clean_vm.ps1...")
-        ps_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(CLEAN_VM_PSB_PATH)]
-        rc = run_cmd(ps_cmd, "installer_clean_vm.ps1", retries=1)
+        # Use -Command with OutputEncoding set to UTF8 to improve decoding reliability
+        ps_cmd = [
+            "powershell",
+            "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-Command",
+            f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '{str(CLEAN_VM_PSB_PATH)}'"
+        ]
+        rc = run_cmd(ps_cmd, "installer_clean_vm.ps1", retries=1, retry_delay=0)
         if rc != 0:
             log.warning("installer_clean_vm.ps1 exited with code %d", rc)
+            errors.append(("installer_clean_vm.ps1", rc))
     else:
         log.info("installer_clean_vm.ps1 not found. Skipping.")
 
@@ -355,17 +439,17 @@ def main():
     else:
         log.info("clean_vm folder not found. Skipping.")
 
-    # 9. Copy Sanctum\\appdata to %APPDATA%\\Sanctum and remove it
+    # 9. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
     if SANCTUM_APPDATA_PATH.exists():
         log.info("Copying Sanctum\\appdata to %s", ROAMING_SANCTUM)
         rc = safe_copy_dir(SANCTUM_APPDATA_PATH, ROAMING_SANCTUM)
         if rc == 0:
             rc_del = safe_delete_dir(SANCTUM_APPDATA_PATH)
             if rc_del != 0:
-                log.warning("Failed to remove appdata folder after copy.")
+                log.warning("Failed to remove Sanctum\\appdata after copy.")
                 errors.append(("sanctum appdata delete", rc_del))
         else:
-            log.error("Failed to copy Sanctum appdata (rc=%d).", rc)
+            log.error("Failed to copy Sanctum\\appdata (rc=%d). Original left intact.", rc)
             errors.append(("sanctum appdata copy", rc))
     else:
         log.info("Sanctum\\appdata folder not found. Skipping.")
@@ -391,56 +475,72 @@ def main():
     log.info("Setting up Python environment...")
 
     if not HYDRADRAGON_ROOT_PATH.exists():
-        log.error("HydraDragon root path not found: %s", HYDRADRAGON_ROOT_PATH)
+        log.error('ERROR: "%s" directory not found.', HYDRADRAGON_ROOT_PATH)
         errors.append(("missing root path", 1))
-        # Fail early – original bat went to :end
         summary_and_exit(errors)
 
     # 11. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
-        import venv as venv_module
+        import venv as venv_module  # type: ignore
         if not venv_dir.exists():
             log.info("Creating virtual environment at %s", venv_dir)
-            if not DRY_RUN:
-                venv_module.EnvBuilder(with_pip=True).create(str(venv_dir))
-            else:
+            if DRY_RUN:
                 log.info("DRY RUN - venv create skipped")
+            else:
+                venv_module.EnvBuilder(with_pip=True).create(str(venv_dir))
+        else:
+            log.info("venv already exists at %s", venv_dir)
     except Exception:
-        log.exception("Failed to create venv")
-        errors.append(("venv create", 1))
-        summary_and_exit(errors)
+        log.exception("Failed to create venv via venv module. Falling back to py -3.12 -m venv")
+        # fallback: try subprocess py -3.12 -m venv
+        pylauncher = shutil.which("py") or shutil.which("py.exe")
+        if pylauncher:
+            rc = run_cmd([pylauncher, "-3.12", "-m", "venv", str(venv_dir)], "Python venv creation (py -3.12 -m venv)")
+            if rc != 0:
+                errors.append(("venv create", rc))
+                summary_and_exit(errors)
+        else:
+            errors.append(("venv create", 1))
+            summary_and_exit(errors)
 
-    # Helper: path to venv python
+    # Use venv python for further operations (no activation required)
     venv_python = venv_dir / "Scripts" / "python.exe"
     if not venv_python.exists():
-        # try py -3.12 to create environment using subprocess fallback
         log.warning("venv python not found at expected location: %s", venv_python)
+        # try system Python as fallback
+        venv_python_str = shutil.which("python") or shutil.which("python.exe") or shutil.which("py")
+        if venv_python_str:
+            venv_python = Path(venv_python_str)
+            log.info("Falling back to system python: %s", venv_python)
+        else:
+            log.error("No python found to perform package installs.")
+            errors.append(("venv python missing", 1))
+            summary_and_exit(errors)
 
-    # 12. No activation inside script: use venv python directly for pip installs
-    # 13. Upgrade pip with retry
-    rc = run_cmd([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], "pip upgrade", retries=MAX_RETRIES)
+    # 13. Upgrade pip
+    rc = run_cmd([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         errors.append(("pip upgrade", rc))
 
-    # 14. Install Poetry in the activated virtual environment with retry
-    rc = run_cmd([str(venv_python), "-m", "pip", "install", "poetry"], "Poetry installation", retries=MAX_RETRIES)
+    # 14. Install Poetry in the virtual environment
+    rc = run_cmd([str(venv_python), "-m", "pip", "install", "poetry"], "Poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         errors.append(("poetry install", rc))
 
-    # 15. Install dependencies with Poetry (if pyproject.toml exists)
+    # 15. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists():
-        # Use poetry executable from venv python -m poetry if installed
-        poetry_cmd = [str(venv_python), "-m", "poetry", "install"]
-        rc = run_cmd(poetry_cmd, "Poetry dependency installation", retries=MAX_RETRIES)
+        log.info("pyproject.toml found, running poetry install")
+        # Prefer calling poetry via python -m poetry (installed into venv)
+        rc = run_cmd([str(venv_python), "-m", "poetry", "install"], "Poetry dependency installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
         if rc != 0:
             errors.append(("poetry install deps", rc))
     else:
         log.info("No pyproject.toml found, skipping Poetry dependency installation.")
 
-    # 16. Install spaCy English medium model
-    rc = run_cmd([str(venv_python), "-m", "spacy", "download", "en_core_web_md"], "spaCy model installation", retries=MAX_RETRIES)
+    # 16. Install spaCy model
+    rc = run_cmd([str(venv_python), "-m", "spacy", "download", "en_core_web_md"], "spaCy model installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         errors.append(("spacy model", rc))
 
@@ -451,7 +551,6 @@ def main():
 
     npm_cmd = shutil.which("npm")
     if not npm_cmd:
-        # fallback to NODEJS_PATH\npm.cmd
         alt_npm = NODEJS_PATH / "npm.cmd"
         if alt_npm.exists():
             npm_cmd = str(alt_npm)
@@ -459,12 +558,11 @@ def main():
             log.warning("npm not found in PATH or at expected %s. NPM installs will be skipped.", NODEJS_PATH)
             npm_cmd = None
 
-    def npm_run(args_list, desc):
+    def npm_run(args_list: List[str], desc: str) -> int:
         if not npm_cmd:
             log.error("Skipping %s because npm is not available", desc)
             return 1
         cmd = [npm_cmd] + args_list
-        # On npm failures, clear cache on retry
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
     # 17. asar
@@ -474,33 +572,22 @@ def main():
     # 19. nexe_unpacker
     npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
 
-    # 20. Build pkg-unpacker project
+    # 20. pkg-unpacker build
     if PKG_UNPACKER_DIR.exists():
-        log.info("Building pkg-unpacker project in %s", PKG_UNPACKER_DIR)
-        # install dependencies
-        rc = npm_run(["install"], "npm dependencies installation")
+        log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
+        # cd + npm install + npm run build
+        os.chdir(str(PKG_UNPACKER_DIR))
+        rc = npm_run(["install"], "pkg-unpacker npm dependencies installation")
         if rc != 0:
             errors.append(("pkg-unpacker npm install", rc))
         else:
-            # run build
-            rc = npm_run(["run", "build"], "npm project build")
+            rc = npm_run(["run", "build"], "pkg-unpacker npm project build")
             if rc != 0:
                 errors.append(("pkg-unpacker npm build", rc))
     else:
         log.info("HydraDragon pkg-unpacker folder not found, skipping npm build.")
 
     summary_and_exit(errors)
-
-def summary_and_exit(errors):
-    if errors:
-        log.error("Setup completed with errors:")
-        for label, rc in errors:
-            log.error(" - %s (rc=%s)", label, rc)
-        log.error("See %s for full logs.", LOGFILE)
-        sys.exit(3)
-    else:
-        log.info("Setup completed successfully.")
-        sys.exit(0)
 
 if __name__ == "__main__":
     main()
