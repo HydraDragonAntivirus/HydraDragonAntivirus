@@ -67,7 +67,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.9
 ; Node.js 22.18.0 (x64) MSI
 Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
 Name: "{app}\hydradragon\Owlyshield\debug"
@@ -131,7 +131,7 @@ Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags:
 Filename: "{tmp}\npcap-1.84.exe"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
-Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\setup.py"; Flags: shellexec waituntilterminated
 
 [UninstallRun]
 ; Disable test signing mode on uninstall
