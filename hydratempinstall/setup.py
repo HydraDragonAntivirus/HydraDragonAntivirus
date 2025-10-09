@@ -295,6 +295,22 @@ def get_desktop() -> Path:
         log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
         return Path(os.path.expanduser("~")) / "Desktop"
 
+def get_short_path(path: str) -> str:
+    """
+    Return the 8.3 short path for a given path on Windows, if available.
+    If the WinAPI call fails, return the original path unchanged.
+    """
+    try:
+        from ctypes import create_unicode_buffer, windll
+        buf = create_unicode_buffer(260)
+        res = windll.kernel32.GetShortPathNameW(path, buf, len(buf))
+        if res and res > 0:
+            return buf.value
+    except Exception:
+        # if anything goes wrong, silently fall back to original path
+        pass
+    return path
+
 # ----------------------
 # Path configuration (mirror your batch)
 # ----------------------
@@ -371,7 +387,8 @@ def main():
             rules_dst_dir = SURICATA_DIR / "rules"
             if rules_src.exists():
                 ensure_parent(rules_dst_dir / "dummy")
-                shutil.copy2(rules_src, rules_dst_dir / "emerging-all.rules")
+                if not DRY_RUN:
+                    shutil.copy2(rules_src, rules_dst_dir / "emerging-all.rules")
                 log.info("Copied emerging-all.rules to %s", rules_dst_dir)
             else:
                 log.info("emerging-all.rules missing in hips.")
@@ -504,40 +521,41 @@ def main():
             errors.append(("venv create", 1))
             summary_and_exit(errors)
 
-    # Use venv python for further operations (no activation required)
+    # 12. Resolve venv Python executable path
     venv_python = venv_dir / "Scripts" / "python.exe"
     if not venv_python.exists():
-        log.warning("venv python not found at expected location: %s", venv_python)
-        # try system Python as fallback
-        venv_python_str = shutil.which("python") or shutil.which("python.exe") or shutil.which("py")
-        if venv_python_str:
-            venv_python = Path(venv_python_str)
-            log.info("Falling back to system python: %s", venv_python)
-        else:
-            log.error("No python found to perform package installs.")
-            errors.append(("venv python missing", 1))
-            summary_and_exit(errors)
+        log.error("Virtual environment python.exe not found at %s", venv_python)
+        errors.append(("venv python missing", 1))
+        summary_and_exit(errors)
 
-    # 13. Upgrade pip
-    rc = run_cmd([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
-    if rc != 0:
-        errors.append(("pip upgrade", rc))
+    # 13. Compute venv_python_cmd with short path if needed
+    venv_python_cmd = str(venv_python)
+    if " " in venv_python_cmd:
+        short = get_short_path(venv_python_cmd)
+        if short and short != venv_python_cmd:
+            log.debug("Using short path for venv python: %s -> %s", venv_python_cmd, short)
+            venv_python_cmd = short
 
-    # 14. Install Poetry in the virtual environment
-    rc = run_cmd([str(venv_python), "-m", "pip", "install", "poetry"], "Poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    # 14. Upgrade pip in the venv
+    log.info("Upgrading pip in virtual environment...")
+    rc = run_cmd([venv_python_cmd, "-m", "pip", "install", "--upgrade", "pip"], 
+                 "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
-        errors.append(("poetry install", rc))
+        log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
     # 15. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists():
         log.info("pyproject.toml found, running poetry install (verbose)")
         # Ensure poetry installs into the current venv (avoid nested virtualenvs)
-        run_cmd([str(venv_python), "-m", "poetry", "config", "virtualenvs.create", "false"], "poetry config virtualenvs.create false")
+        rc = run_cmd([venv_python_cmd, "-m", "poetry", "config", "virtualenvs.create", "false"],
+                    "poetry config virtualenvs.create false")
+        if rc != 0:
+            log.warning("poetry config returned rc=%s", rc)
 
         # Run poetry with verbose output and non-interactive flags so we capture full diagnostics.
         rc = run_cmd(
-            [str(venv_python), "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
+            [venv_python_cmd, "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
             "Poetry dependency installation",
             retries=MAX_RETRIES,
             retry_delay=RETRY_DELAY,
@@ -569,24 +587,37 @@ def main():
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
     # 16. asar
-    npm_run(["install", "-g", "asar"], "asar installation")
+    rc = npm_run(["install", "-g", "asar"], "asar installation")
+    if rc != 0:
+        errors.append(("asar install", rc))
+    
     # 17. webcrack
-    npm_run(["install", "-g", "webcrack"], "webcrack installation")
+    rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
+    if rc != 0:
+        errors.append(("webcrack install", rc))
+    
     # 18. nexe_unpacker
-    npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
+    rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
+    if rc != 0:
+        errors.append(("nexe_unpacker install", rc))
 
     # 19. pkg-unpacker build
     if PKG_UNPACKER_DIR.exists():
         log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
-        # cd + npm install + npm run build
-        os.chdir(str(PKG_UNPACKER_DIR))
-        rc = npm_run(["install"], "pkg-unpacker npm dependencies installation")
-        if rc != 0:
-            errors.append(("pkg-unpacker npm install", rc))
-        else:
-            rc = npm_run(["run", "build"], "pkg-unpacker npm project build")
+        # Save current directory
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(str(PKG_UNPACKER_DIR))
+            rc = npm_run(["install"], "pkg-unpacker npm dependencies installation")
             if rc != 0:
-                errors.append(("pkg-unpacker npm build", rc))
+                errors.append(("pkg-unpacker npm install", rc))
+            else:
+                rc = npm_run(["run", "build"], "pkg-unpacker npm project build")
+                if rc != 0:
+                    errors.append(("pkg-unpacker npm build", rc))
+        finally:
+            # Restore original directory
+            os.chdir(original_cwd)
     else:
         log.info("HydraDragon pkg-unpacker folder not found, skipping npm build.")
 
