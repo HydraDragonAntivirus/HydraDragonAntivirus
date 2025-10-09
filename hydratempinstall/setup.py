@@ -50,7 +50,7 @@ LOGFILE: Path = Path(args.log_file)
 # Logging
 # ----------------------
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -76,6 +76,7 @@ def run_cmd(
     retry_delay: int = RETRY_DELAY,
     npm_clear_on_retry: bool = False,
     success_exit_codes: Optional[Iterable[int]] = None,
+    always_log_output: bool = False,
 ) -> int:
     """
     Run a command with retries. Capture stdout as bytes and decode safely.
@@ -84,6 +85,7 @@ def run_cmd(
     - retries/retry_delay: retry policy.
     - npm_clear_on_retry: if True and command looks like npm, run npm cache clean between attempts.
     - success_exit_codes: iterable of ints considered success; default {0}. If any returned rc is in this set, function returns 0.
+    - always_log_output: if True, log output at INFO level even for successful commands.
     Returns:
         0 on success (rc in success_exit_codes), non-zero last rc on failure.
     """
@@ -101,20 +103,46 @@ def run_cmd(
             log.info("DRY RUN - would run: %s", " ".join(cmd))
             return 0
         try:
-            proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False)
+            proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
             last_rc = proc.returncode
-            raw = proc.stdout or b""
-            # Try decoding reasonably: preferred encoding -> utf-8 -> latin-1 (replace)
+            
+            # Decode stdout
+            raw_out = proc.stdout or b""
             out = None
             try:
-                out = raw.decode(prefer_enc, errors="strict")
+                out = raw_out.decode(prefer_enc, errors="strict")
             except Exception:
                 try:
-                    out = raw.decode("utf-8", errors="strict")
+                    out = raw_out.decode("utf-8", errors="strict")
                 except Exception:
-                    out = raw.decode("latin-1", errors="replace")
+                    out = raw_out.decode("latin-1", errors="replace")
+            
+            # Decode stderr
+            raw_err = proc.stderr or b""
+            err = None
+            try:
+                err = raw_err.decode(prefer_enc, errors="strict")
+            except Exception:
+                try:
+                    err = raw_err.decode("utf-8", errors="strict")
+                except Exception:
+                    err = raw_err.decode("latin-1", errors="replace")
+            
+            # Combine output for logging
+            combined_output = ""
             if out:
-                log.debug("%s output:\n%s", description, out)
+                combined_output += "STDOUT:\n" + out
+            if err:
+                if combined_output:
+                    combined_output += "\n"
+                combined_output += "STDERR:\n" + err
+            
+            if combined_output:
+                # Log output at INFO level for failed commands or if always_log_output is True
+                if last_rc not in success_codes or always_log_output:
+                    log.info("%s output (rc=%d):\n%s", description, last_rc, combined_output)
+                else:
+                    log.debug("%s output:\n%s", description, combined_output)
             if last_rc in success_codes:
                 log.info("%s completed successfully (rc=%d).", description, last_rc)
                 return 0
@@ -419,7 +447,8 @@ def main():
     # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
-        rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+        rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", 
+                     retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
         if rc != 0:
             errors.append(("freshclam", rc))
     else:
@@ -543,25 +572,50 @@ def main():
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
+    # 14.5. Install Poetry in the venv
+    log.info("Installing Poetry in virtual environment...")
+    rc = run_cmd([venv_python_cmd, "-m", "pip", "install", "poetry"], 
+                 "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    if rc != 0:
+        log.error("Failed to install Poetry. Poetry-based dependency installation will be skipped.")
+        errors.append(("poetry install", rc))
+        # Skip poetry operations if installation failed
+        poetry_available = False
+    else:
+        poetry_available = True
+
     # 15. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
-    if pyproject.exists():
-        log.info("pyproject.toml found, running poetry install (verbose)")
-        # Ensure poetry installs into the current venv (avoid nested virtualenvs)
-        rc = run_cmd([venv_python_cmd, "-m", "poetry", "config", "virtualenvs.create", "false"],
-                    "poetry config virtualenvs.create false")
-        if rc != 0:
-            log.warning("poetry config returned rc=%s", rc)
+    if pyproject.exists() and poetry_available:
+        log.info("pyproject.toml found at: %s", pyproject)
+        
+        # Change to the project directory for Poetry operations
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(str(HYDRADRAGON_ROOT_PATH))
+            log.info("Changed directory to: %s", HYDRADRAGON_ROOT_PATH)
+            
+            # Ensure poetry installs into the current venv (avoid nested virtualenvs)
+            rc = run_cmd([venv_python_cmd, "-m", "poetry", "config", "virtualenvs.create", "false"],
+                        "poetry config virtualenvs.create false")
+            if rc != 0:
+                log.warning("poetry config returned rc=%s", rc)
 
-        # Run poetry with verbose output and non-interactive flags so we capture full diagnostics.
-        rc = run_cmd(
-            [venv_python_cmd, "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
-            "Poetry dependency installation",
-            retries=MAX_RETRIES,
-            retry_delay=RETRY_DELAY,
-        )
-        if rc != 0:
-            errors.append(("poetry install deps", rc))
+            # Run poetry with verbose output and non-interactive flags so we capture full diagnostics.
+            rc = run_cmd(
+                [venv_python_cmd, "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
+                "Poetry dependency installation",
+                retries=MAX_RETRIES,
+                retry_delay=RETRY_DELAY,
+                always_log_output=True,
+            )
+            if rc != 0:
+                errors.append(("poetry install deps", rc))
+        finally:
+            os.chdir(original_cwd)
+            log.info("Restored directory to: %s", original_cwd)
+    elif not poetry_available:
+        log.warning("Poetry not available, skipping Poetry dependency installation.")
     else:
         log.info("No pyproject.toml found, skipping Poetry dependency installation.")
 
@@ -575,6 +629,12 @@ def main():
         alt_npm = NODEJS_PATH / "npm.cmd"
         if alt_npm.exists():
             npm_cmd = str(alt_npm)
+            # Apply short path if it contains spaces
+            if " " in npm_cmd:
+                short = get_short_path(npm_cmd)
+                if short and short != npm_cmd:
+                    log.debug("Using short path for npm: %s -> %s", npm_cmd, short)
+                    npm_cmd = short
         else:
             log.warning("npm not found in PATH or at expected %s. NPM installs will be skipped.", NODEJS_PATH)
             npm_cmd = None
