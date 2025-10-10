@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
 import ctypes
 from ctypes import wintypes
 
@@ -70,7 +70,7 @@ if os.name != "nt":
 # Helpers
 # ----------------------
 def run_cmd(
-    cmd: Sequence[str],
+    cmd: Union[Sequence[str], str],
     description: str,
     retries: int = MAX_RETRIES,
     retry_delay: int = RETRY_DELAY,
@@ -80,7 +80,7 @@ def run_cmd(
 ) -> int:
     """
     Run a command with retries. Capture stdout as bytes and decode safely.
-    - cmd: list of command + args (shell=False).
+    - cmd: list of command + args (for shell=False) or a single string (for shell=True).
     - description: human-friendly description for logging.
     - retries/retry_delay: retry policy.
     - npm_clear_on_retry: if True and command looks like npm, run npm cache clean between attempts.
@@ -96,14 +96,16 @@ def run_cmd(
 
     last_rc = 1
     prefer_enc = locale.getpreferredencoding(False) or "utf-8"
+    use_shell = isinstance(cmd, str)
+    cmd_str_for_log = cmd if use_shell else " ".join(cmd)
 
     for attempt in range(1, retries + 1):
-        log.info("[%d/%d] %s: %s", attempt, retries, description, " ".join(cmd))
+        log.info("[%d/%d] %s: %s", attempt, retries, description, cmd_str_for_log)
         if DRY_RUN:
-            log.info("DRY RUN - would run: %s", " ".join(cmd))
+            log.info("DRY RUN - would run: %s", cmd_str_for_log)
             return 0
         try:
-            proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+            proc = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, shell=use_shell)
             last_rc = proc.returncode
             
             # Decode stdout
@@ -138,7 +140,6 @@ def run_cmd(
                 combined_output += "STDERR:\n" + err
             
             if combined_output:
-                # Log output at INFO level for failed commands or if always_log_output is True
                 if last_rc not in success_codes or always_log_output:
                     log.info("%s output (rc=%d):\n%s", description, last_rc, combined_output)
                 else:
@@ -154,11 +155,12 @@ def run_cmd(
 
         # Retry handling
         if attempt < retries:
-            if npm_clear_on_retry and cmd and "npm" in Path(cmd[0]).name.lower():
+            if npm_clear_on_retry and "npm" in cmd_str_for_log:
                 try:
                     log.info("Clearing npm cache (force) before retry.")
-                    if not DRY_RUN:
-                        subprocess.run([cmd[0], "cache", "clean", "--force"], check=False)
+                    npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
+                    if npm_exe and not DRY_RUN:
+                        subprocess.run([npm_exe, "cache", "clean", "--force"], check=False)
                 except Exception:
                     log.exception("npm cache clear failed (ignored).")
             log.info("Waiting %d seconds before retry...", retry_delay)
@@ -365,6 +367,14 @@ def summary_and_exit(errors: List[tuple]):
         for label, rc in errors:
             log.error(" - %s (rc=%s)", label, rc)
         log.error("See %s for full logs.", LOGFILE)
+
+        if not DRY_RUN:
+            try:
+                subprocess.run(["notepad.exe", str(LOGFILE)], check=False)
+                log.info("Opened setup log in Notepad (errors present).")
+            except Exception as e:
+                log.warning("Failed to open Notepad automatically: %s", e)
+
         sys.exit(3)
     else:
         log.info("Setup completed successfully.")
@@ -550,32 +560,24 @@ def main():
             errors.append(("venv create", 1))
             summary_and_exit(errors)
 
-    # 12. Resolve venv Python executable path
-    venv_python = venv_dir / "Scripts" / "python.exe"
-    if not venv_python.exists():
-        log.error("Virtual environment python.exe not found at %s", venv_python)
-        errors.append(("venv python missing", 1))
+    # 12. Resolve venv activate script
+    activate_bat = venv_dir / "Scripts" / "activate.bat"
+    if not activate_bat.exists():
+        log.error("Virtual environment activate.bat not found at %s", activate_bat)
+        errors.append(("venv activate.bat missing", 1))
         summary_and_exit(errors)
 
-    # 13. Compute venv_python_cmd with short path if needed
-    venv_python_cmd = str(venv_python)
-    if " " in venv_python_cmd:
-        short = get_short_path(venv_python_cmd)
-        if short and short != venv_python_cmd:
-            log.debug("Using short path for venv python: %s -> %s", venv_python_cmd, short)
-            venv_python_cmd = short
-
-    # 14. Upgrade pip in the venv
+    # 13. Upgrade pip in the venv using activate.bat
     log.info("Upgrading pip in virtual environment...")
-    rc = run_cmd([venv_python_cmd, "-m", "pip", "install", "--upgrade", "pip"], 
-                 "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    pip_cmd = f'"{activate_bat}" && python -m pip install --upgrade pip'
+    rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
-    # 14.5. Install Poetry in the venv
+    # 14. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
-    rc = run_cmd([venv_python_cmd, "-m", "pip", "install", "poetry"], 
-                 "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
+    poetry_install_cmd = f'"{activate_bat}" && python -m pip install poetry'
+    rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.error("Failed to install Poetry. Poetry-based dependency installation will be skipped.")
         errors.append(("poetry install", rc))
@@ -595,15 +597,16 @@ def main():
             os.chdir(str(HYDRADRAGON_ROOT_PATH))
             log.info("Changed directory to: %s", HYDRADRAGON_ROOT_PATH)
             
-            # Ensure poetry installs into the current venv (avoid nested virtualenvs)
-            rc = run_cmd([venv_python_cmd, "-m", "poetry", "config", "virtualenvs.create", "false"],
-                        "poetry config virtualenvs.create false")
+            # Ensure poetry installs into the current venv
+            config_cmd = f'"{activate_bat}" && poetry config virtualenvs.create false'
+            rc = run_cmd(config_cmd, "poetry config virtualenvs.create false")
             if rc != 0:
                 log.warning("poetry config returned rc=%s", rc)
 
-            # Run poetry with verbose output and non-interactive flags so we capture full diagnostics.
+            # Run poetry install
+            install_deps_cmd = f'"{activate_bat}" && poetry install -vvv --no-interaction --no-ansi'
             rc = run_cmd(
-                [venv_python_cmd, "-m", "poetry", "install", "-vvv", "--no-interaction", "--no-ansi"],
+                install_deps_cmd,
                 "Poetry dependency installation",
                 retries=MAX_RETRIES,
                 retry_delay=RETRY_DELAY,
@@ -624,26 +627,21 @@ def main():
     # ------------------------------
     log.info("Installing npm packages...")
 
-    npm_cmd = shutil.which("npm")
-    if not npm_cmd:
+    npm_cmd_path = shutil.which("npm.cmd") or shutil.which("npm")
+    if not npm_cmd_path:
         alt_npm = NODEJS_PATH / "npm.cmd"
         if alt_npm.exists():
-            npm_cmd = str(alt_npm)
-            # Apply short path if it contains spaces
-            if " " in npm_cmd:
-                short = get_short_path(npm_cmd)
-                if short and short != npm_cmd:
-                    log.debug("Using short path for npm: %s -> %s", npm_cmd, short)
-                    npm_cmd = short
+            npm_cmd_path = str(alt_npm)
         else:
             log.warning("npm not found in PATH or at expected %s. NPM installs will be skipped.", NODEJS_PATH)
-            npm_cmd = None
+            npm_cmd_path = None
 
     def npm_run(args_list: List[str], desc: str) -> int:
-        if not npm_cmd:
+        if not npm_cmd_path:
             log.error("Skipping %s because npm is not available", desc)
             return 1
-        cmd = [npm_cmd] + args_list
+        # Construct command string for shell execution
+        cmd = f'"{npm_cmd_path}" {" ".join(args_list)}'
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
     # 16. asar
