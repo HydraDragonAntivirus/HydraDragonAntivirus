@@ -218,6 +218,8 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Any weaknesses of this antivirus/EDR?** 
 - Yes, there is only one weakness in this antivirus. Since we removed registry detection and switched to a non-sandbox mode, there is currently no robust registry protection or tool to unlock undeletable registry keys. We are planning to implement registry protection in the future.
+- https://regseek.github.io/
+- You can look here for this.
 
 ### Credits:
 - All credits goes to Emirhan Uçan
