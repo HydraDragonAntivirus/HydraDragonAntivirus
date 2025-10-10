@@ -206,14 +206,14 @@ decompile_outputs = {}               # maps abs_input_path -> [artifact_path, ..
 decompile_outputs_lock = threading.Lock()
 
 uefi_100kb_paths = [
-    rf'EFI\Microsoft\Boot\SecureBootRecovery.efi'
+    r'EFI\Microsoft\Boot\SecureBootRecovery.efi'
 ]
 
 uefi_paths = [
-    rf'EFI\Microsoft\Boot\bootmgfw.efi',
-    rf'EFI\Microsoft\Boot\bootmgr.efi',
-    rf'EFI\Microsoft\Boot\memtest.efi',
-    rf'EFI\Boot\bootx64.efi'
+    r'EFI\Microsoft\Boot\bootmgfw.efi',
+    r'EFI\Microsoft\Boot\bootmgr.efi',
+    r'EFI\Microsoft\Boot\memtest.efi',
+    r'EFI\Boot\bootx64.efi'
 ]
 
 def get_startup_paths():

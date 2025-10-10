@@ -300,8 +300,6 @@ from .utils_and_helpers import (
     compute_md5_via_text,
     compute_md5,
     run_in_thread,
-    _enumerate_drive_roots,
-    _is_relative_path,
     _norm
 )
 logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
@@ -9689,25 +9687,32 @@ def scan_and_warn(file_path,
                 notify_user_startup(file_path, f"Startup malware detected: {file_path}", main_file_path=main_file_path)
                 return True
 
-        # --- CHECK IF FILE IS IN UEFI PATHS ---
+        # --- UEFI detection ---
         try:
-            candidate_norm = os.path.normpath(norm_path).lower()
-            in_100kb_group = any(os.path.normpath(p).lower() in candidate_norm for p in (uefi_100kb_paths or []))
-            in_uefi_group   = any(os.path.normpath(p).lower() in candidate_norm for p in (uefi_paths or []))
+            candidate_norm = _norm(norm_path)
 
+            # Check 100 KB group first
+            in_100kb_group = any(_norm(p) in candidate_norm for p in (uefi_100kb_paths or []))
             if in_100kb_group and is_malicious_file(norm_path, 100):
                 logger.critical(f"UEFI (100kb) suspicious: {norm_path}")
-                notify_user_for_uefi(norm_path,
-                                     "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware",
-                                     main_file_path=main_file_path)
-                return True  # stop here
+                notify_user_for_uefi(
+                    norm_path,
+                    "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware",
+                    main_file_path=main_file_path
+                )
+                return True  # stop scanning here if detected
 
+            # Check normal UEFI group
+            in_uefi_group = any(_norm(p) in candidate_norm for p in (uefi_paths or []))
             if in_uefi_group and is_malicious_file(norm_path, 1024):
                 logger.critical(f"UEFI suspicious: {norm_path}")
-                notify_user_for_uefi(norm_path,
-                                     "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware",
-                                     main_file_path=main_file_path)
-                return True  # stop here
+                notify_user_for_uefi(
+                    norm_path,
+                    "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware",
+                    main_file_path=main_file_path
+                )
+                return True  # stop scanning here if detected
+
         except Exception as e:
             logger.debug(f"UEFI detection check failed for {norm_path}: {e}")
 

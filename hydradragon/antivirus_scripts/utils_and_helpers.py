@@ -1,6 +1,5 @@
 import hashlib
 import os
-import string
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 
@@ -50,22 +49,6 @@ def run_in_thread(fn):
     def wrapper(*args, **kwargs):
         return executor.submit(fn, *args, **kwargs)
     return wrapper
-
-def _enumerate_drive_roots():
-    """Return drive roots like 'C:\\', 'D:\\' for existing drive letters (Windows)."""
-    roots = []
-    for letter in string.ascii_uppercase:
-        root = f"{letter}:/"
-        if os.path.exists(root):
-            roots.append(root)
-    return roots
-
-def _is_relative_path(p: str) -> bool:
-    # Consider relative if not absolute and not starting with drive letter like 'C:\'
-    if os.path.isabs(p):
-        return False
-    # treat paths that start with a backslash but missing drive as relative for our purposes
-    return True
 
 def _norm(p: str) -> str:
     return os.path.normpath(p).replace("\\", "/").lower()
