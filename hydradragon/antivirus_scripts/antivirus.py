@@ -4905,10 +4905,9 @@ def get_next_project_name(base_name):
 def decompile_file(file_path, main_file_path=None, timeout=1500):
     """
     Run Ghidra analyzeHeadless with DecompileAndSave.java, remember produced artifacts
-    for the absolute input path, and queue each artifact (or every file under a produced
-    directory) to scan_and_warn with main_file_path preserved.
+    for the absolute input path, and return the list of artifact paths.
 
-    This function does NOT return anything; results are saved to `decompile_outputs`.
+    This version does NOT call scan_and_warn automatically.
     """
     try:
         norm_path = os.path.abspath(file_path)
@@ -4918,21 +4917,21 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         project_location = os.path.join(script_dir, 'ghidra_projects')
         os.makedirs(project_location, exist_ok=True)
 
-        base_project_name = 'temporary'
+        # Generate project name
         try:
-            project_name = get_next_project_name(base_project_name)
+            project_name = get_next_project_name('temporary')
         except Exception as ex:
             logger.error(f"Failed to generate project name: {ex}")
-            # ensure we still record "no artifacts"
             with decompile_outputs_lock:
                 decompile_outputs[norm_path] = []
-            return
+            return []
 
         try:
             existing_projects.append(project_name)
         except Exception:
             pass
 
+        # Prepare command
         command = [
             analyze_headless_path,
             project_location,
@@ -4945,8 +4944,8 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
 
         start_time = time.time()
 
+        # Run Ghidra headless
         try:
-            # run with cwd=script_dir so DecompileAndSave.java writes to script_dir/decompiled
             result = subprocess.run(
                 command,
                 capture_output=True,
@@ -4960,30 +4959,65 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
             logger.error(f"Ghidra analyzeHeadless timed out for {norm_path}: {te}")
             with decompile_outputs_lock:
                 decompile_outputs[norm_path] = []
-            return
+            return []
 
         if result.returncode != 0:
-            logger.error(f"Decompilation failed for file: {norm_path}. Return code: {result.returncode}")
+            logger.error(f"Decompilation failed for {norm_path}. Return code: {result.returncode}")
             logger.error(f"stderr: {result.stderr}")
             logger.error(f"stdout: {result.stdout}")
             with decompile_outputs_lock:
                 decompile_outputs[norm_path] = []
-            return
+            return []
 
-        logger.info(f"Decompilation completed successfully for file: {norm_path}")
+        logger.info(f"Decompilation completed successfully for: {norm_path}")
 
-        # candidate roots (prioritized)
-        candidate_roots = []
-        candidate_roots.append(os.path.join(script_dir, "decompiled"))  # explicit from your Java script
-        candidate_roots.append(project_location)
-        candidate_roots.append(os.getcwd())
-        candidate_roots.append(ghidra_scripts_dir)
-        candidate_roots = [p for idx, p in enumerate(candidate_roots) if p and p not in candidate_roots[:idx]]
+        # --- Find candidate artifact files ---
+        candidate_roots = [
+            os.path.join(script_dir, "decompiled"),
+            project_location,
+            os.getcwd(),
+            ghidra_scripts_dir
+        ]
+        candidate_roots = list(dict.fromkeys(p for p in candidate_roots if p))  # unique + keep order
 
         candidates = []
         toler = 5
         for root in candidate_roots:
-            try:
+            if not os.path.exists(root):
+                continue
+            for r, _, files in os.walk(root):
+                for fname in files:
+                    full = os.path.join(r, fname)
+                    try:
+                        mtime = os.path.getmtime(full)
+                    except Exception:
+                        mtime = 0
+                    lname = fname.lower()
+                    score = 0
+                    if "_analysis" in lname or lname.endswith("_analysis.txt"):
+                        score += 200
+                    if lname.endswith(('.txt', '.c', '.cpp', '.asm', '.idb', '.bytes', '.json')):
+                        score += 50
+                    if mtime >= (start_time - toler):
+                        score += 100
+                    if score > 0:
+                        candidates.append((score, mtime, full))
+
+        # Broad fallback: *_analysis*.txt under script_dir
+        if not candidates:
+            for r, _, files in os.walk(script_dir):
+                for fname in files:
+                    if "_analysis" in fname.lower() and fname.lower().endswith('.txt'):
+                        full = os.path.join(r, fname)
+                        try:
+                            mtime = os.path.getmtime(full)
+                        except Exception:
+                            mtime = 0
+                        candidates.append((150, mtime, full))
+
+        # Fallback: any recent file under project_location or script_dir
+        if not candidates:
+            for root in (project_location, script_dir):
                 if not os.path.exists(root):
                     continue
                 for r, _, files in os.walk(root):
@@ -4993,97 +5027,22 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
                             mtime = os.path.getmtime(full)
                         except Exception:
                             mtime = 0
-                        lname = fname.lower()
-                        score = 0
-                        if "_analysis" in lname or lname.endswith("_analysis.txt"):
-                            score += 200
-                        if lname.endswith(('.txt', '.c', '.cpp', '.asm', '.idb', '.bytes', '.json')):
-                            score += 50
                         if mtime >= (start_time - toler):
-                            score += 100
-                        if score > 0:
-                            candidates.append((score, mtime, full))
-            except Exception as e:
-                logger.debug(f"Error walking candidate root '{root}': {e}")
+                            candidates.append((10, mtime, full))
 
-        # broad fallback in script_dir for *_analysis*.txt
-        if not candidates:
-            try:
-                for r, _, files in os.walk(script_dir):
-                    for fname in files:
-                        if "_analysis" in fname.lower() and fname.lower().endswith('.txt'):
-                            full = os.path.join(r, fname)
-                            try:
-                                mtime = os.path.getmtime(full)
-                            except Exception:
-                                mtime = 0
-                            candidates.append((150, mtime, full))
-            except Exception as e:
-                logger.debug(f"Broad fallback search failed: {e}")
-
-        # final fallback: any recent file under script_dir/project_location
-        if not candidates:
-            try:
-                for root in (project_location, script_dir):
-                    if not root or not os.path.exists(root):
-                        continue
-                    for r, _, files in os.walk(root):
-                        for fname in files:
-                            full = os.path.join(r, fname)
-                            try:
-                                mtime = os.path.getmtime(full)
-                            except Exception:
-                                mtime = 0
-                            if mtime >= (start_time - toler):
-                                candidates.append((10, mtime, full))
-            except Exception:
-                pass
-
-        # prepare ordered unique list
+        # Sort and deduplicate
         if candidates:
             candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
-            seen = set()
-            ordered = []
-            for sc, mt, path in candidates:
-                if path not in seen:
-                    seen.add(path)
-                    ordered.append(path)
-            found_paths = ordered
+            found_paths = list(dict.fromkeys(path for _, _, path in candidates))
         else:
             found_paths = []
 
-        # record the mapping (even empty list) so caller can look it up later
+        # Record and return
         with decompile_outputs_lock:
             decompile_outputs[norm_path] = found_paths
 
-        logger.info(f"Recorded decompile outputs for {norm_path}: {found_paths}")
-
-        # queue everything to scan_and_warn (file or directory contents), preserving main_file_path
-        for p in found_paths:
-            try:
-                if os.path.isdir(p):
-                    for root, _, files in os.walk(p):
-                        for fname in files:
-                            fp = os.path.join(root, fname)
-                            try:
-                                threading.Thread(
-                                    target=scan_and_warn,
-                                    args=(fp,),
-                                    kwargs={"main_file_path": main_file_path}
-                                ).start()
-                            except Exception as e:
-                                logger.error(f"Failed to queue scan for {fp}: {e}")
-                else:
-                    try:
-                        threading.Thread(
-                            target=scan_and_warn,
-                            args=(p,),
-                            kwargs={"main_file_path": main_file_path}
-                        ).start()
-                    except Exception as e:
-                        logger.error(f"Failed to queue scan for {p}: {e}")
-            except Exception as e:
-                logger.error(f"Error scheduling scan for artifact '{p}': {e}")
+        logger.info(f"Decompile artifacts for {norm_path}: {found_paths}")
+        return found_paths
 
     except Exception as ex:
         logger.error(f"An error occurred during decompilation of {file_path}: {ex}")
@@ -5092,7 +5051,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
                 decompile_outputs[os.path.abspath(file_path)] = []
         except Exception:
             pass
-        return
+        return []
 
 def extract_original_norm_path_from_decompiled(file_path):
     try:
@@ -10314,6 +10273,7 @@ def scan_and_warn(file_path,
                 """
                 Decompile norm_path (propagating main_file_path) and send any exported
                 artifact(s) into scan_and_warn for further processing.
+
                 Handles:
                 - single path returned (file or dir)
                 - list/tuple of paths
@@ -10322,20 +10282,21 @@ def scan_and_warn(file_path,
                 try:
                     exported = decompile_file(norm_path, main_file_path=main_file_path)
                     if not exported:
-                        logger.debug(f"No exported decompilation path returned for {norm_path}")
+                        logger.debug(f"No decompiled artifacts returned for {norm_path}")
                         return
 
-                    # Normalize into list of paths
+                    # Normalize into list
                     if isinstance(exported, (list, tuple, set)):
                         candidates = list(exported)
                     else:
                         candidates = [exported]
 
+                    queued = 0
                     for candidate in candidates:
                         try:
-                            if not candidate:
+                            if not candidate or not os.path.exists(candidate):
                                 continue
-                            # If candidate is a directory, queue every file inside it
+
                             if os.path.isdir(candidate):
                                 for root, _, files in os.walk(candidate):
                                     for fname in files:
@@ -10345,15 +10306,19 @@ def scan_and_warn(file_path,
                                             args=(file_path_full,),
                                             kwargs={"main_file_path": main_file_path}
                                         ).start()
+                                        queued += 1
                             else:
-                                # Single file - queue a scan directly
                                 threading.Thread(
                                     target=scan_and_warn,
                                     args=(candidate,),
                                     kwargs={"main_file_path": main_file_path}
                                 ).start()
+                                queued += 1
+
                         except Exception as inner_e:
                             logger.error(f"Failed to queue scan for decompiled artifact '{candidate}': {inner_e}")
+
+                    logger.info(f"Queued {queued} artifact(s) from decompilation of {norm_path} for scanning.")
 
                 except Exception as e:
                     logger.error(f"Error in decompilation thread for {norm_path}: {e}")
