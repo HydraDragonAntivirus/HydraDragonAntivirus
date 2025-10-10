@@ -9,8 +9,13 @@ import time
 import ctypes
 from pathlib import Path
 from hydra_logger import logger
-# NEW: Import the specific notifier for MBR alerts
-from .notify_user import notify_user_mbr_alert
+# Import notification functions
+from .notify_user import (
+    notify_user_mbr_alert,
+    notify_user_self_defense_file,
+    notify_user_self_defense_process,
+    notify_user_self_defense_registry
+)
 
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
@@ -18,8 +23,11 @@ PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
 # Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
 PIPE_EDR_TO_AV = r"\\.\pipe\owlyshield_to_hydradragon"
 
-# NEW PIPE for MBR write alerts from the kernel driver
+# Pipe 3: MBR write alerts from the kernel driver
 PIPE_MBR_ALERT = r"\\.\pipe\mbr_filter_alerts"
+
+# Pipe 4: Self-defense alerts from file/process/registry drivers
+PIPE_SELF_DEFENSE_ALERT = r"\\.\pipe\self_defense_alerts"
 
 thread_lock = threading.Lock()
 
@@ -298,7 +306,7 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
 
 
 # ============================================================================
-# NEW: MBR Alert Pipe Listener
+# PIPE 3: MBR Alert Pipe Listener
 # ============================================================================
 
 def _process_mbr_alert(data: bytes):
@@ -307,10 +315,10 @@ def _process_mbr_alert(data: bytes):
     """
     try:
         # The data from the kernel is a UTF-16LE encoded string (UNICODE_STRING)
-        offending_path = data.decode('utf-16-le')
+        offending_path = data.decode('utf-16-le').strip('\x00')
         logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
         
-        # Call the new notification function to alert user and EDR
+        # Call the notification function to alert user and EDR
         notify_user_mbr_alert(offending_path)
         
     except Exception as e:
@@ -366,7 +374,125 @@ def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
 
 
 # ============================================================================
-# MODIFIED: Integration Startup
+# PIPE 4: Self-Defense Alert Pipe Listener
+# ============================================================================
+
+def _process_self_defense_alert(data: bytes):
+    """
+    Process incoming self-defense alerts from the kernel drivers.
+    The data is a JSON-like string with attack details.
+    """
+    try:
+        # The data from the kernel is UTF-16LE encoded
+        message_str = data.decode('utf-16-le').strip('\x00')
+        logger.debug(f"Raw self-defense alert: {message_str}")
+        
+        # Parse the JSON message
+        alert_data = json.loads(message_str)
+        
+        protected_file = alert_data.get("protected_file", "Unknown")
+        attacker_path = alert_data.get("attacker_path", "Unknown")
+        attacker_pid = alert_data.get("attacker_pid", 0)
+        attack_type = alert_data.get("attack_type", "FILE_TAMPERING")
+        operation = alert_data.get("operation", "")
+        target_pid = alert_data.get("target_pid", 0)
+        
+        logger.critical(
+            f"Self-Defense Alert: {attack_type} - "
+            f"Process {attacker_path} (PID: {attacker_pid}) "
+            f"attempted to tamper with {protected_file}"
+        )
+        
+        # Call appropriate notification function based on attack type
+        if attack_type == "REGISTRY_TAMPERING":
+            notify_user_self_defense_registry(
+                registry_path=protected_file,
+                attacker_path=attacker_path,
+                attacker_pid=attacker_pid,
+                operation=operation
+            )
+        elif attack_type == "PROCESS_KILL":
+            notify_user_self_defense_process(
+                protected_process=protected_file,
+                attacker_path=attacker_path,
+                attacker_pid=attacker_pid
+            )
+        elif attack_type in ["FILE_TAMPERING", "HANDLE_HIJACK"]:
+            notify_user_self_defense_file(
+                file_path=protected_file,
+                attacker_path=attacker_path,
+                attacker_pid=attacker_pid
+            )
+        else:
+            # Default to file protection alert
+            notify_user_self_defense_file(
+                file_path=protected_file,
+                attacker_path=attacker_path,
+                attacker_pid=attacker_pid
+            )
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse self-defense alert JSON: {e}")
+        # Fallback: treat as plain text
+        try:
+            message_str = data.decode('utf-16-le').strip('\x00')
+            logger.critical(f"Self-Defense Alert (raw): {message_str}")
+        except Exception:
+            pass
+    except Exception as e:
+        logger.exception(f"Error processing self-defense alert: {e}")
+
+
+def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_ALERT):
+    """
+    Self-Defense Pipe Server: Listens for alerts FROM the self-defense drivers.
+    This runs in a separate thread and continuously receives protection alerts.
+    """
+    logger.info(f"Starting self-defense alert listener on: {pipe_name}")
+    
+    while True:
+        pipe = None
+        try:
+            # Create the named pipe to RECEIVE alerts from kernel drivers
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND,  # Drivers only write, we only read
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536,
+                65536,
+                0,
+                None
+            )
+
+            logger.info("Waiting for self-defense drivers to send alerts...")
+            win32pipe.ConnectNamedPipe(pipe, None)
+            logger.debug("Self-defense driver connected to alert pipe.")
+
+            # Read the alert data
+            hr, data = win32file.ReadFile(pipe, 4096)
+            
+            if data:
+                with thread_lock:
+                    _process_self_defense_alert(data)
+
+        except pywintypes.error as e:
+            if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
+                logger.debug("Self-defense driver disconnected from alert pipe.")
+            else:
+                logger.error(f"Windows API Error in self-defense listener: {e.strerror} (Code: {e.winerror})")
+            time.sleep(1)
+        except Exception as e:
+            logger.exception(f"Unexpected error in self-defense alert listener: {e}")
+            time.sleep(5)
+        finally:
+            if pipe:
+                win32pipe.DisconnectNamedPipe(pipe)
+                win32file.CloseHandle(pipe)
+
+
+# ============================================================================
+# Integration Startup
 # ============================================================================
 
 def start_all_pipe_listeners():
@@ -374,6 +500,7 @@ def start_all_pipe_listeners():
     Starts all pipe listeners in separate daemon threads:
     - AV Threat Listener (from other AV components)
     - MBR Alert Listener (from kernel driver)
+    - Self-Defense Alert Listener (from file/process/registry drivers)
     """
     # Start the AV threat event listener thread
     threat_listener_thread = threading.Thread(
@@ -383,7 +510,7 @@ def start_all_pipe_listeners():
     threat_listener_thread.daemon = True
     threat_listener_thread.start()
 
-    # NEW: Start the MBR alert listener thread
+    # Start the MBR alert listener thread
     mbr_alert_thread = threading.Thread(
         target=monitor_mbr_alerts_from_kernel,
         name="MBR-Alert-Listener"
@@ -391,4 +518,12 @@ def start_all_pipe_listeners():
     mbr_alert_thread.daemon = True
     mbr_alert_thread.start()
 
-    logger.info("All pipe listeners started successfully.")
+    # Start the self-defense alert listener thread
+    self_defense_thread = threading.Thread(
+        target=monitor_self_defense_alerts_from_kernel,
+        name="Self-Defense-Alert-Listener"
+    )
+    self_defense_thread.daemon = True
+    self_defense_thread.start()
+
+    logger.info("All pipe listeners started successfully (AV, MBR, Self-Defense).")

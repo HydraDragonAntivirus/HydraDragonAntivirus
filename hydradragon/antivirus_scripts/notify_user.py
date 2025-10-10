@@ -360,3 +360,51 @@ def notify_user_for_uefi(file_path, virus_name, main_file_path: Optional[str] = 
     # Register hash and propagate to EDR
     _add_malicious_hash(file_path, virus_name)
     _send_to_edr(file_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)
+
+# ============================================================================
+# Self-Defense Alert Notifications
+# ============================================================================
+
+def notify_user_self_defense_file(file_path: str, attacker_path: str, attacker_pid: int, main_file_path: Optional[str] = None):
+    """
+    Notify user about file tampering attempt blocked by self-defense driver.
+    """
+    notification = Notify()
+    notification.title = "Self-Defense File Protection Alert"
+    notification_message = f"File tampering attempt blocked: {file_path}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+    virus_name = f"Self-Defense Alert: File Tampering by PID {attacker_pid}"
+    _add_malicious_hash(attacker_path, virus_name)
+    _send_to_edr(attacker_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)
+
+
+def notify_user_self_defense_process(protected_process: str, attacker_path: str, attacker_pid: int, main_file_path: Optional[str] = None):
+    """
+    Notify user about process kill attempt blocked by self-defense driver.
+    """
+    notification = Notify()
+    notification.title = "Self-Defense Process Protection Alert"
+    notification_message = f"Process kill attempt blocked: {protected_process}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+    virus_name = f"Self-Defense Alert: Process Kill Attempt by PID {attacker_pid}"
+    _add_malicious_hash(attacker_path, virus_name)
+    _send_to_edr(attacker_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)
+
+
+def notify_user_self_defense_registry(registry_path: str, attacker_path: str, attacker_pid: int, operation: str, main_file_path: Optional[str] = None):
+    """
+    Notify user about registry tampering attempt blocked by self-defense driver.
+    """
+    notification = Notify()
+    notification.title = "Self-Defense Registry Protection Alert"
+    notification_message = f"Registry tampering attempt blocked: {registry_path}\nOperation: {operation}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+    virus_name = f"Self-Defense Alert: Registry {operation} Attempt by PID {attacker_pid}"
+    _add_malicious_hash(attacker_path, virus_name)
+    _send_to_edr(attacker_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)

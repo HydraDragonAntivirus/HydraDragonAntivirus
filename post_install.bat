@@ -56,21 +56,21 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 5) Install ProcessProtection driver (PYAS -> modified for HydraDragon)
+:: 5) Install ProcessRegeditFileProtection driver (PYAS -> modified for HydraDragon)
 :: --------------------------------------------------------
-set "PROCESS_PROT_INF=C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\ProcessProtection\ProcessProtection.inf"
+set "PROCESS_REG_FILE_PROT_INF=%~dp0hydradragon\ProcessProtection\ProcessProtection.inf"
 
-if exist "%PROCESS_PROT_INF%" (
-    echo [*] Installing ProcessProtection driver INF from "%PROCESS_PROT_INF%"...
-    pnputil /add-driver "%PROCESS_PROT_INF%" /install
+if exist "%PROCESS_REG_FILE_PROT_INF%" (
+    echo [*] Installing ProcessRegeditFileProtection driver INF from "%PROCESS_REG_FILE_PROT_INF%"...
+    pnputil /add-driver "%PROCESS_REG_FILE_PROT_INF%" /install
     if %errorlevel% neq 0 (
-        echo [!] ProcessProtection driver install failed. Make sure Test-Signing is enabled or the driver is signed.
+        echo [!] ProcessRegeditFileProtection driver install failed. Make sure Test-Signing is enabled or the driver is signed.
         pause
         exit /b
     )
-    echo [+] ProcessProtection driver installed.
+    echo [+] ProcessRegeditFileProtection driver installed.
 ) else (
-    echo [!] ProcessProtection INF not found at "%PROCESS_PROT_INF%".
+    echo [!] ProcessRegeditFileProtection INF not found at "%PROCESS_REG_FILE_PROT_INF%".
 )
 
 :: --------------------------------------------------------
