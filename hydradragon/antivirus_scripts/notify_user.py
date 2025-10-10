@@ -347,3 +347,16 @@ def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str):
     logger.warning(notification_message)
     # Still send to EDR for tracking purposes
     _send_to_edr(file_path, f"Duplicate: {known_virus_name}", action="kill_and_remove")
+
+def notify_user_for_uefi(file_path, virus_name, main_file_path: Optional[str] = None):
+    notification = Notify()
+    notification.title = "(Verified) UEFI Malware Alert"
+    notification_message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = notification_message
+    notification.send()
+
+    logger.critical(notification_message)
+
+    # Register hash and propagate to EDR
+    _add_malicious_hash(file_path, virus_name)
+    _send_to_edr(file_path, virus_name, action="kill_and_remove", main_file_path=main_file_path)

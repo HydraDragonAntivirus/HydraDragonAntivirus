@@ -205,6 +205,17 @@ malicious_hashes_lock = threading.Lock()
 decompile_outputs = {}               # maps abs_input_path -> [artifact_path, ...]
 decompile_outputs_lock = threading.Lock()
 
+uefi_100kb_paths = [
+    rf'EFI\Microsoft\Boot\SecureBootRecovery.efi'
+]
+
+uefi_paths = [
+    rf'EFI\Microsoft\Boot\bootmgfw.efi',
+    rf'EFI\Microsoft\Boot\bootmgr.efi',
+    rf'EFI\Microsoft\Boot\memtest.efi',
+    rf'EFI\Boot\bootx64.efi'
+]
+
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
     MAX_PATH = 260
