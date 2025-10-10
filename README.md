@@ -216,11 +216,6 @@ See the [LICENSE](./LICENSE) file for more information.
 **Why doesn't the program open?**
 - Your installation might be broken. You can check the logs to determine the issue, because if the connection was lost during installation, it can affect the installation significantly. Try reinstalling to fix the problem.
 
-**Any weaknesses of this antivirus/EDR?** 
-- Yes, there is only one weakness in this antivirus. Since we removed registry detection and switched to a non-sandbox mode, there is currently no robust registry protection or tool to unlock undeletable registry keys. We are planning to implement registry protection in the future.
-- https://regseek.github.io/
-- You can look here for this.
-
 ### Credits:
 - All credits goes to Emirhan Uçan
 - Thanks to Hacı Murad for collecting and compiling machine learning signatures.

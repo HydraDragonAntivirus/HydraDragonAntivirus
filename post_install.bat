@@ -56,7 +56,25 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 5) Create and configure Owlyshield Service
+:: 5) Install ProcessProtection driver (PYAS -> modified for HydraDragon)
+:: --------------------------------------------------------
+set "PROCESS_PROT_INF=C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\ProcessProtection\ProcessProtection.inf"
+
+if exist "%PROCESS_PROT_INF%" (
+    echo [*] Installing ProcessProtection driver INF from "%PROCESS_PROT_INF%"...
+    pnputil /add-driver "%PROCESS_PROT_INF%" /install
+    if %errorlevel% neq 0 (
+        echo [!] ProcessProtection driver install failed. Make sure Test-Signing is enabled or the driver is signed.
+        pause
+        exit /b
+    )
+    echo [+] ProcessProtection driver installed.
+) else (
+    echo [!] ProcessProtection INF not found at "%PROCESS_PROT_INF%".
+)
+
+:: --------------------------------------------------------
+:: 6) Create and configure Owlyshield Service
 :: --------------------------------------------------------
 echo Creating 'Owlyshield Service'...
 sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe" start= auto
@@ -67,7 +85,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 6) Create HydraDragonAntivirusService auto-start service
+:: 7) Create HydraDragonAntivirusService auto-start service
 :: --------------------------------------------------------
 set "HD_SERVICE_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusService.exe"
 
@@ -86,7 +104,7 @@ if exist "%HD_SERVICE_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 7) Cleanup and restart
+:: 8) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
