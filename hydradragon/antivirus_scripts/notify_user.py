@@ -314,7 +314,7 @@ def notify_user_for_web_source(
         _send_to_edr(edr_file_param, threat_name, action="kill_and_remove", main_file_path=main_file_path)
     else:
         # No file available; do not send file-based EDR event. If you want web-only EDR events, change to monitor.
-        logger.info("No file context available — not forwarding web-only alert to EDR as a file event.")
+        logger.info("No file context available - not forwarding web-only alert to EDR as a file event.")
 
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status, main_file_path: Optional[str] = None):
