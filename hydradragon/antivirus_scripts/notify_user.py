@@ -22,6 +22,7 @@ def _send_to_edr(target_path: str, threat_name: str, action: str, main_file_path
     """
     if main_file_path:
         try:
+            # Assuming _send_av_event_to_edr can handle a main_file_path kwarg, if not, it will fall back
             _send_av_event_to_edr(target_path, threat_name, action=action, main_file_path=main_file_path)
         except TypeError:
             # Fall back to calling without main_file_path if the target EDR function
@@ -40,6 +41,32 @@ def _add_malicious_hash(file_path: str, virus_name: str):
             logger.info(f"Added malicious hash: {file_hash} ({file_path}) -> {virus_name}")
     except Exception as e:
         logger.error(f"Failed to compute hash for {file_path}: {e}")
+
+
+# --- NEW: Notification function for MBR Protection Alerts ---
+
+def notify_user_mbr_alert(file_path: str):
+    """
+    Notify the user about a blocked MBR write attempt and send a critical alert to the EDR.
+    """
+    notification = Notify()
+    notification.title = "CRITICAL: MBR Write Attempt Blocked"
+    notification_message = (
+        f"A process attempted to modify the Master Boot Record (MBR) and was blocked.\n\n"
+        f"Offending Process: {file_path}"
+    )
+    notification.message = notification_message
+    notification.send()
+    logger.critical(notification_message)
+    
+    # Define the threat and send it to the EDR for immediate action
+    threat_name = "Radical MBR Change Attempt"
+    
+    # Add hash of the offending executable for future tracking
+    _add_malicious_hash(file_path, threat_name)
+    
+    # Send to EDR with a clear "kill and remove" action
+    _send_to_edr(file_path, threat_name, action="kill_and_remove")
 
 
 # --- Notification Functions (Now with EDR Integration, main_file_path, and automatic hash tracking) ---

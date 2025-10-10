@@ -9,12 +9,17 @@ import time
 import ctypes
 from pathlib import Path
 from hydra_logger import logger
+# NEW: Import the specific notifier for MBR alerts
+from .notify_user import notify_user_mbr_alert
 
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
 
 # Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
 PIPE_EDR_TO_AV = r"\\.\pipe\owlyshield_to_hydradragon"
+
+# NEW PIPE for MBR write alerts from the kernel driver
+PIPE_MBR_ALERT = r"\\.\pipe\mbr_filter_alerts"
 
 thread_lock = threading.Lock()
 
@@ -293,19 +298,97 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
 
 
 # ============================================================================
-# Integration Startup
+# NEW: MBR Alert Pipe Listener
 # ============================================================================
 
-def start_dual_pipe_integration():
+def _process_mbr_alert(data: bytes):
     """
-    Starts both pipe listeners in separate threads:
-    - Pipe 1: Receives threat events FROM HydraDragon
-    - Pipe 2: Sends scan requests TO HydraDragon (on-demand via _send_scan_request_to_av)
+    Process incoming MBR write alerts from the kernel driver.
     """
-    # Start the threat event listener thread (Pipe 1)
+    try:
+        # The data from the kernel is a UTF-16LE encoded string (UNICODE_STRING)
+        offending_path = data.decode('utf-16-le')
+        logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
+        
+        # Call the new notification function to alert user and EDR
+        notify_user_mbr_alert(offending_path)
+        
+    except Exception as e:
+        logger.exception(f"Error processing MBR alert: {e}")
+
+
+def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
+    """
+    MBR Pipe Server: Listens for MBR write alerts FROM the MBRFilter driver.
+    This runs in a separate thread and continuously receives alerts.
+    """
+    logger.info(f"Starting MBR alert listener from MBRFilter.sys on: {pipe_name}")
+    
+    while True:
+        pipe = None
+        try:
+            # Create the named pipe to RECEIVE alerts from the kernel driver
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND, # Driver only writes, we only read
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536,
+                65536,
+                0,
+                None
+            )
+
+            logger.info("Waiting for MBRFilter.sys to send alerts...")
+            win32pipe.ConnectNamedPipe(pipe, None)
+            logger.info("MBRFilter.sys connected to MBR alert pipe.")
+
+            # Read the alert data (this will be the process path)
+            hr, data = win32file.ReadFile(pipe, 4096)
+            
+            if data:
+                with thread_lock:
+                    _process_mbr_alert(data)
+
+        except pywintypes.error as e:
+            if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
+                logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
+            else:
+                logger.error(f"Windows API Error in MBR listener: {e.strerror} (Code: {e.winerror})")
+            time.sleep(1)
+        except Exception as e:
+            logger.exception(f"Unexpected error in MBR alert listener: {e}")
+            time.sleep(5)
+        finally:
+            if pipe:
+                win32pipe.DisconnectNamedPipe(pipe)
+                win32file.CloseHandle(pipe)
+
+
+# ============================================================================
+# MODIFIED: Integration Startup
+# ============================================================================
+
+def start_all_pipe_listeners():
+    """
+    Starts all pipe listeners in separate daemon threads:
+    - AV Threat Listener (from other AV components)
+    - MBR Alert Listener (from kernel driver)
+    """
+    # Start the AV threat event listener thread
     threat_listener_thread = threading.Thread(
         target=monitor_threat_events_from_av,
         name="HydraDragon-ThreatListener"
     )
+    threat_listener_thread.daemon = True
     threat_listener_thread.start()
-    logger.info("Dual-pipe integration started successfully")
+
+    # NEW: Start the MBR alert listener thread
+    mbr_alert_thread = threading.Thread(
+        target=monitor_mbr_alerts_from_kernel,
+        name="MBR-Alert-Listener"
+    )
+    mbr_alert_thread.daemon = True
+    mbr_alert_thread.start()
+
+    logger.info("All pipe listeners started successfully.")
