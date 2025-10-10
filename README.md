@@ -119,6 +119,10 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects for EDR.
 
+- https://github.com/HydraDragonAntivirus/MBRFilter
+
+- I used this project for MBR Protection.
+
 - https://github.com/clamwin/python-clamav
 
 - https://github.com/HydraDragonAntivirus/PYAS_Protection

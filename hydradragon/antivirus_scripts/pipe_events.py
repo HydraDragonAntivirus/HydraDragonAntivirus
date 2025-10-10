@@ -120,13 +120,6 @@ def _send_av_event_to_edr(file_path: str, virus_name: str, action: str = "monito
     (Internal) Connects to the Owlyshield EDR pipe and sends a threat event.
     This function is called by the notification functions below.
     """
-    if not win32file:
-        logger.warning("pywin32 not found, skipping EDR event.")
-        return
-
-    if not file_path:
-        logger.warning("No file_path provided, skipping EDR event.")
-        return
 
     event = {
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
