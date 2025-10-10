@@ -20,7 +20,6 @@ def get_signature(base_signature, **flags):
         'pyc_flag': 'PYC.Python',
         'androguard_flag': 'Android',
         'asar_flag': 'Electron',
-        'registry_flag': 'Registry',
         'nexe_flag' : 'nexe'
     }
 
