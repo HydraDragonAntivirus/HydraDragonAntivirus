@@ -77,17 +77,15 @@ def run_cmd(
     npm_clear_on_retry: bool = False,
     success_exit_codes: Optional[Iterable[int]] = None,
     always_log_output: bool = False,
-    stream_output: bool = True,
 ) -> int:
     """
-    Run a command with retries. Show output in real-time and capture for logging.
+    Run a command with retries. Capture stdout as bytes and decode safely.
     - cmd: list of command + args (shell=False).
     - description: human-friendly description for logging.
     - retries/retry_delay: retry policy.
     - npm_clear_on_retry: if True and command looks like npm, run npm cache clean between attempts.
     - success_exit_codes: iterable of ints considered success; default {0}. If any returned rc is in this set, function returns 0.
     - always_log_output: if True, log output at INFO level even for successful commands.
-    - stream_output: if True, show output in real-time (default True).
     Returns:
         0 on success (rc in success_exit_codes), non-zero last rc on failure.
     """
@@ -104,84 +102,47 @@ def run_cmd(
         if DRY_RUN:
             log.info("DRY RUN - would run: %s", " ".join(cmd))
             return 0
-        
         try:
-            if stream_output:
-                # Real-time streaming mode
-                proc = subprocess.Popen(
-                    list(cmd),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,  # Merge stderr into stdout for simplicity
-                    bufsize=1,  # Line buffered
-                )
-                
-                output_lines = []
-                if proc.stdout:
-                    for line_bytes in proc.stdout:
-                        # Decode line
-                        try:
-                            line = line_bytes.decode(prefer_enc, errors="replace")
-                        except Exception:
-                            line = line_bytes.decode("utf-8", errors="replace")
-                        
-                        # Print to console immediately
-                        print(line, end='', flush=True)
-                        
-                        # Also log it
-                        line_stripped = line.rstrip()
-                        if line_stripped:
-                            log.info("  | %s", line_stripped)
-                        
-                        output_lines.append(line)
-                
-                # Wait for process to complete
-                proc.wait()
-                last_rc = proc.returncode
-                combined_output = "".join(output_lines)
-                
-            else:
-                # Original buffered mode
-                proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
-                last_rc = proc.returncode
-                
-                # Decode stdout
-                raw_out = proc.stdout or b""
-                out = None
-                try:
-                    out = raw_out.decode(prefer_enc, errors="strict")
-                except Exception:
-                    try:
-                        out = raw_out.decode("utf-8", errors="strict")
-                    except Exception:
-                        out = raw_out.decode("latin-1", errors="replace")
-                
-                # Decode stderr
-                raw_err = proc.stderr or b""
-                err = None
-                try:
-                    err = raw_err.decode(prefer_enc, errors="strict")
-                except Exception:
-                    try:
-                        err = raw_err.decode("utf-8", errors="strict")
-                    except Exception:
-                        err = raw_err.decode("latin-1", errors="replace")
-                
-                # Combine output for logging
-                combined_output = ""
-                if out:
-                    combined_output += "STDOUT:\n" + out
-                if err:
-                    if combined_output:
-                        combined_output += "\n"
-                    combined_output += "STDERR:\n" + err
-                
-                if combined_output:
-                    # Log output at INFO level for failed commands or if always_log_output is True
-                    if last_rc not in success_codes or always_log_output:
-                        log.info("%s output (rc=%d):\n%s", description, last_rc, combined_output)
-                    else:
-                        log.debug("%s output:\n%s", description, combined_output)
+            proc = subprocess.run(list(cmd), check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+            last_rc = proc.returncode
             
+            # Decode stdout
+            raw_out = proc.stdout or b""
+            out = None
+            try:
+                out = raw_out.decode(prefer_enc, errors="strict")
+            except Exception:
+                try:
+                    out = raw_out.decode("utf-8", errors="strict")
+                except Exception:
+                    out = raw_out.decode("latin-1", errors="replace")
+            
+            # Decode stderr
+            raw_err = proc.stderr or b""
+            err = None
+            try:
+                err = raw_err.decode(prefer_enc, errors="strict")
+            except Exception:
+                try:
+                    err = raw_err.decode("utf-8", errors="strict")
+                except Exception:
+                    err = raw_err.decode("latin-1", errors="replace")
+            
+            # Combine output for logging
+            combined_output = ""
+            if out:
+                combined_output += "STDOUT:\n" + out
+            if err:
+                if combined_output:
+                    combined_output += "\n"
+                combined_output += "STDERR:\n" + err
+            
+            if combined_output:
+                # Log output at INFO level for failed commands or if always_log_output is True
+                if last_rc not in success_codes or always_log_output:
+                    log.info("%s output (rc=%d):\n%s", description, last_rc, combined_output)
+                else:
+                    log.debug("%s output:\n%s", description, combined_output)
             if last_rc in success_codes:
                 log.info("%s completed successfully (rc=%d).", description, last_rc)
                 return 0
