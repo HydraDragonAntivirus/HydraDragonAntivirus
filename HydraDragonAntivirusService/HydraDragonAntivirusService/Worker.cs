@@ -178,26 +178,21 @@ namespace HydraDragonAntivirusService
         private void StartHydraDragon()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string venvPath = Path.Combine(baseDir, ".venv");
+            string activateBat = Path.Combine(venvPath, "Scripts", "activate.bat");
 
-            // Try get python from poetry-managed venv
-            string pythonExe = TryGetPythonFromPoetry(baseDir, out string poetryWarn);
-
-            string fileName;
-            string arguments;
-
-            if (!string.IsNullOrEmpty(pythonExe) && File.Exists(pythonExe))
+            if (!File.Exists(activateBat))
             {
-                fileName = pythonExe;
-                arguments = "-m hydradragon"; // run module entrypoint; change if your entrypoint differs
-                _logger.LogInformation("Launching hydradragon using venv python: {python}", pythonExe);
+                _logger.LogError("activate.bat not found at: {path}", activateBat);
+                _childProcess = null;
+                return;
             }
-            else
-            {
-                // Fallback: try to run poetry directly (less ideal because poetry spawns real process)
-                _logger.LogWarning("Could not locate venv python via Poetry: {warn}. Falling back to 'poetry run hydradragon'.", poetryWarn ?? "no details");
-                fileName = "poetry";
-                arguments = "run hydradragon";
-            }
+
+            // Use cmd.exe to run activate.bat && python -m hydradragon
+            string fileName = "cmd.exe";
+            string arguments = $"/c \"\"{activateBat}\" && python -m hydradragon\"";
+
+            _logger.LogInformation("Launching hydradragon using activate.bat: {bat}", activateBat);
 
             var psi = new ProcessStartInfo
             {

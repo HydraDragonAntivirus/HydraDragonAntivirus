@@ -58,7 +58,7 @@ echo [+] MBRFilter driver installed.
 :: --------------------------------------------------------
 :: 5) Install ProcessRegeditFileProtection driver (PYAS -> modified for HydraDragon)
 :: --------------------------------------------------------
-set "PROCESS_REG_FILE_PROT_INF=%~dp0hydradragon\ProcessProtection\ProcessProtection.inf"
+set "PROCESS_REG_FILE_PROT_INF=%~dp0hydradragon\ProcessRegeditFileProtection\SimplePYASProtection.inf"
 
 if exist "%PROCESS_REG_FILE_PROT_INF%" (
     echo [*] Installing ProcessRegeditFileProtection driver INF from "%PROCESS_REG_FILE_PROT_INF%"...
@@ -88,16 +88,30 @@ if %errorlevel% neq 0 (
 :: 7) Create HydraDragonAntivirusService auto-start service
 :: --------------------------------------------------------
 set "HD_SERVICE_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusService.exe"
-
 if exist "%HD_SERVICE_EXE%" (
-    echo Creating 'HydraDragonAntivirusService' service...
-    sc create "HydraDragonAntivirusService" binPath= "%HD_SERVICE_EXE%" start= auto DisplayName= "HydraDragon Antivirus Service"
+    echo Checking if 'HydraDragonAntivirusService' already exists...
+    sc query "HydraDragonAntivirusService" >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo Service already exists. Stopping and deleting...
+        sc stop "HydraDragonAntivirusService" >nul 2>&1
+        timeout /t 2 /nobreak >nul
+        sc delete "HydraDragonAntivirusService"
+        timeout /t 2 /nobreak >nul
+    )
+
+    echo Installing 'HydraDragonAntivirusService' using built-in installer...
+    "%HD_SERVICE_EXE%" install
     if %errorlevel% neq 0 (
-        echo [!] Failed to create 'HydraDragonAntivirusService'.
+        echo [!] Failed to install 'HydraDragonAntivirusService'.
     ) else (
-        echo [+] 'HydraDragonAntivirusService' created and set to auto-start.
+        echo [+] 'HydraDragonAntivirusService' installed successfully.
         echo Starting service...
         sc start "HydraDragonAntivirusService"
+        if %errorlevel% neq 0 (
+            echo [!] Failed to start service. Check logs for details.
+        ) else (
+            echo [+] Service started successfully.
+        )
     )
 ) else (
     echo [!] HydraDragonAntivirusService.exe not found at "%HD_SERVICE_EXE%".
