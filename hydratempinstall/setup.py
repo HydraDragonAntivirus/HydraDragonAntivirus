@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
+from typing import Iterable, List, Optional, Sequence, Set, Union
 import ctypes
 from ctypes import wintypes
 
@@ -105,7 +105,7 @@ def run_cmd(
             log.info("DRY RUN - would run: %s", cmd_str_for_log)
             return 0
         try:
-            proc = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, shell=use_shell)
+            proc = subprocess.run(cmd, check=False, shell=use_shell)
             last_rc = proc.returncode
             
             # Decode stdout
