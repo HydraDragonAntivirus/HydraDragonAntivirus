@@ -87,9 +87,9 @@ if %errorlevel% neq 0 (
 :: --------------------------------------------------------
 :: 7) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_SERVICE_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusService.exe"
+set "HD_LAUNCHER_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusLauncher.exe"
 
-if exist "%HD_SERVICE_EXE%" (
+if exist "%HD_LAUNCHER_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
     schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
     if %errorlevel% equ 0 (
@@ -97,12 +97,11 @@ if exist "%HD_SERVICE_EXE%" (
         schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
     )
 
-    echo Creating HydraDragonAntivirus auto-start task...
+    echo Creating HydraDragonAntivirus auto-start task (user interactive)...
     schtasks /create ^
         /tn "HydraDragonAntivirus" ^
-        /tr "\"%HD_SERVICE_EXE%\"" ^
-        /sc ONSTART ^
-        /ru SYSTEM ^
+        /tr "\"%HD_LAUNCHER_EXE%\"" ^
+        /sc ONLOGON ^
         /rl HIGHEST ^
         /f
 
@@ -112,7 +111,7 @@ if exist "%HD_SERVICE_EXE%" (
         echo [+] HydraDragonAntivirus auto-start task created successfully.
     )
 ) else (
-    echo [!] HydraDragonAntivirusService.exe not found at "%HD_SERVICE_EXE%".
+    echo [!] HydraDragonAntivirusLauncher.exe not found at "%HD_LAUNCHER_EXE%".
 )
 
 :: --------------------------------------------------------
