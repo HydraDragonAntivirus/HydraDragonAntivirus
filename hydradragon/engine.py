@@ -4,7 +4,6 @@ import threading
 import time
 import webbrowser
 import subprocess
-from .notify_user import notify_user_hayabusa_critical
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +41,7 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     hayabusa_path,
     WINDOW_TITLE,
 )
+from hydradragon.antivirus_scripts.notify_user import notify_user_hayabusa_critical
 
 # --- Custom Hydra Icon Widget ---
 class HydraIconWidget(QWidget):
