@@ -191,9 +191,9 @@ namespace HydraDragonAntivirusLauncher
                 return;
             }
 
-            // Use cmd.exe to run activate.bat && python -m hydradragon
+            // Use cmd.exe to run activate.bat && poetry run hydradragon
             string fileName = "cmd.exe";
-            string arguments = $"/c \"\"{activateBat}\" && python -m hydradragon\"";
+            string arguments = $"/c \"\"{activateBat}\" && poetry run hydradragon\"";
 
             _logger.LogInformation("Launching hydradragon using activate.bat: {bat}", activateBat);
 
