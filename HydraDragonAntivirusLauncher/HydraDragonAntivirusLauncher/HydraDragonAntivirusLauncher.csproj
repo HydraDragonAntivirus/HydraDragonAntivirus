@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-HydraDragonAntivirusLauncher-f2dbb41f-9c18-456d-8982-e1c3c37b3b53</UserSecretsId>
     <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
+    <NuGetAuditLevel>critical</NuGetAuditLevel>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
