@@ -67,6 +67,48 @@ if os.name != "nt":
     sys.exit(2)
 
 # ----------------------
+# Path configuration (mirror your batch)
+# ----------------------
+def get_env_programw6432() -> Path:
+    programw6432 = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    if not programw6432:
+        log.error("Neither ProgramW6432 nor ProgramFiles defined. Using C:\\Program Files as fallback.")
+        programw6432 = r"C:\Program Files"
+    return Path(programw6432)
+
+PROGRAMW6432 = get_env_programw6432()
+HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
+HYDRADRAGON_PATH = HYDRADRAGON_ROOT_PATH / "hydradragon"
+CLAMAV_DIR = PROGRAMW6432 / "ClamAV"
+SURICATA_DIR = PROGRAMW6432 / "Suricata"
+NODEJS_PATH = PROGRAMW6432 / "nodejs"
+PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
+CLEAN_VM_PSB_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.ps1"
+CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
+SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
+SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
+ROAMING_SANCTUM = Path(os.environ.get("APPDATA", "")) / "Sanctum"
+
+def _get_folder_path(csidl: int) -> str:
+    """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
+    buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+    res = ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
+    if res != 0:
+        raise OSError(f"SHGetFolderPathW failed with code {res}")
+    return buf.value
+
+def get_desktop() -> Path:
+    """Return Path of current user's Desktop folder. Falls back to ~/Desktop on error."""
+    try:
+        p = _get_folder_path(CSIDL_DESKTOPDIRECTORY)
+        return Path(p)
+    except Exception as e:
+        log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
+        return Path(os.path.expanduser("~")) / "Desktop"
+
+DESKTOP_SANCTUM = get_desktop() / "sanctum"
+
+# ----------------------
 # Helpers
 # ----------------------
 def run_cmd(
@@ -79,7 +121,7 @@ def run_cmd(
     always_log_output: bool = False,
 ) -> int:
     """
-    Run a command with retries. Capture stdout as bytes and decode safely.
+    Run a command with retries. Capture stdout and stderr and decode safely.
     - cmd: list of command + args (for shell=False) or a single string (for shell=True).
     - description: human-friendly description for logging.
     - retries/retry_delay: retry policy.
@@ -105,7 +147,12 @@ def run_cmd(
             log.info("DRY RUN - would run: %s", cmd_str_for_log)
             return 0
         try:
-            proc = subprocess.run(cmd, check=False, shell=use_shell)
+            proc = subprocess.run(
+                cmd, 
+                check=False, 
+                shell=use_shell,
+                capture_output=True
+            )
             last_rc = proc.returncode
             
             # Decode stdout
@@ -299,64 +346,58 @@ def safe_copy_dir(src: Path, dst: Path) -> int:
         log.exception("shutil copy failed: %s", e)
         return 1
 
-def get_env_programw6432() -> Path:
-    programw6432 = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
-    if not programw6432:
-        log.error("Neither ProgramW6432 nor ProgramFiles defined. Using C:\\Program Files as fallback.")
-        programw6432 = r"C:\Program Files"
-    return Path(programw6432)
-
-def _get_folder_path(csidl: int) -> str:
-    """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
-    buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
-    # SHGetFolderPathW returns 0 on success
-    res = ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
-    if res != 0:
-        raise OSError(f"SHGetFolderPathW failed with code {res}")
-    return buf.value
-
-def get_desktop() -> Path:
-    """Return Path of current user's Desktop folder. Falls back to ~/Desktop on error."""
-    try:
-        p = _get_folder_path(CSIDL_DESKTOPDIRECTORY)
-        return Path(p)
-    except Exception as e:
-        # Fallback for unusual environments
-        log.warning("SHGetFolderPathW failed, falling back to user home Desktop: %s", e)
-        return Path(os.path.expanduser("~")) / "Desktop"
-
-def get_short_path(path: str) -> str:
+def ensure_nodejs_in_path():
     """
-    Return the 8.3 short path for a given path on Windows, if available.
-    If the WinAPI call fails, return the original path unchanged.
+    Ensure Node.js bin directory is in PATH for the current process.
+    This fixes the 'node is not recognized' error during npm operations.
     """
-    try:
-        from ctypes import create_unicode_buffer, windll
-        buf = create_unicode_buffer(260)
-        res = windll.kernel32.GetShortPathNameW(path, buf, len(buf))
-        if res and res > 0:
-            return buf.value
-    except Exception:
-        # if anything goes wrong, silently fall back to original path
-        pass
-    return path
+    nodejs_path = NODEJS_PATH
+    if not nodejs_path.exists():
+        log.warning("Node.js path %s does not exist", nodejs_path)
+        return False
+    
+    # Get current PATH
+    current_path = os.environ.get("PATH", "")
+    nodejs_str = str(nodejs_path)
+    
+    # Check if already in PATH
+    if nodejs_str.lower() not in current_path.lower():
+        log.info("Adding Node.js to PATH: %s", nodejs_str)
+        # Prepend to PATH so it takes precedence
+        os.environ["PATH"] = f"{nodejs_str}{os.pathsep}{current_path}"
+        log.info("Node.js added to PATH successfully")
+        return True
+    else:
+        log.info("Node.js already in PATH")
+        return True
 
-# ----------------------
-# Path configuration (mirror your batch)
-# ----------------------
-PROGRAMW6432 = get_env_programw6432()
-HYDRADRAGON_PATH = PROGRAMW6432 / "HydraDragonAntivirus" / "hydradragon"
-HYDRADRAGON_ROOT_PATH = PROGRAMW6432 / "HydraDragonAntivirus"
-CLAMAV_DIR = PROGRAMW6432 / "ClamAV"
-SURICATA_DIR = PROGRAMW6432 / "Suricata"
-NODEJS_PATH = PROGRAMW6432 / "nodejs"
-PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
-CLEAN_VM_PSB_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.ps1"
-CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
-SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
-SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
-ROAMING_SANCTUM = Path(os.environ.get("APPDATA", "")) / "Sanctum"
-DESKTOP_SANCTUM = get_desktop() / "sanctum"
+def verify_node_accessible():
+    """
+    Verify that 'node' command is accessible.
+    Returns True if accessible, False otherwise.
+    """
+    node_exe = shutil.which("node") or shutil.which("node.exe")
+    if node_exe:
+        log.info("node.exe found at: %s", node_exe)
+        try:
+            result = subprocess.run(
+                [node_exe, "--version"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if result.returncode == 0:
+                log.info("Node.js version: %s", result.stdout.strip())
+                return True
+            else:
+                log.error("node --version failed with rc=%d", result.returncode)
+                return False
+        except Exception as e:
+            log.error("Failed to verify node: %s", e)
+            return False
+    else:
+        log.error("node.exe not found in PATH")
+        return False
 
 # ----------------------
 # Main workflow
@@ -626,7 +667,18 @@ def main():
     # NPM PACKAGES INSTALLATION
     # ------------------------------
     log.info("Installing npm packages...")
-
+    
+    # CRITICAL: Ensure Node.js is in PATH
+    if not ensure_nodejs_in_path():
+        log.error("Failed to add Node.js to PATH")
+        errors.append(("nodejs path setup", 1))
+    
+    if not verify_node_accessible():
+        log.error("Node.js is not accessible. NPM package installations will likely fail.")
+        log.error("Please verify Node.js is properly installed at: %s", NODEJS_PATH)
+        errors.append(("nodejs verification", 1))
+        # Continue anyway in case npm.cmd can work without direct node access
+    
     npm_cmd_path = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm_cmd_path:
         alt_npm = NODEJS_PATH / "npm.cmd"
@@ -640,8 +692,9 @@ def main():
         if not npm_cmd_path:
             log.error("Skipping %s because npm is not available", desc)
             return 1
-        # Construct command string for shell execution
-        cmd = f'"{npm_cmd_path}" {" ".join(args_list)}'
+        # Construct command string with explicit PATH setting to include Node.js
+        nodejs_bin = str(NODEJS_PATH)
+        cmd = f'set "PATH={nodejs_bin};%PATH%" && "{npm_cmd_path}" {" ".join(args_list)}'
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
     # 16. asar
