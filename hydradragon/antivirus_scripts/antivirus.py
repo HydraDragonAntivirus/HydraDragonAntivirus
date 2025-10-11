@@ -401,6 +401,8 @@ logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} second
 start_time = time.time()
 from .path_and_variables import (
     python_path,
+    jadx_decompiler_path,
+    jadx_decompiled_dir,
     nexe_javascript_unpacked_dir,
     unlicense_path,
     unlicense_x64_path,
@@ -712,7 +714,7 @@ MANAGED_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, webcrack_javascript_deobfuscated_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
-    decompiled_dir, vmprotect_unpacked_dir,
+    decompiled_dir, vmprotect_unpacked_dir, jadx_decompiled_dir
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -743,6 +745,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
     (lambda fp: fp.startswith(ole2_dir), "OLE2 extracted."),
     (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
+    (lambda fp: fp.startswith(jadx_decompiled_dir), "APK decompiled with JADX."),
     (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
     (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
     (lambda fp: fp.startswith(npm_pkg_extracted_dir), "NPM packer (JavaScript) extracted."),
@@ -5994,17 +5997,6 @@ def extract_pyinstaller_archive(file_path):
         logger.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
         return None
 
-def log_directory_type(file_path):
-    try:
-        for condition, message in DIRECTORY_MESSAGES:
-            if condition(file_path):
-                logger.info(f"{file_path}: {message}")
-                return
-
-        logger.error(f"{file_path}: File does not match known directories.")
-    except Exception as ex:
-        logger.error(f"Error logging directory type for {file_path}: {ex}")
-
 def is_exela_v2_payload(content):
     # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
     keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
@@ -7291,14 +7283,78 @@ def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) 
 
     return pyarmor_files, main_decrypted_output
 
-def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
+def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool:
     """
-    Decompile an Android APK using Androguard (via subprocess) and scan
-    all decompiled files for URLs, IPs, domains, and Discord webhooks.
+    Attempt to decompile APK using JADX.
+    Returns True if successful, False otherwise.
     """
     try:
-        logger.info(f"Detected APK file: {file_path}")
+        jadx_dir = os.path.join(script_dir, "jadx-1.5.3")
+        jadx_bin = os.path.join(jadx_dir, "bin", "jadx")
+        
+        # Use .bat for Windows, regular jadx for Unix
+        if os.name == 'nt':
+            jadx_bin += ".bat"
+        
+        if not os.path.exists(jadx_bin):
+            logger.warning(f"JADX binary not found at {jadx_bin}")
+            return False
 
+        # Find a free output folder number
+        jadx_decompiled_dir = os.path.join(script_dir, "jadx_decompiled")
+        os.makedirs(jadx_decompiled_dir, exist_ok=True)
+        
+        folder_number = 1
+        while os.path.exists(os.path.join(jadx_decompiled_dir, str(folder_number))):
+            folder_number += 1
+        output_dir = os.path.join(jadx_decompiled_dir, str(folder_number))
+
+        # Build the JADX command
+        cmd = [
+            jadx_bin,
+            "-d", output_dir,
+            file_path
+        ]
+        
+        logger.info(f"Running JADX decompilation: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
+        logger.info(f"APK decompiled with JADX to {output_dir}")
+
+        # Walk and scan generated .java files
+        files_scanned = 0
+        for root, _, files in os.walk(output_dir):
+            for fname in files:
+                if fname.endswith(".java"):
+                    full_path = os.path.join(root, fname)
+                    logger.info(f"Scanning file: {full_path}")
+                    try:
+                        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        scan_code_for_links(content, full_path, androguard_flag=True, main_file_path=main_file_path)
+                        files_scanned += 1
+                    except Exception as ex:
+                        logger.error(f"Error scanning {full_path}: {ex}")
+        
+        logger.info(f"JADX: Scanned {files_scanned} files")
+        return True
+
+    except subprocess.TimeoutExpired:
+        logger.error("JADX decompilation timed out")
+        return False
+    except subprocess.CalledProcessError as cpe:
+        logger.error(f"JADX subprocess failed: {cpe}")
+        return False
+    except Exception as ex:
+        logger.error(f"JADX decompilation error: {ex}")
+        return False
+
+
+def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -> bool:
+    """
+    Attempt to decompile APK using Androguard.
+    Returns True if successful, False otherwise.
+    """
+    try:
         # Find a free output folder number
         folder_number = 1
         while os.path.exists(os.path.join(androguard_dir, str(folder_number))):
@@ -7306,18 +7362,20 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
         output_dir = os.path.join(androguard_dir, str(folder_number))
         os.makedirs(output_dir, exist_ok=True)
 
-        # Build the command:
-        #   python -m androguard decompile -o <output_dir> <apk>
+        # Build the command: androguard decompile -o <output_dir> <apk>
         cmd = [
             "androguard",
             "decompile",
             "-o", output_dir,
             file_path
         ]
-        subprocess.run(cmd, check=True)
-        logger.info(f"APK decompiled to {output_dir}")
+        
+        logger.info(f"Running Androguard decompilation: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
+        logger.info(f"APK decompiled with Androguard to {output_dir}")
 
-        # Walk and scan any generated .smali or .java files
+        # Walk and scan generated .smali or .java files
+        files_scanned = 0
         for root, _, files in os.walk(output_dir):
             for fname in files:
                 if fname.endswith((".smali", ".java")):
@@ -7326,13 +7384,40 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
                     try:
                         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
-                        # MODIFIED: Pass main_file_path to the scanner
                         scan_code_for_links(content, full_path, androguard_flag=True, main_file_path=main_file_path)
+                        files_scanned += 1
                     except Exception as ex:
                         logger.error(f"Error scanning {full_path}: {ex}")
+        
+        logger.info(f"Androguard: Scanned {files_scanned} files")
+        return True
 
+    except subprocess.TimeoutExpired:
+        logger.error("Androguard decompilation timed out")
+        return False
     except subprocess.CalledProcessError as cpe:
         logger.error(f"Androguard subprocess failed: {cpe}")
+        return False
+    except Exception as ex:
+        logger.error(f"Androguard decompilation error: {ex}")
+        return False
+
+
+def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
+    """
+    Decompile an Android APK using JADX first, falling back to Androguard if needed.
+    Scans all decompiled files for URLs, IPs, domains, and Discord webhooks.
+    """
+    try:
+        logger.info(f"Detected APK file: {file_path}")
+
+        # Try JADX first
+        success = _try_jadx_decompile(file_path, main_file_path)
+        
+        if not success:
+            logger.warning("JADX decompilation failed, falling back to Androguard...")
+            _try_androguard_decompile(file_path, main_file_path)
+
     except Exception as ex:
         logger.error(f"Error decompiling APK {file_path}: {ex}")
 
@@ -10627,9 +10712,6 @@ def scan_and_warn(file_path,
 
             except Exception as deobf_err:
                 logger.error(f"Webcrack deobfuscation failed for {norm_path}: {deobf_err}")
-
-            # Directory type logging
-            log_directory_type(norm_path)
 
             # Check if file is in decompiled directory
             if norm_path.startswith(decompiled_dir):

@@ -219,3 +219,118 @@ See the [LICENSE](./LICENSE) file for more information.
 ### Credits:
 - All credits goes to Emirhan Uçan
 - Thanks to Hacı Murad for collecting and compiling machine learning signatures.
+
+## Extraction and Decompilation Directories
+
+This document describes all the output directories used by the malware analysis tool for various extraction, decompilation, and unpacking operations.
+
+## Directory Structure
+
+### Packer/Obfuscator Extraction
+
+| Directory | Description |
+|-----------|-------------|
+| `hydra_dragon_dumper_extracted/` | Hydra Dragon Dumper (Mega Dumper Fork) output extracted |
+| `enigma1_extracted/` | Enigma Virtual Box extracted files |
+| `upx_extracted/` | UPX (Ultimate Packer for eXecutables) extracted files |
+| `themida_unpacked/` | Themida unpacked files |
+| `vmprotect_unpacked/` | VMProtect unpacked files |
+| `debloat/` | Debloated files directory |
+
+### .NET Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `dotnet/` | .NET decompiled files |
+| `obfuscar/` | .NET files obfuscated with Obfuscar |
+| `de4dot_extracted/` | .NET files deobfuscated with de4dot |
+| `net_reactor_extracted/` | .NET files deobfuscated with .NET Reactor Slayer |
+| `un_confuser_ex_extracted/` | .NET files deobfuscated with UnConfuserEx |
+
+### Android APK Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `jadx_decompiled/` | APK decompiled with JADX (Java source code) |
+| `androguard/` | APK decompiled with Androguard (smali/Java) |
+
+### Python Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `pyinstaller_extracted/` | PyInstaller onefile extracted |
+| `pyarmor8_and_9_extracted/` | PyArmor 8 and 9 extracted |
+| `pyarmor7_extracted/` | PyArmor 7 extracted |
+| `nuitka/` | Nuitka onefile extracted |
+| `nuitka_extracted/` | Nuitka binary files |
+| `nuitka_source_code/` | Nuitka reversed-engineered Python source code |
+| `cx_freeze_extracted/` | cx_freeze library.zip extracted |
+| `pylingual_extracted/` | .pyc reversed-engineered Python source code with pylingual |
+| `python_deobfuscated/` | Unobfuscated Python files |
+| `python_deobfuscated_marshal_pyc/` | Deobfuscated .pyc from marshal data |
+| `pycdas_extracted/` | .pyc reversed-engineered Python source code with pycdas.exe |
+| `python_source_code/` | PyInstaller/.pyc reversed-engineered Python source code base |
+
+### JavaScript/Node.js Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `webcrack_javascript_deobfuscated/` | JavaScript files deobfuscated with webcrack |
+| `asar/` | ASAR archive (Electron) extracted |
+| `npm_pkg_extracted/` | NPM packer (JavaScript) extracted |
+| `decompiled_jsc/` | V8 bytecode objects (JSC files) extracted |
+
+### Java Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `jar_extracted/` | Extracted files from JAR (Java Archive) |
+| `FernFlower_decompiled/` | JAR decompiled using Fernflower decompiler |
+
+### Installer/Archive Extraction
+
+| Directory | Description |
+|-----------|-------------|
+| `inno_setup_unpacked/` | Inno Setup unpacked files |
+| `advanced_installer_extracted/` | Advanced Installer extracted files |
+| `installshield_extracted/` | InstallShield extracted with ISx |
+| `zip_extracted/` | ZIP archive extracted |
+| `seven_zip_extracted/` | 7-Zip archive extracted |
+| `tar_extracted/` | TAR archive extracted |
+| `general_extracted_with_7z/` | All files extracted with 7-Zip |
+| `pe_extracted/` | PE (Portable Executable) file extracted |
+
+### Script Decompilation
+
+| Directory | Description |
+|-----------|-------------|
+| `autohotkey_decompiled/` | AutoHotkey script decompiled |
+| `autoit_extracted/` | AutoIt extracted with AutoIt-Ripper |
+
+### Go Analysis
+
+| Directory | Description |
+|-----------|-------------|
+| `ungarbler/` | Deobfuscated Go Garble files |
+| `ungarbler_string/` | Deobfuscated Go Garble strings |
+
+### Other Directories
+
+| Directory | Description |
+|-----------|-------------|
+| `decompiled/` | General decompiled files |
+| `ole2/` | OLE2 (Object Linking and Embedding) extracted |
+| `memory/` | Dynamic analysis memory dump files |
+| `resource_extractor/` | RCData resources extracted |
+| `html_extracted/` | HTML files from visited websites |
+
+## Usage Notes
+
+- Each directory is automatically created when the corresponding extraction/decompilation operation is performed
+- Files are organized into numbered subdirectories (1, 2, 3, etc.) to prevent overwrites
+- All directories are relative to the main script directory
+- These directories should be reviewed after analysis to locate extracted malicious components, configuration files, and embedded resources
+
+## Security Warning
+
+⚠️ **WARNING**: All extracted files should be treated as potentially malicious. Always analyze these directories in an isolated environment (VM, sandbox, etc.) to prevent system compromise.

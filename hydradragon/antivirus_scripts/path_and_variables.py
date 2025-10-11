@@ -8,6 +8,9 @@ from hydra_logger import script_dir
 python_path = sys.executable
 
 # Define the paths
+jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.3")
+jadx_decompiler_path = os.path.join(jadx_decompiler_dir, "jadx.bat")
+jadx_decompiled_dir = os.path.join(script_dir, "jadx_decompiled")
 nexe_javascript_unpacked_dir = os.path.join(script_dir, "nexe_unpacked")
 unlicense_dir = os.path.join(script_dir, "unlicense")
 unlicense_path  = os.path.join(unlicense_dir, "unlicense.exe")
