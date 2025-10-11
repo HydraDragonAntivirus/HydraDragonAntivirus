@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace HydraDragonAntivirusService
+namespace HydraDragonAntivirusLauncher
 {
     public class Worker : BackgroundService
     {
@@ -20,6 +20,9 @@ namespace HydraDragonAntivirusService
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Worker starting at: {time}", DateTimeOffset.Now);
+
+            // Signal service is ready immediately
+            await Task.Yield();
 
             // --------------------------------------------------
             // Desktop sanctum initialization phase
@@ -173,12 +176,12 @@ namespace HydraDragonAntivirusService
         }
 
         // ------------------------------------------------------------
-        // HydraDragon supervision methods (unchanged)
+        // HydraDragon supervision methods
         // ------------------------------------------------------------
         private void StartHydraDragon()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string venvPath = Path.Combine(baseDir, ".venv");
+            string venvPath = Path.Combine(baseDir, "venv");
             string activateBat = Path.Combine(venvPath, "Scripts", "activate.bat");
 
             if (!File.Exists(activateBat))
@@ -275,13 +278,9 @@ namespace HydraDragonAntivirusService
             {
                 if (!_childProcess.HasExited)
                 {
-#if NET5_0_OR_GREATER
                     _logger.LogInformation("Killing child process tree (pid {pid}).", _childProcess.Id);
-                    _childProcess.Kill(true); // kill tree if runtime supports it
-#else
-                    _logger.LogInformation("Killing child process (pid {pid}).", _childProcess.Id);
-                    _childProcess.Kill();
-#endif
+                    _childProcess.Kill(true); // kill entire process tree
+
                     // Wait a short time for it to exit
                     if (!_childProcess.WaitForExit(5000))
                     {
@@ -301,69 +300,6 @@ namespace HydraDragonAntivirusService
 
             // small grace delay
             await Task.Delay(50);
-        }
-
-        /// <summary>
-        /// Runs 'poetry env info -p' to get virtualenv path and returns the python.exe path inside Scripts\python.exe.
-        /// On failure returns null and a warning string describing the issue.
-        /// </summary>
-        private string TryGetPythonFromPoetry(string workingDirectory, out string warning)
-        {
-            warning = null;
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "poetry",
-                    Arguments = "env info -p",
-                    WorkingDirectory = workingDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                using (var p = Process.Start(psi))
-                {
-                    if (p == null)
-                    {
-                        warning = "Failed to start 'poetry' process (Process.Start returned null).";
-                        return null;
-                    }
-
-                    string stdOut = p.StandardOutput.ReadToEnd();
-                    string stdErr = p.StandardError.ReadToEnd();
-                    p.WaitForExit(5000);
-
-                    if (p.ExitCode != 0)
-                    {
-                        warning = $"'poetry env info -p' exit code {p.ExitCode}. Stderr: {stdErr}";
-                        return null;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(stdOut))
-                    {
-                        warning = "'poetry env info -p' returned empty output.";
-                        return null;
-                    }
-
-                    string venvPath = stdOut.Trim();
-                    string pythonExe = Path.Combine(venvPath, "Scripts", "python.exe");
-                    if (File.Exists(pythonExe)) return pythonExe;
-
-                    // On non-windows or atypical venv layout, check 'bin/python' as last resort
-                    pythonExe = Path.Combine(venvPath, "bin", "python");
-                    if (File.Exists(pythonExe)) return pythonExe;
-
-                    warning = $"Virtualenv found at {venvPath} but python executable not found in expected locations.";
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                warning = $"Exception while running poetry: {ex.Message}";
-                return null;
-            }
         }
     }
 }

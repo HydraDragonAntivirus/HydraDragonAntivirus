@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>dotnet-HydraDragonAntivirusService-2f6dba68-bc54-45c8-acf5-579a7a187c83</UserSecretsId>
+    <UserSecretsId>dotnet-HydraDragonAntivirusLauncher-f2dbb41f-9c18-456d-8982-e1c3c37b3b53</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

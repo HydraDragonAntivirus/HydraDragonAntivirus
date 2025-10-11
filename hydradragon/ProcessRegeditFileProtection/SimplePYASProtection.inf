@@ -8,7 +8,7 @@ Class=Sample ; TODO: edit Class
 ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171} ; TODO: edit ClassGuid
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 10/10/2025,23.57.25.61
+DriverVer = 10/11/2025,19.51.3.585
 PnpLockDown=1
 
 [DestinationDirs]

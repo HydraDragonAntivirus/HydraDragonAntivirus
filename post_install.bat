@@ -8,7 +8,7 @@ net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] This script must be run as Administrator.
     echo [*] Relaunching elevated...
-    powershell -Command "Start-Process '%~f0' -Verb runAs"
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
     exit /b
 )
 
@@ -85,36 +85,51 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 7) Create HydraDragonAntivirusService auto-start service
+:: 7) Create Run\HydraDragonAntivirus autorun (not a Windows service)
 :: --------------------------------------------------------
 set "HD_SERVICE_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusService.exe"
+set "RUN_KEY=Software\Microsoft\Windows\CurrentVersion\Run"
+set "RUN_NAME=HydraDragonAntivirus"
+
 if exist "%HD_SERVICE_EXE%" (
-    echo Checking if 'HydraDragonAntivirusService' already exists...
-    sc query "HydraDragonAntivirusService" >nul 2>&1
+    echo [*] Adding Run key entry for "%RUN_NAME%" pointing to "%HD_SERVICE_EXE%"
+
+    :: Add to HKLM (per-machine). We're elevated so HKLM should succeed.
+    reg add "HKLM\%RUN_KEY%" /v "%RUN_NAME%" /t REG_SZ /d "\"%HD_SERVICE_EXE%\"" /f >nul 2>&1
     if %errorlevel% equ 0 (
-        echo Service already exists. Stopping and deleting...
-        sc stop "HydraDragonAntivirusService" >nul 2>&1
-        timeout /t 2 /nobreak >nul
-        sc delete "HydraDragonAntivirusService"
-        timeout /t 2 /nobreak >nul
+        echo [+] HKLM\%RUN_KEY%\%RUN_NAME% created successfully.
+        set "REG_TARGET=HKLM"
+    ) else (
+        echo [!] Failed to write to HKLM. Attempting to write to HKCU instead...
+        reg add "HKCU\%RUN_KEY%" /v "%RUN_NAME%" /t REG_SZ /d "\"%HD_SERVICE_EXE%\"" /f >nul 2>&1
+        if %errorlevel% equ 0 (
+            echo [+] HKCU\%RUN_KEY%\%RUN_NAME% created successfully.
+            set "REG_TARGET=HKCU"
+        ) else (
+            echo [!] Failed to create Run entry in both HKLM and HKCU.
+            set "REG_TARGET="
+        )
     )
 
-    echo Installing 'HydraDragonAntivirusService' using built-in installer...
-    "%HD_SERVICE_EXE%" install
-    if %errorlevel% neq 0 (
-        echo [!] Failed to install 'HydraDragonAntivirusService'.
-    ) else (
-        echo [+] 'HydraDragonAntivirusService' installed successfully.
-        echo Starting service...
-        sc start "HydraDragonAntivirusService"
-        if %errorlevel% neq 0 (
-            echo [!] Failed to start service. Check logs for details.
+    if defined REG_TARGET (
+        echo [*] Verifying registry entry...
+        reg query "%REG_TARGET%\%RUN_KEY%" /v "%RUN_NAME%" >nul 2>&1
+        if %errorlevel% equ 0 (
+            echo [+] Registry Run entry verified.
         ) else (
-            echo [+] Service started successfully.
+            echo [!] Registry verification failed.
+        )
+
+        echo [*] Launching "%HD_SERVICE_EXE%" now...
+        start "" "%HD_SERVICE_EXE%"
+        if %errorlevel% neq 0 (
+            echo [!] Failed to launch "%HD_SERVICE_EXE%". Start it manually if needed.
+        ) else (
+            echo [+] Launched successfully.
         )
     )
 ) else (
-    echo [!] HydraDragonAntivirusService.exe not found at "%HD_SERVICE_EXE%".
+    echo [!] HydraDragonAntivirusService.exe not found at "%HD_SERVICE_EXE%". Skipping Run key creation.
 )
 
 :: --------------------------------------------------------
@@ -122,5 +137,9 @@ if exist "%HD_SERVICE_EXE%" (
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
-del "%~f0"
+
+:: Attempt to delete the installer script (may fail if in use)
+del "%~f0" >nul 2>&1
+
 endlocal
+exit /b 0
