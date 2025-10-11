@@ -330,7 +330,3 @@ This document describes all the output directories used by the malware analysis 
 - Files are organized into numbered subdirectories (1, 2, 3, etc.) to prevent overwrites
 - All directories are relative to the main script directory
 - These directories should be reviewed after analysis to locate extracted malicious components, configuration files, and embedded resources
-
-## Security Warning
-
-⚠️ **WARNING**: All extracted files should be treated as potentially malicious. Always analyze these directories in an isolated environment (VM, sandbox, etc.) to prevent system compromise.
