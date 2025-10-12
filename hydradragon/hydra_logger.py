@@ -34,7 +34,6 @@ try:
         retention=7,
         date_enabled=True,
         async_write=True,
-        name="antivirus_file",
     )
 
     # Configure logging style
