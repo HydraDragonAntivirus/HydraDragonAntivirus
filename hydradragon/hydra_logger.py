@@ -22,15 +22,12 @@ os.makedirs(log_directory, exist_ok=True)
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
 # -------------------------------
-# Logger configuration (safe)
+# Logger configuration (Logly v0.1.6+ safe)
 # -------------------------------
 
-# Add console sink only if it doesn't exist
-if not any(sink.name == "console" for sink in logger._inner.sinks):
-    logger.add("console", name="console")
-
-# Add file sink only if it doesn't exist
-if not any(sink.name == "antivirus_file" for sink in logger._inner.sinks):
+try:
+    # Logly now auto-adds a console sink, so no need to check or re-add manually.
+    # Just ensure a file sink exists.
     logger.add(
         application_log_file,
         rotation="daily",
@@ -38,10 +35,21 @@ if not any(sink.name == "antivirus_file" for sink in logger._inner.sinks):
         date_enabled=True,
         async_write=True,
         name="antivirus_file",
-)
+    )
 
-logger.configure(level="DEBUG", color=True, show_time=True, json=False)
+    # Configure logging style
+    logger.configure(
+        level="DEBUG",
+        color=True,
+        show_time=True,
+        json=False,
+    )
 
+    logger.info("HydraDragon logger initialized (console + file sinks)")
+
+except Exception as e:
+    # Fallback: simple console output if Logly misbehaves
+    print(f"[LoggerInitError] {e}", file=sys.stderr)
 
 # Global tracking variables
 class AlertTracker(QObject):
