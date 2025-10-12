@@ -21,13 +21,23 @@ log_directory = os.path.join(script_dir, "log")
 os.makedirs(log_directory, exist_ok=True)
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
-logger.add("console")
-logger.add(
-    application_log_file,
-    rotation="daily",
-    retention=7,
-    date_enabled=True,
-    async_write=True,
+# -------------------------------
+# Logger configuration (safe)
+# -------------------------------
+
+# Add console sink only if it doesn't exist
+if not any(sink.name == "console" for sink in logger._inner.sinks):
+    logger.add("console", name="console")
+
+# Add file sink only if it doesn't exist
+if not any(sink.name == "antivirus_file" for sink in logger._inner.sinks):
+    logger.add(
+        application_log_file,
+        rotation="daily",
+        retention=7,
+        date_enabled=True,
+        async_write=True,
+        name="antivirus_file",
 )
 
 logger.configure(level="DEBUG", color=True, show_time=True, json=False)
