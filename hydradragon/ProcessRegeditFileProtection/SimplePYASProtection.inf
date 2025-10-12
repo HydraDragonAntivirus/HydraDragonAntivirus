@@ -8,7 +8,7 @@ Class=DiskDrive
 ClassGuid={4d36e967-e325-11ce-bfc1-08002be10318}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 10/11/2025,21.56.16.985
+DriverVer = 10/12/2025,11.59.18.835
 PnpLockDown=1
 
 [DestinationDirs]
