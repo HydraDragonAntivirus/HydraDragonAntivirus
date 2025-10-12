@@ -1,90 +1,58 @@
+; SimplePYASProtection INF
 ;
-; SimplePYASProtection.inf
+; Fixed to copy files properly and install service like MBRFilter.inf style
 ;
-
 [Version]
 Signature="$WINDOWS NT$"
-Class=Sample ; TODO: edit Class
-ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171} ; TODO: edit ClassGuid
+Class=DiskDrive
+ClassGuid={4d36e967-e325-11ce-bfc1-08002be10318}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 10/11/2025,19.51.3.585
+DriverVer = 10/11/2025,21.56.16.985
 PnpLockDown=1
 
 [DestinationDirs]
-DefaultDestDir = 12
-SimplePYASProtection_Device_CoInstaller_CopyFiles = 11
+DefaultDestDir = 12 ; %12% -> System32\drivers
+SimplePYASProtection_Device_CoInstaller_CopyFiles = 11 ; %11% -> system32
 
-; ================= Class section =====================
+; ================= Copy and registry sections =====================
+[DefaultInstall.NTamd64]
+CopyFiles = SimplePYASProtection.CopyFiles
+AddReg = SimplePYASProtection.AddReg
+[DefaultInstall.NTx86]
+CopyFiles = SimplePYASProtection.CopyFiles
+AddReg = SimplePYASProtection.AddReg
 
-[ClassInstall32]
-Addreg=SampleClassReg
+[SimplePYASProtection.CopyFiles]
+SimplePYASProtection.sys
+;
 
-[SampleClassReg]
-HKR,,,0,%ClassName%
-HKR,,Icon,,-5
 
-[SourceDisksNames]
-1 = %DiskName%,,,""
+[SimplePYASProtection.AddReg]
+HKLM, System\CurrentControlSet\Control\Class\{4d36e967-e325-11ce-bfc1-08002be10318}, UpperFilters, 0x00010008, SimplePYASProtection
+
+; Service installation
+[DefaultInstall.NTamd64.Services]
+AddService = SimplePYASProtection,, SimplePYASProtection.Service.Install
+[DefaultInstall.NTx86.Services]
+AddService = SimplePYASProtection,, SimplePYASProtection.Service.Install
+
+[SimplePYASProtection.Service.Install]
+DisplayName = %SimplePYASProtection.SVCDESC%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\SimplePYASProtection.sys
 
 [SourceDisksFiles]
-SimplePYASProtection.sys  = 1,,
+SimplePYASProtection.sys = 1,,
 ;
 
 
-;*****************************************
-; Install Section
-;*****************************************
-
-[Manufacturer]
-%ManufacturerName%=Standard,NTamd64
-
-[Standard.NTamd64]
-%SimplePYASProtection.DeviceDesc%=SimplePYASProtection_Device, Root\SimplePYASProtection ; TODO: edit hw-id
-
-[SimplePYASProtection_Device.NT]
-CopyFiles=Drivers_Dir
-
-[Drivers_Dir]
-SimplePYASProtection.sys
-
-;-------------- Service installation
-[SimplePYASProtection_Device.NT.Services]
-AddService = SimplePYASProtection,%SPSVCINST_ASSOCSERVICE%, SimplePYASProtection_Service_Inst
-
-; -------------- SimplePYASProtection driver install sections
-[SimplePYASProtection_Service_Inst]
-DisplayName    = %SimplePYASProtection.SVCDESC%
-ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
-StartType      = 3               ; SERVICE_DEMAND_START
-ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
-ServiceBinary  = %12%\SimplePYASProtection.sys
-
-;
-;--- SimplePYASProtection_Device Coinstaller installation ------
-;
-
-[SimplePYASProtection_Device.NT.CoInstallers]
-AddReg=SimplePYASProtection_Device_CoInstaller_AddReg
-CopyFiles=SimplePYASProtection_Device_CoInstaller_CopyFiles
-
-[SimplePYASProtection_Device_CoInstaller_AddReg]
-;
-
-
-[SimplePYASProtection_Device_CoInstaller_CopyFiles]
-;
-
-
-[SimplePYASProtection_Device.NT.Wdf]
-KmdfService =  SimplePYASProtection, SimplePYASProtection_wdfsect
-[SimplePYASProtection_wdfsect]
-KmdfLibraryVersion = 1.15
+[SourceDisksNames]
+1 = %DiskName%,,,
 
 [Strings]
-SPSVCINST_ASSOCSERVICE= 0x00000002
-ManufacturerName="<Your manufacturer name>" ;TODO: Replace with your manufacturer name
-ClassName="Samples" ; TODO: edit ClassName
-DiskName = "SimplePYASProtection Installation Disk"
-SimplePYASProtection.DeviceDesc = "SimplePYASProtection Device"
-SimplePYASProtection.SVCDESC = "SimplePYASProtection Service"
+ManufacturerName = "HydraDragonAntivirus"
+DiskName = "HydraDragon Installation Disk"
+SimplePYASProtection.SVCDESC = "HydraDragon SimplePYASProtection Service"

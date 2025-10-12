@@ -247,18 +247,6 @@ from xdis.unmarshal import load_code
 logger.debug(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import nltk
-logger.debug(f"nltk imported in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from nltk.corpus import words
-logger.debug(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from nltk.tokenize import word_tokenize
-logger.debug(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
 logger.debug(f"oletools.olevba.VBA_Parser , TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML loaded in {time.time() - start_time:.6f} seconds")
 
@@ -573,36 +561,6 @@ logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
 user_startup, common_startup = get_startup_paths()
 
 startup_dirs = [user_startup, common_startup]
-
-try:
-    nltk.data.find('tokenizers/punkt')
-except Exception:
-    logger.debug("NLTK 'punkt' resource not found. Downloading...")
-    nltk.download('punkt', quiet=True)
-
-try:
-    nltk.data.find('corpora/words')
-except Exception:
-    logger.debug("NLTK 'words' resource not found. Downloading...")
-    nltk.download('words', quiet=True)
-
-# Create a set of English words for efficient lookup.
-ENGLISH_WORDS = set(words.words())
-
-# Precompute English words set and dynamic maximum length for words containing 'u'.
-# This runs once at import time for performance.
-try:
-    english_words_set = set(w.lower() for w in ENGLISH_WORDS)
-    u_word_lengths = [len(w) for w in english_words_set if 'u' in w]
-    if u_word_lengths:
-        max_u_len = max(u_word_lengths)
-    else:
-        # fallback to longest word length in the set, or 30 if set is empty
-        max_u_len = max((len(w) for w in english_words_set), default=30)
-except Exception as e:
-    logger.warning(f"Failed to prepare english words set: {e}")
-    english_words_set = set(w.lower() for w in (ENGLISH_WORDS or []))
-    max_u_len = 30
 
 # Initialize the accelerator and device
 accelerator = Accelerator()
@@ -5085,65 +5043,6 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
-def is_likely_junk(line):
-    """
-    Return True if the line should be considered JUNK (and therefore deleted).
-
-    Rules:
-    - If the line does NOT contain 'u' -> JUNK (True).
-    - Only examine alphabetic tokens that CONTAIN 'u' (excluding the single token 'u').
-      * If any such token is longer than max_u_len -> treat as NOT JUNK (False).
-      * If any such token is NOT in english_words_set -> NOT JUNK (False).
-      * If at least one alphabetic 'u'-containing token exists AND all such tokens are
-        present in english_words_set and <= max_u_len -> JUNK (True).
-    - Single 'u' token is always NOT JUNK (False).
-    """
-    line = (line or "").strip()
-    if not line:
-        return True
-
-    # Rule 1: lines without 'u' are junk
-    if 'u' not in line.lower():
-        return True
-
-    try:
-        # Normalize so 'u' becomes its own token for tokenization (prevents 'udef' being hidden)
-        normalized = re.sub(r'u', ' u ', line.lower())
-        tokens = word_tokenize(normalized)
-
-        saw_u_alpha_token = False
-
-        for token in tokens:
-            if token == 'u':
-                # single 'u' token: keep
-                continue
-
-            # Only consider alphabetic tokens that contain 'u' (and length > 1)
-            if 'u' in token and token.isalpha() and len(token) > 1:
-                saw_u_alpha_token = True
-
-                # If token is longer than known 'u' words -> treat as NOT JUNK
-                if len(token) > max_u_len:
-                    return False
-
-                # If token is not in the English words set -> NOT JUNK
-                if token not in english_words_set:
-                    return False
-
-                # otherwise token is a valid English word containing 'u' -> keep checking others
-
-        # If we saw at least one alphabetic 'u' token and all were valid English words, mark as JUNK
-        if saw_u_alpha_token:
-            return True
-
-        # No alphabetic 'u' tokens (only single 'u' tokens or non-alpha) -> NOT JUNK
-        return False
-
-    except Exception as e:
-        logger.warning(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
-        # On error be conservative: keep the line
-        return False
-
 def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     """
     Reconstructs source code using 'u'-delimiter splitting.
@@ -5152,14 +5051,10 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     - Preserves protected fragments (URLs, IPs, Discord/Telegram/webhooks)
     - Splits content on 'u', merging tokens safely
     - Groups into modules by <module ...> markers
-    - Saves reconstructed modules
+  y  - Saves reconstructed modules
     - Creates separate file with extracted links/webhooks/tokens
-    - Keeps only lines starting with 'u' (case-insensitive)
     """
-    logger.info("Reconstructing source code with unified 'u' delimiter logic...")
-
-    if not source_code or is_likely_junk(source_code.strip()):
-        return
+    logger.info("Reconstructing nuitka source code...")
 
     # Build regex patterns for URLs and IPs
     url_regex = build_url_regex()
@@ -5328,20 +5223,19 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     if current_module_code:
         modules.append((current_module_name, current_module_code))
 
-    # --- STEP 5: Keep only 'u'-starting lines and save, remove only first 'upython.exe' ---
+    # --- STEP 5: Save all reconstructed lines (keep everything) ---
     for name, code_lines in modules:
-        forced_lines = []
+        cleaned_lines = []
         first_upython_removed = False
 
         for l in code_lines:
             line_strip = l.strip()
             if line_strip == "upython.exe" and not first_upython_removed:
                 first_upython_removed = True
-                continue  # skip only the first occurrence
-            if l.lower().startswith('u'):
-                forced_lines.append(l)
+                continue  # still skip the first 'upython.exe' only
+            cleaned_lines.append(l)
 
-        save_module_file(name, forced_lines)
+        save_module_file(name, cleaned_lines)
 
     logger.info("Reconstruction complete (only 'u'-lines kept).")
     logger.info(f"Extracted {len(extracted_links)} links/webhooks/tokens to separate file.")

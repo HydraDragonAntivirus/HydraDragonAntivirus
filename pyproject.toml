@@ -47,7 +47,6 @@ dependencies = [
     "autoit-ripper",
     "comtypes",
     "androguard",
-    "nltk",
     "flare-capa",
     "oletools",
     "unipacker",
