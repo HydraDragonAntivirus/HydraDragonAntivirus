@@ -1,58 +1,84 @@
-; SimplePYASProtection INF
+; SimplePYASProtection.inf
 ;
-; Fixed to copy files properly and install service like MBRFilter.inf style
-;
+
 [Version]
 Signature="$WINDOWS NT$"
-Class=DiskDrive
-ClassGuid={4d36e967-e325-11ce-bfc1-08002be10318}
+Class=Sample
+ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 10/12/2025,11.59.18.835
-PnpLockDown=1
+DriverVer = 10/12/2025,12.51.34.899
+PnpLockdown=1
 
 [DestinationDirs]
-DefaultDestDir = 12 ; %12% -> System32\drivers
-SimplePYASProtection_Device_CoInstaller_CopyFiles = 11 ; %11% -> system32
+DefaultDestDir = 12
+SimplePYASProtection_Device_CoInstaller_CopyFiles = 11
 
-; ================= Copy and registry sections =====================
-[DefaultInstall.NTamd64]
-CopyFiles = SimplePYASProtection.CopyFiles
-AddReg = SimplePYASProtection.AddReg
-[DefaultInstall.NTx86]
-CopyFiles = SimplePYASProtection.CopyFiles
-AddReg = SimplePYASProtection.AddReg
+; ================= Class section =====================
+[ClassInstall32]
+AddReg=SampleClassReg
 
-[SimplePYASProtection.CopyFiles]
-SimplePYASProtection.sys
-;
+[SampleClassReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
 
-
-[SimplePYASProtection.AddReg]
-HKLM, System\CurrentControlSet\Control\Class\{4d36e967-e325-11ce-bfc1-08002be10318}, UpperFilters, 0x00010008, SimplePYASProtection
-
-; Service installation
-[DefaultInstall.NTamd64.Services]
-AddService = SimplePYASProtection,, SimplePYASProtection.Service.Install
-[DefaultInstall.NTx86.Services]
-AddService = SimplePYASProtection,, SimplePYASProtection.Service.Install
-
-[SimplePYASProtection.Service.Install]
-DisplayName = %SimplePYASProtection.SVCDESC%
-ServiceType = 1
-StartType = 3
-ErrorControl = 1
-ServiceBinary = %12%\SimplePYASProtection.sys
+[SourceDisksNames]
+1 = %DiskName%,,,""
 
 [SourceDisksFiles]
 SimplePYASProtection.sys = 1,,
 ;
 
 
-[SourceDisksNames]
-1 = %DiskName%,,,
+;*****************************************
+; Install Section
+;*****************************************
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%SimplePYASProtection.DeviceDesc%=SimplePYASProtection_Device, Root\HydraDragonAntivirus
+
+[SimplePYASProtection_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+SimplePYASProtection.sys
+
+;-------------- Service installation --------------
+[SimplePYASProtection_Device.NT.Services]
+AddService = HydraDragonAntivirus,%SPSVCINST_ASSOCSERVICE%, HydraDragonAntivirus_Service_Inst
+
+[HydraDragonAntivirus_Service_Inst]
+DisplayName = %HydraDragonAntivirus.SVCDESC%
+ServiceType = 1 ; SERVICE_KERNEL_DRIVER
+StartType = 3   ; SERVICE_DEMAND_START
+ErrorControl = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\SimplePYASProtection.sys
+
+;--- Device Coinstaller installation ---
+[SimplePYASProtection_Device.NT.CoInstallers]
+AddReg=SimplePYASProtection_Device_CoInstaller_AddReg
+CopyFiles=SimplePYASProtection_Device_CoInstaller_CopyFiles
+
+[SimplePYASProtection_Device_CoInstaller_AddReg]
+;
+
+
+[SimplePYASProtection_Device_CoInstaller_CopyFiles]
+;
+
+
+[SimplePYASProtection_Device.NT.Wdf]
+KmdfService = HydraDragonAntivirus, HydraDragonAntivirus_wdfsect
+
+[HydraDragonAntivirus_wdfsect]
+KmdfLibraryVersion = 1.15
 
 [Strings]
-ManufacturerName = "HydraDragonAntivirus"
-DiskName = "HydraDragon Installation Disk"
-SimplePYASProtection.SVCDESC = "HydraDragon SimplePYASProtection Service"
+SPSVCINST_ASSOCSERVICE= 0x00000002
+ManufacturerName="HydraDragon"
+ClassName="Samples"
+DiskName = "HydraDragonAntivirus Installation Disk"
+SimplePYASProtection.DeviceDesc = "HydraDragonAntivirus Device"
+HydraDragonAntivirus.SVCDESC = "HydraDragonAntivirus Kernel Driver"
