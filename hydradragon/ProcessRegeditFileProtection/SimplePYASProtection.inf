@@ -7,7 +7,7 @@ Class=Sample
 ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 10/12/2025,12.51.34.899
+DriverVer = 10/12/2025,20.21.51.854
 PnpLockdown=1
 
 [DestinationDirs]
