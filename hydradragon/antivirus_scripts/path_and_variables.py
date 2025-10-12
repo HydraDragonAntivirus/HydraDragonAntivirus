@@ -138,8 +138,8 @@ clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machine_learning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
-pyarmor7_decompilers_dir = os.path.join(script_dir, "pyarmor7_decompilers")
-bypass_pyarmor7_path = os.path.join(pyarmor7_decompilers_dir, "bypass_pyarmor7.py")
+decompilers_dir = os.path.join(script_dir, "decompilers")
+bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
