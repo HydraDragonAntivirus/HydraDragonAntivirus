@@ -35,7 +35,7 @@ if exist "%ELAM_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 4) Install unsigned driver INFs
+:: 4) Install Owlyshield driver
 :: --------------------------------------------------------
 echo Installing OwlyshieldRansomFilter driver INF...
 pnputil /add-driver "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
@@ -46,6 +46,9 @@ if %errorlevel% neq 0 (
 )
 echo [+] OwlyshieldRansomFilter driver installed.
 
+:: --------------------------------------------------------
+:: 5) Install MBRFilter driver
+:: --------------------------------------------------------
 echo Installing MBRFilter driver INF...
 pnputil /add-driver "%~dp0hydradragon\MBRFilter\MBRFilter.inf" /install
 if %errorlevel% neq 0 (
@@ -56,7 +59,7 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 5) Install ProcessRegeditFileProtection driver
+:: 6) Install ProcessRegeditFileProtection driver
 :: --------------------------------------------------------
 set "PROCESS_REG_FILE_PROT_INF=%~dp0hydradragon\ProcessRegeditFileProtection\SimplePYASProtection.inf"
 
@@ -74,7 +77,7 @@ if exist "%PROCESS_REG_FILE_PROT_INF%" (
 )
 
 :: --------------------------------------------------------
-:: 6) Create and configure Owlyshield Service
+:: 7) Create and configure Owlyshield Service
 :: --------------------------------------------------------
 echo Creating 'Owlyshield Service'...
 sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe" start= auto
@@ -85,7 +88,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 7) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_LAUNCHER_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusLauncher.exe"
 
@@ -98,12 +101,7 @@ if exist "%HD_LAUNCHER_EXE%" (
     )
 
     echo Creating HydraDragonAntivirus auto-start task (user interactive)...
-    schtasks /create ^
-        /tn "HydraDragonAntivirus" ^
-        /tr "\"%HD_LAUNCHER_EXE%\"" ^
-        /sc ONLOGON ^
-        /rl HIGHEST ^
-        /f
+    schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_LAUNCHER_EXE%\"" /sc ONLOGON /rl HIGHEST /f
 
     if %errorlevel% neq 0 (
         echo [!] Failed to create HydraDragonAntivirus auto-start task.
@@ -115,7 +113,7 @@ if exist "%HD_LAUNCHER_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 8) Cleanup and restart
+:: 9) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
