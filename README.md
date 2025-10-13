@@ -268,7 +268,7 @@ This document describes all the output directories used by the malware analysis 
 | `pylingual_extracted/` | .pyc reversed-engineered Python source code with pylingual |
 | `python_deobfuscated/` | Unobfuscated Python files |
 | `python_deobfuscated_marshal_pyc/` | Deobfuscated .pyc from marshal data |
-| `pycdas_extracted/` | .pyc reversed-engineered Python source code with pycdas.exe |
+| `pycdas_extracted/` | .pyc reversed-engineered Python source code with pycdas.exe (Decompyle++ 15-Aug-2025) |
 | `python_source_code/` | PyInstaller/.pyc reversed-engineered Python source code base |
 
 ### JavaScript/Node.js Analysis
