@@ -83,17 +83,6 @@ if exist "%PROCESS_REG_FILE_PROT_SYS%" (
         pause
         exit /b
     )
-
-    echo [+] Service created successfully. Starting service...
-    sc start "%PROCESS_REG_FILE_PROT_SERVICE%"
-
-    if %errorlevel% neq 0 (
-        echo [!] Failed to start ProcessRegeditFileProtection service.
-        pause
-        exit /b
-    )
-
-    echo [+] Service started successfully.
 ) else (
     echo [!] SimplePYASProtection.sys not found at "%PROCESS_REG_FILE_PROT_SYS%".
 )
