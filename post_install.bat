@@ -110,20 +110,7 @@ if %errorlevel% neq 0 (
 )
 
 :: --------------------------------------------------------
-:: 9) Ensure sanctum_ppl_runner service is set to auto start
-:: --------------------------------------------------------
-echo Configuring 'sanctum_ppl_runner' service to auto start...
-sc config "sanctum_ppl_runner" start= auto
-if %errorlevel% neq 0 (
-    echo [!] Failed to set sanctum_ppl_runner service to auto start.
-) else (
-    echo [+] sanctum_ppl_runner service configured to auto start.
-    sc start "sanctum_ppl_runner" >nul 2>&1
-    echo [+] sanctum_ppl_runner service started (if not already running).
-)
-
-:: --------------------------------------------------------
-:: 0) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_LAUNCHER_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusLauncher.exe"
 
@@ -148,7 +135,7 @@ if exist "%HD_LAUNCHER_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 10) Cleanup and restart
+:: 9) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
