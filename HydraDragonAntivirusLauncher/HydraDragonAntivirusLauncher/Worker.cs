@@ -114,7 +114,6 @@ namespace HydraDragonAntivirusLauncher
         private async Task RunSanctumSequenceAsync(string sanctumDir, CancellationToken ct)
         {
             string elamPath = Path.Combine(sanctumDir, "elam_installer.exe");
-            string pplPath = Path.Combine(sanctumDir, "sanctum_ppl_runner.exe");
             string umPath = Path.Combine(sanctumDir, "um_engine.exe");
             string appPath = Path.Combine(sanctumDir, "app.exe");
 
