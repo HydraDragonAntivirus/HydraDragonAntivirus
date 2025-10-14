@@ -14,17 +14,14 @@ from .notify_user import (
     notify_user_mbr_alert,
     notify_user_self_defense_file,
     notify_user_self_defense_process,
-    notify_user_self_defense_registry
+    notify_user_self_defense_registry,
 )
-
-# Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
-PIPE_EDR_TO_AV = r"\\.\pipe\owlyshield_to_hydradragon"
-
-# Pipe 3: MBR write alerts from the kernel driver
-PIPE_MBR_ALERT = r"\\.\pipe\mbr_filter_alerts"
-
-# Pipe 4: Self-defense alerts from file/process/registry drivers
-PIPE_SELF_DEFENSE_ALERT = r"\\.\pipe\self_defense_alerts"
+from .path_and_variables import (
+    PIPE_AV_TO_EDR,
+    PIPE_EDR_TO_AV,
+    PIPE_MBR_ALERT,
+    PIPE_SELF_DEFENSE_ALERT
+)
 
 thread_lock = threading.Lock()
 

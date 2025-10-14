@@ -14,13 +14,10 @@ from hydra_logger import logger
 from notifypy import Notify
 from .path_and_variables import (
     malicious_hashes,
-    malicious_hashes_lock
+    malicious_hashes_lock,
+    PIPE_AV_TO_EDR
 )
 from .utils_and_helpers import compute_md5
-
-
-# Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
-PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
 
 # ============================================================================
 # PIPE 1: Sending Threat Events TO Owlyshield EDR
