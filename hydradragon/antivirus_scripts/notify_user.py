@@ -5,10 +5,13 @@ Updated notification functions that accept an optional `main_file_path` argument
 it to `_send_av_event_to_edr` when present. Automatically computes MD5 hash for all files
 and tracks malicious hashes with their associated virus names.
 """
+import json
+import win32file
+import pywintypes
+from datetime import datetime
 from typing import Optional
 from hydra_logger import logger
 from notifypy import Notify
-from .pipe_events import _send_av_event_to_edr
 from .path_and_variables import (
     malicious_hashes,
     malicious_hashes_lock
@@ -16,21 +19,83 @@ from .path_and_variables import (
 from .utils_and_helpers import compute_md5
 
 
-def _send_to_edr(target_path: str, threat_name: str, action: str, main_file_path: Optional[str] = None):
-    """Helper to forward to EDR while remaining backward compatible with
+# Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
+PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
+
+# ============================================================================
+# PIPE 1: Sending Threat Events TO Owlyshield EDR
+# ============================================================================
+
+def _send_av_event_to_edr(file_path: str,
+                          virus_name: str,
+                          action: str = "monitor",
+                          pid: Optional[int] = None,
+                          main_file_path: Optional[str] = None):
+    """
+    (Internal) Connects to the Owlyshield EDR pipe and sends a threat event.
+    Accepts optional main_file_path for compatibility.
+    """
+    event = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "file_path": str(file_path),
+        "virus_name": str(virus_name),
+        "is_malicious": True,
+        "detection_type": "signature",
+        "action_required": action,
+        "pid": pid,
+        "gid": None
+    }
+
+    if main_file_path:
+        event["main_file_path"] = str(main_file_path)
+
+    try:
+        message_bytes = json.dumps(event).encode('utf-8')
+        handle = win32file.CreateFile(
+            PIPE_AV_TO_EDR,
+            win32file.GENERIC_WRITE,
+            0,
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None
+        )
+        win32file.WriteFile(handle, message_bytes)
+        win32file.CloseHandle(handle)
+        logger.info(f"Successfully sent threat event to EDR for: {file_path}")
+    except pywintypes.error as e:
+        if hasattr(e, 'winerror') and e.winerror == 2:
+            logger.error("Could not connect to Owlyshield EDR. Is the service running?")
+        else:
+            logger.error(f"Failed to send threat event to EDR: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error sending threat event to EDR: {e}")
+
+def _send_to_edr(
+    target_path: str,
+    threat_name: str,
+    action: str,
+    main_file_path: Optional[str] = None
+) -> None:
+    """
+    Helper to forward to EDR while remaining backward compatible with
     older _send_av_event_to_edr signatures.
     """
-    if main_file_path:
-        try:
-            # Assuming _send_av_event_to_edr can handle a main_file_path kwarg, if not, it will fall back
-            _send_av_event_to_edr(target_path, threat_name, action=action, main_file_path=main_file_path)
-        except TypeError:
-            # Fall back to calling without main_file_path if the target EDR function
-            # doesn't accept that kwarg (keeps backward compatibility).
+    try:
+        if main_file_path is not None:
+            # Try with main_file_path
+            _send_av_event_to_edr(
+                target_path,
+                threat_name,
+                action=action,
+                main_file_path=main_file_path
+            )
+        else:
+            # Call without main_file_path
             _send_av_event_to_edr(target_path, threat_name, action=action)
-    else:
+    except TypeError:
+        # Fallback if older _send_av_event_to_edr doesn't accept main_file_path
         _send_av_event_to_edr(target_path, threat_name, action=action)
-
 
 def _add_malicious_hash(file_path: str, virus_name: str):
     """Compute MD5 hash of file and add it with its associated virus name to the global tracking dict."""

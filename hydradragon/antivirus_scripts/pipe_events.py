@@ -17,9 +17,6 @@ from .notify_user import (
     notify_user_self_defense_registry
 )
 
-# Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
-PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
-
 # Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
 PIPE_EDR_TO_AV = r"\\.\pipe\owlyshield_to_hydradragon"
 
@@ -123,50 +120,6 @@ def _is_protected_path(candidate_path: str) -> bool:
         return True
 
     return False
-
-# ============================================================================
-# PIPE 1: Sending Threat Events TO Owlyshield EDR
-# ============================================================================
-
-def _send_av_event_to_edr(file_path: str, virus_name: str, action: str = "monitor", pid: int = None):
-    """
-    (Internal) Connects to the Owlyshield EDR pipe and sends a threat event.
-    This function is called by the notification functions below.
-    """
-
-    event = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "file_path": str(file_path),
-        "virus_name": str(virus_name),
-        "is_malicious": True,
-        "detection_type": "signature",
-        "action_required": action,
-        "pid": pid,
-        "gid": None
-    }
-
-    try:
-        message_bytes = json.dumps(event).encode('utf-8')
-        handle = win32file.CreateFile(
-            PIPE_AV_TO_EDR,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None
-        )
-        win32file.WriteFile(handle, message_bytes)
-        win32file.CloseHandle(handle)
-        logger.info(f"Successfully sent threat event to EDR for: {file_path}")
-    except pywintypes.error as e:
-        if hasattr(e, 'winerror') and e.winerror == 2:
-            logger.error("Could not connect to Owlyshield EDR. Is the service running?")
-        else:
-            logger.error(f"Failed to send threat event to EDR: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error sending threat event to EDR: {e}")
-
 
 # ============================================================================
 # PIPE 2: Receiving Scan Requests FROM Owlyshield EDR
