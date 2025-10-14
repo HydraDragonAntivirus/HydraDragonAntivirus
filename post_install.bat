@@ -88,18 +88,7 @@ if exist "%PROCESS_REG_FILE_PROT_SYS%" (
 )
 
 :: --------------------------------------------------------
-:: 7) Create and configure Owlyshield Service
-:: --------------------------------------------------------
-echo Creating 'Owlyshield Service'...
-sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe" start= auto
-if %errorlevel% neq 0 (
-    echo [!] Failed to create 'Owlyshield Service'.
-) else (
-    echo [+] 'Owlyshield Service' created and set to auto-start.
-)
-
-:: --------------------------------------------------------
-:: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: 7) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
 set "HD_LAUNCHER_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusLauncher.exe"
 
@@ -124,7 +113,7 @@ if exist "%HD_LAUNCHER_EXE%" (
 )
 
 :: --------------------------------------------------------
-:: 9) Cleanup and restart
+:: 8) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
