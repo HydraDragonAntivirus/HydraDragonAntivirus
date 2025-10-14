@@ -95,21 +95,20 @@ set "HD_LAUNCHER_EXE=%HYDRADRAGON_ROOT_PATH%\HydraDragonAntivirusLauncher.exe"
 if exist "%HD_LAUNCHER_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
     schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
-    if %errorlevel% equ 0 (
-        echo Existing task found, deleting...
-        schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
-    )
+)
 
-    echo Creating HydraDragonAntivirus auto-start task (user interactive)...
-    schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_LAUNCHER_EXE%\"" /sc ONLOGON /rl HIGHEST /f
+if %errorlevel%==0 (
+    echo Existing task found, deleting...
+    schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
+)
 
-    if %errorlevel% neq 0 (
-        echo [!] Failed to create HydraDragonAntivirus auto-start task.
-    ) else (
-        echo [+] HydraDragonAntivirus auto-start task created successfully.
-    )
+echo Creating HydraDragonAntivirus auto-start task (user interactive)...
+schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_LAUNCHER_EXE%\"" /sc ONLOGON /rl HIGHEST /f
+
+if %errorlevel% neq 0 (
+    echo [!] Failed to create HydraDragonAntivirus auto-start task.
 ) else (
-    echo [!] HydraDragonAntivirusLauncher.exe not found at "%HD_LAUNCHER_EXE%".
+    echo [+] HydraDragonAntivirus auto-start task created successfully.
 )
 
 :: --------------------------------------------------------
@@ -119,4 +118,3 @@ echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
 del "%~f0"
 endlocal
-exit /b 0
