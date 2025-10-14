@@ -1,15 +1,12 @@
 //@file DecompileAndSave.java
 //@brief Ghidra script to decompile all functions in a program and save the
 //       C code, P-code, and assembly to a single text file with string extraction
-//       and deobfuscation. This version writes everything to a single consolidated
-//       output file and improves deobfuscation heuristics (reduces false positives).
-//       It also emulates the Python extractor behavior for string unescaping so
-//       output matches the Python script (including duplicates and ordering).
-//@author 
+//       and deobfuscation. If file > 10MB only C analysis is performed.
+//@author
 //@category Analysis
-//@keybinding 
-//@menupath 
-//@toolbar 
+//@keybinding
+//@menupath
+//@toolbar
 
 import ghidra.app.script.GhidraScript;
 import ghidra.app.decompiler.DecompInterface;
@@ -28,6 +25,7 @@ import ghidra.util.task.ConsoleTaskMonitor;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.framework.model.DomainFile;
 
 import java.io.PrintWriter;
 import java.io.FileWriter;
@@ -67,6 +65,9 @@ public class DecompileAndSave extends GhidraScript {
     private static final int MIN_XOR_LENGTH = 6;                // don't try XOR on very short strings
     private static final double MIN_PRINTABLE_RATIO_XOR = 0.90; // require high printable ratio for XOR results
 
+    // File-size threshold: 10 MB
+    private static final long LARGE_FILE_THRESHOLD = 10L * 1024L * 1024L;
+
     @Override
     protected void run() throws Exception {
         decompileAndSave();
@@ -74,8 +75,8 @@ public class DecompileAndSave extends GhidraScript {
 
     /**
      * Iterates through all functions in the current program, decompiles them,
-     * extracts C code, P-code, assembly instructions, and performs string extraction
-     * with deobfuscation. All output is saved to a single file.
+     * extracts C code, performs string extraction and deobfuscation. For files
+     * larger than LARGE_FILE_THRESHOLD only C analysis is performed.
      */
     private void decompileAndSave() {
         Program program = currentProgram;
@@ -83,6 +84,36 @@ public class DecompileAndSave extends GhidraScript {
             println("Error: No program is currently loaded.");
             return;
         }
+
+        // Determine program file size (best-effort). Use DomainFile if available, otherwise
+        // fall back to summing memory block sizes.
+        long programSize = -1;
+        try {
+            DomainFile df = program.getDomainFile();
+            if (df != null) {
+                programSize = df.getLength();
+            }
+        } catch (Exception e) {
+            // ignore and fallback below
+        }
+
+        if (programSize < 0) {
+            // Fallback: sum memory block sizes
+            try {
+                programSize = 0;
+                for (MemoryBlock block : program.getMemory().getBlocks()) {
+                    if (block.isInitialized() && !block.isOverlay()) {
+                        programSize += block.getSize();
+                    }
+                }
+            } catch (Exception e) {
+                // If we still can't determine, set -1 to indicate unknown
+                programSize = -1;
+            }
+        }
+
+        boolean largeFile = (programSize > 0) && (programSize > LARGE_FILE_THRESHOLD);
+        boolean doFullAnalysis = !largeFile;
 
         // Setup decompiler
         DecompileOptions options = new DecompileOptions();
@@ -113,6 +144,17 @@ public class DecompileAndSave extends GhidraScript {
 
         println("Original program name: " + programName);
         println("Sanitized filename base: " + safeProgramName);
+        if (programSize > 0) {
+            println(String.format("Detected program size: %d bytes (%.2f MB)", programSize, programSize / (1024.0 * 1024.0)));
+        } else {
+            println("Detected program size: unknown");
+        }
+
+        if (largeFile) {
+            println("Program exceeds " + (LARGE_FILE_THRESHOLD / (1024 * 1024)) + " MB — only performing C (decompiled) analysis.");
+        } else {
+            println("Performing full analysis (C, P-Code, Assembly, and memory/data scans).");
+        }
         println("Saving consolidated output to: " + outputFilePath.toString());
 
         // --- Process Functions ---
@@ -130,6 +172,13 @@ public class DecompileAndSave extends GhidraScript {
             // Top-level header
             writer.println("Analysis for program: " + programName);
             writer.println("================================================================================");
+            writer.println();
+            if (programSize > 0) {
+                writer.println(String.format("Program size: %d bytes (%.2f MB)", programSize, programSize / (1024.0 * 1024.0)));
+            } else {
+                writer.println("Program size: unknown");
+            }
+            writer.println("Analysis mode: " + (doFullAnalysis ? "FULL" : "C_ONLY (skipping P-Code, Assembly, and memory/data scans)"));
             writer.println();
 
             Iterator<Function> functionIterator = functionManager.getFunctions(true);
@@ -192,29 +241,39 @@ public class DecompileAndSave extends GhidraScript {
                     }
                 }
 
-                // 2. Extract P-Code
-                writer.println();
-                writer.println("[ P-Code ]");
+                if (doFullAnalysis) {
+                    // 2. Extract P-Code
+                    writer.println();
+                    writer.println("[ P-Code ]");
 
-                HighFunction highFunction = results.getHighFunction();
-                if (highFunction != null) {
-                    Iterator<PcodeOpAST> pcodeIterator = highFunction.getPcodeOps();
-                    while (pcodeIterator.hasNext()) {
-                        PcodeOp pcodeOp = pcodeIterator.next();
-                        writer.println(pcodeOp.toString());
+                    HighFunction highFunction = results.getHighFunction();
+                    if (highFunction != null) {
+                        Iterator<PcodeOpAST> pcodeIterator = highFunction.getPcodeOps();
+                        while (pcodeIterator.hasNext()) {
+                            PcodeOp pcodeOp = pcodeIterator.next();
+                            writer.println(pcodeOp.toString());
+                        }
+                    } else {
+                        writer.println("Could not retrieve P-Code.");
+                    }
+
+                    // 3. Extract Native Assembly
+                    writer.println();
+                    writer.println("[ Assembly ]");
+
+                    InstructionIterator instructions = listing.getInstructions(func.getBody(), true);
+                    while (instructions.hasNext()) {
+                        Instruction instruction = instructions.next();
+                        writer.println(instruction.getAddress() + ": " + instruction.toString());
                     }
                 } else {
-                    writer.println("Could not retrieve P-Code.");
-                }
-
-                // 3. Extract Native Assembly
-                writer.println();
-                writer.println("[ Assembly ]");
-
-                InstructionIterator instructions = listing.getInstructions(func.getBody(), true);
-                while (instructions.hasNext()) {
-                    Instruction instruction = instructions.next();
-                    writer.println(instruction.getAddress() + ": " + instruction.toString());
+                    // Indicate that detailed analysis was skipped for large files
+                    writer.println();
+                    writer.println("[ P-Code ]");
+                    writer.println("SKIPPED (large file) - only C decompilation performed.");
+                    writer.println();
+                    writer.println("[ Assembly ]");
+                    writer.println("SKIPPED (large file) - only C decompilation performed.");
                 }
 
                 writer.println();
@@ -222,44 +281,52 @@ public class DecompileAndSave extends GhidraScript {
                 writer.println();
             }
 
-            // === EXTRA PASS 1: Extract defined data strings ===
-            Listing listingAll = program.getListing();
-            for (Data data : listingAll.getDefinedData(true)) {
-                if (data.getDataType() != null &&
-                    data.getDataType().getName().toLowerCase().contains("string")) {
-                    try {
-                        String val = data.getValue().toString();
-                        allRawStrings.add(new ExtractedString(val, val, "DEFINED", "<data>"));
-                    } catch (Exception e) {
-                        // ignore bad conversions
-                    }
-                }
-            }
-
-            // === EXTRA PASS 2: Scan memory for raw ASCII sequences ===
-            Memory mem = program.getMemory();
-            for (MemoryBlock block : mem.getBlocks()) {
-                if (!block.isInitialized() || block.isOverlay()) continue;
-                try {
-                    byte[] bytes = new byte[(int) block.getSize()];
-                    block.getBytes(block.getStart(), bytes);
-
-                    int start = -1;
-                    for (int i = 0; i < bytes.length; i++) {
-                        int b = bytes[i] & 0xff;
-                        if (b >= 0x20 && b <= 0x7e) { // printable ASCII
-                            if (start == -1) start = i;
-                        } else {
-                            if (start != -1 && i - start >= 4) { // min length = 4
-                                String s = new String(bytes, start, i - start, StandardCharsets.US_ASCII);
-                                allRawStrings.add(new ExtractedString(s, s, "RAW_ASCII", "<memory>"));
-                            }
-                            start = -1;
+            if (doFullAnalysis) {
+                // === EXTRA PASS 1: Extract defined data strings ===
+                Listing listingAll = program.getListing();
+                for (Data data : listingAll.getDefinedData(true)) {
+                    if (data.getDataType() != null &&
+                        data.getDataType().getName().toLowerCase().contains("string")) {
+                        try {
+                            String val = data.getValue().toString();
+                            allRawStrings.add(new ExtractedString(val, val, "DEFINED", "<data>"));
+                        } catch (Exception e) {
+                            // ignore bad conversions
                         }
                     }
-                } catch (Exception e) {
-                    println("Error scanning block: " + block.getName() + " - " + e.getMessage());
                 }
+
+                // === EXTRA PASS 2: Scan memory for raw ASCII sequences ===
+                Memory mem = program.getMemory();
+                for (MemoryBlock block : mem.getBlocks()) {
+                    if (!block.isInitialized() || block.isOverlay()) continue;
+                    try {
+                        byte[] bytes = new byte[(int) block.getSize()];
+                        block.getBytes(block.getStart(), bytes);
+
+                        int start = -1;
+                        for (int i = 0; i < bytes.length; i++) {
+                            int b = bytes[i] & 0xff;
+                            if (b >= 0x20 && b <= 0x7e) { // printable ASCII
+                                if (start == -1) start = i;
+                            } else {
+                                if (start != -1 && i - start >= 4) { // min length = 4
+                                    String s = new String(bytes, start, i - start, StandardCharsets.US_ASCII);
+                                    allRawStrings.add(new ExtractedString(s, s, "RAW_ASCII", "<memory>"));
+                                }
+                                start = -1;
+                            }
+                        }
+                    } catch (Exception e) {
+                        println("Error scanning block: " + block.getName() + " - " + e.getMessage());
+                    }
+                }
+            } else {
+                // For C-only mode we skip data/memory scanning; but log that we skipped it
+                writer.println();
+                writer.println("=== NOTE ===");
+                writer.println("Defined-data string extraction and raw-memory scan SKIPPED due to large program size.");
+                writer.println();
             }
 
             // === FINAL CONSOLIDATED OUTPUT ===
@@ -277,6 +344,7 @@ public class DecompileAndSave extends GhidraScript {
             writer.println("Functions processed: " + functionCount);
             writer.println("Total raw strings extracted: " + allRawStrings.size());
             writer.println("Total unique deobfuscated strings: " + uniqueDeobfuscated.size());
+            writer.println("Analysis mode: " + (doFullAnalysis ? "FULL" : "C_ONLY"));
 
         } catch (IOException e) {
             println("Error writing to output file: " + e.getMessage());
@@ -290,6 +358,7 @@ public class DecompileAndSave extends GhidraScript {
         println("Processed " + functionCount + " functions.");
         println("Extracted " + allRawStrings.size() + " raw strings.");
         println("Deobfuscated " + uniqueDeobfuscated.size() + " unique strings.");
+        println("Analysis mode: " + (doFullAnalysis ? "FULL" : "C_ONLY"));
         println("Results saved to: " + outputFilePath.toString());
     }
 
