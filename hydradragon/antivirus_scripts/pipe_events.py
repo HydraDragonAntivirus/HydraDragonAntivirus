@@ -20,7 +20,9 @@ from .path_and_variables import (
     PIPE_AV_TO_EDR,
     PIPE_EDR_TO_AV,
     PIPE_MBR_ALERT,
-    PIPE_SELF_DEFENSE_ALERT
+    PIPE_SELF_DEFENSE_ALERT,
+    system_root,
+    system32_dir,
 )
 
 thread_lock = threading.Lock()
@@ -117,6 +119,54 @@ def _is_protected_path(candidate_path: str) -> bool:
         return True
 
     return False
+
+
+# ============================================================================
+# System executable detection
+# ============================================================================
+
+def _is_system_executable(path: str) -> bool:
+    """Return True if the path refers to a Windows system executable.
+
+    Heuristics used:
+    - Path is under %SystemRoot% (e.g., C:\Windows) or System32/Sysnative
+    - Filename matches a small allowlist of well-known system executables
+    """
+    if not path:
+        return False
+
+    candidate = _normalize_path_for_compare(path)
+
+    # Check if under SystemRoot (covers explorer.exe in %WINDIR%)
+    if _path_is_under(system_root, candidate):
+        return True
+
+    # Check System32 (handles Sysnative mapping)
+    if _path_is_under(system32_dir, candidate):
+        return True
+
+    # Known system executable basenames (lower-case)
+    system_basenames = {
+        "explorer.exe",
+        "cmd.exe",
+        "regedit.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "svchost.exe",
+        "services.exe",
+        "lsass.exe",
+        "wininit.exe",
+        "winlogon.exe",
+        "csrss.exe",
+        "smss.exe",
+    }
+
+    base = os.path.basename(candidate).lower()
+    if base in system_basenames:
+        return True
+
+    return False
+
 
 # ============================================================================
 # PIPE 2: Receiving Scan Requests FROM Owlyshield EDR
@@ -331,6 +381,10 @@ def _process_self_defense_alert(data: bytes):
     """
     Process incoming self-defense alerts from the kernel drivers.
     The data is a JSON-like string with attack details.
+
+    IMPORTANT: If the attacker is a system executable (e.g., under %SystemRoot% or a
+    well-known system binary), we intentionally skip sending notifications to EDR to
+    avoid noisy/false-positive escalation.
     """
     try:
         # The data from the kernel is UTF-16LE encoded
@@ -346,7 +400,24 @@ def _process_self_defense_alert(data: bytes):
         attack_type = alert_data.get("attack_type", "FILE_TAMPERING")
         operation = alert_data.get("operation", "")
         target_pid = alert_data.get("target_pid", 0)
-        
+
+        # Normalize attacker path for checks
+        attacker_path_norm = None
+        try:
+            attacker_path_norm = attacker_path and _normalize_path_for_compare(attacker_path)
+        except Exception:
+            attacker_path_norm = attacker_path
+
+        # If attacker is a system executable, do NOT escalate to EDR. Log and return.
+        if attacker_path_norm and _is_system_executable(attacker_path_norm):
+            logger.info(
+                f"Self-defense alert suppressed for system executable attacker: {attacker_path}\n"
+                f"Protected object: {protected_file}, attack_type: {attack_type}, pid: {attacker_pid}"
+            )
+            # Optionally: you may want to still create an internal audit entry or local user notification
+            # without sending to EDR. For now we just skip calling notify_user_* functions to avoid EDR alerts.
+            return
+
         logger.critical(
             f"Self-Defense Alert: {attack_type} - "
             f"Process {attacker_path} (PID: {attacker_pid}) "
