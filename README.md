@@ -218,7 +218,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ### Credits:
 - All credits goes to Emirhan Uçan (yes it's one man project)
-- Thanks to Hacı Murad for collecting and compiling machine learning signatures.
+- Thanks to Hacı Murad for collecting and compiling some machine learning signatures.
 
 ## Extraction and Decompilation Directories
 
