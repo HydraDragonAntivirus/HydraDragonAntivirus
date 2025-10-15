@@ -217,7 +217,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Your installation might be broken. You can check the logs to determine the issue, because if the connection was lost during installation, it can affect the installation significantly. Try reinstalling to fix the problem.
 
 ### Credits:
-- All credits goes to Emirhan Uçan
+- All credits goes to Emirhan Uçan (yes it's one man project)
 - Thanks to Hacı Murad for collecting and compiling machine learning signatures.
 
 ## Extraction and Decompilation Directories
