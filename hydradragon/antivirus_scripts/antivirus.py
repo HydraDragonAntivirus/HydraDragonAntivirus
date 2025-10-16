@@ -4459,7 +4459,7 @@ def run_suricata():
         # Build the Suricata command
         suricata_cmd = [
             suricata_exe_path,
-            "-c", suricata_config_path,
+            "-c", suricata_config_path
         ]
 
         logger.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
