@@ -4460,7 +4460,6 @@ def run_suricata():
         suricata_cmd = [
             suricata_exe_path,
             "-c", suricata_config_path,
-            "--windivert-forward", "true"
         ]
 
         logger.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
