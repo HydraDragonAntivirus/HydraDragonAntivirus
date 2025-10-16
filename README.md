@@ -18,6 +18,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
+- We recommend waiting until the antivirus fully opens, even if some protections are already active.
 - Like in modern antiviruses this antivirus also directly removes threats, so be careful!
 - You can manually terminate the antivirus, but a virus cannot, because the antivirus driver can detect whether the request comes from a user or not. So don’t worry if you managed to close it manually.
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
