@@ -70,8 +70,8 @@ import threading
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor, as_completed
-logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
+from concurrent.futures import ThreadPoolExecutor
+logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
@@ -389,7 +389,6 @@ logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} second
 start_time = time.time()
 from .path_and_variables import (
     python_path,
-    jadx_decompiler_path,
     jadx_decompiled_dir,
     nexe_javascript_unpacked_dir,
     unlicense_path,
@@ -531,7 +530,6 @@ from .path_and_variables import (
     scanned_ipv6_addresses_general,
     unified_pe_cache,
     system_drive,
-    program_files,
     system32_dir,
     file_md5_cache,
     die_cache,
@@ -542,7 +540,15 @@ from .path_and_variables import (
     decompile_outputs_lock,
     uefi_100kb_paths,
     uefi_paths,
-    get_startup_paths
+    get_startup_paths,
+    eve_log_path,
+    suricata_log_dir,
+    suricata_config_path,
+    suricata_exe_path,
+    seven_zip_path,
+    libclamav_path,    
+    clamav_database_directory_path,
+
 )
 logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -609,16 +615,6 @@ def parse_suricata_alert(json_line):
 # Alternative regex for fast.log format if not using EVE JSON
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
-# Suricata base folder path
-suricata_dir = os.path.join(program_files, "Suricata")
-
-# File paths and configurations
-suricata_log_dir = os.path.join(suricata_dir, "log")
-# Suricata typically uses eve.json for structured logging
-eve_log_path = os.path.join(suricata_log_dir, "eve.json")
-suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
-suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
-
 thread_lock = threading.Lock()
 
 drivers_path = os.path.join(system32_dir, "drivers")
@@ -640,24 +636,6 @@ PACKER_FLAGS = {
     "9.70":  ["-pe", "9_70"],
     "7.80":  ["-pe", "7_80", "--legacy-fs"],
 }
-
-# ClamAV base folder path
-clamav_folder = os.path.join(program_files, "ClamAV")
-
-# 7-Zip base folder path
-seven_zip_folder = os.path.join(program_files, "7-Zip")
-
-# ClamAV file paths and configurations
-freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
-libclamav_path = os.path.join(clamav_folder, "libclamav.dll")
-clamav_database_directory_path = os.path.join(clamav_folder, "database")
-clamav_file_paths = [
-    os.path.join(clamav_database_directory_path, "daily.cvd"),
-    os.path.join(clamav_database_directory_path, "daily.cld")
-]
-
-# 7-Zip executable path
-seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
 
 # Base directories common to both lists
 MANAGED_DIRECTORIES = [
@@ -2939,8 +2917,8 @@ def scan_yara(file_path):
         # Thread worker for yarGen_rule scanning
         def yargen_rule_worker():
             try:
-                if yarGen_rule:
-                    matches = yarGen_rule.match(data=data_content)
+                if yarGen_rules:
+                    matches = yarGen_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
 
@@ -2964,8 +2942,8 @@ def scan_yara(file_path):
         # Thread worker for icewater_rule scanning
         def icewater_rule_worker():
             try:
-                if icewater_rule:
-                    matches = icewater_rule.match(data=data_content)
+                if icewater_rules:
+                    matches = icewater_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
 
@@ -2975,7 +2953,7 @@ def scan_yara(file_path):
                             match_details = extract_match_details(match, 'icewater_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logger.info(f"Rule {match.rule} is excluded from icewater_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from icewater_rules.")
 
                     # Update shared results
                     with thread_lock_yara:
@@ -2989,8 +2967,8 @@ def scan_yara(file_path):
         # Thread worker for valhalla_rule scanning
         def valhalla_rule_worker():
             try:
-                if valhalla_rule:
-                    matches = valhalla_rule.match(data=data_content)
+                if valhalla_rules:
+                    matches = valhalla_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
 
@@ -3000,7 +2978,7 @@ def scan_yara(file_path):
                             match_details = extract_match_details(match, 'valhalla_rule')
                             local_matched_results.append(match_details)
                         else:
-                            logger.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+                            logger.info(f"Rule {match.rule} is excluded from valhalla_rules.")
 
                     # Update shared results
                     with thread_lock_yara:
@@ -3031,23 +3009,23 @@ def scan_yara(file_path):
 
         # Run YARA-X scanning sequentially in the main thread AFTER threads complete
         # This avoids all thread safety issues with Rust-based yara_x objects
-        if yaraxtr_rule:
+        if yaraxtr_rules:
             yaraxtr_scanner = None
             try:
                 # create scanner on THIS thread
-                yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rule)
+                yaraxtr_scanner = yara_x.Scanner(rules=yaraxtr_rules)
                 scan_results = yaraxtr_scanner.scan(data_content)
 
                 for rule in getattr(scan_results, "matching_rules", []) or []:
                     if rule.identifier not in excluded_rules:
                         results['matched_rules'].append(rule.identifier)
-                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
+                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rules')
                         results['matched_results'].append(match_details)
                     else:
-                        logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+                        logger.info(f"Rule {rule.identifier} is excluded from yaraxtr_rules.")
 
             except Exception as e:
-                logger.error(f"Error scanning with yaraxtr_rule: {e}")
+                logger.error(f"Error scanning with yaraxtr_rules: {e}")
             finally:
                 # IMPORTANT: ensure the Scanner is destroyed on THIS thread.
                 # Deleting it and forcing a GC here makes the Rust destructor run on this thread.
@@ -4798,6 +4776,13 @@ resource_threads = {}
 
 # Event to indicate all resources finished loading
 all_resources_loaded = threading.Event()
+
+# Global variables for rules
+yarGen_rules = None
+icewater_rules = None
+valhalla_rules = None
+clean_rules = None
+yaraxtr_rules = None
 
 def load_all_resources_non_blocking():
     """

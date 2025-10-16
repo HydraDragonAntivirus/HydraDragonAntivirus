@@ -420,7 +420,7 @@ def _process_self_defense_alert(data: bytes):
 
         logger.critical(
             f"Self-Defense Alert: {attack_type} - "
-            f"Process {attacker_path} (PID: {attacker_pid}) "
+            f"Process {attacker_path} (Attacker PID: {attacker_pid} Target PID: {target_pid})"
             f"attempted to tamper with {protected_file}"
         )
         

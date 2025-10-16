@@ -191,6 +191,34 @@ system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
+# Suricata base folder path
+suricata_dir = os.path.join(program_files, "Suricata")
+
+# File paths and configurations
+suricata_log_dir = os.path.join(suricata_dir, "log")
+# Suricata typically uses eve.json for structured logging
+eve_log_path = os.path.join(suricata_log_dir, "eve.json")
+suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
+suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
+
+# ClamAV base folder path
+clamav_folder = os.path.join(program_files, "ClamAV")
+
+# 7-Zip base folder path
+seven_zip_folder = os.path.join(program_files, "7-Zip")
+
+# ClamAV file paths and configurations
+freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
+libclamav_path = os.path.join(clamav_folder, "libclamav.dll")
+clamav_database_directory_path = os.path.join(clamav_folder, "database")
+clamav_file_paths = [
+    os.path.join(clamav_database_directory_path, "daily.cvd"),
+    os.path.join(clamav_database_directory_path, "daily.cld")
+]
+
+# 7-Zip executable path
+seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
+
 # Cache of { file_path: last_md5 }
 file_md5_cache: dict[str, str] = {}
 
