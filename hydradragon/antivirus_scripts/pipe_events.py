@@ -1,5 +1,5 @@
 import json
-import datetime
+from datetime import datetime, timezone
 import os
 import win32file
 import win32pipe
@@ -185,7 +185,7 @@ def _send_scan_request_to_av(file_path: str, event_type: str = "NEW_FILE_DETECTE
     request = {
         "event_type": event_type,
         "file_path": str(file_path),
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),  # timezone-aware UTC
         "pid": pid,
         "additional_context": None
     }
