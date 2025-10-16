@@ -70,8 +70,8 @@ import threading
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor
-logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
+from concurrent.futures import ThreadPoolExecutor, as_completed
+logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
@@ -4812,9 +4812,9 @@ def load_all_resources():
             try:
                 future.result()  # wait for task completion and capture exceptions
             except Exception as e:
-                logging.error(f"Error loading resource: {e}")
+                logger.error(f"Error loading resource: {e}")
 
-    logging.info("All resources loaded using ThreadPoolExecutor.")
+    logger.info("All resources loaded using ThreadPoolExecutor.")
 
 load_all_resources()
 
