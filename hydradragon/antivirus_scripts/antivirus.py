@@ -4794,36 +4794,27 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         return None
 
 def load_all_resources():
-    """
-    Load ClamAV database, website data, antivirus list, and YARA rules concurrently in threads,
-    and wait for all threads to complete.
-    """
-
-    # Helper function to load a YARA rule
-    def load_yara(path, display_name, is_yara_x=False):
-        load_yara_rule(path, display_name=display_name, is_yara_x=is_yara_x)
-
-    # Define threads for all resources
-    threads = [
-        threading.Thread(target=reload_clamav_database),
-        threading.Thread(target=load_website_data),
-        threading.Thread(target=load_antivirus_list),
-        threading.Thread(target=load_yara, args=(yarGen_rule_path, "yarGen Rules")),
-        threading.Thread(target=load_yara, args=(icewater_rule_path, "Icewater Rules")),
-        threading.Thread(target=load_yara, args=(valhalla_rule_path, "Vallhalla Demo Rules")),
-        threading.Thread(target=load_yara, args=(clean_rules_path, "(clean) YARA Rules")),
-        threading.Thread(target=load_yara, args=(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True)),
+    tasks = [
+        reload_clamav_database,
+        load_website_data,
+        load_antivirus_list,
+        lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
+        lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
+        lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
+        lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
+        lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
     ]
 
-    # Start all threads
-    for t in threads:
-        t.start()
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        futures = [executor.submit(task) for task in tasks]
 
-    # Wait for all threads to finish
-    for t in threads:
-        t.join()
+        for future in as_completed(futures):
+            try:
+                future.result()  # wait for task completion and capture exceptions
+            except Exception as e:
+                logging.error(f"Error loading resource: {e}")
 
-    logger.info("All databases, website data, antivirus lists, and YARA rules are loaded.")
+    logging.info("All resources loaded using ThreadPoolExecutor.")
 
 load_all_resources()
 
