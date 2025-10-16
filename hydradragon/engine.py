@@ -1,7 +1,6 @@
 import sys
 import os
 import threading
-import time
 import webbrowser
 import subprocess
 
@@ -31,8 +30,6 @@ from hydradragon.antivirus_scripts.antivirus import (
     clamav_file_paths,
     start_real_time_protection,
     reload_clamav_database,
-    run_suricata,
-    is_suricata_running,
     get_latest_clamav_def_time,
 )
 from hydradragon.antivirus_scripts.path_and_variables import (
@@ -422,24 +419,6 @@ class Worker(QThread):
                 self.output_signal.emit("[*] Definitions are already up-to-date.")
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
-
-    def restart_suricata(self):
-        """Restart Suricata with proper status reporting"""
-        # Restart Suricata
-        self.output_signal.emit("[*] Starting Suricata...")
-
-        try:
-            success = run_suricata()
-            if success:
-                time.sleep(1)  # Brief wait for startup
-                if is_suricata_running():
-                    self.output_signal.emit("[+] Suricata started successfully.")
-                else:
-                    self.output_signal.emit("[!] Suricata startup uncertain - check logs.")
-            else:
-                self.output_signal.emit("[-] Failed to start Suricata - check logs.")
-        except Exception as ex:
-            self.output_signal.emit(f"[-] Suricata startup error: {ex}")
 
     def update_hayabusa_rules(self):
         """

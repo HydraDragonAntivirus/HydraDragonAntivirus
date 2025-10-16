@@ -4300,7 +4300,7 @@ def scan_file_real_time(
             if stop_event.is_set():
                 logger.info(f"Detection found for {file_path}, stopping other scan threads.")
                 break
-            time.sleep(0.05)  # Polling interval to check for completion or stop signal
+            time.sleep(0)  # Polling interval to check for completion or stop signal
 
         # Final decision is made based on the 'results' dict, which is updated
         # by the worker threads under a lock.
@@ -4793,49 +4793,53 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         logger.error(f"Error loading {name}: {ex}")
         return None
 
-# Thread-safe flag to indicate when all resources are loaded
+# Track all resource threads
+resource_threads = {}
+
+# Event to indicate all resources finished loading
 all_resources_loaded = threading.Event()
 
 def load_all_resources_non_blocking():
     """
-    Starts loading ClamAV, website data, antivirus list, and YARA rules concurrently.
-    Non-blocking: returns immediately while resources load in background threads.
+    Start all resource-loading threads immediately (non-blocking).
+    Sets all_resources_loaded when all threads are done.
     """
-    tasks = [
-        lambda: reload_clamav_database(),
-        lambda: load_website_data(),
-        lambda: load_antivirus_list(),
-        lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
-        lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
-        lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
-        lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
-        lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
-    ]
+    tasks = {
+        "reload_clamav_database": reload_clamav_database,
+        "load_website_data": load_website_data,
+        "load_antivirus_list": load_antivirus_list,
+        "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
+        "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
+        "valhalla_rules": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
+        "clean_rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
+        "yaraxtr_rules": lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
+    }
 
-    def safe_task(func):
-        try:
-            func()
-        except Exception as e:
-            logger.error(f"Error loading resource in {func}: {e}")
+    # Start each task in its own thread
+    for name, func in tasks.items():
+        def safe_task(f=func, n=name):
+            try:
+                f()
+            except Exception as e:
+                logger.error(f"Error in resource {n}: {e}")
 
-    def background_loader():
-        # Run all tasks concurrently in threads
-        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
-            futures = [executor.submit(safe_task, task) for task in tasks]
+        thread = threading.Thread(target=safe_task, name=f"Resource_{name}")
+        thread.start()
+        resource_threads[name] = thread
 
-            # Wait for all tasks to finish
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logger.error(f"Exception in resource loader: {e}")
+    logger.info("All resource-loading threads started (non-blocking).")
 
-        all_resources_loaded.set()
-        logger.info("All resources loaded successfully.")
+    # Monitoring thread to set the flag when all threads finish
+    def monitor_all_resources():
+        while True:
+            # Check if all threads are done
+            if all(not t.is_alive() for t in resource_threads.values()):
+                all_resources_loaded.set()
+                logger.info("All resources finished loading.")
+                break
+            time.sleep(0.05)  # small sleep to avoid busy-waiting
 
-    # Start background thread for loading
-    threading.Thread(target=background_loader, daemon=True).start()
-    logger.info("Started loading all resources (non-blocking).")
+    threading.Thread(target=monitor_all_resources).start()
 
 # List to keep track of existing project names
 existing_projects = []
@@ -6694,7 +6698,7 @@ def deobfuscate_file(transformed_path: Path, timeout: int = 600) -> Optional[Pat
                 continue
         else:
             # inner loop did not break -> no candidate stabilized yet
-            time.sleep(0.5)
+            time.sleep(0.05)
             continue
 
         # one of the candidates stabilized
