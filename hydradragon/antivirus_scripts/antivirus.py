@@ -2210,37 +2210,6 @@ def restart_service(service_name, stop_only=False):
         logger.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
-clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
-
-def reload_clamav_database():
-    """
-    Reloads the ClamAV engine with the updated database.
-    Required after updating signatures.
-    """
-    try:
-        logger.info("Reloading ClamAV database...")
-        clamav_scanner.loadDB()
-        logger.info("ClamAV database reloaded successfully.")
-    except Exception as ex:
-        logger.error(f"Failed to reload ClamAV database: {ex}")
-
-def scan_file_with_clamav(file_path):
-    """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
-    try:
-        file_path = os.path.abspath(file_path)
-        ret, virus_name = clamav_scanner.scanFile(file_path)
-
-        if ret == clamav.CL_CLEAN:
-            return "Clean"
-        elif ret == clamav.CL_VIRUS:
-            return virus_name or "Infected"
-        else:
-            logger.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
-            return "Error"
-    except Exception as ex:
-        logger.error(f"Error scanning file {file_path}: {ex}")
-        return "Error"
-
 # --- The RealTimeWebProtectionHandler Class ---
 
 class RealTimeWebProtectionHandler:
@@ -4067,228 +4036,6 @@ def ml_fastpath_should_continue(
     # Otherwise (ML said Clean or gave no opinion) -> continue to full scan
     return True
 
-def scan_file_real_time(
-    file_path: str,
-    signature_check: dict,
-    file_name: str,
-    die_output,
-    pe_file: bool = False
-) -> Tuple[bool, str, str, Optional[str]]:
-    """
-    Scan file in real-time using multiple engines in parallel.
-    Stops all workers on first detection.
-
-    Returns: (malware_found: bool, virus_name: str, engine: str, vmprotect_path: Optional[str])
-    """
-    logger.info(f"Started scanning file: {file_path}")
-
-    # Shared results and synchronization primitives
-    results = {
-        'malware_found': False,
-        'virus_name': 'Clean',
-        'engine': '',
-        'vmprotect_path': None,
-        'is_vmprotect': False
-    }
-    stop_event = threading.Event()  # Event to signal all threads to stop
-    thread_lock_real_time = threading.Lock()
-    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
-
-    def pe_scan_worker():
-        """Worker function for PE file analysis.
-
-        Returns:
-            False if a detection happened (or an error/stop), True if worker completed without detections.
-        """
-        # If a global stop_event was set, treat as no-work / return False to indicate no-success
-        if stop_event.is_set():
-            return False
-
-        try:
-            if pe_file:
-                match_found = check_pe_file(file_path, signature_check, file_name)
-                if match_found:
-                    # A match happened in the PE check — per request, return False to signal this.
-                    logger.info(f"PE scan worker: detection found for {file_path}; returning False to caller.")
-                    return False
-
-            # No match found during PE checks
-            return True
-
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
-            return False
-
-    def clamav_scan_worker():
-        """Worker function for ClamAV scan"""
-        if stop_event.is_set():
-            return
-        try:
-            result = scan_file_with_clamav(file_path)
-            if result not in ("Clean", "Error"):
-                if sig_valid:
-                    result = f"{result}.SIG"
-                logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-
-                with thread_lock_real_time:
-                    if not results['malware_found']:  # First detection wins
-                        results['malware_found'] = True
-                        results['virus_name'] = result
-                        results['engine'] = "ClamAV"
-                        stop_event.set()  # Signal other threads to stop
-            else:
-                if not stop_event.is_set():
-                    logger.info(f"No malware detected by ClamAV in file: {file_path}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
-
-    def yara_scan_worker():
-        """Worker function for YARA scan."""
-        if stop_event.is_set():
-            return
-        try:
-            yara_match, yara_result, is_vmprotect = scan_yara(file_path)
-
-            with thread_lock_real_time:
-                # Always update vmprotect status if found
-                if is_vmprotect:
-                    results['is_vmprotect'] = True
-
-                # If malware is found and no other thread has found malware yet
-                if yara_match and yara_match not in ("Clean", ""):
-                    if not results['malware_found']:
-                        if sig_valid:
-                            yara_match = f"{yara_match}.SIG"
-                        logger.critical(
-                            f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
-                        )
-                        results['malware_found'] = True
-                        results['virus_name'] = yara_match
-                        results['engine'] = "YARA"
-                        stop_event.set()  # Signal other threads to stop
-                elif not results['malware_found']:
-                     logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
-
-    def tar_scan_worker():
-        """Worker function for TAR scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if tarfile.is_tarfile(file_path):
-                scan_result, virus_name = scan_tar_file(file_path)
-                if scan_result and virus_name not in ("Clean", "F", "", [], None):
-                    virus_str = str(virus_name) if virus_name else "Unknown"
-                    if sig_valid:
-                        virus_str = f"{virus_str}.SIG"
-                    logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_str
-                            results['engine'] = "TAR"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in TAR file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning TAR file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
-
-    def zip_scan_worker():
-        """Worker function for ZIP scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if is_zip_file(file_path):
-                scan_result, virus_name = scan_zip_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if sig_valid:
-                        virus_name = f"{virus_name}.SIG"
-                    logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_name
-                            results['engine'] = "ZIP"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in ZIP file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning ZIP file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
-
-    def sevenz_scan_worker():
-        """Worker function for 7z scan"""
-        if stop_event.is_set():
-            return
-        try:
-            if is_7z_file_from_output(die_output):
-                scan_result, virus_name = scan_7z_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if sig_valid:
-                        virus_name = f"{virus_name}.SIG"
-                    logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
-
-                    with thread_lock_real_time:
-                        if not results['malware_found']:
-                            results['malware_found'] = True
-                            results['virus_name'] = virus_name
-                            results['engine'] = "7z"
-                            stop_event.set()
-                else:
-                    if not stop_event.is_set():
-                        logger.info(f"No malware detected in 7z file: {file_path}")
-        except (PermissionError, FileNotFoundError) as ferr:
-            logger.error(f"File error occurred while scanning 7Z file: {file_path}. Error: {ferr}")
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
-
-    try:
-        # Create and start all threads
-        workers = [
-            pe_scan_worker,
-            clamav_scan_worker,
-            yara_scan_worker,
-            tar_scan_worker,
-            zip_scan_worker,
-            sevenz_scan_worker
-        ]
-
-        threads = []
-        for worker in workers:
-            t = threading.Thread(target=worker)
-            t.daemon = True # Allows main thread to exit if workers are stuck
-            t.start()
-            threads.append(t)
-
-        # Wait for either the first detection or for all threads to complete.
-        while any(t.is_alive() for t in threads):
-            if stop_event.is_set():
-                logger.info(f"Detection found for {file_path}, stopping other scan threads.")
-                break
-            time.sleep(0)  # Polling interval to check for completion or stop signal
-
-        # Final decision is made based on the 'results' dict, which is updated
-        # by the worker threads under a lock.
-        with thread_lock_real_time:
-            if results.get('malware_found'):
-                return True, results.get('virus_name', ""), results.get('engine', ""), results.get('is_vmprotect', False)
-            else:
-                logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results.get('is_vmprotect', False)
-
-    except Exception as ex:
-        logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-        return False, "Error", "", None
-
 # Read the file and store the names in a list (ignoring empty lines)
 with open(system_file_names_path, "r") as f:
     fake_system_files = [line.strip() for line in f if line.strip()]
@@ -4720,29 +4467,6 @@ def load_ml_definitions_pickle(filepath: str) -> bool:
         logger.exception(f"Failed to load ML definitions from pickle: {e}")
         return False
 
-
-# ---------------------------
-# Usage
-# ---------------------------
-try:
-    success = load_ml_definitions_pickle(machine_learning_pickle_path)
-    if not success:
-        logger.error("ML definitions could not be loaded properly.")
-except Exception as ex:
-    logger.exception(f"Unexpected error while loading ML definitions: {ex}")
-
-try:
-    # Load excluded rules from text file
-    with open(excluded_rules_path, "r") as excluded_file:
-        excluded_rules = [line.strip() for line in excluded_file if line.strip()]
-        logger.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
-except FileNotFoundError:
-    logger.error(f"Excluded rules file not found: {excluded_rules_path}")
-    excluded_rules = []
-except Exception as ex:
-    logger.error(f"Error loading excluded rules: {ex}")
-    excluded_rules = []
-
 def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False):
     """
     Load a YARA or YARA-X rule from a precompiled .yrc file.
@@ -4780,13 +4504,19 @@ valhalla_rules = None
 clean_rules = None
 yaraxtr_rules = None
 
+# List to keep track of existing project names
+existing_projects = []
+
+# List of already scanned files and their modification times
+scanned_files = []
+file_mod_times = {}
+
 def load_all_resources_non_blocking():
     """
     Start all resource-loading threads immediately (non-blocking).
     Sets all_resources_loaded when all threads are done.
     """
     tasks = {
-        "reload_clamav_database": reload_clamav_database,
         "load_website_data": load_website_data,
         "load_antivirus_list": load_antivirus_list,
         "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
@@ -4822,15 +4552,283 @@ def load_all_resources_non_blocking():
 
     threading.Thread(target=monitor_all_resources).start()
 
-# List to keep track of existing project names
-existing_projects = []
+# ---------------------------
+# Usage
+# ---------------------------
+try:
+    success = load_ml_definitions_pickle(machine_learning_pickle_path)
+    if not success:
+        logger.error("ML definitions could not be loaded properly.")
+except Exception as ex:
+    logger.exception(f"Unexpected error while loading ML definitions: {ex}")
 
-# List of already scanned files and their modification times
-scanned_files = []
-file_mod_times = {}
+try:
+    # Load excluded rules from text file
+    with open(excluded_rules_path, "r") as excluded_file:
+        excluded_rules = [line.strip() for line in excluded_file if line.strip()]
+        logger.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
+except FileNotFoundError:
+    logger.error(f"Excluded rules file not found: {excluded_rules_path}")
+    excluded_rules = []
+except Exception as ex:
+    logger.error(f"Error loading excluded rules: {ex}")
+    excluded_rules = []
 
 # Start load_all_resources_non_blocking() in a separate thread
 threading.Thread(target=load_all_resources_non_blocking).start()
+
+clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
+
+def reload_clamav_database():
+    """
+    Reloads the ClamAV engine with the updated database.
+    Required after updating signatures.
+    """
+    try:
+        logger.info("Reloading ClamAV database...")
+        clamav_scanner.loadDB()
+        logger.info("ClamAV database reloaded successfully.")
+    except Exception as ex:
+        logger.error(f"Failed to reload ClamAV database: {ex}")
+
+def scan_file_with_clamav(file_path):
+    """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
+    try:
+        file_path = os.path.abspath(file_path)
+        ret, virus_name = clamav_scanner.scanFile(file_path)
+
+        if ret == clamav.CL_CLEAN:
+            return "Clean"
+        elif ret == clamav.CL_VIRUS:
+            return virus_name or "Infected"
+        else:
+            logger.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
+            return "Error"
+    except Exception as ex:
+        logger.error(f"Error scanning file {file_path}: {ex}")
+        return "Error"
+
+def scan_file_real_time(
+    file_path: str,
+    signature_check: dict,
+    file_name: str,
+    die_output,
+    pe_file: bool = False
+) -> Tuple[bool, str, str, Optional[str]]:
+    """
+    Scan file in real-time using multiple engines in parallel.
+    Stops all workers on first detection.
+
+    Returns: (malware_found: bool, virus_name: str, engine: str, vmprotect_path: Optional[str])
+    """
+    logger.info(f"Started scanning file: {file_path}")
+
+    # Shared results and synchronization primitives
+    results = {
+        'malware_found': False,
+        'virus_name': 'Clean',
+        'engine': '',
+        'vmprotect_path': None,
+        'is_vmprotect': False
+    }
+    stop_event = threading.Event()  # Event to signal all threads to stop
+    thread_lock_real_time = threading.Lock()
+    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
+
+    def pe_scan_worker():
+        """Worker function for PE file analysis.
+
+        Returns:
+            False if a detection happened (or an error/stop), True if worker completed without detections.
+        """
+        # If a global stop_event was set, treat as no-work / return False to indicate no-success
+        if stop_event.is_set():
+            return False
+
+        try:
+            if pe_file:
+                match_found = check_pe_file(file_path, signature_check, file_name)
+                if match_found:
+                    # A match happened in the PE check — per request, return False to signal this.
+                    logger.info(f"PE scan worker: detection found for {file_path}; returning False to caller.")
+                    return False
+
+            # No match found during PE checks
+            return True
+
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
+            return False
+
+    def clamav_scan_worker():
+        """Worker function for ClamAV scan"""
+        if stop_event.is_set():
+            return
+        try:
+            result = scan_file_with_clamav(file_path)
+            if result not in ("Clean", "Error"):
+                if sig_valid:
+                    result = f"{result}.SIG"
+                logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+
+                with thread_lock_real_time:
+                    if not results['malware_found']:  # First detection wins
+                        results['malware_found'] = True
+                        results['virus_name'] = result
+                        results['engine'] = "ClamAV"
+                        stop_event.set()  # Signal other threads to stop
+            else:
+                if not stop_event.is_set():
+                    logger.info(f"No malware detected by ClamAV in file: {file_path}")
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
+
+    def yara_scan_worker():
+        """Worker function for YARA scan."""
+        if stop_event.is_set():
+            return
+        try:
+            yara_match, yara_result, is_vmprotect = scan_yara(file_path)
+
+            with thread_lock_real_time:
+                # Always update vmprotect status if found
+                if is_vmprotect:
+                    results['is_vmprotect'] = True
+
+                # If malware is found and no other thread has found malware yet
+                if yara_match and yara_match not in ("Clean", ""):
+                    if not results['malware_found']:
+                        if sig_valid:
+                            yara_match = f"{yara_match}.SIG"
+                        logger.critical(
+                            f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
+                        )
+                        results['malware_found'] = True
+                        results['virus_name'] = yara_match
+                        results['engine'] = "YARA"
+                        stop_event.set()  # Signal other threads to stop
+                elif not results['malware_found']:
+                     logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
+
+    def tar_scan_worker():
+        """Worker function for TAR scan"""
+        if stop_event.is_set():
+            return
+        try:
+            if tarfile.is_tarfile(file_path):
+                scan_result, virus_name = scan_tar_file(file_path)
+                if scan_result and virus_name not in ("Clean", "F", "", [], None):
+                    virus_str = str(virus_name) if virus_name else "Unknown"
+                    if sig_valid:
+                        virus_str = f"{virus_str}.SIG"
+                    logger.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
+
+                    with thread_lock_real_time:
+                        if not results['malware_found']:
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_str
+                            results['engine'] = "TAR"
+                            stop_event.set()
+                else:
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in TAR file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning TAR file: {file_path}. Error: {ferr}")
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
+
+    def zip_scan_worker():
+        """Worker function for ZIP scan"""
+        if stop_event.is_set():
+            return
+        try:
+            if is_zip_file(file_path):
+                scan_result, virus_name = scan_zip_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if sig_valid:
+                        virus_name = f"{virus_name}.SIG"
+                    logger.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+
+                    with thread_lock_real_time:
+                        if not results['malware_found']:
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_name
+                            results['engine'] = "ZIP"
+                            stop_event.set()
+                else:
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in ZIP file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning ZIP file: {file_path}. Error: {ferr}")
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
+
+    def sevenz_scan_worker():
+        """Worker function for 7z scan"""
+        if stop_event.is_set():
+            return
+        try:
+            if is_7z_file_from_output(die_output):
+                scan_result, virus_name = scan_7z_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if sig_valid:
+                        virus_name = f"{virus_name}.SIG"
+                    logger.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
+
+                    with thread_lock_real_time:
+                        if not results['malware_found']:
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_name
+                            results['engine'] = "7z"
+                            stop_event.set()
+                else:
+                    if not stop_event.is_set():
+                        logger.info(f"No malware detected in 7z file: {file_path}")
+        except (PermissionError, FileNotFoundError) as ferr:
+            logger.error(f"File error occurred while scanning 7Z file: {file_path}. Error: {ferr}")
+        except Exception as ex:
+            logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
+
+    try:
+        # Create and start all threads
+        workers = [
+            pe_scan_worker,
+            clamav_scan_worker,
+            yara_scan_worker,
+            tar_scan_worker,
+            zip_scan_worker,
+            sevenz_scan_worker
+        ]
+
+        threads = []
+        for worker in workers:
+            t = threading.Thread(target=worker)
+            t.daemon = True # Allows main thread to exit if workers are stuck
+            t.start()
+            threads.append(t)
+
+        # Wait for either the first detection or for all threads to complete.
+        while any(t.is_alive() for t in threads):
+            if stop_event.is_set():
+                logger.info(f"Detection found for {file_path}, stopping other scan threads.")
+                break
+            time.sleep(0)  # Polling interval to check for completion or stop signal
+
+        # Final decision is made based on the 'results' dict, which is updated
+        # by the worker threads under a lock.
+        with thread_lock_real_time:
+            if results.get('malware_found'):
+                return True, results.get('virus_name', ""), results.get('engine', ""), results.get('is_vmprotect', False)
+            else:
+                logger.info(f"File is clean - no malware detected by any engine: {file_path}")
+                return False, "Clean", "", results.get('is_vmprotect', False)
+
+    except Exception as ex:
+        logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
+        return False, "Error", "", None
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -9248,7 +9246,7 @@ class OLE2Handler:
             macro_count += 1
 
             # Create safe filename
-            safe_name = self._sanitize_filename(vba_filename)
+            safe_name = sanitize_filename(vba_filename)
             output_file = os.path.join(output_dir, f"macro_{macro_count}_{safe_name}.vba")
 
             # Save macro with metadata
@@ -9410,16 +9408,6 @@ class OLE2Handler:
         except Exception as e:
             logger.error(f"Error in advanced deobfuscation: {e}")
 
-    def _sanitize_filename(self, filename: str) -> str:
-        """
-        Create a safe filename by removing invalid characters.
-        """
-        # Remove or replace invalid characters
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            filename = filename.replace(char, '_')
-        return filename[:100]  # Limit length
-
     def extract_iocs(self, analysis_file: str) -> List[Tuple[str, str]]:
         """
         Parse analysis results file to extract IOCs.
@@ -9457,6 +9445,10 @@ class OLE2Handler:
             logger.error(f"Error extracting IOCs: {e}")
 
         return iocs
+
+def is_malicious_file(file_path, size_limit_kb):
+    """ Check if the file is less than the given size limit """
+    return os.path.getsize(file_path) < size_limit_kb * 1024
 
 def nexe_unpacker(file_path) -> list:
     """
@@ -9503,6 +9495,136 @@ def nexe_unpacker(file_path) -> list:
     except Exception as ex:
         logger.error(f"Error processing nexe file {file_path}: {ex}")
         return []
+
+def check_hosts_file_for_blocked_antivirus():
+    """
+    Scan hosts_path for any entries that match one of your lists:
+      - IPv4 whitelist
+      - IPv6 whitelist
+      - Exact domain whitelist
+      - Mail-domain whitelist
+      - Subdomain whitelist
+      - Mail-subdomain whitelist
+      - Antivirus domain list
+
+    For each category that triggers, we call notify_user_hosts() with its
+    specific HEUR signature. Returns True if anything was flagged.
+    """
+    # Precompile antivirus regex
+    ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$'
+                    for d in antivirus_domains_data]
+    antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
+
+    # Buckets for each reason
+    flagged = {
+        'ipv4': set(),
+        'ipv6': set(),
+        'domain': set(),
+        'mail_domain': set(),
+        'sub_domain': set(),
+        'mail_sub_domain': set(),
+        'antivirus': set(),
+    }
+
+    try:
+        if not os.path.exists(hosts_path):
+            return False
+
+        with open(hosts_path, 'r') as hf:
+            for raw in hf:
+                line = raw.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = re.split(r'\s+', line)
+                ip = parts[0]
+                hosts = parts[1:]
+
+                # IP-based buckets
+                if ip in ipv4_whitelist_data:
+                    flagged['ipv4'].update(hosts)
+                if ip in ipv6_whitelist_data:
+                    flagged['ipv6'].update(hosts)
+
+                for host in hosts:
+                    # Exact domain
+                    if host in whitelist_domains_data:
+                        flagged['domain'].add(host)
+                        continue
+                    # Exact mail-domain
+                    if host in whitelist_domains_mail_data:
+                        flagged['mail_domain'].add(host)
+                        continue
+                    # Subdomain
+                    if any(host.endswith('.' + d) for d in whitelist_sub_domains_data):
+                        flagged['sub_domain'].add(host)
+                        continue
+                    # Mail subdomain
+                    if any(host.endswith('.' + d) for d in whitelist_mail_sub_domains_data):
+                        flagged['mail_sub_domain'].add(host)
+                        continue
+                    # Antivirus pattern
+                    if antivirus_re.search(host):
+                        flagged['antivirus'].add(host)
+
+        any_flagged = False
+
+        # Emit pre-bucket notifications
+        if flagged['ipv4']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
+                details=list(flagged['ipv4'])
+            )
+        if flagged['ipv6']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
+                details=list(flagged['ipv6'])
+            )
+        if flagged['domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
+                details=list(flagged['domain'])
+            )
+        if flagged['mail_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
+                details=list(flagged['mail_domain'])
+            )
+        if flagged['sub_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
+                details=list(flagged['sub_domain'])
+            )
+        if flagged['mail_sub_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
+                details=list(flagged['mail_sub_domain'])
+            )
+        if flagged['antivirus']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
+                details=list(flagged['antivirus'])
+            )
+
+        return any_flagged
+
+    except Exception as ex:
+        logger.error(f"Error reading hosts file: {ex}")
+        return False
 
 # --- Updated scan_and_warn with main_file_path propagation ---
 @run_in_thread
@@ -11225,140 +11347,6 @@ class SafeProcessMonitor:
             logger.error(f"Fatal error in memory monitor: {e}")
         finally:
             self.cleanup()
-
-def check_hosts_file_for_blocked_antivirus():
-    """
-    Scan hosts_path for any entries that match one of your lists:
-      - IPv4 whitelist
-      - IPv6 whitelist
-      - Exact domain whitelist
-      - Mail-domain whitelist
-      - Subdomain whitelist
-      - Mail-subdomain whitelist
-      - Antivirus domain list
-
-    For each category that triggers, we call notify_user_hosts() with its
-    specific HEUR signature. Returns True if anything was flagged.
-    """
-    # Precompile antivirus regex
-    ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$'
-                    for d in antivirus_domains_data]
-    antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
-
-    # Buckets for each reason
-    flagged = {
-        'ipv4': set(),
-        'ipv6': set(),
-        'domain': set(),
-        'mail_domain': set(),
-        'sub_domain': set(),
-        'mail_sub_domain': set(),
-        'antivirus': set(),
-    }
-
-    try:
-        if not os.path.exists(hosts_path):
-            return False
-
-        with open(hosts_path, 'r') as hf:
-            for raw in hf:
-                line = raw.strip()
-                if not line or line.startswith('#'):
-                    continue
-
-                parts = re.split(r'\s+', line)
-                ip = parts[0]
-                hosts = parts[1:]
-
-                # IP-based buckets
-                if ip in ipv4_whitelist_data:
-                    flagged['ipv4'].update(hosts)
-                if ip in ipv6_whitelist_data:
-                    flagged['ipv6'].update(hosts)
-
-                for host in hosts:
-                    # Exact domain
-                    if host in whitelist_domains_data:
-                        flagged['domain'].add(host)
-                        continue
-                    # Exact mail-domain
-                    if host in whitelist_domains_mail_data:
-                        flagged['mail_domain'].add(host)
-                        continue
-                    # Subdomain
-                    if any(host.endswith('.' + d) for d in whitelist_sub_domains_data):
-                        flagged['sub_domain'].add(host)
-                        continue
-                    # Mail subdomain
-                    if any(host.endswith('.' + d) for d in whitelist_mail_sub_domains_data):
-                        flagged['mail_sub_domain'].add(host)
-                        continue
-                    # Antivirus pattern
-                    if antivirus_re.search(host):
-                        flagged['antivirus'].add(host)
-
-        any_flagged = False
-
-        # Emit pre-bucket notifications
-        if flagged['ipv4']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
-                details=list(flagged['ipv4'])
-            )
-        if flagged['ipv6']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
-                details=list(flagged['ipv6'])
-            )
-        if flagged['domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
-                details=list(flagged['domain'])
-            )
-        if flagged['mail_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
-                details=list(flagged['mail_domain'])
-            )
-        if flagged['sub_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
-                details=list(flagged['sub_domain'])
-            )
-        if flagged['mail_sub_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
-                details=list(flagged['mail_sub_domain'])
-            )
-        if flagged['antivirus']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
-                details=list(flagged['antivirus'])
-            )
-
-        return any_flagged
-
-    except Exception as ex:
-        logger.error(f"Error reading hosts file: {ex}")
-        return False
-
-def is_malicious_file(file_path, size_limit_kb):
-    """ Check if the file is less than the given size limit """
-    return os.path.getsize(file_path) < size_limit_kb * 1024
 
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
