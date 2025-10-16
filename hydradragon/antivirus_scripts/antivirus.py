@@ -4527,10 +4527,6 @@ def monitor_suricata_log():
             except Exception as ex:
                 logger.info(f"Error processing line: {ex}")
 
-reload_clamav_database()
-load_website_data()
-load_antivirus_list()
-
 # ---------------------------
 # Helper functions
 # ---------------------------
@@ -4797,11 +4793,39 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         logger.error(f"Error loading {name}: {ex}")
         return None
 
-yarGen_rule   = load_yara_rule(yarGen_rule_path, display_name="yarGen Rules")
-icewater_rule = load_yara_rule(icewater_rule_path, display_name="Icewater Rules")
-valhalla_rule = load_yara_rule(valhalla_rule_path, display_name="Vallhalla Demo Rules")
-clean_rules   = load_yara_rule(clean_rules_path, display_name="(clean) YARA Rules")
-yaraxtr_rule  = load_yara_rule(yaraxtr_yrc_path, display_name="YARA-X yaraxtr Rules", is_yara_x=True)
+def load_all_resources():
+    """
+    Load ClamAV database, website data, antivirus list, and YARA rules concurrently in threads,
+    and wait for all threads to complete.
+    """
+
+    # Helper function to load a YARA rule
+    def load_yara(path, display_name, is_yara_x=False):
+        load_yara_rule(path, display_name=display_name, is_yara_x=is_yara_x)
+
+    # Define threads for all resources
+    threads = [
+        threading.Thread(target=reload_clamav_database),
+        threading.Thread(target=load_website_data),
+        threading.Thread(target=load_antivirus_list),
+        threading.Thread(target=load_yara, args=(yarGen_rule_path, "yarGen Rules")),
+        threading.Thread(target=load_yara, args=(icewater_rule_path, "Icewater Rules")),
+        threading.Thread(target=load_yara, args=(valhalla_rule_path, "Vallhalla Demo Rules")),
+        threading.Thread(target=load_yara, args=(clean_rules_path, "(clean) YARA Rules")),
+        threading.Thread(target=load_yara, args=(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True)),
+    ]
+
+    # Start all threads
+    for t in threads:
+        t.start()
+
+    # Wait for all threads to finish
+    for t in threads:
+        t.join()
+
+    logger.info("All databases, website data, antivirus lists, and YARA rules are loaded.")
+
+load_all_resources()
 
 # List to keep track of existing project names
 existing_projects = []
