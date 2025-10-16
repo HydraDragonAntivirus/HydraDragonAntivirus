@@ -4844,7 +4844,8 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-load_all_resources_non_blocking()
+# Start load_all_resources_non_blocking() in a separate thread
+threading.Thread(target=load_all_resources_non_blocking).start()
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
