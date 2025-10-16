@@ -11378,19 +11378,23 @@ def periodic_yield_worker(yield_interval=0.1):
 def start_real_time_protection():
     """
     Starts real-time protection by launching multiple monitoring threads.
-    Monitors system activities including network traffic, web protection,
-    startup directories, and pipe integration.
+    Waits for all resources to be loaded before starting monitoring.
+    Blocks until all monitoring threads finish.
     """
     global analysis_threads
     global thread_function_map  # Track thread -> function
 
     try:
-        logger.info("Starting real-time protection...")
+        logger.info("Waiting for all resources to be loaded...")
+        # Wait until all resources are loaded
+        all_resources_loaded.wait()
+        logger.info("All resources loaded. Starting real-time protection...")
 
         analysis_threads = []
         thread_function_map = {}
 
         def create_monitored_thread(target_func, *args, **kwargs):
+            """Wrap target function with exception handling and track it."""
             def monitored_wrapper():
                 try:
                     target_func(*args, **kwargs)
@@ -11402,30 +11406,23 @@ def start_real_time_protection():
             thread_function_map[thread] = target_func.__name__
             return thread
 
+        # List of functions to start
         threads_to_start = [
-            (monitor_suricata_log,),
-            (web_protection_observer.begin_observing,),
-            (start_all_pipe_listeners,),
+            monitor_suricata_log,
+            web_protection_observer.begin_observing,
+            start_all_pipe_listeners,
         ]
 
-        for thread_info in threads_to_start:
-            target_func = thread_info[0]
-            args = thread_info[1] if len(thread_info) > 1 else ()
-
-            thread = create_monitored_thread(target_func, *args)
+        # Start all monitoring threads
+        for func in threads_to_start:
+            thread = create_monitored_thread(func)
             thread.start()
 
-        # Monitor threads in separate thread
-        def monitor_threads():
-            while any(thread.is_alive() for thread in analysis_threads):
-                time.sleep(0.1)
+        # Monitor threads in the main thread (blocking)
+        while any(thread.is_alive() for thread in analysis_threads):
+            time.sleep(0.1)
 
-        monitor_thread = threading.Thread(target=monitor_threads)
-        monitor_thread.start()
-
-        # Wait for monitoring thread to finish
-        monitor_thread.join()
-
+        logger.info("All real-time protection threads have finished.")
         return "[+] Real-time protection completed successfully"
 
     except Exception as ex:
