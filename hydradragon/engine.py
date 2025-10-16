@@ -866,14 +866,6 @@ class AntivirusApp(QWidget):
         except Exception as e:
             self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
 
-    def analyze_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
-        if file_path:
-            self.append_log_output(f"[*] Selected file for analysis: {file_path}")
-            self.start_worker("analyze_file", file_path)
-        else:
-            self.append_log_output("[*] File selection cancelled.")
-
     def perform_hayabusa_search(self):
         if not hasattr(self, 'search_input'):
             self.append_log_output("[!] Search input not available.")
