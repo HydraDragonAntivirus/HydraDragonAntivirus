@@ -546,7 +546,7 @@ from .path_and_variables import (
     suricata_config_path,
     suricata_exe_path,
     seven_zip_path,
-    libclamav_path,    
+    libclamav_path,
     clamav_database_directory_path,
 
 )
@@ -2647,6 +2647,13 @@ class RealTimeWebProtectionObserver:
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
+# Global variables for rules
+yarGen_rules = None
+icewater_rules = None
+valhalla_rules = None
+clean_rules = None
+yaraxtr_rules = None
+
 def scan_yara(file_path):
     """Scan file with multiple YARA rule sets in parallel using threads.
 
@@ -4497,13 +4504,6 @@ resource_threads = {}
 # Event to indicate all resources finished loading
 all_resources_loaded = threading.Event()
 
-# Global variables for rules
-yarGen_rules = None
-icewater_rules = None
-valhalla_rules = None
-clean_rules = None
-yaraxtr_rules = None
-
 # List to keep track of existing project names
 existing_projects = []
 
@@ -4516,14 +4516,58 @@ def load_all_resources_non_blocking():
     Start all resource-loading threads immediately (non-blocking).
     Sets all_resources_loaded when all threads are done.
     """
+    def load_yargen():
+        global yarGen_rules
+        yarGen_rules = load_yara_rule(yarGen_rule_path, "yarGen Rules")
+
+    def load_icewater():
+        global icewater_rules
+        icewater_rules = load_yara_rule(icewater_rule_path, "Icewater Rules")
+
+    def load_valhalla():
+        global valhalla_rules
+        valhalla_rules = load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules")
+
+    def load_clean():
+        global clean_rules
+        clean_rules = load_yara_rule(clean_rules_path, "(clean) YARA Rules")
+
+    def load_yaraxtr():
+        global yaraxtr_rules
+        yaraxtr_rules = load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
+
+    def load_clamav_engine():
+        global clamav_scanner
+        clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
+
+    def load_ml_defs():
+        global ml_definitions
+        ml_definitions = None
+        try:
+            ml_definitions = load_ml_definitions_pickle(machine_learning_pickle_path)
+        except Exception as e:
+            logger.error(f"Error loading ML definitions: {e}")
+
+    def load_excluded():
+        global excluded_rules
+        excluded_rules = []
+        try:
+            with open(excluded_rules_path, "r") as f:
+                excluded_rules = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            logger.error(f"Error loading excluded rules: {e}")
+
     tasks = {
         "load_website_data": load_website_data,
         "load_antivirus_list": load_antivirus_list,
-        "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
-        "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
-        "valhalla_rules": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
-        "clean_rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
-        "yaraxtr_rules": lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
+        "yarGen_rules": load_yargen,
+        "icewater_rules": load_icewater,
+        "valhalla_rules": load_valhalla,
+        "(clean) rules": load_clean,
+        "yaraxtr_rules": load_yaraxtr,
+        "clamav_scanner": load_clamav_engine,
+        "ml_definitions": load_ml_defs,
+        "excluded_rules": load_excluded
     }
 
     # Start each task in its own thread
@@ -4531,14 +4575,15 @@ def load_all_resources_non_blocking():
         def safe_task(f=func, n=name):
             try:
                 f()
+                logger.info(f"{n} loaded")
             except Exception as e:
-                logger.error(f"Error in resource {n}: {e}")
+                logger.error(f"Error loading {n}: {e}")
 
         thread = threading.Thread(target=safe_task, name=f"Resource_{name}")
         thread.start()
         resource_threads[name] = thread
 
-    logger.info("All resource-loading threads started (non-blocking).")
+    logger.info("All resource loading threads started (non-blocking)")
 
     # Monitoring thread to set the flag when all threads finish
     def monitor_all_resources():
@@ -4546,33 +4591,11 @@ def load_all_resources_non_blocking():
             # Check if all threads are done
             if all(not t.is_alive() for t in resource_threads.values()):
                 all_resources_loaded.set()
-                logger.info("All resources finished loading.")
+                logger.info("All resources finished loading")
                 break
-            time.sleep(0.05)  # small sleep to avoid busy-waiting
+            time.sleep(0.05)
 
-    threading.Thread(target=monitor_all_resources).start()
-
-# ---------------------------
-# Usage
-# ---------------------------
-try:
-    success = load_ml_definitions_pickle(machine_learning_pickle_path)
-    if not success:
-        logger.error("ML definitions could not be loaded properly.")
-except Exception as ex:
-    logger.exception(f"Unexpected error while loading ML definitions: {ex}")
-
-try:
-    # Load excluded rules from text file
-    with open(excluded_rules_path, "r") as excluded_file:
-        excluded_rules = [line.strip() for line in excluded_file if line.strip()]
-        logger.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
-except FileNotFoundError:
-    logger.error(f"Excluded rules file not found: {excluded_rules_path}")
-    excluded_rules = []
-except Exception as ex:
-    logger.error(f"Error loading excluded rules: {ex}")
-    excluded_rules = []
+    threading.Thread(target=monitor_all_resources, name="ResourceMonitor").start()
 
 # Start load_all_resources_non_blocking() in a separate thread
 threading.Thread(target=load_all_resources_non_blocking).start()
@@ -7164,11 +7187,11 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
     try:
         jadx_dir = os.path.join(script_dir, "jadx-1.5.3")
         jadx_bin = os.path.join(jadx_dir, "bin", "jadx")
-        
+
         # Use .bat for Windows, regular jadx for Unix
         if os.name == 'nt':
             jadx_bin += ".bat"
-        
+
         if not os.path.exists(jadx_bin):
             logger.warning(f"JADX binary not found at {jadx_bin}")
             return False
@@ -7176,7 +7199,7 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
         # Find a free output folder number
         jadx_decompiled_dir = os.path.join(script_dir, "jadx_decompiled")
         os.makedirs(jadx_decompiled_dir, exist_ok=True)
-        
+
         folder_number = 1
         while os.path.exists(os.path.join(jadx_decompiled_dir, str(folder_number))):
             folder_number += 1
@@ -7188,7 +7211,7 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
             "-d", output_dir,
             file_path
         ]
-        
+
         logger.info(f"Running JADX decompilation: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with JADX to {output_dir}")
@@ -7207,7 +7230,7 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
                         files_scanned += 1
                     except Exception as ex:
                         logger.error(f"Error scanning {full_path}: {ex}")
-        
+
         logger.info(f"JADX: Scanned {files_scanned} files")
         return True
 
@@ -7242,7 +7265,7 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
             "-o", output_dir,
             file_path
         ]
-        
+
         logger.info(f"Running Androguard decompilation: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with Androguard to {output_dir}")
@@ -7261,7 +7284,7 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
                         files_scanned += 1
                     except Exception as ex:
                         logger.error(f"Error scanning {full_path}: {ex}")
-        
+
         logger.info(f"Androguard: Scanned {files_scanned} files")
         return True
 
@@ -7286,7 +7309,7 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
 
         # Try JADX first
         success = _try_jadx_decompile(file_path, main_file_path)
-        
+
         if not success:
             logger.warning("JADX decompilation failed, falling back to Androguard...")
             _try_androguard_decompile(file_path, main_file_path)
