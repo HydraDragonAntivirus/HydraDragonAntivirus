@@ -4797,6 +4797,10 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
 all_resources_loaded = threading.Event()
 
 def load_all_resources_non_blocking():
+    """
+    Starts loading ClamAV, website data, antivirus list, and YARA rules concurrently.
+    Non-blocking: returns immediately while resources load in background threads.
+    """
     tasks = [
         lambda: reload_clamav_database(),
         lambda: load_website_data(),
@@ -4812,24 +4816,26 @@ def load_all_resources_non_blocking():
         try:
             func()
         except Exception as e:
-            logger.error(f"Error in task {func}: {e}")
+            logger.error(f"Error loading resource in {func}: {e}")
 
-    # Start all tasks concurrently in threads
-    executor = ThreadPoolExecutor(max_workers=len(tasks))
-    futures = [executor.submit(safe_task, task) for task in tasks]
+    def background_loader():
+        # Run all tasks concurrently in threads
+        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+            futures = [executor.submit(safe_task, task) for task in tasks]
 
-    # Background thread to set the flag when all tasks are done
-    def monitor_completion():
-        for _ in as_completed(futures):
-            pass
+            # Wait for all tasks to finish
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Exception in resource loader: {e}")
+
         all_resources_loaded.set()
-        logger.info("All resources have finished loading.")
+        logger.info("All resources loaded successfully.")
 
-    threading.Thread(target=monitor_completion, daemon=True).start()
-
-    logger.info("All resources started concurrently (non-blocking).")
-
-load_all_resources_non_blocking()
+    # Start background thread for loading
+    threading.Thread(target=background_loader, daemon=True).start()
+    logger.info("Started loading all resources (non-blocking).")
 
 # List to keep track of existing project names
 existing_projects = []
@@ -4837,6 +4843,8 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
+
+load_all_resources_non_blocking()
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -11377,24 +11385,21 @@ def periodic_yield_worker(yield_interval=0.1):
 
 def start_real_time_protection():
     """
-    Starts real-time protection by launching multiple monitoring threads.
-    Waits for all resources to be loaded before starting monitoring.
+    Starts real-time protection threads.
     Blocks until all monitoring threads finish.
     """
     global analysis_threads
-    global thread_function_map  # Track thread -> function
+    global thread_function_map
 
     try:
-        logger.info("Waiting for all resources to be loaded...")
-        # Wait until all resources are loaded
-        all_resources_loaded.wait()
-        logger.info("All resources loaded. Starting real-time protection...")
+        logger.info("Waiting for all resources to load before starting protection...")
+        all_resources_loaded.wait()  # Wait for resource loading
+        logger.info("Resources loaded. Starting real-time protection...")
 
         analysis_threads = []
         thread_function_map = {}
 
         def create_monitored_thread(target_func, *args, **kwargs):
-            """Wrap target function with exception handling and track it."""
             def monitored_wrapper():
                 try:
                     target_func(*args, **kwargs)
@@ -11406,7 +11411,7 @@ def start_real_time_protection():
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        # List of functions to start
+        # List of monitoring functions
         threads_to_start = [
             monitor_suricata_log,
             web_protection_observer.begin_observing,
@@ -11418,18 +11423,17 @@ def start_real_time_protection():
             thread = create_monitored_thread(func)
             thread.start()
 
-        # Monitor threads in the main thread (blocking)
-        while any(thread.is_alive() for thread in analysis_threads):
-            time.sleep(0.1)
+        # Wait for all monitoring threads to finish
+        for thread in analysis_threads:
+            thread.join()
 
-        logger.info("All real-time protection threads have finished.")
+        logger.info("All real-time protection threads finished.")
         return "[+] Real-time protection completed successfully"
 
     except Exception as ex:
         error_message = f"An error occurred during real-time protection: {ex}"
         logger.error(error_message)
         return error_message
-
 
 def run_real_time_protection_with_yield():
     """
