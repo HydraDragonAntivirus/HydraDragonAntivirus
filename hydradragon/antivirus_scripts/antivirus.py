@@ -4411,97 +4411,57 @@ def is_suricata_running():
 
 def run_suricata():
     """
-    Run Suricata as a process using command line.
+    Run Suricata in PCAP mode on all available interfaces.
     """
     try:
-        # Validate paths exist
-        if not os.path.exists(suricata_exe_path):
-            logger.error(f"Suricata executable not found at: {suricata_exe_path}")
-            return False
-
-        if not os.path.exists(suricata_config_path):
-            logger.error(f"Suricata config not found at: {suricata_config_path}")
-            return False
-
-        # Check if executable has proper permissions
-        if not os.access(suricata_exe_path, os.X_OK):
-            logger.error(f"Suricata executable is not executable: {suricata_exe_path}")
-            return False
-
-        # Check if config file is readable
-        if not os.access(suricata_config_path, os.R_OK):
-            logger.error(f"Suricata config is not readable: {suricata_config_path}")
-            return False
-
-        # Ensure log directory exists
-        if not os.path.exists(suricata_log_dir):
-            try:
-                os.makedirs(suricata_log_dir, exist_ok=True)
-                logger.info(f"Created Suricata log directory: {suricata_log_dir}")
-            except OSError as e:
-                logger.error(f"Failed to create log directory {suricata_log_dir}: {e}")
+        # Validate paths
+        for path, desc in [(suricata_exe_path, "Suricata executable"),
+                           (suricata_config_path, "Suricata config")]:
+            if not os.path.exists(path):
+                logger.error(f"{desc} not found at: {path}")
+                return False
+            if not os.access(path, os.R_OK | os.X_OK):
+                logger.error(f"{desc} is not accessible: {path}")
                 return False
 
-        # Verify log directory is writable
+        # Ensure log directory exists
+        os.makedirs(suricata_log_dir, exist_ok=True)
         if not os.access(suricata_log_dir, os.W_OK):
             logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
             return False
 
         # Check if Suricata is already running
-        if is_suricata_running():
+        if 'is_suricata_running' in globals() and is_suricata_running():
             logger.info("Suricata process is already running.")
             return True
 
-        # Log the paths being used
-        logger.info(f"Using Suricata executable: {suricata_exe_path}")
-        logger.info(f"Using Suricata config: {suricata_config_path}")
+        # Build Suricata command for PCAP mode
+        suricata_cmd = [suricata_exe_path, "-c", suricata_config_path, "--pcap"]
 
-        # Build the Suricata command
-        suricata_cmd = [
-            suricata_exe_path,
-            "-c", suricata_config_path
-        ]
+        logger.info(f"Starting Suricata in PCAP mode with command: {' '.join(suricata_cmd)}")
 
-        logger.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
-
-        # Start Suricata process
         process = subprocess.Popen(
             suricata_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            text=True
         )
 
-        logger.info(f"Suricata started with PID: {process.pid}")
-
-        # Wait a moment to check if process started successfully
-        import time
-        time.sleep(1)
-
-        # Check if process is still running
+        # Immediately check if process started
         if process.poll() is None:
-            logger.info("Suricata process is running successfully")
+            logger.info(f"Suricata running in PCAP mode (PID: {process.pid})")
             return True
         else:
-            # Process exited, get error output
             stdout, stderr = process.communicate()
-            logger.error(f"Suricata process exited with code: {process.returncode}")
+            logger.error(f"Suricata failed to start with code {process.returncode}")
             if stdout:
-                logger.error(f"Suricata stdout: {stdout.decode('utf-8', errors='ignore')}")
+                logger.error(f"stdout:\n{stdout}")
             if stderr:
-                logger.error(f"Suricata stderr: {stderr.decode('utf-8', errors='ignore')}")
+                logger.error(f"stderr:\n{stderr}")
             return False
 
-    except FileNotFoundError as ex:
-        logger.error(f"Suricata executable not found: {ex}")
-        return False
-    except PermissionError as ex:
-        logger.error(f"Permission denied when starting Suricata: {ex}")
-        return False
-    except subprocess.SubprocessError as ex:
-        logger.error(f"Failed to start Suricata process: {ex}")
-        return False
     except Exception as ex:
-        logger.error(f"Unexpected error when running Suricata: {ex}")
+        logger.error(f"Unexpected error: {ex}")
         logger.exception("Full traceback:")
         return False
 
