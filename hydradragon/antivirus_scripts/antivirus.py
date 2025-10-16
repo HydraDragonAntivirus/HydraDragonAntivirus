@@ -70,8 +70,8 @@ import threading
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor, as_completed
-logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
+from concurrent.futures import ThreadPoolExecutor
+logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
@@ -4794,27 +4794,25 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         return None
 
 def load_all_resources():
+    # Define all load functions
     tasks = [
-        reload_clamav_database,
-        load_website_data,
-        load_antivirus_list,
+        lambda: reload_clamav_database(),
+        lambda: load_website_data(),
+        lambda: load_antivirus_list(),
         lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
         lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
         lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
         lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
-        lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
+        lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
     ]
 
+    # Use max_workers > 1 to start them all concurrently
     with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
         futures = [executor.submit(task) for task in tasks]
+        for future in futures:
+            future.result()  # wait and capture exceptions
 
-        for future in as_completed(futures):
-            try:
-                future.result()  # wait for task completion and capture exceptions
-            except Exception as e:
-                logger.error(f"Error loading resource: {e}")
-
-    logger.info("All resources loaded using ThreadPoolExecutor.")
+    logger.info("All resources started concurrently.")
 
 load_all_resources()
 
