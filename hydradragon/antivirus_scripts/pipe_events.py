@@ -129,7 +129,7 @@ def _is_system_executable(path: str) -> bool:
     """Return True if the path refers to a Windows system executable.
 
     Heuristics used:
-    - Path is under %SystemRoot% (e.g., C:\Windows) or System32/Sysnative
+    - Path is under %SystemRoot% (e.g., C:\\Windows) or System32/Sysnative
     - Filename matches a small allowlist of well-known system executables
     """
     if not path:
