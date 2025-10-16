@@ -359,8 +359,8 @@ from .notify_user import (
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pipe_events import start_dual_pipe_integration
-logger.debug(f"pipe_events.start_dua_pipe_integration loaded in {time.time() - start_time:.6f} seconds")
+from .pipe_events import start_all_pipe_listeners
+logger.debug(f"pipe_events.start_all_pipe_listeners loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .pattern import (
@@ -11418,7 +11418,7 @@ def start_real_time_protection():
         threads_to_start = [
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
-            (start_dual_pipe_integration,),
+            (start_all_pipe_listeners,),
         ]
 
         for thread_info in threads_to_start:
