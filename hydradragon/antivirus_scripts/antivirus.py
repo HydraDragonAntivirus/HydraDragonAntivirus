@@ -3003,10 +3003,6 @@ def scan_yara(file_path):
             thread.start()
             threads.append(thread)
 
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
-
         # Run YARA-X scanning sequentially in the main thread AFTER threads complete
         # This avoids all thread safety issues with Rust-based yara_x objects
         if yaraxtr_rules:
