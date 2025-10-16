@@ -70,8 +70,8 @@ import threading
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor
-logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
+from concurrent.futures import ThreadPoolExecutor, as_completed
+logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
@@ -4793,8 +4793,10 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         logger.error(f"Error loading {name}: {ex}")
         return None
 
-def load_all_resources():
-    # Define all load functions
+# Thread-safe flag to indicate when all resources are loaded
+all_resources_loaded = threading.Event()
+
+def load_all_resources_non_blocking():
     tasks = [
         lambda: reload_clamav_database(),
         lambda: load_website_data(),
@@ -4806,15 +4808,28 @@ def load_all_resources():
         lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
     ]
 
-    # Use max_workers > 1 to start them all concurrently
-    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
-        futures = [executor.submit(task) for task in tasks]
-        for future in futures:
-            future.result()  # wait and capture exceptions
+    def safe_task(func):
+        try:
+            func()
+        except Exception as e:
+            logger.error(f"Error in task {func}: {e}")
 
-    logger.info("All resources started concurrently.")
+    # Start all tasks concurrently in threads
+    executor = ThreadPoolExecutor(max_workers=len(tasks))
+    futures = [executor.submit(safe_task, task) for task in tasks]
 
-load_all_resources()
+    # Background thread to set the flag when all tasks are done
+    def monitor_completion():
+        for _ in as_completed(futures):
+            pass
+        all_resources_loaded.set()
+        logger.info("All resources have finished loading.")
+
+    threading.Thread(target=monitor_completion, daemon=True).start()
+
+    logger.info("All resources started concurrently (non-blocking).")
+
+load_all_resources_non_blocking()
 
 # List to keep track of existing project names
 existing_projects = []
