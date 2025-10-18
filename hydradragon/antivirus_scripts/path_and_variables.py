@@ -2,11 +2,14 @@ import os
 import sys
 import threading
 import ctypes
+from pathlib import Path
 from hydra_logger import script_dir
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
 
+# Global instance (will be created by load_website_data)
+WF = None
 # Define the paths
 jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.3")
 jadx_decompiler_path = os.path.join(jadx_decompiler_dir, "jadx.bat")
@@ -99,39 +102,41 @@ yara_dir = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 html_extracted_dir = os.path.join(script_dir, "html_extracted")
-website_rules_dir = os.path.join(script_dir, "website")
-# Email last 365 days
-spam_email_365_path = os.path.join(website_rules_dir, "listed_email_365.txt")
-# Define all website file paths
-ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.csv")
-ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.csv")
-ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.csv")
-ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.csv")
-ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.csv")
-ipv4_whitelist_path = os.path.join(website_rules_dir, "WhitelistIPv4.csv")
-ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.csv")
-ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.csv")
-ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.csv")
-ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.csv")
-ipv6_whitelist_path = os.path.join(website_rules_dir, "WhiteListIPv6.csv")
-malware_domains_path = os.path.join(website_rules_dir, "MalwareDomains.csv")
-malware_domains_mail_path = os.path.join(website_rules_dir, "MaliciousMailDomains.csv")
-phishing_domains_path = os.path.join(website_rules_dir, "PhishingDomains.csv")
-abuse_domains_path = os.path.join(website_rules_dir, "AbuseDomains.csv")
-mining_domains_path = os.path.join(website_rules_dir, "MiningDomains.csv")
-spam_domains_path = os.path.join(website_rules_dir, "SpamDomains.csv")
-whitelist_domains_path = os.path.join(website_rules_dir, "WhiteListDomains.csv")
-whitelist_domains_mail_path = os.path.join(website_rules_dir, "BenignMailDomains.csv")
-# Define corresponding subdomain files
-malware_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomains.csv")
-malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MaliciousMailSubDomains.csv")
-phishing_sub_domains_path = os.path.join(website_rules_dir, "PhishingSubDomains.csv")
-abuse_sub_domains_path = os.path.join(website_rules_dir, "AbuseSubDomains.csv")
-mining_sub_domains_path = os.path.join(website_rules_dir, "MiningSubDomains.csv")
-spam_sub_domains_path = os.path.join(website_rules_dir, "SpamSubDomains.csv")
-whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomains.csv")
-whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "BenignMailSubDomains.csv")
-urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
+website_rules_dir_normal = os.path.join(script_dir, "website")
+WEBSITE_RULES_DIR = website_rules_dir_normal
+# other small files we still load in original format if present:
+urlhaus_path = WEBSITE_RULES_DIR / "urlhaus.txt"
+spam_email_365_path = WEBSITE_RULES_DIR / "listed_email_365.txt"
+# ----------------- update the path variables to reflect .cuckoo basenames -----------------
+# These variables are used as logical names for lookups below (they were previously CSV path strings).
+ipv4_addresses_path = "IPv4Malware"
+ipv4_addresses_spam_path = "IPv4Spam"
+ipv4_addresses_bruteforce_path = "IPv4BruteForce"
+ipv4_addresses_phishing_active_path = "IPv4PhishingActive"
+ipv4_addresses_phishing_inactive_path = "IPv4PhishingInActive"
+ipv4_whitelist_path = "WhiteListIPv4"
+ipv6_addresses_path = "IPv6Malware"
+ipv6_addresses_spam_path = "IPv6Spam"
+ipv4_addresses_ddos_path = "IPv4DDoS"
+ipv6_addresses_ddos_path = "IPv6DDoS"
+ipv6_whitelist_path = "WhiteListIPv6"
+malware_domains_path = "MalwareDomains"
+malware_domains_mail_path = "MaliciousMailDomains"
+phishing_domains_path = "PhishingDomains"
+abuse_domains_path = "AbuseDomains"
+mining_domains_path = "MiningDomains"
+spam_domains_path = "SpamDomains"
+whitelist_domains_path = "WhiteListDomains"
+whitelist_domains_mail_path = "BenignMailDomains"
+
+malware_sub_domains_path = "MalwareSubDomains"
+malware_mail_sub_domains_path = "MaliciousMailSubDomains"
+phishing_sub_domains_path = "PhishingSubDomains"
+abuse_sub_domains_path = "AbuseSubDomains"
+mining_sub_domains_path = "MiningSubDomains"
+spam_sub_domains_path = "SpamSubDomains"
+whitelist_sub_domains_path = "WhiteListSubDomains"
+whitelist_mail_sub_domains_path = "BenignMailSubDomains"
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
 clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")

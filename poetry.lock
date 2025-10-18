@@ -1044,6 +1044,18 @@ test = ["certifi (>=2024)", "cryptography-vectors (==45.0.5)", "pretend (>=0.7)"
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "cuckoopy"
+version = "0.1.1"
+description = "Cuckoo Filter implementation in Python"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "cuckoopy-0.1.1-py3-none-any.whl", hash = "sha256:7c9a13420753d357df7ced76e8ecc11da1d2e91ede7a546f4ecc6d3de2b50746"},
+    {file = "cuckoopy-0.1.1.tar.gz", hash = "sha256:f89e64ce38414f98c7e032a7590bffd540e422798270f839889e0e479018a8b2"},
+]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 description = "Composable style cycles"
@@ -6666,4 +6678,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "d4bfb30dee372755618578705aa699c458a420783d1c746d09fb81f5a890cd3b"
+content-hash = "0edc4b46b3e4c37527b26647904fd386de8788ed42fed27cc716ab734b533068"
