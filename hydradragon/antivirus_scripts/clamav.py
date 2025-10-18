@@ -192,12 +192,16 @@ class Scanner:
         return f"Error code: {error_code}"
 
     def loadDB(self):
-        """Load ClamAV database with improved error handling"""
+        """
+        Robust DB loader: try loading every file in the DB directory (no extension filtering).
+        Logs which files fail and continues loading the rest. Falls back to directory-level
+        cl_load if individual file loads do not succeed.
+        """
         if not self.libclamav:
             logger.error("libclamav is not loaded, cannot load DB.")
             return False
 
-        logger.debug("Loading ClamAV database...")
+        logger.debug("Loading ClamAV database (robust mode, no extension filtering)...")
 
         with _clamav_lock:
             # Free existing engine
@@ -219,43 +223,100 @@ class Scanner:
                 logger.error(f"Exception creating engine: {e}")
                 return False
 
-            # Load database
+            dbpath_b = _to_bytes_or_none(self.dbpath)
+            if not dbpath_b:
+                logger.error("Invalid database path")
+                return False
+
             try:
-                dbpath_b = _to_bytes_or_none(self.dbpath)
-                if not dbpath_b:
-                    logger.error("Invalid database path")
-                    return False
+                if os.path.isdir(self.dbpath):
+                    logger.debug("Database path is a directory; enumerating all files for per-file load (no extension filtering).")
+                    files = sorted(os.listdir(self.dbpath))
 
-                signo = c_uint()
-                res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
+                    # include every regular file (skip directories and hidden files), skip zero-length files
+                    candidate_files = []
+                    for f in files:
+                        full = os.path.join(self.dbpath, f)
+                        if not os.path.isfile(full):
+                            continue
+                        if f.startswith('.'):
+                            continue
+                        try:
+                            if os.path.getsize(full) == 0:
+                                logger.warning("Skipping zero-length file: %s", full)
+                                continue
+                        except Exception:
+                            # if size can't be determined, still attempt to load it
+                            pass
+                        candidate_files.append(f)
 
-                if res != CL_SUCCESS:
-                    error_msg = self.get_error_message(res)
-                    logger.error(f"cl_load failed: {error_msg}")
-                    return False
+                    loaded_any = False
+                    total_signatures = 0
 
-                # Apply custom engine options here
-                for opt, val in self.engine_options.items():
-                    res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
+                    for fname in candidate_files:
+                        full = os.path.join(self.dbpath, fname)
+                        try:
+                            logger.debug("Attempting to load DB file: %s", full)
+                            full_b = _to_bytes_or_none(full)
+                            local_signo = c_uint(0)
+                            res = self.libclamav.cl_load(full_b, self.engine, byref(local_signo), c_uint(self.dboptions))
+                            if res == CL_SUCCESS:
+                                total_signatures += local_signo.value
+                                loaded_any = True
+                                logger.info("Loaded DB file: %s (signatures=%d)", full, local_signo.value)
+                            else:
+                                err_msg = self.get_error_message(res)
+                                logger.error("Failed to load DB file %s: %s (code=%d)", full, err_msg, res)
+                        except Exception as e:
+                            logger.exception("Exception while loading DB file %s: %s", full, e)
+                            # continue to next file
+
+                    if not loaded_any:
+                        # Nothing loaded — try directory-level load as a fallback
+                        logger.warning("No individual DB files loaded successfully; attempting directory-level load as fallback.")
+                        signo = c_uint(0)
+                        res_all = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
+                        if res_all != CL_SUCCESS:
+                            logger.error("Directory-level cl_load also failed: %s", self.get_error_message(res_all))
+                            return False
+                        else:
+                            logger.info("Directory-level cl_load succeeded. Signatures: %d", signo.value)
+                    else:
+                        logger.debug("Per-file loading done. Total signatures accumulated (approx): %d", total_signatures)
+
+                else:
+                    # dbpath is a single file — try loading directly
+                    logger.debug("Database path is a file; attempting to load directly.")
+                    signo = c_uint(0)
+                    res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
                     if res != CL_SUCCESS:
-                        logger.warning(f"Failed to set engine option {opt}={val}: {self.get_error_message(res)}")
+                        logger.error("cl_load failed for file %s: %s", self.dbpath, self.get_error_message(res))
+                        return False
+
+                # Apply custom engine options
+                for opt, val in self.engine_options.items():
+                    try:
+                        res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
+                        if res != CL_SUCCESS:
+                            logger.warning("Failed to set engine option %s=%s: %s", opt, val, self.get_error_message(res))
+                    except Exception as e:
+                        logger.warning("Exception setting engine option %s=%s: %s", opt, val, e)
 
             except Exception as e:
-                logger.error(f"Exception during cl_load: {e}")
+                logger.exception("Exception during cl_load stage: %s", e)
                 return False
 
             # Compile engine
             try:
                 res = self.libclamav.cl_engine_compile(self.engine)
                 if res != CL_SUCCESS:
-                    error_msg = self.get_error_message(res)
-                    logger.error(f"cl_engine_compile failed: {error_msg}")
+                    logger.error("cl_engine_compile failed: %s", self.get_error_message(res))
                     return False
             except Exception as e:
-                logger.error(f"Exception during cl_engine_compile: {e}")
+                logger.exception("Exception during cl_engine_compile: %s", e)
                 return False
 
-        logger.debug(f"ClamAV database loaded successfully. Signatures: {signo.value}")
+        logger.debug("ClamAV database loaded and engine compiled successfully.")
         return True
 
     def scanFile(self, filepath):
