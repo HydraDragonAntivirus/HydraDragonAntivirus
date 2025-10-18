@@ -346,30 +346,36 @@ def safe_copy_dir(src: Path, dst: Path) -> int:
         log.exception("shutil copy failed: %s", e)
         return 1
 
+def ensure_path_includes(directory: Path) -> bool:
+    """
+    Ensure a directory is in PATH for the current process.
+    Returns True if successful, False otherwise.
+    """
+    if not directory.exists():
+        log.warning("Directory %s does not exist", directory)
+        return False
+    
+    # Get current PATH
+    current_path = os.environ.get("PATH", "")
+    dir_str = str(directory)
+    
+    # Check if already in PATH (case-insensitive on Windows)
+    if dir_str.lower() not in current_path.lower():
+        log.info("Adding to PATH: %s", dir_str)
+        # Prepend to PATH so it takes precedence
+        os.environ["PATH"] = f"{dir_str}{os.pathsep}{current_path}"
+        log.info("Successfully added to PATH: %s", dir_str)
+        return True
+    else:
+        log.debug("Already in PATH: %s", dir_str)
+        return True
+
 def ensure_nodejs_in_path():
     """
     Ensure Node.js bin directory is in PATH for the current process.
     This fixes the 'node is not recognized' error during npm operations.
     """
-    nodejs_path = NODEJS_PATH
-    if not nodejs_path.exists():
-        log.warning("Node.js path %s does not exist", nodejs_path)
-        return False
-    
-    # Get current PATH
-    current_path = os.environ.get("PATH", "")
-    nodejs_str = str(nodejs_path)
-    
-    # Check if already in PATH
-    if nodejs_str.lower() not in current_path.lower():
-        log.info("Adding Node.js to PATH: %s", nodejs_str)
-        # Prepend to PATH so it takes precedence
-        os.environ["PATH"] = f"{nodejs_str}{os.pathsep}{current_path}"
-        log.info("Node.js added to PATH successfully")
-        return True
-    else:
-        log.info("Node.js already in PATH")
-        return True
+    return ensure_path_includes(NODEJS_PATH)
 
 def verify_node_accessible():
     """
@@ -498,10 +504,18 @@ def main():
     # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
-        rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", 
-                     retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
-        if rc != 0:
-            errors.append(("freshclam", rc))
+        # Change to ClamAV directory so it can find its DLLs
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(str(CLAMAV_DIR))
+            log.info("Changed directory to: %s", CLAMAV_DIR)
+            rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", 
+                         retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
+            if rc != 0:
+                errors.append(("freshclam", rc))
+        finally:
+            os.chdir(original_cwd)
+            log.info("Restored directory to: %s", original_cwd)
     else:
         log.warning("freshclam.exe not found at %s", freshclam)
 
@@ -515,18 +529,26 @@ def main():
     HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.6.0-win-x64.exe"
 
     if HAYABUSA_EXE.exists():
-        rc = run_cmd(
-            [str(HAYABUSA_EXE), "update-rules"],
-            "Hayabusa rules update",
-            retries=MAX_RETRIES,
-            retry_delay=RETRY_DELAY,
-            always_log_output=True
-        )
-        if rc != 0:
-            log.warning("Hayabusa update-rules returned rc=%d", rc)
-            errors.append(("hayabusa update-rules", rc))
-        else:
-            log.info("Hayabusa rules updated successfully")
+        # Change to Hayabusa directory so it can find its DLLs
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(str(HAYABUSA_DIR))
+            log.info("Changed directory to: %s", HAYABUSA_DIR)
+            rc = run_cmd(
+                [str(HAYABUSA_EXE), "update-rules"],
+                "Hayabusa rules update",
+                retries=MAX_RETRIES,
+                retry_delay=RETRY_DELAY,
+                always_log_output=True
+            )
+            if rc != 0:
+                log.warning("Hayabusa update-rules returned rc=%d", rc)
+                errors.append(("hayabusa update-rules", rc))
+            else:
+                log.info("Hayabusa rules updated successfully")
+        finally:
+            os.chdir(original_cwd)
+            log.info("Restored directory to: %s", original_cwd)
     else:
         log.warning("hayabusa-3.6.0-win-x64.exe not found at %s", HAYABUSA_EXE)
         log.info("Skipping Hayabusa rules update")
