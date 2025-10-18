@@ -4583,7 +4583,11 @@ def load_all_resources_non_blocking():
 
     def load_clamav_engine():
         global clamav_scanner
-        clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
+        # instantiate scanner inside this thread only (so C-level init doesn't block main thread)
+        try:
+            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
+        except Exception as e:
+            logger.error("Failed to create ClamAV scanner in loader thread: %s", e)
 
     def load_ml_defs():
         global ml_definitions
@@ -4639,10 +4643,13 @@ def load_all_resources_non_blocking():
                 logger.info("All resources finished loading")
                 break
 
-    threading.Thread(target=monitor_all_resources, name="ResourceMonitor").start()
+    monitor_thread = threading.Thread(target=monitor_all_resources, name="ResourceMonitor")
+    monitor_thread.daemon = True
+    monitor_thread.start()
 
-# Start load_all_resources_non_blocking() in a separate thread
-threading.Thread(target=load_all_resources_non_blocking).start()
+# Start load_all_resources_non_blocking()
+starter = threading.Thread(target=load_all_resources_non_blocking, name="ResourceLoaderStarter")
+starter.start()
 
 def reload_clamav_database():
     """
@@ -11422,19 +11429,21 @@ def periodic_yield_worker(yield_interval=0.1):
     windows_yield_cpu()
     time.sleep(yield_interval)
 
-def start_real_time_protection():
+def start_real_time_protection(resource_wait_timeout=30):
     """
     Starts real-time protection threads and RETURNS IMMEDIATELY.
-    This function NEVER calls .join() on monitor threads.
+    This function NEVER blocks waiting for monitor threads or calls .join().
     Threads are started as daemon threads so they won't block process exit.
+
+    :param resource_wait_timeout: seconds to wait for resources to load before starting monitors
     """
     global analysis_threads
     global thread_function_map
 
     try:
-        logger.info("Waiting for resources to load (short timeout to avoid blocking GUI)...")
-        # timeout so GUI doesn't hang if resources hang forever
-        all_resources_loaded.wait(timeout=300)
+        logger.info("Waiting for resources to load (timeout=%ss) before starting protection...", resource_wait_timeout)
+        # Use timeout to avoid blocking main/UI thread indefinitely
+        all_resources_loaded.wait(timeout=resource_wait_timeout)
 
         if not all_resources_loaded.is_set():
             logger.warning("Resources not fully loaded within timeout; starting monitors anyway.")
@@ -11456,7 +11465,7 @@ def start_real_time_protection():
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        # monitoring functions — ensure these functions are cooperative (see notes)
+        # monitoring functions — keep them cooperative (should respect stop_event or return often)
         threads_to_start = [
             monitor_suricata_log,
             web_protection_observer.begin_observing,
@@ -11467,7 +11476,7 @@ def start_real_time_protection():
             t = create_monitored_thread(func)
             t.start()
 
-        logger.info("Real-time protection started in background (no joins).")
+        logger.info("Real-time protection started in background (non-blocking).")
         return "[+] Real-time protection started (background, non-blocking)"
 
     except Exception as ex:

@@ -1,6 +1,7 @@
 import sys
 import os
 import threading
+import traceback
 import webbrowser
 import subprocess
 
@@ -454,14 +455,45 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
 
     def run_real_time_protection(self):
-        """Run the start real time protection"""
-        try:
-            self.output_signal.emit("[*] Starting real time protection...")
+        """Run the start real time protection in a background thread and stream outputs."""
+        def _worker():
+            try:
+                result = start_real_time_protection()
 
-            for output in start_real_time_protection():
-                self.output_signal.emit(output)
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error during real time protection: {str(e)}")
+                # If result is an iterable generator (but not a string/bytes), iterate and emit
+                if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                    try:
+                        for output in result:
+                            # protect against exceptions from the signal emit
+                            try:
+                                self.output_signal.emit(output)
+                            except Exception:
+                                logger.exception("Failed to emit an output from real-time protection.")
+                    except Exception:
+                        # If the generator raised during iteration
+                        logger.exception("Exception while iterating outputs from start_real_time_protection()")
+                        self.output_signal.emit(f"[!] Real-time protection iteration error: {traceback.format_exc()}")
+                else:
+                    # Single-return value (string or other) — emit once
+                    try:
+                        if result is not None:
+                            self.output_signal.emit(str(result))
+                    except Exception:
+                        logger.exception("Failed to emit result from start_real_time_protection()")
+            except Exception:
+                # Catch anything unexpected in the worker
+                logger.exception("Unhandled exception inside run_real_time_protection worker")
+                try:
+                    self.output_signal.emit(f"[!] Error during real time protection: {traceback.format_exc()}")
+                except Exception:
+                    logger.exception("Also failed to emit exception message to output_signal")
+
+        # start the worker as a daemon thread so it cannot block shutdown and runs asynchronous
+        t = threading.Thread(target=_worker, name="RTProtectionRunner", daemon=True)
+        t.start()
+
+        # return immediately — UI / caller should not block waiting for the worker
+        return None
 
     def analyze_hayabusa_results(self, csv_file_path):
         """Analyze Hayabusa CSV results and notify on critical alerts only"""
@@ -565,21 +597,49 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error running Hayabusa live timeline: {str(e)}")
 
     def run(self):
-        """The entry point for the thread."""
+        """The entry point for the QThread worker.
+
+        Dispatches tasks by:
+        1) calling a method on this Worker matching the task_type (preferred), or
+        2) falling back to a short explicit task mapping, or
+        3) reporting the task as unknown.
+        """
         try:
+            # 1) If there's a method on this Worker that matches task_type, call it.
+            method = getattr(self, self.task_type, None)
+            if callable(method):
+                try:
+                    method(*self.args)
+                except TypeError:
+                    # In case args don't match signature, try without args
+                    method()
+                return
+
+            # 2) Fallback mapping for task_type strings that are not methods
             task_mapping = {
                 "update_defs": self.update_definitions,
-                "update_hayabusa_rules": self.update_hayabusa_rules
+                "update_hayabusa_rules": self.update_hayabusa_rules,
+                "run_real_time_protection": self.run_real_time_protection,
+                "hayabusa_live_timeline": self.run_hayabusa_live_timeline,
+                # Add other explicit mappings here if needed
             }
 
-            task_function = task_mapping.get(self.task_type)
-            if task_function:
-                task_function()
-            else:
-                self.output_signal.emit(f"[!] Unknown task type: {self.task_type}")
+            func = task_mapping.get(self.task_type)
+            if func:
+                try:
+                    func(*self.args)
+                except TypeError:
+                    func()
+                return
+
+            # 3) Unknown task
+            self.output_signal.emit(f"[!] Unknown task type: {self.task_type}")
         except Exception as e:
             if not self.stop_requested:
-                self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
+                # Keep this human-readable and safe for the GUI
+                err = f"[!] Worker thread error ({self.task_type}): {str(e)}"
+                self.output_signal.emit(err)
+                logger.exception("Worker.run exception for task %s", self.task_type)
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
