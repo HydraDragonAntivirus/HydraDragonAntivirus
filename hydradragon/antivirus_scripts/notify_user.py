@@ -301,28 +301,50 @@ def notify_user_hosts(file_path, virus_name, main_file_path: Optional[str] = Non
     _add_malicious_hash(file_path, virus_name)
     _send_to_edr(file_path, virus_name, action="monitor", main_file_path=main_file_path)
 
+def notify_user_for_web(domain: Optional[str] = None,
+                        ipv4_address: Optional[str] = None,
+                        ipv6_address: Optional[str] = None,
+                        url: Optional[str] = None,
+                        file_path: Optional[str] = None,
+                        detection_type: Optional[str] = None):
+    """
+    Lightweight web notification. If file_path is provided, add to EDR as a file event.
+    """
+    try:
+        notification = Notify()
+        notification.title = "Malware or Phishing Alert"
+        message_parts = []
+        if detection_type:
+            message_parts.append(f"Detection Type: {detection_type}")
+        if domain:
+            message_parts.append(f"Domain: {domain}")
+        if ipv4_address:
+            message_parts.append(f"IPv4 Address: {ipv4_address}")
+        if ipv6_address:
+            message_parts.append(f"IPv6 Address: {ipv6_address}")
+        if url:
+            message_parts.append(f"URL: {url}")
+        if file_path:
+            message_parts.append(f"File Path: {file_path}")
 
-def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
-    notification = Notify()
-    notification.title = "Malware or Phishing Alert"
-    message_parts = []
-    if detection_type: message_parts.append(f"Detection Type: {detection_type}")
-    if domain: message_parts.append(f"Domain: {domain}")
-    if ipv4_address: message_parts.append(f"IPv4 Address: {ipv4_address}")
-    if ipv6_address: message_parts.append(f"IPv6 Address: {ipv6_address}")
-    if url: message_parts.append(f"URL: {url}")
-    if file_path: message_parts.append(f"File Path: {file_path}")
+        notification.message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
+        try:
+            notification.send()
+        except Exception:
+            logger.exception("Failed to send desktop notification (continuing).")
 
-    notification_message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
-    notification.message = notification_message
-    notification.send()
-    logger.critical(notification_message)
-    
-    # Only send to EDR if a file_path is associated with the web alert
-    if file_path:
-        threat_name = f"WebThreat: {domain or url or ipv4_address}"
-        _add_malicious_hash(file_path, threat_name)
-        _send_to_edr(file_path, threat_name, action="kill_and_remove")
+        logger.critical(notification.message)
+
+        if file_path:
+            threat_name = f"WebThreat: {domain or url or ipv4_address or ipv6_address or detection_type or 'web'}"
+            try:
+                _add_malicious_hash(file_path, threat_name)
+                _send_to_edr(file_path, threat_name, action="kill_and_remove")
+            except Exception:
+                logger.exception(f"Failed to forward web alert to EDR for {file_path}")
+
+    except Exception as ex:
+        logger.exception(f"notify_user_for_web failed: {ex}")
 
 
 def notify_user_for_web_source(
@@ -335,49 +357,54 @@ def notify_user_for_web_source(
     main_file_path: Optional[str] = None
 ):
     """
-    Web-related notification that includes source file context (if available).
-    - file_path: the file that *directly* references the web artifact (e.g. downloaded HTML, script)
-    - main_file_path: the primary source file that triggered the web detection (e.g. decompiled source)
-    If either file_path or main_file_path is present, the function will forward an EDR event containing
-    that path using _send_to_edr(..., main_file_path=...).
+    Web notification that includes source file context.
+    - file_path: file directly associated with the web artifact (preferred for EDR)
+    - main_file_path: broader/source file (used if file_path is not present)
     """
-    notification = Notify()
-    notification.title = "Malicious Web/Phishing Alert (with source)"
-    message_parts = []
-    if detection_type:
-        message_parts.append(f"Detection Type: {detection_type}")
-    if domain:
-        message_parts.append(f"Domain: {domain}")
-    if ipv4_address:
-        message_parts.append(f"IPv4 Address: {ipv4_address}")
-    if ipv6_address:
-        message_parts.append(f"IPv6 Address: {ipv6_address}")
-    if url:
-        message_parts.append(f"URL: {url}")
-    if file_path:
-        message_parts.append(f"Associated File: {file_path}")
-    if main_file_path:
-        message_parts.append(f"Source File: {main_file_path}")
+    try:
+        notification = Notify()
+        notification.title = "Malicious Web/Phishing Alert (with source)"
+        message_parts = []
+        if detection_type:
+            message_parts.append(f"Detection Type: {detection_type}")
+        if domain:
+            message_parts.append(f"Domain: {domain}")
+        if ipv4_address:
+            message_parts.append(f"IPv4 Address: {ipv4_address}")
+        if ipv6_address:
+            message_parts.append(f"IPv6 Address: {ipv6_address}")
+        if url:
+            message_parts.append(f"URL: {url}")
+        if file_path:
+            message_parts.append(f"Associated File: {file_path}")
+        if main_file_path:
+            message_parts.append(f"Source File: {main_file_path}")
 
-    notification_message = "Phishing or Malicious web activity detected:\n" + "\n".join(message_parts)
-    notification.message = notification_message
-    notification.send()
-    logger.critical(notification_message)
+        notification_message = "Phishing or Malicious web activity detected:\n" + "\n".join(message_parts)
+        notification.message = notification_message
+        try:
+            notification.send()
+        except Exception:
+            logger.exception("Failed to send desktop notification (continuing).")
+        logger.critical(notification_message)
 
-    # Prefer the directly associated file_path for EDR; otherwise use main_file_path.
-    edr_file_param = file_path or main_file_path
+        # Prefer directly associated file for EDR; fall back to main file.
+        edr_file_param = file_path or main_file_path
+        if not edr_file_param:
+            logger.info("No file context available - not forwarding web-only alert to EDR as a file event.")
+            return
 
-    # Build a reasonable threat name for EDR
-    threat_name = f"WebThreat: {domain or url or ipv4_address or ipv6_address or detection_type}"
+        threat_name = f"WebThreat: {domain or url or ipv4_address or ipv6_address or detection_type or 'web'}"
 
-    # Only forward to EDR when we have a file context (to avoid sending domain-only alerts as file events)
-    if edr_file_param:
-        _add_malicious_hash(edr_file_param, threat_name)
-        _send_to_edr(edr_file_param, threat_name, action="kill_and_remove", main_file_path=main_file_path)
-    else:
-        # No file available; do not send file-based EDR event. If you want web-only EDR events, change to monitor.
-        logger.info("No file context available - not forwarding web-only alert to EDR as a file event.")
+        try:
+            _add_malicious_hash(edr_file_param, threat_name)
+            # forward with main_file_path included where available
+            _send_to_edr(edr_file_param, threat_name, action="kill_and_remove", main_file_path=main_file_path)
+        except Exception:
+            logger.exception(f"Failed to forward web alert to EDR for {edr_file_param}")
 
+    except Exception as ex:
+        logger.exception(f"notify_user_for_web_source failed: {ex}")
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status, main_file_path: Optional[str] = None):
     notification = Notify()
