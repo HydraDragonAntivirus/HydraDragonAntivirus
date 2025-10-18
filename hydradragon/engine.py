@@ -1029,18 +1029,6 @@ class AntivirusApp(QWidget):
         info_text.setObjectName("warning_text")
         info_layout.addWidget(info_text)
         layout.addWidget(info_box)
-
-        update_rules_btn = QPushButton("Update Hayabusa Rules Database")
-        update_rules_btn.setObjectName("action_button")
-        update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
-        layout.addWidget(update_rules_btn)
-
-        log_output = QTextEdit("Hayabusa update logs will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-
-        self.log_outputs.append(log_output)
         return page
 
     def create_generate_whitelist_db_page(self):

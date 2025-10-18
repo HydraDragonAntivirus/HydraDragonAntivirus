@@ -4638,7 +4638,6 @@ def load_all_resources_non_blocking():
                 all_resources_loaded.set()
                 logger.info("All resources finished loading")
                 break
-            time.sleep(0.05)
 
     threading.Thread(target=monitor_all_resources, name="ResourceMonitor").start()
 
