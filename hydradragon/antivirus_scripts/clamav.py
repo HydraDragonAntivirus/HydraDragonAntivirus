@@ -5,11 +5,16 @@
 # Inspired by: https://github.com/clamwin/python-clamav/blob/master/clamav.py
 
 import os
+import threading
 from hydra_logger import logger
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
     c_void_p, byref
 )
+
+# --- module-level synchronization & init flag ---
+_clamav_lock = threading.RLock()
+_clamav_inited = False
 
 # --- helpers ---
 def _to_bytes_or_none(value):
@@ -44,7 +49,7 @@ CL_DB_STDOPT = 0
 # Scan Options
 CL_SCAN_GENERAL_HEURISTICS = (1 << 2)
 
-# Error codes
+# Error codes (only some common ones)
 CL_EMEM = 2
 CL_EOPEN = 3
 CL_EMALFDB = 4
@@ -63,15 +68,17 @@ def load_clamav(libpath):
         return None
 
     try:
-        # define prototypes with proper error checking
+        # define prototypes with proper types
         lib.cl_init.argtypes = (c_uint,)
         lib.cl_init.restype = c_int
 
-        lib.cl_engine_new.argtypes = None
+        # cl_engine_new returns pointer to engine
+        lib.cl_engine_new.argtypes = ()
         lib.cl_engine_new.restype = cl_engine_p
 
+        # cl_engine_free is void in many builds
         lib.cl_engine_free.argtypes = (cl_engine_p,)
-        lib.cl_engine_free.restype = c_int
+        lib.cl_engine_free.restype = None
 
         lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
         lib.cl_load.restype = c_int
@@ -83,23 +90,28 @@ def load_clamav(libpath):
         lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
         lib.cl_engine_set_num.restype = c_int
 
-        # *** FIXED ***: Changed the last argument from c_uint to POINTER(cl_scan_options)
+        # cl_scanfile: const char *filename, char **virname, unsigned long *scanned, struct cl_engine *engine, struct cl_scan_options *opts
         lib.cl_scanfile.argtypes = [
-            c_char_p, 
-            POINTER(c_char_p), 
-            c_ulong_p, 
-            cl_engine_p, 
+            c_char_p,
+            POINTER(c_char_p),
+            c_ulong_p,
+            cl_engine_p,
             POINTER(cl_scan_options)
         ]
         lib.cl_scanfile.restype = c_int
 
-        lib.cl_retver.argtypes = None
+        lib.cl_retver.argtypes = ()
         lib.cl_retver.restype = c_char_p
 
-        # Add error message function
+        # Optional: string -> error message
         if hasattr(lib, 'cl_strerror'):
             lib.cl_strerror.argtypes = (c_int,)
             lib.cl_strerror.restype = c_char_p
+
+        # Optional: free function to release memory allocated by clamav (for returned strings)
+        if hasattr(lib, 'cl_free'):
+            lib.cl_free.argtypes = (c_void_p,)
+            lib.cl_free.restype = None
 
         logger.debug(f"Loaded libclamav: {libpath}")
         return lib
@@ -114,40 +126,45 @@ class Scanner:
         self.libclamav = None
         self.engine = None
         self.dbpath = None
+        self._scan_lock = threading.RLock()  # serialize scan calls for this Scanner instance
 
         self.libclamav = load_clamav(libclamav_path)
         if not self.libclamav:
             logger.error("Scanner could not initialize because libclamav failed to load.")
             return
 
-        # init clamav engine
-        try:
-            res = self.libclamav.cl_init(0)
-            if res != CL_SUCCESS:
-                logger.error(f"cl_init failed with code {res}")
+        # Protect cl_init and DB/engine creation with the module-level lock
+        global _clamav_inited
+        with _clamav_lock:
+            try:
+                if not _clamav_inited:
+                    res = self.libclamav.cl_init(0)
+                    if res != CL_SUCCESS:
+                        logger.error(f"cl_init failed with code {res}")
+                        return
+                    _clamav_inited = True
+            except Exception as e:
+                logger.error(f"cl_init exception: {e}")
                 return
-        except Exception as e:
-            logger.error(f"cl_init exception: {e}")
-            return
 
-        # database path validation
-        if dbpath is None:
-            pf = os.environ.get("ProgramFiles", r"C:\\Program Files")
-            dbpath = os.path.join(pf, "ClamAV", "database") # Corrected db path
+            # database path validation
+            if dbpath is None:
+                pf = os.environ.get("ProgramFiles", r"C:\\Program Files")
+                dbpath = os.path.join(pf, "ClamAV", "database")
 
-        if not os.path.isdir(dbpath):
-            logger.error(f"Invalid database path: {dbpath}")
-            return
+            if not os.path.isdir(dbpath):
+                logger.error(f"Invalid database path: {dbpath}")
+                return
 
-        self.dbpath = dbpath
-        self.autoreload = autoreload
-        self.dboptions = dboptions
-        self.engine_options = engine_options or self.def_engine_options()
+            self.dbpath = dbpath
+            self.autoreload = autoreload
+            self.dboptions = dboptions
+            self.engine_options = engine_options or self.def_engine_options()
 
-        # Load database
-        if not self.loadDB():
-            logger.error("Failed to load ClamAV database")
-            return
+            # Load database (this uses the same _clamav_lock internally)
+            if not self.loadDB():
+                logger.error("Failed to load ClamAV database")
+                return
 
         logger.debug("Scanner initialized successfully")
 
@@ -167,6 +184,7 @@ class Scanner:
         try:
             err_msg = self.libclamav.cl_strerror(error_code)
             if err_msg:
+                # lib returns bytes; decode safely
                 return err_msg.decode('utf-8', errors='ignore')
         except Exception:
             pass
@@ -181,59 +199,61 @@ class Scanner:
 
         logger.debug("Loading ClamAV database...")
 
-        # Free existing engine
-        if self.engine:
+        with _clamav_lock:
+            # Free existing engine
+            if self.engine:
+                try:
+                    # restype is None (void), safe to call
+                    self.libclamav.cl_engine_free(self.engine)
+                except Exception as e:
+                    logger.warning(f"Error freeing engine: {e}")
+                self.engine = None
+
+            # Create new engine
             try:
-                self.libclamav.cl_engine_free(self.engine)
+                self.engine = self.libclamav.cl_engine_new()
+                if not self.engine:
+                    logger.error("Failed to create ClamAV engine")
+                    return False
             except Exception as e:
-                logger.warning(f"Error freeing engine: {e}")
-            self.engine = None
-
-        # Create new engine
-        try:
-            self.engine = self.libclamav.cl_engine_new()
-            if not self.engine:
-                logger.error("Failed to create ClamAV engine")
-                return False
-        except Exception as e:
-            logger.error(f"Exception creating engine: {e}")
-            return False
-
-        # Load database
-        try:
-            dbpath_b = _to_bytes_or_none(self.dbpath)
-            if not dbpath_b:
-                logger.error("Invalid database path")
+                logger.error(f"Exception creating engine: {e}")
                 return False
 
-            signo = c_uint()
-            res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
+            # Load database
+            try:
+                dbpath_b = _to_bytes_or_none(self.dbpath)
+                if not dbpath_b:
+                    logger.error("Invalid database path")
+                    return False
 
-            if res != CL_SUCCESS:
-                error_msg = self.get_error_message(res)
-                logger.error(f"cl_load failed: {error_msg}")
-                return False
+                signo = c_uint()
+                res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
 
-            # Apply custom engine options here
-            for opt, val in self.engine_options.items():
-                res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
                 if res != CL_SUCCESS:
-                    logger.warning(f"Failed to set engine option {opt}={val}: {self.get_error_message(res)}")
+                    error_msg = self.get_error_message(res)
+                    logger.error(f"cl_load failed: {error_msg}")
+                    return False
 
-        except Exception as e:
-            logger.error(f"Exception during cl_load: {e}")
-            return False
+                # Apply custom engine options here
+                for opt, val in self.engine_options.items():
+                    res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
+                    if res != CL_SUCCESS:
+                        logger.warning(f"Failed to set engine option {opt}={val}: {self.get_error_message(res)}")
 
-        # Compile engine
-        try:
-            res = self.libclamav.cl_engine_compile(self.engine)
-            if res != CL_SUCCESS:
-                error_msg = self.get_error_message(res)
-                logger.error(f"cl_engine_compile failed: {error_msg}")
+            except Exception as e:
+                logger.error(f"Exception during cl_load: {e}")
                 return False
-        except Exception as e:
-            logger.error(f"Exception during cl_engine_compile: {e}")
-            return False
+
+            # Compile engine
+            try:
+                res = self.libclamav.cl_engine_compile(self.engine)
+                if res != CL_SUCCESS:
+                    error_msg = self.get_error_message(res)
+                    logger.error(f"cl_engine_compile failed: {error_msg}")
+                    return False
+            except Exception as e:
+                logger.error(f"Exception during cl_engine_compile: {e}")
+                return False
 
         logger.debug(f"ClamAV database loaded successfully. Signatures: {signo.value}")
         return True
@@ -248,43 +268,59 @@ class Scanner:
             logger.error(f"File does not exist: {filepath}")
             return None, None
 
-        try:
-            fname_b = _to_bytes_or_none(filepath)
-            if not fname_b:
-                logger.error("Invalid file path encoding")
-                return None, None
+        # Acquire the instance scan lock and also the global lock to avoid concurrent load/compile/free races.
+        # Always acquire _clamav_lock first to keep lock ordering consistent.
+        with _clamav_lock:
+            with self._scan_lock:
+                try:
+                    fname_b = _to_bytes_or_none(filepath)
+                    if not fname_b:
+                        logger.error("Invalid file path encoding")
+                        return None, None
 
-            # Initialize variables properly
-            virname = c_char_p()
-            bytes_scanned = c_ulong(0)
-            
-            # Create an instance of the cl_scan_options struct
-            scan_opts = cl_scan_options()
-            # *** ENABLED HEURISTICS ***: Enable all heuristic scanning functions.
-            scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
+                    # virname as c_char_p; cl_scanfile expects POINTER(c_char_p)
+                    virname = c_char_p()
+                    bytes_scanned = c_ulong(0)
 
-            # Call cl_scanfile
-            ret = self.libclamav.cl_scanfile(
-                fname_b,
-                byref(virname),
-                byref(bytes_scanned),
-                self.engine,
-                byref(scan_opts)  # Pass the struct by reference
-            )
+                    scan_opts = cl_scan_options()
+                    scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
 
-            # Process results
-            if ret == CL_CLEAN:
-                logger.info(f"File clean (ClamAV): {filepath}")
-                return CL_CLEAN, None
-            elif ret == CL_VIRUS:
-                virus_name = virname.value.decode("utf-8", errors="ignore") if virname.value else "Unknown"
-                logger.warning(f"Virus found in {filepath}: {virus_name}")
-                return CL_VIRUS, virus_name
-            else:
-                error_msg = self.get_error_message(ret)
-                logger.error(f"Unexpected ClamAV scan result ({ret}): {error_msg}")
-                return ret, None
+                    ret = self.libclamav.cl_scanfile(
+                        fname_b,
+                        byref(virname),
+                        byref(bytes_scanned),
+                        self.engine,
+                        byref(scan_opts)
+                    )
 
-        except Exception as e:
-            logger.error(f"Exception during file scan: {e}")
-            return None, None
+                    if ret == CL_CLEAN:
+                        logger.info(f"File clean (ClamAV): {filepath}")
+                        return CL_CLEAN, None
+
+                    elif ret == CL_VIRUS:
+                        virus_name = "Unknown"
+                        try:
+                            if virname.value:
+                                virus_name = virname.value.decode("utf-8", errors="ignore")
+                        except Exception:
+                            virus_name = "Unknown"
+
+                        # free returned string if cl_free exists
+                        if hasattr(self.libclamav, 'cl_free'):
+                            try:
+                                # pass the pointer (virname) to cl_free
+                                self.libclamav.cl_free(virname)
+                            except Exception:
+                                pass
+
+                        logger.warning(f"Virus found in {filepath}: {virus_name}")
+                        return CL_VIRUS, virus_name
+
+                    else:
+                        error_msg = self.get_error_message(ret)
+                        logger.error(f"Unexpected ClamAV scan result ({ret}): {error_msg}")
+                        return ret, None
+
+                except Exception as e:
+                    logger.error(f"Exception during file scan: {e}")
+                    return None, None
