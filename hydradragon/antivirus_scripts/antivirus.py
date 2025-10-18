@@ -4645,8 +4645,6 @@ def load_all_resources_non_blocking():
 # Start load_all_resources_non_blocking() in a separate thread
 threading.Thread(target=load_all_resources_non_blocking).start()
 
-clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
-
 def reload_clamav_database():
     """
     Reloads the ClamAV engine with the updated database.
