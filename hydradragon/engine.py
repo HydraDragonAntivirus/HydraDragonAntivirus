@@ -27,7 +27,6 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 from hydradragon.antivirus_scripts.antivirus import (
-    clamav_file_paths,
     start_real_time_protection,
     reload_clamav_database,
     get_latest_clamav_def_time,
@@ -37,6 +36,7 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     icon_path,
     hayabusa_path,
     WINDOW_TITLE,
+    clamav_file_paths,
 )
 from hydradragon.antivirus_scripts.notify_user import notify_user_hayabusa_critical
 
