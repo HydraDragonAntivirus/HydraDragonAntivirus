@@ -11423,23 +11423,26 @@ def periodic_yield_worker(yield_interval=0.1):
     windows_yield_cpu()
     time.sleep(yield_interval)
 
-def start_real_time_protection(non_blocking=True, wait_timeout_seconds=1200):
-    """
-    Starts real-time protection threads.
+# global used to signal threads to stop (cooperative shutdown)
+shutdown_event = threading.Event()
 
-    By default this is non-blocking (starts daemon threads and returns immediately).
-    If non_blocking=False the function will join the threads (useful for CLI/tests).
+def start_real_time_protection():
+    """
+    Starts real-time protection threads and RETURNS IMMEDIATELY.
+    This function NEVER calls .join() on monitor threads.
+    Threads are started as daemon threads so they won't block process exit.
+    Use shutdown_event.set() to ask threads to stop cooperatively.
     """
     global analysis_threads
     global thread_function_map
 
     try:
-        logger.info("Waiting for resources to load (timeout %ss)...", wait_timeout_seconds)
-        # use a timeout so GUI won't freeze forever if loaders hang
-        all_resources_loaded.wait(timeout=wait_timeout_seconds)
+        logger.info("Waiting for resources to load (short timeout to avoid blocking GUI)...")
+        # timeout so GUI doesn't hang if resources hang forever
+        all_resources_loaded.wait(timeout=300)
 
         if not all_resources_loaded.is_set():
-            logger.warning("Resource loading did not finish within timeout; starting monitors anyway.")
+            logger.warning("Resources not fully loaded within timeout; starting monitors anyway.")
 
         analysis_threads = []
         thread_function_map = {}
@@ -11447,44 +11450,34 @@ def start_real_time_protection(non_blocking=True, wait_timeout_seconds=1200):
         def create_monitored_thread(target_func, *args, **kwargs):
             def monitored_wrapper():
                 try:
+                    # target functions should periodically check shutdown_event and return when set
                     target_func(*args, **kwargs)
                 except Exception as e:
-                    logger.exception("Error in thread %s: %s", target_func.__name__, e)
+                    logger.exception("Error in monitor thread %s: %s", target_func.__name__, e)
 
             thread = threading.Thread(target=monitored_wrapper, name=f"Protection_{target_func.__name__}")
-            thread.daemon = True  # won't block process exit and avoids main-thread join blocking GUI
+            thread.daemon = True  # ensure threads don't block exit
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        # list of monitoring functions (same as before)
+        # monitoring functions — ensure these functions are cooperative (see notes)
         threads_to_start = [
             monitor_suricata_log,
             web_protection_observer.begin_observing,
             start_all_pipe_listeners,
         ]
 
-        # Start all monitoring threads
-        started = []
         for func in threads_to_start:
             t = create_monitored_thread(func)
             t.start()
-            started.append(t)
 
-        if non_blocking:
-            logger.info("Real-time protection started in background (non-blocking).")
-            return "[+] Real-time protection started (background)"
-        else:
-            # Blocking mode (rare; for CLI/tests)
-            for t in started:
-                t.join()
-            logger.info("All real-time protection threads finished (blocking).")
-            return "[+] Real-time protection completed successfully"
+        logger.info("Real-time protection started in background (no joins).")
+        return "[+] Real-time protection started (background, non-blocking)"
 
     except Exception as ex:
-        error_message = f"An error occurred during real-time protection: {ex}"
-        logger.exception(error_message)
-        return error_message
+        logger.exception("An error occurred starting real-time protection: %s", ex)
+        return f"[-] Error starting real-time protection: {ex}"
 
 def run_real_time_protection_with_yield():
     """
