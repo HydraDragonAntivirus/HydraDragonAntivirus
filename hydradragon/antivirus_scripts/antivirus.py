@@ -11423,18 +11423,23 @@ def periodic_yield_worker(yield_interval=0.1):
     windows_yield_cpu()
     time.sleep(yield_interval)
 
-def start_real_time_protection():
+def start_real_time_protection(non_blocking=True, wait_timeout_seconds=1200):
     """
     Starts real-time protection threads.
-    Blocks until all monitoring threads finish.
+
+    By default this is non-blocking (starts daemon threads and returns immediately).
+    If non_blocking=False the function will join the threads (useful for CLI/tests).
     """
     global analysis_threads
     global thread_function_map
 
     try:
-        logger.info("Waiting for all resources to load before starting protection...")
-        all_resources_loaded.wait()  # Wait for resource loading
-        logger.info("Resources loaded. Starting real-time protection...")
+        logger.info("Waiting for resources to load (timeout %ss)...", wait_timeout_seconds)
+        # use a timeout so GUI won't freeze forever if loaders hang
+        all_resources_loaded.wait(timeout=wait_timeout_seconds)
+
+        if not all_resources_loaded.is_set():
+            logger.warning("Resource loading did not finish within timeout; starting monitors anyway.")
 
         analysis_threads = []
         thread_function_map = {}
@@ -11444,14 +11449,15 @@ def start_real_time_protection():
                 try:
                     target_func(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Error in thread {target_func.__name__}: {e}")
+                    logger.exception("Error in thread %s: %s", target_func.__name__, e)
 
             thread = threading.Thread(target=monitored_wrapper, name=f"Protection_{target_func.__name__}")
+            thread.daemon = True  # won't block process exit and avoids main-thread join blocking GUI
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        # List of monitoring functions
+        # list of monitoring functions (same as before)
         threads_to_start = [
             monitor_suricata_log,
             web_protection_observer.begin_observing,
@@ -11459,20 +11465,25 @@ def start_real_time_protection():
         ]
 
         # Start all monitoring threads
+        started = []
         for func in threads_to_start:
-            thread = create_monitored_thread(func)
-            thread.start()
+            t = create_monitored_thread(func)
+            t.start()
+            started.append(t)
 
-        # Wait for all monitoring threads to finish
-        for thread in analysis_threads:
-            thread.join()
-
-        logger.info("All real-time protection threads finished.")
-        return "[+] Real-time protection completed successfully"
+        if non_blocking:
+            logger.info("Real-time protection started in background (non-blocking).")
+            return "[+] Real-time protection started (background)"
+        else:
+            # Blocking mode (rare; for CLI/tests)
+            for t in started:
+                t.join()
+            logger.info("All real-time protection threads finished (blocking).")
+            return "[+] Real-time protection completed successfully"
 
     except Exception as ex:
         error_message = f"An error occurred during real-time protection: {ex}"
-        logger.error(error_message)
+        logger.exception(error_message)
         return error_message
 
 def run_real_time_protection_with_yield():
