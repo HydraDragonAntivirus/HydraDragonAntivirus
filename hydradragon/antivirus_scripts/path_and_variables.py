@@ -103,7 +103,7 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 html_extracted_dir = os.path.join(script_dir, "html_extracted")
 website_rules_dir_normal = os.path.join(script_dir, "website")
-WEBSITE_RULES_DIR = website_rules_dir_normal
+WEBSITE_RULES_DIR = Path(website_rules_dir_normal)
 # other small files we still load in original format if present:
 urlhaus_path = WEBSITE_RULES_DIR / "urlhaus.txt"
 spam_email_365_path = WEBSITE_RULES_DIR / "listed_email_365.txt"
