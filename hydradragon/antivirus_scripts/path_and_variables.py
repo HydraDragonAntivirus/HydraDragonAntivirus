@@ -109,7 +109,7 @@ website_rules_dir_normal = os.path.join(script_dir, "website")
 WEBSITE_RULES_DIR = Path(website_rules_dir_normal)
 # other small files we still load in original format if present:
 urlhaus_path = WEBSITE_RULES_DIR / "urlhaus.txt"
-spam_email_365_path = WEBSITE_RULES_DIR / "listed_email_365.txt"
+spam_email_365_path = WEBSITE_RULES_DIR / "listed_email_365.bin"
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
 clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
@@ -149,7 +149,7 @@ mining_sub_domains_path = "MiningSubDomains"
 spam_sub_domains_path = "SpamSubDomains"
 whitelist_sub_domains_path = "WhiteListSubDomains"
 whitelist_mail_sub_domains_path = "BenignMailSubDomains"
-
+spam_hashes = []
 antivirus_domains_data = []
 urlhaus_data = []
 # Scanned entities with "_general" suffix

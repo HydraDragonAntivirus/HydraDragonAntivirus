@@ -184,7 +184,7 @@ def _send_scan_request_to_av(file_path: str, event_type: str = "NEW_FILE_DETECTE
     if _is_protected_path(file_path):
         logger.debug(f"Skipping scan request for protected path: {file_path}")
         return
-    
+
     request = {
         "event_type": event_type,
         "file_path": str(file_path),
@@ -231,21 +231,21 @@ def _process_threat_event(data: str):
         virus_name = event.get("virus_name")
         is_malicious = event.get("is_malicious", False)
         action_required = event.get("action_required", "monitor")
-        
+
         # Skip processing if this is a protected path (shouldn't happen, but safety check)
         if file_path and _is_protected_path(file_path):
             logger.debug(f"Ignoring threat event for protected path: {file_path}")
             return
-        
+
         logger.info(f"Received threat event from HydraDragon: {file_path} - {virus_name} (malicious: {is_malicious})")
-        
+
         # Here you can trigger Owlyshield's response actions
         # For example, kill the process, quarantine the file, etc.
         if is_malicious and action_required == "kill_and_remove":
             logger.critical(f"CRITICAL THREAT DETECTED: {file_path} - {virus_name}")
             # Add your response logic here
             # e.g., kill_process(event.get("pid")), quarantine_file(file_path)
-        
+
     except json.JSONDecodeError:
         logger.error(f"Failed to parse threat event JSON from HydraDragon: {data}")
     except Exception as e:
@@ -258,7 +258,7 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
     This runs in a separate thread and continuously receives malware detections.
     """
     logger.info(f"Starting threat event listener from HydraDragon on: {pipe_name}")
-    
+
     while True:
         pipe = None
         try:
@@ -285,7 +285,7 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
                 if not data:
                     break
                 full_message.append(data)
-            
+
             decoded_message = b"".join(full_message).decode('utf-8', errors='replace')
             logger.debug(f"Received threat event of {len(decoded_message)} bytes")
 
@@ -320,10 +320,10 @@ def _process_mbr_alert(data: bytes):
         # The data from the kernel is a UTF-16LE encoded string (UNICODE_STRING)
         offending_path = data.decode('utf-16-le').strip('\x00')
         logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
-        
+
         # Call the notification function to alert user and EDR
         notify_user_mbr_alert(offending_path)
-        
+
     except Exception as e:
         logger.exception(f"Error processing MBR alert: {e}")
 
@@ -334,7 +334,7 @@ def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
     This runs in a separate thread and continuously receives alerts.
     """
     logger.info(f"Starting MBR alert listener from MBRFilter.sys on: {pipe_name}")
-    
+
     while True:
         pipe = None
         try:
@@ -356,7 +356,7 @@ def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
 
             # Read the alert data (this will be the process path)
             hr, data = win32file.ReadFile(pipe, 4096)
-            
+
             if data:
                 with thread_lock:
                     _process_mbr_alert(data)
@@ -393,10 +393,10 @@ def _process_self_defense_alert(data: bytes):
         # The data from the kernel is UTF-16LE encoded
         message_str = data.decode('utf-16-le').strip('\x00')
         logger.debug(f"Raw self-defense alert: {message_str}")
-        
+
         # Parse the JSON message
         alert_data = json.loads(message_str)
-        
+
         protected_file = alert_data.get("protected_file", "Unknown")
         attacker_path = alert_data.get("attacker_path", "Unknown")
         attacker_pid = alert_data.get("attacker_pid", 0)
@@ -426,7 +426,7 @@ def _process_self_defense_alert(data: bytes):
             f"Process {attacker_path} (Attacker PID: {attacker_pid} Target PID: {target_pid})"
             f"attempted to tamper with {protected_file}"
         )
-        
+
         # Call appropriate notification function based on attack type
         if attack_type == "REGISTRY_TAMPERING":
             notify_user_self_defense_registry(
@@ -454,7 +454,7 @@ def _process_self_defense_alert(data: bytes):
                 attacker_path=attacker_path,
                 attacker_pid=attacker_pid
             )
-        
+
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse self-defense alert JSON: {e}")
         # Fallback: treat as plain text
@@ -473,7 +473,7 @@ def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_A
     This runs in a separate thread and continuously receives protection alerts.
     """
     logger.info(f"Starting self-defense alert listener on: {pipe_name}")
-    
+
     while True:
         pipe = None
         try:
@@ -495,7 +495,7 @@ def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_A
 
             # Read the alert data
             hr, data = win32file.ReadFile(pipe, 4096)
-            
+
             if data:
                 with thread_lock:
                     _process_self_defense_alert(data)
@@ -527,7 +527,7 @@ def start_all_pipe_listeners():
     - Self-Defense Alert Listener (from file/process/registry drivers)
     """
     # Start the AV threat event listener thread
-    threat_listener_thread = threading.Thread(daemon=True, 
+    threat_listener_thread = threading.Thread(daemon=True,
         target=monitor_threat_events_from_av,
         name="HydraDragon-ThreatListener"
     )
@@ -535,7 +535,7 @@ def start_all_pipe_listeners():
     threat_listener_thread.start()
 
     # Start the MBR alert listener thread
-    mbr_alert_thread = threading.Thread(daemon=True, 
+    mbr_alert_thread = threading.Thread(daemon=True,
         target=monitor_mbr_alerts_from_kernel,
         name="MBR-Alert-Listener"
     )
@@ -543,7 +543,7 @@ def start_all_pipe_listeners():
     mbr_alert_thread.start()
 
     # Start the self-defense alert listener thread
-    self_defense_thread = threading.Thread(daemon=True, 
+    self_defense_thread = threading.Thread(daemon=True,
         target=monitor_self_defense_alerts_from_kernel,
         name="Self-Defense-Alert-Listener"
     )

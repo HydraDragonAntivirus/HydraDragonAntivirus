@@ -86,16 +86,16 @@ import pickle
 logger.debug(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from cuckoopy import CuckooFilter
-logger.debug(f"cuckoopy.CuckooFilter module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import pefile
 logger.debug(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import mmh3
+logger.debug(f"mmh3 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
@@ -385,8 +385,9 @@ from .pattern import (
     ZIP_JOIN,
     CHAINED_JOIN,
     B64_LITERAL,
+    EMAIL_RE,
     build_url_regex,
-    build_ip_patterns,
+    build_ip_patterns
 )
 logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -464,7 +465,6 @@ from .path_and_variables import (
     excluded_rules_path,
     html_extracted_dir,
     WF,
-    WEBSITE_RULES_DIR,
     spam_email_365_path,
     ipv4_addresses_path,
     ipv4_addresses_spam_path,
@@ -501,6 +501,7 @@ from .path_and_variables import (
     icewater_rule_path,
     valhalla_rule_path,
     bypass_pyarmor7_path,
+    spam_hashes,
     antivirus_domains_data,
     urlhaus_data,
     scanned_urls_general,
@@ -536,6 +537,14 @@ from .pe_feature_extractor import (
     calculate_vector_similarity
 )
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from .hydra_cuckoo_builder import (
+    ReferenceRegistry,
+    HydraCuckooFilter,
+    MinimalMetadataStore,
+)
+logger.debug(f"hydra_cuckoo_builder functions loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logger.debug total time
 total_end_time = time.time()
@@ -1124,107 +1133,188 @@ def load_antivirus_list():
         logger.error(f"Error loading Antivirus domains: {ex}")
         return []
 
-# --- helper: load all .cuckoo shards found in website_rules_dir_normal ---
 class WebsiteFilters:
     """
-    Loads all '*.cuckoo' files in WEBSITE_RULES_DIR (pickle or lib load fallback).
-    Groups shards by basename (e.g. 'MalwareDomains-000.cuckoo' -> basename 'MalwareDomains').
-    Provides contains() helpers for domain/ip keys using shard prefixes from meta (or inferred).
+    Loads all '*.hdf' files in WEBSITE_RULES_DIR.
+    Groups shards by basename (e.g. 'MalwareDomains-000.hdf' -> basename 'MalwareDomains').
+    Provides contains() helpers for domain/ip keys.
     """
+
     def __init__(self, rules_dir: Path):
         self.dir = Path(rules_dir)
-        self.shards = {}  # basename -> list of dicts: { 'cf':obj, 'prefix':str, 'meta':dict, 'shard_path':Path }
+        self.shards = {}  # basename -> list of dicts: {'cf': obj, 'meta': obj, 'shard_path': Path}
+        self.registry: Optional[ReferenceRegistry] = None
         self._load_all()
 
-    def _try_load_filter(self, path: Path):
-        # try pickle load, fallback to library loader if available
-        try:
-            with open(path, "rb") as fh:
-                return pickle.load(fh)
-        except Exception:
+    def _load_registry(self):
+        """Load global reference registry"""
+        reg_path = self.dir / "references.hrf"
+        if reg_path.exists():
             try:
-                if hasattr(CuckooFilter, "load"):
-                    return CuckooFilter.load(str(path))
-            except Exception:
-                pass
-        return None
+                self.registry = ReferenceRegistry.load(str(reg_path))
+                print(f"[HydraDragon] Loaded {len(self.registry.id_to_ref)} references")
+            except Exception as e:
+                print(f"[HydraDragon] Warning: Failed to load references.hrf: {e}")
+                self.registry = None
+        else:
+            print("[HydraDragon] Warning: references.hrf not found")
+            self.registry = None
 
-    def _infer_type_from_name(self, name: str):
+    def _infer_type_from_name(self, name: str) -> str:
+        """Infer type from filename"""
         n = name.lower()
-        if "ipv4" in n: return "ipv4"
-        if "ipv6" in n: return "ipv6"
-        if "subdomain" in n or "subdomains" in n or "sub" in n: return "subdomain"
+        if "ipv4" in n:
+            return "ipv4"
+        if "ipv6" in n:
+            return "ipv6"
+        if "subdomain" in n or "subdomains" in n or "sub" in n:
+            return "subdomain"
         return "domain"
 
     def _load_all(self):
-        for cuckoo_path in sorted(self.dir.glob("*.cuckoo")):
-            base = cuckoo_path.stem  # e.g. MalwareDomains-000
-            # derive basename without trailing -NNN if present
-            m = re.match(r"(?P<name>.+?)-\d{3,}$", base)
-            basename = m.group("name") if m else base
-            meta_path = self.dir / f"{basename}.meta.json"
-            meta = {}
-            if meta_path.exists():
-                try:
-                    with open(meta_path, "r", encoding="utf-8") as mf:
-                        meta = json.load(mf)
-                except Exception:
-                    meta = {}
-            fobj = self._try_load_filter(cuckoo_path)
-            if fobj is None:
-                # warn silently, skip
-                continue
-            ftype = meta.get("type", self._infer_type_from_name(basename))
-            prefix_map = {"domain": "dom:", "dom": "dom:", "subdomain": "sub:", "sub": "sub:", "ipv4": "ipv4:", "ipv6": "ipv6:"}
-            prefix = prefix_map.get(ftype, "dom:")
-            info = {'cf': fobj, 'prefix': prefix, 'meta': meta, 'shard_path': cuckoo_path}
-            self.shards.setdefault(basename, []).append(info)
+        """Load all .hdf shards"""
+        # Load reference registry first
+        self._load_registry()
 
-    def _contains_single_shard(self, shard_info, key: str) -> bool:
+        hdf_files = sorted(self.dir.glob("*.hdf"))
+
+        if not hdf_files:
+            print(f"[HydraDragon] Warning: No .hdf files found in {self.dir}")
+            return
+
+        print(f"[HydraDragon] Loading {len(hdf_files)} shards...")
+
+        loaded = 0
+        for hdf_path in hdf_files:
+            # Extract basename without -NNN suffix
+            stem = hdf_path.stem  # e.g. MalwareDomains-000
+            m = re.match(r"(?P<name>.+?)-\d{3,}$", stem)
+            basename = m.group("name") if m else stem
+
+            try:
+                # Load filter
+                cf = HydraCuckooFilter.load(str(hdf_path))
+
+                # Load metadata
+                meta_path = hdf_path.with_suffix('.hdm')
+                meta = None
+                if meta_path.exists():
+                    meta = MinimalMetadataStore.load(str(meta_path))
+
+                info = {
+                    'cf': cf,
+                    'meta': meta,
+                    'shard_path': hdf_path,
+                    'type': self._infer_type_from_name(basename)
+                }
+
+                self.shards.setdefault(basename, []).append(info)
+                loaded += 1
+
+            except Exception as e:
+                print(f"[HydraDragon] Warning: Failed to load {hdf_path.name}: {e}")
+
+        print(f"[HydraDragon] Loaded {loaded} shards, {len(self.shards)} basenames")
+
+    def _contains_single_shard(self, shard_info: dict, domain_or_ip: str) -> bool:
+        """Check if domain/ip is in single shard"""
         cf = shard_info['cf']
-        # try common APIs
         try:
-            if hasattr(cf, "contains"):
-                return bool(cf.contains(key))
-            if hasattr(cf, "__contains__"):
-                return bool(key in cf)
-            if hasattr(cf, "lookup"):
-                return bool(cf.lookup(key))
+            return domain_or_ip in cf
         except Exception:
             return False
-        return False
 
     def contains_in_basename(self, basename: str, domain_or_ip: str) -> Tuple[bool, str]:
         """
         Check a domain/ip in all shards for basename.
-        Returns (True, source_reference) or (False, "")
-        source_reference is meta.source_file if available, else shard filename.
+        Returns (True, reference_string) or (False, "")
         """
         shards = self.shards.get(basename)
         if not shards:
             return False, ""
-        for s in shards:
-            key = s['prefix'] + domain_or_ip
-            if self._contains_single_shard(s, key):
-                ref = s['meta'].get('source_file') or s['shard_path'].name
-                return True, str(ref)
+
+        # Normalize input
+        domain_or_ip = domain_or_ip.lower().strip()
+
+        for shard in shards:
+            if self._contains_single_shard(shard, domain_or_ip):
+                # Get reference from metadata
+                ref_str = ""
+                if shard['meta'] and self.registry:
+                    ref_ids = shard['meta'].get_threat(domain_or_ip)
+                    if ref_ids:
+                        # Get first reference as string
+                        refs = [self.registry.id_to_ref.get(rid, f"ID:{rid}")
+                               for rid in ref_ids]
+                        ref_str = refs[0] if refs else basename
+                    else:
+                        ref_str = basename
+                else:
+                    ref_str = basename
+
+                return True, ref_str
+
         return False, ""
 
-    def contains_any(self, basenames: list, domain_or_ip: str):
+    def contains_any(self, basenames: List[str], domain_or_ip: str) -> Tuple[Optional[str], str]:
         """
         Check multiple basenames in order; returns first match as (basename, reference) or (None, "")
         """
-        for b in basenames:
-            ok, ref = self.contains_in_basename(b, domain_or_ip)
+        for basename in basenames:
+            ok, ref = self.contains_in_basename(basename, domain_or_ip)
             if ok:
-                return b, ref
+                return basename, ref
         return None, ""
 
-# ----------------- loader: builds WF and loads small files -----------------
-def load_website_data():
-    global WF, urlhaus_data, spam_email_365_data
-    # create filters object
-    WF = WebsiteFilters(WEBSITE_RULES_DIR)
+    def get_all_references(self, basename: str, domain_or_ip: str) -> List[str]:
+        """Get all references for a domain/ip in basename"""
+        shards = self.shards.get(basename)
+        if not shards:
+            return []
+
+        domain_or_ip = domain_or_ip.lower().strip()
+
+        for shard in shards:
+            if self._contains_single_shard(shard, domain_or_ip):
+                if shard['meta'] and self.registry:
+                    ref_ids = shard['meta'].get_threat(domain_or_ip)
+                    if ref_ids:
+                        return [self.registry.id_to_ref.get(rid, f"ID:{rid}")
+                               for rid in ref_ids]
+
+        return []
+
+    def stats(self) -> Dict:
+        """Get loader statistics"""
+        total_items = 0
+        total_shards = 0
+
+        for basename, shards in self.shards.items():
+            for shard in shards:
+                total_shards += 1
+                total_items += shard['cf'].item_count
+
+        return {
+            'basenames': len(self.shards),
+            'total_shards': total_shards,
+            'total_items': total_items,
+            'references': len(self.registry.id_to_ref) if self.registry else 0
+        }
+
+# ----------------- Loader function -----------------
+def load_website_data(website_rules_dir: Path):
+    """
+    Load all HydraDragon .hdf shards
+    Returns WebsiteFilters instance and spam_email_365 binary hashes
+    """
+    WF = WebsiteFilters(website_rules_dir)
+
+    stats = WF.stats()
+    logger.info("[HydraDragon] Stats:")
+    logger.info(f"  Basenames: {stats['basenames']}")
+    logger.info(f"  Shards: {stats['total_shards']}")
+    logger.info(f"  Items: {stats['total_items']:,}")
+    logger.info(f"  References: {stats['references']}")
 
     # load urlhaus if present (keeps original behavior)
     urlhaus_data = []
@@ -1245,17 +1335,26 @@ def load_website_data():
                             urlhaus_data.append({'url': line})
         except Exception:
             urlhaus_data = []
-    # load spam email 365 list (simple text)
-    spam_email_365_data = []
+
+    # ---- Load spam_email_365.bin ----
     if spam_email_365_path.exists():
         try:
-            with open(spam_email_365_path, 'r', encoding='utf-8', errors='ignore') as f:
-                spam_email_365_data = [l.strip() for l in f if l.strip()]
-        except Exception:
-            spam_email_365_data = []
+            with open(spam_email_365_path, "rb") as f:
+                data = f.read()
+                # Each entry = 8 bytes = one 64-bit hash
+                entry_size = 8
+                count = len(data) // entry_size
+                global spam_hashes
+                spam_hashes = [
+                    struct.unpack_from("<Q", data, offset)[0]
+                    for offset in range(0, len(data), entry_size)
+                ]
+                logger.info(f"[HydraDragon] Loaded {count:,} spam email fingerprints.")
+        except Exception as e:
+            logger.warning(f"[HydraDragon] Failed to load listed_email_365.bin: {e}")
+    else:
+        logger.info("[HydraDragon] No listed_email_365.bin found.")
 
-    # done
-    return True
 
 # ----------------- helpers used by scanners -----------------
 def is_domain_in_filters(domain: str, basenames: list):
@@ -1509,36 +1608,69 @@ def scan_ip_address_general(ip_address, file_path, **flags):
         logger.error(f"Error scanning IP address {ip_address}: {ex}")
         return False
 
+def _email_normalize(email: str, gmail_canonicalize: bool = True) -> str:
+    """Normalize an email for hashing/comparison.
+    - lowercases, strips whitespace
+    - optional: canonicalize Gmail addresses (remove dots, remove +tag)
+    """
+    e = email.strip().lower()
+    if gmail_canonicalize and e.endswith("@gmail.com"):
+        local, domain = e.split("@", 1)
+        # remove +tag
+        if '+' in local:
+            local = local.split('+', 1)[0]
+        # remove dots
+        local = local.replace('.', '')
+        e = f"{local}@{domain}"
+    return e
 
-# --------------------------------------------------------------------------
-# Spam Email 365 Scanner
-def scan_spam_email_365_general(email_content, file_path, **flags):
-    """Scans email content for spam keywords from StopForum Spam Database."""
+def _hash_le64_of_email(email: str) -> int:
+    """Return little-endian uint64 fingerprint used by listed_email_365.bin loader."""
+    fp = mmh3.hash_bytes(email.encode('utf-8'))[:8]
+    return int.from_bytes(fp, 'little', signed=False)
+
+def scan_spam_email_365_emails_only(email_content: str,
+                                   file_path: str,
+                                   gmail_canonicalize: bool = True,
+                                   **flags) -> bool:
+    """
+    Scan the email content for spam by extracting email addresses and checking
+    their 64-bit MMH3 hashes against the preloaded spam_hashes set.
+    Returns True if any match is found.
+    """
     try:
         if not email_content:
             logger.info("No email content provided for spam scanning.")
             return False
 
-        email_content_lower = email_content.lower()
-        detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
+        found = []
 
-        if detected_spam_words:
+        # Extract emails (headers + body)
+        for raw_email in EMAIL_RE.findall(email_content):
+            norm = _email_normalize(raw_email, gmail_canonicalize=gmail_canonicalize)
+            hv = _hash_le64_of_email(norm)
+            if hv in spam_hashes:  # Directly use global preloaded set
+                found.append(norm)
+
+        if found:
+            sample = ", ".join(sorted(set(found))[:5])
             logger.critical(
-                f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}"
+                f"Spam email detected! Matched {len(found)} email(s): {sample}"
             )
-            notify_user_for_web_source(domain="EmailContent",
-                                       detection_type="Spam.Email365d",
-                                       file_path=file_path,
-                                       main_file_path=flags.get('main_file_path'))
+            notify_user_for_web_source(
+                domain="EmailContent",
+                detection_type="Spam.Email365d",
+                file_path=file_path,
+                main_file_path=flags.get('main_file_path')
+            )
             return True
 
-        logger.info("Email content passed spam check - no spam indicators found.")
+        logger.info("Email passed spam check - no spam emails found.")
         return False
 
     except Exception as ex:
-        logger.error(f"Error scanning email content for spam: {ex}")
+        logger.error(f"Error scanning email content for spam (emails-only): {ex}")
         return False
-
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
@@ -1676,11 +1808,11 @@ def scan_html_content(html_content, html_content_file_path, **flags):
                 logger.error(f"Error in scan_domain_general for {url}: {e}")
 
             try:
-                if scan_spam_email_365_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
+                if scan_spam_email_365_emails_only(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Spam/email indicator detected in HTML: {url}")
                     return True
             except Exception as e:
-                logger.error(f"Error in scan_spam_email_365_general for {url}: {e}")
+                logger.error(f"Error in scan_spam_email_365_emails_only for {url}: {e}")
     except Exception as e:
         logger.error(f"Error scanning URLs in HTML: {e}")
 
@@ -1890,11 +2022,11 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
                 logger.error(f"Error in scan_domain_general for {url}: {e}")
 
             try:
-                if scan_spam_email_365_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
+                if scan_spam_email_365_emails_only(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Spam/email indicator detected: {url}")
                     return True
             except Exception as e:
-                logger.error(f"Error in scan_spam_email_365_general for {url}: {e}")
+                logger.error(f"Error in scan_spam_email_365_emails-only for {url}: {e}")
 
         except Exception as e:
             logger.error(f"Error processing URL {url}: {e}")
@@ -4085,7 +4217,7 @@ def process_alert_data(priority, src_ip, dest_ip):
         # Check if the source IP is in the IPv4 or IPv6 whitelist using filters
         ipv4_ok, _, _ = is_ip_in_filters(src_ip, [ipv4_whitelist_path])
         ipv6_ok, _, _ = is_ip_in_filters(src_ip, [ipv6_whitelist_path])
-        
+
         if ipv4_ok or ipv6_ok:
             logger.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
             return False
@@ -4117,7 +4249,7 @@ def process_alert_data(priority, src_ip, dest_ip):
                             ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_ddos_path])
                             if ok:
                                 threat_type = "DDoS"
-        
+
         # Check IPv6 signatures if no IPv4 match
         if threat_type == "Unknown Threat Detected":
             ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_path])
@@ -4567,7 +4699,7 @@ def load_all_resources_non_blocking():
         global clamav_scanner
         # instantiate scanner inside this thread only (so C-level init doesn't block main thread)
         try:
-            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, 
+            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path,
                                            dbpath=clamav_database_directory_path)
         except Exception as e:
             logger.error("Failed to create ClamAV scanner in loader thread: %s", e)
@@ -4660,12 +4792,12 @@ def scan_file_real_time_yara(
     Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
     """
     logger.info(f"Started YARA scanning file: {file_path}")
-    
+
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
-    
+
     try:
         yara_match, yara_result, is_vmprotect = scan_yara(file_path)
-        
+
         if yara_match and yara_match not in ("Clean", ""):
             if sig_valid:
                 yara_match = f"{yara_match}.SIG"
@@ -4676,7 +4808,7 @@ def scan_file_real_time_yara(
         else:
             logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
             return False, "Clean", "", is_vmprotect
-            
+
     except Exception as ex:
         logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
         return False, "Error", "", False
@@ -7449,7 +7581,7 @@ def extract_asar_file(file_path):
                 logger.info(f"Scanning file: {file_path_full}")
 
                 # Run scan_code_for_links in a thread
-                threading.Thread(daemon=True, 
+                threading.Thread(daemon=True,
                     target=lambda fp=file_path_full: scan_code_for_links(fp, asar_flag=True)
                 ).start()
 
@@ -9556,7 +9688,7 @@ def check_hosts_file_for_blocked_antivirus():
                 ok, _, _ = is_ip_in_filters(ip, [ipv4_whitelist_path])
                 if ok:
                     flagged['ipv4'].update(hosts)
-                
+
                 ok, _, _ = is_ip_in_filters(ip, [ipv6_whitelist_path])
                 if ok:
                     flagged['ipv6'].update(hosts)
@@ -9567,25 +9699,25 @@ def check_hosts_file_for_blocked_antivirus():
                     if ok:
                         flagged['domain'].add(host)
                         continue
-                    
+
                     # Exact mail-domain
                     ok, _, _ = is_domain_in_filters(host, [whitelist_domains_mail_path])
                     if ok:
                         flagged['mail_domain'].add(host)
                         continue
-                    
+
                     # Subdomain
                     ok, _, _ = is_domain_in_filters(host, [whitelist_sub_domains_path])
                     if ok:
                         flagged['sub_domain'].add(host)
                         continue
-                    
+
                     # Mail subdomain
                     ok, _, _ = is_domain_in_filters(host, [whitelist_mail_sub_domains_path])
                     if ok:
                         flagged['mail_sub_domain'].add(host)
                         continue
-                    
+
                     # Antivirus pattern
                     if antivirus_re.search(host):
                         flagged['antivirus'].add(host)
@@ -9963,13 +10095,13 @@ def scan_and_warn(file_path,
                                     content = f.read()
 
                                 # MODIFIED: Pass main_file_path to the scanner thread
-                                threading.Thread(daemon=True, 
+                                threading.Thread(daemon=True,
                                     target=scan_code_for_links,
                                     args=(content, file_path_full),
                                     kwargs={"nexe_flag": True, "main_file_path": main_file_path}
                                 ).start()
 
-                                threading.Thread(daemon=True, 
+                                threading.Thread(daemon=True,
                                     target=scan_and_warn,
                                     args=(file_path_full,),
                                     kwargs={"main_file_path": main_file_path}
@@ -10068,13 +10200,13 @@ def scan_and_warn(file_path,
                             content = f.read()
 
                         # MODIFIED: Pass main_file_path to the scanner thread
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=scan_code_for_links,
                             args=(content, file_path_full),
                             kwargs={"jsc_flag": True, "main_file_path": main_file_path}
                         ).start()
 
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=scan_and_warn,
                             args=(file_path_full,),
                             kwargs={"main_file_path": main_file_path}
@@ -10129,7 +10261,7 @@ def scan_and_warn(file_path,
 
                 threads = []
                 for f in decompiled_files:
-                    t = threading.Thread(daemon=True, 
+                    t = threading.Thread(daemon=True,
                         target=scan_and_warn,
                         args=(f,),
                         kwargs={"main_file_path": main_file_path}
@@ -10186,7 +10318,7 @@ def scan_and_warn(file_path,
             threading.Thread(daemon=True, target=dotnet_analysis),
             threading.Thread(daemon=True, target=cx_freeze_thread),
             threading.Thread(daemon=True, target=nexe_thread),
-            threading.Thread(daemon=True, 
+            threading.Thread(daemon=True,
                 target=lambda: globals().update({
                     "already_vmprotect_unpacked": vmprotect_detection()
                 })
@@ -10409,14 +10541,14 @@ def scan_and_warn(file_path,
                                 for root, _, files in os.walk(candidate):
                                     for fname in files:
                                         file_path_full = os.path.join(root, fname)
-                                        threading.Thread(daemon=True, 
+                                        threading.Thread(daemon=True,
                                             target=scan_and_warn,
                                             args=(file_path_full,),
                                             kwargs={"main_file_path": main_file_path}
                                         ).start()
                                         queued += 1
                             else:
-                                threading.Thread(daemon=True, 
+                                threading.Thread(daemon=True,
                                     target=scan_and_warn,
                                     args=(candidate,),
                                     kwargs={"main_file_path": main_file_path}
@@ -10557,7 +10689,7 @@ def scan_and_warn(file_path,
                     logger.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
                     deobfuscated_path = deobfuscate_with_confuserex(norm_path, file_name)
                     if deobfuscated_path:
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=scan_and_warn,
                             args=(deobfuscated_path,),
                             kwargs={'flag_confuserex': True, "main_file_path": main_file_path}
@@ -10584,12 +10716,12 @@ def scan_and_warn(file_path,
                     decompiled_file = run_fernflower_decompiler(norm_path)
                     if decompiled_file:
                         # Thread 1: scan_and_warn
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=lambda: scan_and_warn(decompiled_file, main_file_path=main_file_path)
                         ).start()
 
                         # Thread 2: scan_code_for_links with flag_fernflower
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=lambda: scan_code_for_links(file_path=decompiled_file, fernflower_flag=True)
                         ).start()
                     else:
@@ -10623,12 +10755,12 @@ def scan_and_warn(file_path,
                         logger.info(f"Extraction completed. Content saved to: {extracted_path}")
 
                         # Thread 1: Scan extracted artifacts for threats
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p, main_file_path=main_file_path),
                         ).start()
 
                         # Thread 2: Scan code for suspicious links (with OLE2 flag)
-                        threading.Thread(daemon=True, 
+                        threading.Thread(daemon=True,
                             target=lambda p=extracted_path: _thread_wrapper(
                                 scan_code_for_links, "", p, ole2_flag=True, main_file_path=main_file_path
                             ),
@@ -10712,14 +10844,14 @@ def scan_and_warn(file_path,
                                     content = f.read()
 
                                 # Scan for links, IPs, domains, Discord webhooks
-                                threading.Thread(daemon=True, 
+                                threading.Thread(daemon=True,
                                     target=scan_code_for_links,
                                     args=(content, file_path_full),
                                     kwargs={"javascript_deobfuscated_flag": True, "main_file_path": main_file_path}
                                 ).start()
 
                                 # Optional additional scanning/warnings
-                                threading.Thread(daemon=True, 
+                                threading.Thread(daemon=True,
                                     target=scan_and_warn,
                                     args=(file_path_full,),
                                     kwargs={"main_file_path": main_file_path}
@@ -10797,7 +10929,7 @@ def scan_and_warn(file_path,
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
-                            threading.Thread(daemon=True, 
+                            threading.Thread(daemon=True,
                                 target=scan_and_warn,
                                 args=(unpacked_path,),
                                 kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}
@@ -11203,7 +11335,7 @@ class SafeProcessMonitor:
                     logger.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
 
                     # Launch scan in separate thread, passing proc_info for context
-                    scan_thread = threading.Thread(daemon=True, 
+                    scan_thread = threading.Thread(daemon=True,
                         target=self._safe_scan_and_warn,
                         args=(result_file, proc_info),
                         name=f"Scan-{proc_info.pid}",

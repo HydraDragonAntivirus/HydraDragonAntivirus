@@ -85,10 +85,10 @@ def load_clamav(libpath):
 
         # *** FIXED ***: Changed the last argument from c_uint to POINTER(cl_scan_options)
         lib.cl_scanfile.argtypes = [
-            c_char_p, 
-            POINTER(c_char_p), 
-            c_ulong_p, 
-            cl_engine_p, 
+            c_char_p,
+            POINTER(c_char_p),
+            c_ulong_p,
+            cl_engine_p,
             POINTER(cl_scan_options)
         ]
         lib.cl_scanfile.restype = c_int
@@ -257,7 +257,7 @@ class Scanner:
             # Initialize variables properly
             virname = c_char_p()
             bytes_scanned = c_ulong(0)
-            
+
             # Create an instance of the cl_scan_options struct
             scan_opts = cl_scan_options()
             # *** ENABLED HEURISTICS ***: Enable all heuristic scanning functions.

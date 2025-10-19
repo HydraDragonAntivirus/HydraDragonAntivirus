@@ -112,6 +112,8 @@ CHAINED_JOIN = re.compile(
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
+EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', re.IGNORECASE)
+
 # --------------------------------------------------------------------------
 # Helpers for decoding regex fragments
 def _dec(b64: str) -> str:

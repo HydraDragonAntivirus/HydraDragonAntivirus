@@ -123,13 +123,13 @@ def notify_user_mbr_alert(file_path: str):
     notification.message = notification_message
     notification.send()
     logger.critical(notification_message)
-    
+
     # Define the threat and send it to the EDR for immediate action
     threat_name = "Radical MBR Change Attempt"
-    
+
     # Add hash of the offending executable for future tracking
     _add_malicious_hash(file_path, threat_name)
-    
+
     # Send to EDR with a clear "kill and remove" action
     _send_to_edr(file_path, threat_name, action="kill_and_remove")
 

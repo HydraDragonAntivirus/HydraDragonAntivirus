@@ -1,2 +1,2 @@
-cuckoopy 
+mmh3
 tqdm
