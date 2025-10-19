@@ -1153,12 +1153,12 @@ class WebsiteFilters:
         if reg_path.exists():
             try:
                 self.registry = ReferenceRegistry.load(str(reg_path))
-                print(f"[HydraDragon] Loaded {len(self.registry.id_to_ref)} references")
+                logger.info(f"[HydraDragon] Loaded {len(self.registry.id_to_ref)} references")
             except Exception as e:
-                print(f"[HydraDragon] Warning: Failed to load references.hrf: {e}")
+                logger.error(f"[HydraDragon] Warning: Failed to load references.hrf: {e}")
                 self.registry = None
         else:
-            print("[HydraDragon] Warning: references.hrf not found")
+            logger.warning("[HydraDragon] Warning: references.hrf not found")
             self.registry = None
 
     def _infer_type_from_name(self, name: str) -> str:
@@ -1173,20 +1173,24 @@ class WebsiteFilters:
         return "domain"
 
     def _load_all(self):
-        """Load all .hdf shards"""
+        """Load all .hdf shards with progress yielding"""
         # Load reference registry first
         self._load_registry()
 
         hdf_files = sorted(self.dir.glob("*.hdf"))
 
         if not hdf_files:
-            print(f"[HydraDragon] Warning: No .hdf files found in {self.dir}")
+            logger.warning(f"[HydraDragon] Warning: No .hdf files found in {self.dir}")
             return
 
-        print(f"[HydraDragon] Loading {len(hdf_files)} shards...")
+        logger.info(f"[HydraDragon] Loading {len(hdf_files)} shards...")
 
         loaded = 0
-        for hdf_path in hdf_files:
+        for idx, hdf_path in enumerate(hdf_files):
+            # CRITICAL FIX: Yield CPU periodically to prevent deadlock
+            if idx % 10 == 0:  # Every 10 files
+                time.sleep(0.001)  # Small yield
+            
             # Extract basename without -NNN suffix
             stem = hdf_path.stem  # e.g. MalwareDomains-000
             m = re.match(r"(?P<name>.+?)-\d{3,}$", stem)
@@ -1213,9 +1217,9 @@ class WebsiteFilters:
                 loaded += 1
 
             except Exception as e:
-                print(f"[HydraDragon] Warning: Failed to load {hdf_path.name}: {e}")
+                logger.warning(f"[HydraDragon] Warning: Failed to load {hdf_path.name}: {e}")
 
-        print(f"[HydraDragon] Loaded {loaded} shards, {len(self.shards)} basenames")
+        logger.info(f"[HydraDragon] Loaded {loaded} shards, {len(self.shards)} basenames")
 
     def _contains_single_shard(self, shard_info: dict, domain_or_ip: str) -> bool:
         """Check if domain/ip is in single shard"""
@@ -1305,9 +1309,12 @@ class WebsiteFilters:
 # ----------------- Loader function -----------------
 def load_website_data():
     """
-    Load all HydraDragon .hdf shards
+    Load all HydraDragon .hdf shards with CPU yielding to prevent deadlock
     Returns WebsiteFilters instance and spam_email_365 binary hashes
     """
+    # Yield before heavy I/O
+    time.sleep(0.01)
+    
     WF = WebsiteFilters(website_rules_dir_normal)
 
     stats = WF.stats()
@@ -1316,6 +1323,9 @@ def load_website_data():
     logger.info(f"  Shards: {stats['total_shards']}")
     logger.info(f"  Items: {stats['total_items']:,}")
     logger.info(f"  References: {stats['references']}")
+
+    # Yield after stats
+    time.sleep(0.01)
 
     # load urlhaus if present (keeps original behavior)
     urlhaus_data = []
@@ -1337,6 +1347,9 @@ def load_website_data():
         except Exception:
             urlhaus_data = []
 
+    # Yield after URLhaus
+    time.sleep(0.01)
+
     # ---- Load spam_email_365.bin ----
     if spam_email_365_path.exists():
         try:
@@ -1355,7 +1368,6 @@ def load_website_data():
             logger.warning(f"[HydraDragon] Failed to load listed_email_365.bin: {e}")
     else:
         logger.info("[HydraDragon] No listed_email_365.bin found.")
-
 
 # ----------------- helpers used by scanners -----------------
 def is_domain_in_filters(domain: str, basenames: list):
