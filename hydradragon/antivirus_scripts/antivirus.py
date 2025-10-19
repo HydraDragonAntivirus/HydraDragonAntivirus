@@ -4657,9 +4657,6 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         logger.error(f"Error loading {name}: {ex}")
         return None
 
-# Track all resource threads
-resource_threads = {}
-
 # List to keep track of existing project names
 existing_projects = []
 
@@ -4671,7 +4668,6 @@ file_mod_times = {}
 def load_all_resources_non_blocking():
     """
     Start all resource-loading threads immediately (non-blocking).
-    Sets all_resources_loaded when all threads are done.
     """
     def load_yargen():
         global yarGen_rules
@@ -4695,7 +4691,6 @@ def load_all_resources_non_blocking():
 
     def load_clamav_engine():
         global clamav_scanner
-        # instantiate scanner inside this thread only (so C-level init doesn't block main thread)
         try:
             clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path,
                                            dbpath=clamav_database_directory_path)
@@ -4743,7 +4738,6 @@ def load_all_resources_non_blocking():
 
         thread = threading.Thread(target=safe_task, daemon=True, name=f"Resource_{name}")
         thread.start()
-        resource_threads[name] = thread
 
     logger.info("All resource loading threads started (non-blocking)")
 
