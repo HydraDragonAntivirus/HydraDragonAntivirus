@@ -243,7 +243,7 @@
 .\antivirus.py:1156:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:1178:80: E501 line too long (128 > 79 characters)
 .\antivirus.py:1180:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1197:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1197:80: E501 line too long (89 > 79 characters)
 .\antivirus.py:1215:80: E501 line too long (101 > 79 characters)
 .\antivirus.py:1224:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:1233:80: E501 line too long (83 > 79 characters)
@@ -1774,30 +1774,30 @@
 .\notify_user.py:493:80: E501 line too long (170 > 79 characters)
 .\notify_user.py:497:80: E501 line too long (90 > 79 characters)
 .\notify_user.py:499:80: E501 line too long (100 > 79 characters)
-.\path_and_variables.py:17:15: E221 multiple spaces before operator
-.\path_and_variables.py:18:19: E221 multiple spaces before operator
-.\path_and_variables.py:20:80: E501 line too long (99 > 79 characters)
-.\path_and_variables.py:36:80: E501 line too long (83 > 79 characters)
-.\path_and_variables.py:53:80: E501 line too long (81 > 79 characters)
-.\path_and_variables.py:55:32: E221 multiple spaces before operator
-.\path_and_variables.py:55:80: E501 line too long (103 > 79 characters)
-.\path_and_variables.py:60:80: E501 line too long (83 > 79 characters)
-.\path_and_variables.py:65:80: E501 line too long (110 > 79 characters)
-.\path_and_variables.py:66:80: E501 line too long (85 > 79 characters)
-.\path_and_variables.py:77:80: E501 line too long (85 > 79 characters)
-.\path_and_variables.py:79:80: E501 line too long (91 > 79 characters)
-.\path_and_variables.py:88:80: E501 line too long (81 > 79 characters)
-.\path_and_variables.py:91:80: E501 line too long (89 > 79 characters)
-.\path_and_variables.py:92:80: E501 line too long (91 > 79 characters)
-.\path_and_variables.py:95:80: E501 line too long (80 > 79 characters)
-.\path_and_variables.py:133:80: E501 line too long (86 > 79 characters)
-.\path_and_variables.py:180:80: E501 line too long (86 > 79 characters)
-.\path_and_variables.py:181:80: E501 line too long (82 > 79 characters)
-.\path_and_variables.py:208:1: E302 expected 2 blank lines, found 1
-.\path_and_variables.py:209:80: E501 line too long (84 > 79 characters)
-.\path_and_variables.py:212:32: E261 at least two spaces before inline comment
-.\path_and_variables.py:217:80: E501 line too long (87 > 79 characters)
-.\path_and_variables.py:218:80: E501 line too long (96 > 79 characters)
+.\path_and_variables.py:19:15: E221 multiple spaces before operator
+.\path_and_variables.py:20:19: E221 multiple spaces before operator
+.\path_and_variables.py:22:80: E501 line too long (99 > 79 characters)
+.\path_and_variables.py:38:80: E501 line too long (83 > 79 characters)
+.\path_and_variables.py:55:80: E501 line too long (81 > 79 characters)
+.\path_and_variables.py:57:32: E221 multiple spaces before operator
+.\path_and_variables.py:57:80: E501 line too long (103 > 79 characters)
+.\path_and_variables.py:62:80: E501 line too long (83 > 79 characters)
+.\path_and_variables.py:67:80: E501 line too long (110 > 79 characters)
+.\path_and_variables.py:68:80: E501 line too long (85 > 79 characters)
+.\path_and_variables.py:79:80: E501 line too long (85 > 79 characters)
+.\path_and_variables.py:81:80: E501 line too long (91 > 79 characters)
+.\path_and_variables.py:90:80: E501 line too long (81 > 79 characters)
+.\path_and_variables.py:93:80: E501 line too long (89 > 79 characters)
+.\path_and_variables.py:94:80: E501 line too long (91 > 79 characters)
+.\path_and_variables.py:97:80: E501 line too long (80 > 79 characters)
+.\path_and_variables.py:135:80: E501 line too long (86 > 79 characters)
+.\path_and_variables.py:182:80: E501 line too long (86 > 79 characters)
+.\path_and_variables.py:183:80: E501 line too long (82 > 79 characters)
+.\path_and_variables.py:210:1: E302 expected 2 blank lines, found 1
+.\path_and_variables.py:211:80: E501 line too long (84 > 79 characters)
+.\path_and_variables.py:214:32: E261 at least two spaces before inline comment
+.\path_and_variables.py:219:80: E501 line too long (87 > 79 characters)
+.\path_and_variables.py:220:80: E501 line too long (96 > 79 characters)
 .\pattern.py:5:80: E501 line too long (120 > 79 characters)
 .\pattern.py:8:80: E501 line too long (145 > 79 characters)
 .\pattern.py:15:80: E501 line too long (112 > 79 characters)
