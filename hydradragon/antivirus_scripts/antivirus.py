@@ -4660,9 +4660,6 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
 # Track all resource threads
 resource_threads = {}
 
-# Event to indicate all resources finished loading
-all_resources_loaded = threading.Event()
-
 # List to keep track of existing project names
 existing_projects = []
 
@@ -11527,31 +11524,21 @@ def periodic_yield_worker(yield_interval=0.1):
     windows_yield_cpu()
     time.sleep(yield_interval)
 
-def start_real_time_protection(resource_wait_timeout=30):
+def start_real_time_protection():
     """
     Starts real-time protection threads and RETURNS IMMEDIATELY.
     Threads are started as daemon threads so they won't block process exit.
-
-    :param resource_wait_timeout: seconds to wait for resources to load before starting monitors
     """
     global analysis_threads
     global thread_function_map
 
     try:
-        logger.info("Waiting for resources to load (timeout=%ss) before starting protection...", resource_wait_timeout)
-        # Use timeout to avoid blocking main/UI thread indefinitely
-        all_resources_loaded.wait(timeout=resource_wait_timeout)
-
-        if not all_resources_loaded.is_set():
-            logger.warning("Resources not fully loaded within timeout; starting monitors anyway.")
-
         analysis_threads = []
         thread_function_map = {}
 
         def create_monitored_thread(target_func, *args, **kwargs):
             def monitored_wrapper():
                 try:
-                    # target functions should periodically return when set
                     target_func(*args, **kwargs)
                 except Exception as e:
                     logger.exception("Error in monitor thread %s: %s", target_func.__name__, e)
