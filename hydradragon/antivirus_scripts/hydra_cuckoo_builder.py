@@ -17,7 +17,9 @@ from typing import Optional, Dict, List, Tuple
 
 class ReferenceRegistry:
     """Map references to IDs for compression"""
-
+    
+    VERSION = 1
+    
     def __init__(self):
         self.ref_to_id: Dict[str, int] = {}
         self.id_to_ref: Dict[int, str] = {}
@@ -35,6 +37,7 @@ class ReferenceRegistry:
         """Save registry to binary"""
         with open(path, 'wb') as f:
             f.write(b'HREF')  # Magic
+            f.write(struct.pack('B', self.VERSION))  # Version
             f.write(struct.pack('I', len(self.id_to_ref)))  # Count (4 bytes)
             for ref_id, ref_str in sorted(self.id_to_ref.items()):
                 ref_bytes = ref_str.encode('utf-8')
@@ -50,16 +53,20 @@ class ReferenceRegistry:
             magic = f.read(4)
             if magic != b'HREF':
                 raise ValueError("Invalid reference registry")
-
-            count = struct.unpack('H', f.read(2))[0]
+            
+            version = struct.unpack('B', f.read(1))[0]
+            if version != cls.VERSION:
+                raise ValueError(f"Unsupported registry version {version}")
+            
+            count = struct.unpack('I', f.read(4))[0]
             for _ in range(count):
-                ref_id = struct.unpack('H', f.read(2))[0]
-                ref_len = struct.unpack('H', f.read(2))[0]
+                ref_id = struct.unpack('I', f.read(4))[0]
+                ref_len = struct.unpack('I', f.read(4))[0]
                 ref_str = f.read(ref_len).decode('utf-8')
                 reg.id_to_ref[ref_id] = ref_str
                 reg.ref_to_id[ref_str] = ref_id
 
-            reg.next_id = len(reg.id_to_ref)
+            reg.next_id = max(reg.id_to_ref.keys()) + 1 if reg.id_to_ref else 0
         return reg
 
 
@@ -190,7 +197,8 @@ class HydraCuckooFilter:
             magic = f.read(4)
             if magic != cls.MAGIC:
                 raise ValueError("Invalid file format")
-
+            
+            version = struct.unpack('B', f.read(1))[0]
             table_size = struct.unpack('I', f.read(4))[0]
             bucket_size = struct.unpack('B', f.read(1))[0]
             fingerprint_size = struct.unpack('B', f.read(1))[0]
@@ -262,7 +270,8 @@ class MinimalMetadataStore:
             magic = f.read(4)
             if magic != cls.MAGIC:
                 raise ValueError("Invalid metadata format")
-
+            
+            version = struct.unpack('B', f.read(1))[0]
             entry_count = struct.unpack('I', f.read(4))[0]
 
             for _ in range(entry_count):
