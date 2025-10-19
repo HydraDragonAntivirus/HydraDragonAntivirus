@@ -8,6 +8,8 @@ from hydra_logger import script_dir
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
 
+# Global instance (will be created by load_website_data)
+WF = None
 # Define the paths
 jadx_decompiler_dir = os.path.join(script_dir, "jadx-1.5.3")
 jadx_decompiler_path = os.path.join(jadx_decompiler_dir, "jadx.bat")

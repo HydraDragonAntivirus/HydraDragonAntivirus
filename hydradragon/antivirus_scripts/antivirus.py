@@ -463,6 +463,7 @@ from .path_and_variables import (
     ungarbler_string_dir,
     excluded_rules_path,
     html_extracted_dir,
+    WF,
     WEBSITE_RULES_DIR,
     spam_email_365_path,
     ipv4_addresses_path,
