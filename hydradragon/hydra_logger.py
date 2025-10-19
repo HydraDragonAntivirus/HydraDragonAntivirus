@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QApplication,
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject, QTimer
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 log_directory = os.path.join(script_dir, "log")
@@ -53,7 +53,7 @@ except Exception as e:
 # Global tracking variables
 class AlertTracker(QObject):
     """Thread-safe tracker that only counts critical alerts"""
-    critical_alert_signal = Signal(str, str)  # title, message
+    critical_alert_signal = Signal(str, str, str)  # title, message, level
 
     def __init__(self):
         super().__init__()
@@ -61,6 +61,9 @@ class AlertTracker(QObject):
         self.lock = threading.Lock()
         self.is_gui_mode = False
         self.gui_app = None
+        
+        # Connect signal to show alert in GUI thread
+        self.critical_alert_signal.connect(self._show_alert_in_gui_thread, Qt.QueuedConnection)
 
     def increment_critical(self):
         with self.lock:
@@ -71,6 +74,23 @@ class AlertTracker(QObject):
         """Return the current number of critical alerts (single int)."""
         with self.lock:
             return self.critical_count
+    
+    def _show_alert_in_gui_thread(self, title, message, level):
+        """This runs in the GUI thread via QueuedConnection"""
+        try:
+            if is_gui_available():
+                alert = CriticalAlertPopup(title, message, level)
+                alert.show()
+                
+                # Update status cards if available
+                app = QApplication.instance()
+                if app and hasattr(app, "main_window"):
+                    main_window = app.main_window
+                    if hasattr(main_window, "threat_card"):
+                        count = self.get_counts()
+                        main_window.threat_card.value_label.setText(str(count))
+        except Exception as e:
+            logger.debug(f"Could not show GUI alert: {str(e)}")
 
 # Global instance
 alert_tracker = AlertTracker()
@@ -89,7 +109,7 @@ def is_gui_available():
     """Check if GUI mode is available"""
     try:
         app = QApplication.instance()
-        return app is not None
+        return app is not None and alert_tracker.is_gui_mode
     except Exception:
         return False
 
@@ -307,23 +327,10 @@ class CriticalAlertPopup(QWidget):
         self.fade_in.start()
 
 
-def show_critical_alert(title, message, level="CRITICAL"):
-    """Show critical alert popup - only if GUI is available"""
-    if is_gui_available():
-        try:
-            alert = CriticalAlertPopup(title, message, level)
-            alert.show()
-            return alert
-        except Exception as e:
-            logger.error(f"Failed to show GUI alert: {str(e)}")
-            return None
-    return None
-
-
 def alert_on_critical(record):
-    """Show popup alert for critical level logs only"""
+    """Show popup alert for critical level logs only - thread-safe"""
     if record.get("level") == "CRITICAL":
-        # Increment critical count
+        # Increment critical count (thread-safe)
         count = alert_tracker.increment_critical()
 
         # Detect script
@@ -344,19 +351,9 @@ def alert_on_critical(record):
         # Add alert count
         message += f"\n\nTotal Critical Alerts: {count}"
 
-        # Only show GUI popup if running in GUI mode
+        # Emit signal to show popup in GUI thread (thread-safe via Qt's signal mechanism)
         if is_gui_available():
-            show_critical_alert(title, message, "CRITICAL")
-
-            # Update status cards if available
-            try:
-                app = QApplication.instance()
-                if app and hasattr(app, "main_window"):
-                    main_window = app.main_window
-                    if hasattr(main_window, "threat_card"):
-                        main_window.threat_card.value_label.setText(str(count))
-            except Exception as e:
-                logger.debug(f"Could not update status card: {str(e)}")
+            alert_tracker.critical_alert_signal.emit(title, message, "CRITICAL")
 
 
 # Add callback to logger
