@@ -4693,7 +4693,7 @@ def scan_file_real_time(
     Scan file in real-time using multiple engines in parallel (WITHOUT YARA).
     Stops all workers on first detection.
 
-    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
+    Returns: (malware_found: bool, virus_name: str, engine: str)
     """
     logger.info(f"Started scanning file: {file_path}")
 
@@ -4702,7 +4702,6 @@ def scan_file_real_time(
         'malware_found': False,
         'virus_name': 'Clean',
         'engine': '',
-        'is_vmprotect': False
     }
     stop_event = threading.Event()
     thread_lock_real_time = threading.Lock()
@@ -4841,15 +4840,12 @@ def scan_file_real_time(
             t.start()
             threads.append(t)
 
-        for t in threads:
-            t.join()
-
         with thread_lock_real_time:
             if results['malware_found']:
-                return True, results['virus_name'], results['engine'], results['is_vmprotect']
+                return True, results['virus_name'], results['engine']
             else:
                 logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results['is_vmprotect']
+                return False, "Clean", ""
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
@@ -10819,7 +10815,7 @@ def scan_and_warn(file_path,
         # NON-YARA REALTIME THREAD
         def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time(
+                is_malicious, virus_names, engine_detected = scan_file_real_time(
                     norm_path, signature_check, file_name, die_output, pe_file=pe_file
                 )
 
