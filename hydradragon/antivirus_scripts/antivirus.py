@@ -501,22 +501,7 @@ from .path_and_variables import (
     valhalla_rule_path,
     bypass_pyarmor7_path,
     antivirus_domains_data,
-    ipv4_addresses_signatures_data,
-    ipv4_addresses_spam_signatures_data,
-    ipv4_addresses_bruteforce_signatures_data,
-    ipv4_addresses_phishing_active_signatures_data,
-    ipv4_addresses_phishing_inactive_signatures_data,
-    ipv4_addresses_ddos_signatures_data,
-    ipv6_addresses_signatures_data,
-    ipv6_addresses_spam_signatures_data,
-    ipv6_addresses_ddos_signatures_data,
-    ipv4_whitelist_data,
-    ipv6_whitelist_data,
     urlhaus_data,
-    whitelist_domains_data,
-    whitelist_domains_mail_data,
-    whitelist_sub_domains_data,
-    whitelist_mail_sub_domains_data,
     scanned_urls_general,
     scanned_domains_general,
     scanned_ipv4_addresses_general,
@@ -4095,36 +4080,57 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
             logger.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
 def process_alert_data(priority, src_ip, dest_ip):
-    """Process parsed alert data from EVE JSON format"""
+    """Process parsed alert data from EVE JSON format using cuckoo filters"""
     try:
-        # Check if the source IP is in the IPv4 or IPv6 whitelist
-        if src_ip in ipv4_whitelist_data or src_ip in ipv6_whitelist_data:
+        # Check if the source IP is in the IPv4 or IPv6 whitelist using filters
+        ipv4_ok, _, _ = is_ip_in_filters(src_ip, [ipv4_whitelist_path])
+        ipv6_ok, _, _ = is_ip_in_filters(src_ip, [ipv6_whitelist_path])
+        
+        if ipv4_ok or ipv6_ok:
             logger.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
             return False
 
-        # Determine threat type based on signature lists
+        # Determine threat type based on signature lists using filters
         threat_type = "Unknown Threat Detected"
 
         # Check IPv4 signatures
-        if src_ip in ipv4_addresses_signatures_data:
+        ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_path])
+        if ok:
             threat_type = "General Threat (IPv4)"
-        elif src_ip in ipv4_addresses_spam_signatures_data:
-            threat_type = "Spam"
-        elif src_ip in ipv4_addresses_bruteforce_signatures_data:
-            threat_type = "Brute Force"
-        elif src_ip in ipv4_addresses_phishing_active_signatures_data:
-            threat_type = "Active Phishing"
-        elif src_ip in ipv4_addresses_phishing_inactive_signatures_data:
-            threat_type = "Inactive Phishing"
-        elif src_ip in ipv4_addresses_ddos_signatures_data:
-            threat_type = "DDoS"
-        # Check IPv6 signatures
-        elif src_ip in ipv6_addresses_signatures_data:
-            threat_type = "General Threat (IPv6)"
-        elif src_ip in ipv6_addresses_spam_signatures_data:
-            threat_type = "Spam"
-        elif src_ip in ipv6_addresses_ddos_signatures_data:
-            threat_type = "DDoS"
+        else:
+            ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_spam_path])
+            if ok:
+                threat_type = "Spam"
+            else:
+                ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_bruteforce_path])
+                if ok:
+                    threat_type = "Brute Force"
+                else:
+                    ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_phishing_active_path])
+                    if ok:
+                        threat_type = "Active Phishing"
+                    else:
+                        ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_phishing_inactive_path])
+                        if ok:
+                            threat_type = "Inactive Phishing"
+                        else:
+                            ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_ddos_path])
+                            if ok:
+                                threat_type = "DDoS"
+        
+        # Check IPv6 signatures if no IPv4 match
+        if threat_type == "Unknown Threat Detected":
+            ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_path])
+            if ok:
+                threat_type = "General Threat (IPv6)"
+            else:
+                ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_spam_path])
+                if ok:
+                    threat_type = "Spam"
+                else:
+                    ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_ddos_path])
+                    if ok:
+                        threat_type = "DDoS"
 
         # Create a formatted line for logging (similar to fast.log format)
         formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}"
@@ -9517,17 +9523,8 @@ def nexe_unpacker(file_path) -> list:
 
 def check_hosts_file_for_blocked_antivirus():
     """
-    Scan hosts_path for any entries that match one of your lists:
-      - IPv4 whitelist
-      - IPv6 whitelist
-      - Exact domain whitelist
-      - Mail-domain whitelist
-      - Subdomain whitelist
-      - Mail-subdomain whitelist
-      - Antivirus domain list
-
-    For each category that triggers, we call notify_user_hosts() with its
-    specific HEUR signature. Returns True if anything was flagged.
+    Scan hosts_path for any entries that match one of your cuckoo filters.
+    Returns True if anything was flagged.
     """
     # Precompile antivirus regex
     ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$'
@@ -9559,36 +9556,47 @@ def check_hosts_file_for_blocked_antivirus():
                 ip = parts[0]
                 hosts = parts[1:]
 
-                # IP-based buckets
-                if ip in ipv4_whitelist_data:
+                # IP-based buckets using filters
+                ok, _, _ = is_ip_in_filters(ip, [ipv4_whitelist_path])
+                if ok:
                     flagged['ipv4'].update(hosts)
-                if ip in ipv6_whitelist_data:
+                
+                ok, _, _ = is_ip_in_filters(ip, [ipv6_whitelist_path])
+                if ok:
                     flagged['ipv6'].update(hosts)
 
                 for host in hosts:
                     # Exact domain
-                    if host in whitelist_domains_data:
+                    ok, _, _ = is_domain_in_filters(host, [whitelist_domains_path])
+                    if ok:
                         flagged['domain'].add(host)
                         continue
+                    
                     # Exact mail-domain
-                    if host in whitelist_domains_mail_data:
+                    ok, _, _ = is_domain_in_filters(host, [whitelist_domains_mail_path])
+                    if ok:
                         flagged['mail_domain'].add(host)
                         continue
+                    
                     # Subdomain
-                    if any(host.endswith('.' + d) for d in whitelist_sub_domains_data):
+                    ok, _, _ = is_domain_in_filters(host, [whitelist_sub_domains_path])
+                    if ok:
                         flagged['sub_domain'].add(host)
                         continue
+                    
                     # Mail subdomain
-                    if any(host.endswith('.' + d) for d in whitelist_mail_sub_domains_data):
+                    ok, _, _ = is_domain_in_filters(host, [whitelist_mail_sub_domains_path])
+                    if ok:
                         flagged['mail_sub_domain'].add(host)
                         continue
+                    
                     # Antivirus pattern
                     if antivirus_re.search(host):
                         flagged['antivirus'].add(host)
 
         any_flagged = False
 
-        # Emit pre-bucket notifications
+        # Emit per-bucket notifications
         if flagged['ipv4']:
             any_flagged = True
             notify_user_hosts(
