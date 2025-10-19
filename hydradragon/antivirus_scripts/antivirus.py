@@ -4556,6 +4556,7 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
+
 def load_all_resources_non_blocking():
     """
     Start all resource-loading threads immediately (non-blocking).
@@ -4585,7 +4586,8 @@ def load_all_resources_non_blocking():
         global clamav_scanner
         # instantiate scanner inside this thread only (so C-level init doesn't block main thread)
         try:
-            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
+            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, 
+                                           dbpath=clamav_database_directory_path)
         except Exception as e:
             logger.error("Failed to create ClamAV scanner in loader thread: %s", e)
 
@@ -4633,19 +4635,6 @@ def load_all_resources_non_blocking():
         resource_threads[name] = thread
 
     logger.info("All resource loading threads started (non-blocking)")
-
-    # Monitoring thread to set the flag when all threads finish
-    def monitor_all_resources():
-        while True:
-            # Check if all threads are done
-            if all(not t.is_alive() for t in resource_threads.values()):
-                all_resources_loaded.set()
-                logger.info("All resources finished loading")
-                break
-
-    monitor_thread = threading.Thread(target=monitor_all_resources, name="ResourceMonitor")
-    monitor_thread.daemon = True
-    monitor_thread.start()
 
 # Start load_all_resources_non_blocking()
 starter = threading.Thread(target=load_all_resources_non_blocking, name="ResourceLoaderStarter")
