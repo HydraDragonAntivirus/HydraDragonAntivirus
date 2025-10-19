@@ -526,7 +526,6 @@ from .path_and_variables import (
     seven_zip_path,
     libclamav_path,
     clamav_database_directory_path,
-
 )
 logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 
