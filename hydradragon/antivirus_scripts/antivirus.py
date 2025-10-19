@@ -4867,18 +4867,14 @@ def scan_file_real_time(
         threads = []
         for worker in workers:
             t = threading.Thread(target=worker)
-            t.daemon = True # Allows main thread to exit if workers are stuck
             t.start()
             threads.append(t)
 
-        # Wait for either the first detection or for all threads to complete.
-        while any(t.is_alive() for t in threads):
-            if stop_event.is_set():
-                logger.info(f"Detection found for {file_path}, stopping other scan threads.")
-                break
- 
-        # Final decision is made based on the 'results' dict, which is updated
-        # by the worker threads under a lock.
+        # CRITICAL: Wait for all threads to finish
+        for t in threads:
+            t.join()
+
+        # NOW check results after threads are done
         with thread_lock_real_time:
             if results.get('malware_found'):
                 return True, results.get('virus_name', ""), results.get('engine', ""), results.get('is_vmprotect', False)
