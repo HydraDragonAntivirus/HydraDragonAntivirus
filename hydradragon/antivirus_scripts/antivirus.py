@@ -86,10 +86,6 @@ import pickle
 logger.debug(f"pickle module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import glob
-logger.debug(f"glob module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from cuckoopy import CuckooFilter
 logger.debug(f"cuckoopy.CuckooFilter module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -467,7 +463,6 @@ from .path_and_variables import (
     ungarbler_string_dir,
     excluded_rules_path,
     html_extracted_dir,
-    WF,
     WEBSITE_RULES_DIR,
     spam_email_365_path,
     ipv4_addresses_path,
@@ -518,20 +513,8 @@ from .path_and_variables import (
     ipv4_whitelist_data,
     ipv6_whitelist_data,
     urlhaus_data,
-    malware_domains_data,
-    malware_domains_mail_data,
-    phishing_domains_data,
-    abuse_domains_data,
-    mining_domains_data,
-    spam_domains_data,
     whitelist_domains_data,
     whitelist_domains_mail_data,
-    malware_sub_domains_data,
-    malware_mail_sub_domains_data,
-    phishing_sub_domains_data,
-    abuse_sub_domains_data,
-    mining_sub_domains_data,
-    spam_sub_domains_data,
     whitelist_sub_domains_data,
     whitelist_mail_sub_domains_data,
     scanned_urls_general,
@@ -1175,8 +1158,6 @@ class WebsiteFilters:
                 return pickle.load(fh)
         except Exception:
             try:
-                # some installs provide cuckoopy.CuckooFilter.load
-                from cuckoopy import CuckooFilter  # type: ignore
                 if hasattr(CuckooFilter, "load"):
                     return CuckooFilter.load(str(path))
             except Exception:
@@ -1298,9 +1279,6 @@ def is_domain_in_filters(domain: str, basenames: list):
     basenames: list of logical filter basenames to check (e.g. ['MalwareDomains','MalwareSubDomains'])
     Returns (True, matched_basename, reference)
     """
-    global WF
-    if WF is None:
-        return False, None, ""
     # direct check full domain first
     for b in basenames:
         ok, ref = WF.contains_in_basename(b, domain)
@@ -1323,9 +1301,6 @@ def is_ip_in_filters(ip: str, basenames: list):
     basenames: list of logical filter basenames (e.g. ['IPv4Malware','IPv4Spam'])
     Returns (True, matched_basename, reference)
     """
-    global WF
-    if WF is None:
-        return False, None, ""
     for b in basenames:
         ok, ref = WF.contains_in_basename(b, ip)
         if ok:
@@ -4669,18 +4644,50 @@ def scan_file_with_clamav(file_path):
         logger.error(f"Error scanning file {file_path}: {ex}")
         return "Error"
 
+def scan_file_real_time_yara(
+    file_path: str,
+    signature_check: dict
+) -> Tuple[bool, str, str, bool]:
+    """
+    Scan file with YARA only (blocking, no threads).
+
+    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
+    """
+    logger.info(f"Started YARA scanning file: {file_path}")
+    
+    sig_valid = bool(signature_check and signature_check.get("is_valid", False))
+    
+    try:
+        yara_match, yara_result, is_vmprotect = scan_yara(file_path)
+        
+        if yara_match and yara_match not in ("Clean", ""):
+            if sig_valid:
+                yara_match = f"{yara_match}.SIG"
+            logger.critical(
+                f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
+            )
+            return True, yara_match, "YARA", is_vmprotect
+        else:
+            logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+            return False, "Clean", "", is_vmprotect
+            
+    except Exception as ex:
+        logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
+        return False, "Error", "", False
+
+
 def scan_file_real_time(
     file_path: str,
     signature_check: dict,
     file_name: str,
     die_output,
     pe_file: bool = False
-) -> Tuple[bool, str, str, Optional[str]]:
+) -> Tuple[bool, str, str, Optional[bool]]:
     """
-    Scan file in real-time using multiple engines in parallel.
+    Scan file in real-time using multiple engines in parallel (WITHOUT YARA).
     Stops all workers on first detection.
 
-    Returns: (malware_found: bool, virus_name: str, engine: str, vmprotect_path: Optional[str])
+    Returns: (malware_found: bool, virus_name: str, engine: str, is_vmprotect: bool)
     """
     logger.info(f"Started scanning file: {file_path}")
 
@@ -4689,20 +4696,14 @@ def scan_file_real_time(
         'malware_found': False,
         'virus_name': 'Clean',
         'engine': '',
-        'vmprotect_path': None,
         'is_vmprotect': False
     }
-    stop_event = threading.Event()  # Event to signal all threads to stop
+    stop_event = threading.Event()
     thread_lock_real_time = threading.Lock()
     sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
     def pe_scan_worker():
-        """Worker function for PE file analysis.
-
-        Returns:
-            False if a detection happened (or an error/stop), True if worker completed without detections.
-        """
-        # If a global stop_event was set, treat as no-work / return False to indicate no-success
+        """Worker function for PE file analysis."""
         if stop_event.is_set():
             return False
 
@@ -4710,13 +4711,9 @@ def scan_file_real_time(
             if pe_file:
                 match_found = check_pe_file(file_path, signature_check, file_name)
                 if match_found:
-                    # A match happened in the PE check — per request, return False to signal this.
-                    logger.info(f"PE scan worker: detection found for {file_path}; returning False to caller.")
+                    logger.info(f"PE scan worker: detection found for {file_path}")
                     return False
-
-            # No match found during PE checks
             return True
-
         except Exception as ex:
             logger.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
             return False
@@ -4733,46 +4730,16 @@ def scan_file_real_time(
                 logger.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
                 with thread_lock_real_time:
-                    if not results['malware_found']:  # First detection wins
+                    if not results['malware_found']:
                         results['malware_found'] = True
                         results['virus_name'] = result
                         results['engine'] = "ClamAV"
-                        stop_event.set()  # Signal other threads to stop
+                        stop_event.set()
             else:
                 if not stop_event.is_set():
                     logger.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logger.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
-
-    def yara_scan_worker():
-        """Worker function for YARA scan."""
-        if stop_event.is_set():
-            return
-        try:
-            yara_match, yara_result, is_vmprotect = scan_yara(file_path)
-
-            with thread_lock_real_time:
-                # Always update vmprotect status if found
-                if is_vmprotect:
-                    results['is_vmprotect'] = True
-
-                # If malware is found and no other thread has found malware yet
-                if yara_match and yara_match not in ("Clean", ""):
-                    if not results['malware_found']:
-                        if sig_valid:
-                            yara_match = f"{yara_match}.SIG"
-                        logger.critical(
-                            f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}"
-                        )
-                        results['malware_found'] = True
-                        results['virus_name'] = yara_match
-                        results['engine'] = "YARA"
-                        stop_event.set()  # Signal other threads to stop
-                elif not results['malware_found']:
-                     logger.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-
-        except Exception as ex:
-            logger.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
     def tar_scan_worker():
         """Worker function for TAR scan"""
@@ -4854,11 +4821,9 @@ def scan_file_real_time(
             logger.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
 
     try:
-        # Create and start all threads
         workers = [
             pe_scan_worker,
             clamav_scan_worker,
-            yara_scan_worker,
             tar_scan_worker,
             zip_scan_worker,
             sevenz_scan_worker
@@ -4870,21 +4835,19 @@ def scan_file_real_time(
             t.start()
             threads.append(t)
 
-        # CRITICAL: Wait for all threads to finish
         for t in threads:
             t.join()
 
-        # NOW check results after threads are done
         with thread_lock_real_time:
-            if results.get('malware_found'):
-                return True, results.get('virus_name', ""), results.get('engine', ""), results.get('is_vmprotect', False)
+            if results['malware_found']:
+                return True, results['virus_name'], results['engine'], results['is_vmprotect']
             else:
                 logger.info(f"File is clean - no malware detected by any engine: {file_path}")
-                return False, "Clean", "", results.get('is_vmprotect', False)
+                return False, "Clean", "", results['is_vmprotect']
 
     except Exception as ex:
         logger.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-        return False, "Error", "", None
+        return False, "Error", "", False
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -9715,8 +9678,6 @@ def scan_and_warn(file_path,
         die_output = ""
         plain_text_flag = False
 
-        already_vmprotect_unpacked = flag_vmprotect
-
         # Convert WindowsPath to string if necessary
         if isinstance(file_path, WindowsPath):
             file_path = str(file_path)
@@ -10791,10 +10752,11 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
-        def realtime_malware_thread():
+        # YARA REALTIME THREAD
+        def realtime_malware_thread_yara(norm_path, signature_check, main_file_path, already_vmprotect_unpacked, vmprotect_unpacked_dir):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time(
-                    norm_path, signature_check, file_name, die_output, pe_file=pe_file
+                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time_yara(
+                    norm_path, signature_check
                 )
 
                 if is_malicious:
@@ -10802,29 +10764,23 @@ def scan_and_warn(file_path,
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
-                        # MODIFIED: Pass main_file_path
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
-                        # One detection enough
                         return False
                     else:
-                        # MODIFIED: Pass main_file_path
                         threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
-                        # One detection enough
                         return False
 
                 if already_vmprotect_unpacked:
                     return
 
-                # ========= VMProtect specialized unpacking =========
+                # VMProtect unpacking logic
                 if is_vmprotect:
                     try:
                         logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
 
-                        # Read original file
                         with open(norm_path, 'rb') as f:
                             packed_data = f.read()
 
-                        # Attempt unpack
                         unpacked_data = unpack_pe(packed_data)
 
                         if unpacked_data:
@@ -10832,13 +10788,11 @@ def scan_and_warn(file_path,
                             unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
                             unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
 
-                            # Write unpacked file
                             with open(unpacked_path, 'wb') as f:
                                 f.write(unpacked_data)
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
-                            # Launch scan/warning thread
                             threading.Thread(
                                 target=scan_and_warn,
                                 args=(unpacked_path,),
@@ -10849,6 +10803,28 @@ def scan_and_warn(file_path,
 
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file {norm_path}: {e}")
+
+            except Exception as e:
+                logger.error(f"Error in YARA real-time malware scan for {norm_path}: {e}")
+
+
+        # NON-YARA REALTIME THREAD
+        def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
+            try:
+                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time(
+                    norm_path, signature_check, file_name, die_output, pe_file=pe_file
+                )
+
+                if is_malicious:
+                    virus_name = ''.join(virus_names)
+                    logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
+
+                    if virus_name.startswith("PUA."):
+                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
+                        return False
+                    else:
+                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
+                        return False
 
             except Exception as e:
                 logger.error(f"Error in real-time malware scan for {norm_path}: {e}")
@@ -10886,6 +10862,7 @@ def scan_and_warn(file_path,
         # Start common processing threads
         common_threads = [
             threading.Thread(target=fake_size_check_thread),
+            threading.Thread(target=realtime_malware_thread_yara),
             threading.Thread(target=realtime_malware_thread),
             threading.Thread(target=filename_detection_thread),
             threading.Thread(target=decompilation_postprocess_thread)
