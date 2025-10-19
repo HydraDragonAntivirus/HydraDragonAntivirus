@@ -240,11 +240,8 @@ def _process_threat_event(data: str):
         logger.info(f"Received threat event from HydraDragon: {file_path} - {virus_name} (malicious: {is_malicious})")
 
         # Here you can trigger Owlyshield's response actions
-        # For example, kill the process, quarantine the file, etc.
         if is_malicious and action_required == "kill_and_remove":
             logger.critical(f"CRITICAL THREAT DETECTED: {file_path} - {virus_name}")
-            # Add your response logic here
-            # e.g., kill_process(event.get("pid")), quarantine_file(file_path)
 
     except json.JSONDecodeError:
         logger.error(f"Failed to parse threat event JSON from HydraDragon: {data}")
@@ -254,58 +251,49 @@ def _process_threat_event(data: str):
 
 def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
     """
-    Pipe 1 Server: Listens for threat events FROM HydraDragon AV.
-    This runs in a separate thread and continuously receives malware detections.
+    Connects as a client to the threat events pipe created by Owlyshield.
+    Continuously reads malware detection events.
     """
-    logger.info(f"Starting threat event listener from HydraDragon on: {pipe_name}")
+    logger.info(f"Connecting to threat event pipe: {pipe_name}")
 
     while True:
-        pipe = None
         try:
-            # Create the named pipe to RECEIVE threat events from AV
-            pipe = win32pipe.CreateNamedPipe(
+            # Attempt to open the existing pipe
+            pipe = win32file.CreateFile(
                 pipe_name,
-                win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                win32pipe.PIPE_UNLIMITED_INSTANCES,
-                65536,
-                65536,
+                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                0,               # no sharing
+                None,
+                win32file.OPEN_EXISTING,
                 0,
                 None
             )
+            logger.info("Connected to threat event pipe.")
 
-            logger.info("Waiting for HydraDragon to send threat events...")
-            win32pipe.ConnectNamedPipe(pipe, None)
-            logger.info("HydraDragon connected to threat event pipe.")
-
-            # Read the threat event data
-            full_message = []
             while True:
+                # Read messages from the pipe
                 hr, data = win32file.ReadFile(pipe, 4096)
                 if not data:
                     break
-                full_message.append(data)
-
-            decoded_message = b"".join(full_message).decode('utf-8', errors='replace')
-            logger.debug(f"Received threat event of {len(decoded_message)} bytes")
-
-            if decoded_message:
-                with thread_lock:
-                    _process_threat_event(decoded_message)
+                message = data.decode('utf-8', errors='replace')
+                logger.debug(f"Received threat event: {message}")
+                # Process the threat event here
+                _process_threat_event(message)
 
         except pywintypes.error as e:
-            if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
-                logger.warning("HydraDragon disconnected from threat event pipe.")
+            if e.winerror == 2:  # ERROR_FILE_NOT_FOUND
+                logger.warning("Pipe not found, retrying in 1 second...")
             else:
-                logger.error(f"Windows API Error in threat listener: {e.strerror} (Code: {e.winerror})")
+                logger.error(f"Pipe error: {e}")
             time.sleep(1)
         except Exception as e:
-            logger.exception(f"Unexpected error in threat event listener: {e}")
-            time.sleep(5)
+            logger.exception(f"Unexpected error: {e}")
+            time.sleep(1)
         finally:
-            if pipe:
-                win32pipe.DisconnectNamedPipe(pipe)
-                win32file.CloseHandle(pipe)
+            try:
+                pipe.close()
+            except Exception:
+                pass
 
 
 # ============================================================================

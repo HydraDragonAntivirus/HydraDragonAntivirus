@@ -230,17 +230,16 @@ uefi_paths = [
 ]
 
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
-PIPE_AV_TO_EDR = r"\\.\pipe\hydradragon_to_owlyshield"
-
+PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
 
 # Pipe 2: Owlyshield SENDS scan requests TO HydraDragon (HydraDragon receives)
-PIPE_EDR_TO_AV = r"\\.\pipe\owlyshield_to_hydradragon"
+PIPE_EDR_TO_AV = r"\\.\pipe\Global\owlyshield_to_hydradragon"
 
 # Pipe 3: MBR write alerts from the kernel driver
-PIPE_MBR_ALERT = r"\\.\pipe\mbr_filter_alerts"
+PIPE_MBR_ALERT = r"\\.\pipe\Global\mbr_filter_alerts"
 
 # Pipe 4: Self-defense alerts from file/process/registry drivers
-PIPE_SELF_DEFENSE_ALERT = r"\\.\pipe\self_defense_alerts"
+PIPE_SELF_DEFENSE_ALERT = r"\\.\pipe\Global\self_defense_alerts"
 
 def get_startup_paths():
     """Return a tuple of (user_startup, common_startup) using ctypes Windows API."""
