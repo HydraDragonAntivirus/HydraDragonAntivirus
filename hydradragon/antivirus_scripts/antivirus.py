@@ -11397,7 +11397,6 @@ def periodic_yield_worker(yield_interval=0.1):
 def start_real_time_protection(resource_wait_timeout=30):
     """
     Starts real-time protection threads and RETURNS IMMEDIATELY.
-    This function NEVER blocks waiting for monitor threads or calls .join().
     Threads are started as daemon threads so they won't block process exit.
 
     :param resource_wait_timeout: seconds to wait for resources to load before starting monitors
