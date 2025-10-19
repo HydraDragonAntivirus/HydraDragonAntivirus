@@ -1,2 +1,0 @@
-- antivirusprocesslist References: https://www.bleepingcomputer.com/news/security/smartservice-and-s5mark-acts-like-an-adware-bodyguard-by-blocking-antivirus-software/
-- A SIGMA rule created by Joe Security for detecting findstr usage.

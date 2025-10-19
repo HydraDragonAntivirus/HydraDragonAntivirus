@@ -1477,4 +1477,3 @@
 .zoo
 .zpl
 .zst
-shtml

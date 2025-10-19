@@ -12,22 +12,20 @@ Maximum compression for huge databases
 import mmh3
 import random
 import struct
-import time
+from typing import Optional, Dict, List, Tuple, BinaryIO
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Set
-from tqdm import tqdm
-
+import tqdm
 
 class ReferenceRegistry:
     """Map references to IDs for compression"""
-    
+
     VERSION = 1
-    
+
     def __init__(self):
         self.ref_to_id: Dict[str, int] = {}
         self.id_to_ref: Dict[int, str] = {}
         self.next_id = 0
-    
+
     def register(self, ref: str) -> int:
         """Get or create ID for reference"""
         if ref not in self.ref_to_id:
@@ -35,7 +33,7 @@ class ReferenceRegistry:
             self.id_to_ref[self.next_id] = ref
             self.next_id += 1
         return self.ref_to_id[ref]
-    
+
     def save(self, path: str):
         """Save registry to binary"""
         with open(path, 'wb') as f:
@@ -47,7 +45,7 @@ class ReferenceRegistry:
                 f.write(struct.pack('I', ref_id))  # ID (4 bytes)
                 f.write(struct.pack('I', len(ref_bytes)))  # Length (4 bytes)
                 f.write(ref_bytes)  # String data
-    
+
     @classmethod
     def load(cls, path: str) -> 'ReferenceRegistry':
         """Load registry from binary"""
@@ -56,29 +54,47 @@ class ReferenceRegistry:
             magic = f.read(4)
             if magic != b'HREF':
                 raise ValueError("Invalid reference registry")
-            
-            version = struct.unpack('B', f.read(1))[0]
+
+            version_bytes = f.read(1)
+            if len(version_bytes) < 1:
+                raise EOFError("Unexpected EOF while reading registry version")
+            version = struct.unpack('B', version_bytes)[0]
             if version != cls.VERSION:
                 raise ValueError(f"Unsupported registry version {version}")
-            
-            count = struct.unpack('I', f.read(4))[0]
+
+            count_bytes = f.read(4)
+            if len(count_bytes) < 4:
+                raise EOFError("Unexpected EOF while reading registry count")
+            count = struct.unpack('I', count_bytes)[0]
             for _ in range(count):
-                ref_id = struct.unpack('I', f.read(4))[0]
-                ref_len = struct.unpack('I', f.read(4))[0]
-                ref_str = f.read(ref_len).decode('utf-8')
+                ref_id_b = f.read(4)
+                if len(ref_id_b) < 4:
+                    raise EOFError("Unexpected EOF while reading ref id")
+                ref_id = struct.unpack('I', ref_id_b)[0]
+
+                ref_len_b = f.read(4)
+                if len(ref_len_b) < 4:
+                    raise EOFError("Unexpected EOF while reading ref len")
+                ref_len = struct.unpack('I', ref_len_b)[0]
+
+                ref_str_b = f.read(ref_len)
+                if len(ref_str_b) < ref_len:
+                    raise EOFError("Unexpected EOF while reading ref string")
+                ref_str = ref_str_b.decode('utf-8')
+
                 reg.id_to_ref[ref_id] = ref_str
                 reg.ref_to_id[ref_str] = ref_id
-            
+
             reg.next_id = max(reg.id_to_ref.keys()) + 1 if reg.id_to_ref else 0
         return reg
 
 
 class HydraCuckooBucket:
     """Single bucket in the Cuckoo filter table"""
-    
+
     def __init__(self, bucket_size: int):
         self.bucket_size = bucket_size
-        self.bucket = []
+        self.bucket: List[bytes] = []
 
     def __contains__(self, fingerprint: bytes) -> bool:
         return fingerprint in self.bucket
@@ -103,32 +119,43 @@ class HydraCuckooBucket:
         return data
 
     @classmethod
-    def from_bytes(cls, data: bytes, bucket_size: int, fp_size: int) -> Tuple['HydraCuckooBucket', int]:
-        """Deserialize bucket from bytes"""
-        count = data[0]
+    def from_stream(cls, stream: BinaryIO, bucket_size: int, fp_size: int) -> 'HydraCuckooBucket':
+        """
+        Read a single bucket from a file-like stream.
+        Format: 1 byte count, then count * fp_size bytes.
+        """
+        count_b = stream.read(1)
+        if not count_b or len(count_b) < 1:
+            raise EOFError("Unexpected EOF while reading bucket count")
+        count = count_b[0]
         bucket = cls(bucket_size)
-        offset = 1
-        for _ in range(count):
-            fp = data[offset:offset + fp_size]
-            bucket.bucket.append(fp)
-            offset += fp_size
-        return bucket, offset
+        if count:
+            to_read = count * fp_size
+            data = stream.read(to_read)
+            if len(data) < to_read:
+                raise EOFError("Unexpected EOF while reading bucket fingerprints")
+            offset = 0
+            for _ in range(count):
+                fp = data[offset:offset + fp_size]
+                bucket.bucket.append(fp)
+                offset += fp_size
+        return bucket
 
 
 class HydraCuckooFilter:
     """Custom Cuckoo filter with native binary serialization"""
-    
+
     MAGIC = b'HDCF'
     VERSION = 1
-    
-    def __init__(self, capacity: int = 10000, bucket_size: int = 4, 
+
+    def __init__(self, capacity: int = 10000, bucket_size: int = 4,
                  fingerprint_size: int = 2, max_swaps: int = 500):
         self.capacity = capacity
         self.bucket_size = bucket_size
         self.fingerprint_size = fingerprint_size
         self.max_swaps = max_swaps
         self.table_size = self._next_power_of_2(capacity // bucket_size)
-        self.table = [HydraCuckooBucket(bucket_size) for _ in range(self.table_size)]
+        self.table: List[HydraCuckooBucket] = [HydraCuckooBucket(bucket_size) for _ in range(self.table_size)]
         self.item_count = 0
 
     @staticmethod
@@ -190,24 +217,53 @@ class HydraCuckooFilter:
             f.write(struct.pack('B', self.fingerprint_size))
             f.write(struct.pack('H', self.max_swaps))
             f.write(struct.pack('I', self.item_count))
-            
+
             for bucket in self.table:
                 f.write(bucket.to_bytes())
 
     @classmethod
     def load(cls, path: str) -> 'HydraCuckooFilter':
+        """
+        Stream-based loader: reads header, then reads each bucket progressively.
+        Avoids reading the entire file into memory.
+        """
         with open(path, 'rb') as f:
             magic = f.read(4)
-            if magic != cls.MAGIC:
+            if len(magic) < 4 or magic != cls.MAGIC:
                 raise ValueError("Invalid file format")
-            
-            version = struct.unpack('B', f.read(1))[0]
-            table_size = struct.unpack('I', f.read(4))[0]
-            bucket_size = struct.unpack('B', f.read(1))[0]
-            fingerprint_size = struct.unpack('B', f.read(1))[0]
-            max_swaps = struct.unpack('H', f.read(2))[0]
-            item_count = struct.unpack('I', f.read(4))[0]
-            
+
+            version_b = f.read(1)
+            if len(version_b) < 1:
+                raise EOFError("Unexpected EOF while reading version")
+            version = struct.unpack('B', version_b)[0]
+            if version != cls.VERSION:
+                raise ValueError(f"Unsupported filter version {version}")
+
+            ts_b = f.read(4)
+            if len(ts_b) < 4:
+                raise EOFError("Unexpected EOF while reading table_size")
+            table_size = struct.unpack('I', ts_b)[0]
+
+            bucket_size_b = f.read(1)
+            if len(bucket_size_b) < 1:
+                raise EOFError("Unexpected EOF while reading bucket_size")
+            bucket_size = struct.unpack('B', bucket_size_b)[0]
+
+            fp_size_b = f.read(1)
+            if len(fp_size_b) < 1:
+                raise EOFError("Unexpected EOF while reading fingerprint_size")
+            fingerprint_size = struct.unpack('B', fp_size_b)[0]
+
+            max_swaps_b = f.read(2)
+            if len(max_swaps_b) < 2:
+                raise EOFError("Unexpected EOF while reading max_swaps")
+            max_swaps = struct.unpack('H', max_swaps_b)[0]
+
+            item_count_b = f.read(4)
+            if len(item_count_b) < 4:
+                raise EOFError("Unexpected EOF while reading item_count")
+            item_count = struct.unpack('I', item_count_b)[0]
+
             cf = cls.__new__(cls)
             cf.table_size = table_size
             cf.bucket_size = bucket_size
@@ -216,16 +272,12 @@ class HydraCuckooFilter:
             cf.item_count = item_count
             cf.capacity = table_size * bucket_size
             cf.table = []
-            
-            remaining = f.read()
-            offset = 0
+
+            # Read each bucket sequentially to avoid reading whole file
             for _ in range(table_size):
-                bucket, consumed = HydraCuckooBucket.from_bytes(
-                    remaining[offset:], bucket_size, fingerprint_size
-                )
+                bucket = HydraCuckooBucket.from_stream(f, bucket_size, fingerprint_size)
                 cf.table.append(bucket)
-                offset += consumed
-            
+
             return cf
 
 
@@ -235,18 +287,21 @@ class MinimalMetadataStore:
     Only stores domain hash (8 bytes) + reference IDs (2 bytes each)
     No timestamps, no strings - maximum compression
     """
-    
+
     MAGIC = b'HDMM'  # HydraDragon Minimal Metadata
     VERSION = 1
-    
+
     def __init__(self):
-        self.entries = []  # List of (domain_hash, [ref_ids])
+        # Keep list for backward-compatible save order, but also build a dict for O(1) lookup
+        self.entries: List[Tuple[int, List[int]]] = []  # List of (domain_hash, [ref_ids])
+        self._map: Dict[int, List[int]] = {}
 
     def add_threat(self, domain: str, ref_ids: List[int]):
         """Add threat with minimal data"""
         # Use 64-bit hash of domain
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
         self.entries.append((domain_hash, ref_ids))
+        self._map[domain_hash] = ref_ids
 
     def save(self, path: str):
         """Save in ultra-compact binary format"""
@@ -254,9 +309,9 @@ class MinimalMetadataStore:
             f.write(self.MAGIC)
             f.write(struct.pack('B', self.VERSION))
             f.write(struct.pack('I', len(self.entries)))
-            
+
             for domain_hash, ref_ids in self.entries:
-                # 8 bytes for hash
+                # 8 bytes for hash (signed long long)
                 f.write(struct.pack('q', domain_hash))
                 # 1 byte for ref count
                 f.write(struct.pack('B', min(len(ref_ids), 255)))
@@ -266,37 +321,58 @@ class MinimalMetadataStore:
 
     @classmethod
     def load(cls, path: str) -> 'MinimalMetadataStore':
-        """Load from binary"""
+        """Load from binary; builds a dict for fast lookups"""
         meta = cls()
-        
+
         with open(path, 'rb') as f:
             magic = f.read(4)
-            if magic != cls.MAGIC:
+            if len(magic) < 4 or magic != cls.MAGIC:
                 raise ValueError("Invalid metadata format")
-            
-            version = struct.unpack('B', f.read(1))[0]
-            entry_count = struct.unpack('I', f.read(4))[0]
-            
+
+            version_b = f.read(1)
+            if len(version_b) < 1:
+                raise EOFError("Unexpected EOF while reading version")
+            version = struct.unpack('B', version_b)[0]
+            if version != cls.VERSION:
+                raise ValueError(f"Unsupported metadata version {version}")
+
+            entry_count_b = f.read(4)
+            if len(entry_count_b) < 4:
+                raise EOFError("Unexpected EOF while reading entry count")
+            entry_count = struct.unpack('I', entry_count_b)[0]
+
             for _ in range(entry_count):
-                domain_hash = struct.unpack('q', f.read(8))[0]
-                ref_count = struct.unpack('B', f.read(1))[0]
-                ref_ids = []
-                for _ in range(ref_count):
-                    ref_id = struct.unpack('H', f.read(2))[0]
-                    ref_ids.append(ref_id)
-                
+                dh_b = f.read(8)
+                if len(dh_b) < 8:
+                    raise EOFError("Unexpected EOF while reading domain hash")
+                domain_hash = struct.unpack('q', dh_b)[0]
+
+                ref_count_b = f.read(1)
+                if len(ref_count_b) < 1:
+                    raise EOFError("Unexpected EOF while reading ref count")
+                ref_count = struct.unpack('B', ref_count_b)[0]
+
+                ref_ids: List[int] = []
+                if ref_count:
+                    expected = ref_count * 2
+                    ref_bytes = f.read(expected)
+                    if len(ref_bytes) < expected:
+                        raise EOFError("Unexpected EOF while reading ref ids")
+                    off = 0
+                    for _ in range(ref_count):
+                        ref_id = struct.unpack('H', ref_bytes[off:off + 2])[0]
+                        ref_ids.append(ref_id)
+                        off += 2
+
                 meta.entries.append((domain_hash, ref_ids))
-        
+                meta._map[domain_hash] = ref_ids
+
         return meta
 
     def get_threat(self, domain: str) -> Optional[List[int]]:
-        """Get reference IDs for domain"""
+        """Get reference IDs for domain (O(1))"""
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
-        for d_hash, ref_ids in self.entries:
-            if d_hash == domain_hash:
-                return ref_ids
-        return None
-
+        return self._map.get(domain_hash)
 
 def parse_threat_line(line: str) -> Tuple[str, List[str]]:
     """
