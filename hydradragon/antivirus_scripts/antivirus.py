@@ -1194,7 +1194,7 @@ class WebsiteFilters:
             return False
         return False
 
-    def contains_in_basename(self, basename: str, domain_or_ip: str) -> (bool, str):
+    def contains_in_basename(self, basename: str, domain_or_ip: str) -> Tuple[bool, str]:
         """
         Check a domain/ip in all shards for basename.
         Returns (True, source_reference) or (False, "")
