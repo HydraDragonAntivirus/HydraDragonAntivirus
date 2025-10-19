@@ -351,10 +351,14 @@ def alert_on_critical(record):
         # Add alert count
         message += f"\n\nTotal Critical Alerts: {count}"
 
-        # Emit signal to show popup in GUI thread (thread-safe via Qt's signal mechanism)
+        # CRITICAL FIX: Only emit signal if GUI is available
+        # The signal uses Qt.QueuedConnection so it's safe to emit from any thread
         if is_gui_available():
-            alert_tracker.critical_alert_signal.emit(title, message, "CRITICAL")
-
+            try:
+                alert_tracker.critical_alert_signal.emit(title, message, "CRITICAL")
+            except Exception as e:
+                # If signal emission fails, log but don't crash
+                logger.debug(f"Failed to emit critical alert signal: {e}")
 
 # Add callback to logger
 callback_id = logger.add_callback(alert_on_critical)
