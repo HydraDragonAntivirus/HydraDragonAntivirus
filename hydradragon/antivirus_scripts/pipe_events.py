@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import json
 from datetime import datetime, timezone
 import os
@@ -524,7 +527,7 @@ def start_all_pipe_listeners():
     - Self-Defense Alert Listener (from file/process/registry drivers)
     """
     # Start the AV threat event listener thread
-    threat_listener_thread = threading.Thread(
+    threat_listener_thread = threading.Thread(daemon=True, 
         target=monitor_threat_events_from_av,
         name="HydraDragon-ThreatListener"
     )
@@ -532,7 +535,7 @@ def start_all_pipe_listeners():
     threat_listener_thread.start()
 
     # Start the MBR alert listener thread
-    mbr_alert_thread = threading.Thread(
+    mbr_alert_thread = threading.Thread(daemon=True, 
         target=monitor_mbr_alerts_from_kernel,
         name="MBR-Alert-Listener"
     )
@@ -540,7 +543,7 @@ def start_all_pipe_listeners():
     mbr_alert_thread.start()
 
     # Start the self-defense alert listener thread
-    self_defense_thread = threading.Thread(
+    self_defense_thread = threading.Thread(daemon=True, 
         target=monitor_self_defense_alerts_from_kernel,
         name="Self-Defense-Alert-Listener"
     )
