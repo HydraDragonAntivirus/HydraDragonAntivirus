@@ -465,6 +465,7 @@ from .path_and_variables import (
     excluded_rules_path,
     html_extracted_dir,
     WF,
+    website_rules_dir_normal,
     spam_email_365_path,
     ipv4_addresses_path,
     ipv4_addresses_spam_path,
@@ -1302,12 +1303,12 @@ class WebsiteFilters:
         }
 
 # ----------------- Loader function -----------------
-def load_website_data(website_rules_dir: Path):
+def load_website_data():
     """
     Load all HydraDragon .hdf shards
     Returns WebsiteFilters instance and spam_email_365 binary hashes
     """
-    WF = WebsiteFilters(website_rules_dir)
+    WF = WebsiteFilters(website_rules_dir_normal)
 
     stats = WF.stats()
     logger.info("[HydraDragon] Stats:")
