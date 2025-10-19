@@ -4257,7 +4257,7 @@ def monitor_suricata_log():
     # Wait for the file to exist instead of creating it
     while not os.path.exists(log_path):
         logger.info(f"Waiting for log file to be created: {log_path}")
-        time.sleep(1)  # Wait 5 seconds before checking again
+        time.sleep(0.05)  # Wait 0.05 seconds before checking again
 
     logger.info(f"Log file found: {log_path}")
 
