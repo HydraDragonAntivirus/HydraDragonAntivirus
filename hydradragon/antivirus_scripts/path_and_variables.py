@@ -116,6 +116,37 @@ valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 decompilers_dir = os.path.join(script_dir, "decompilers")
 bypass_pyarmor7_path = os.path.join(decompilers_dir, "bypass_pyarmor7.py")
 
+# ----------------- update the path variables to reflect .cuckoo basenames -----------------
+# These variables are used as logical names for lookups below (they were previously CSV path strings).
+ipv4_addresses_path = "IPv4Malware"
+ipv4_addresses_spam_path = "IPv4Spam"
+ipv4_addresses_bruteforce_path = "IPv4BruteForce"
+ipv4_addresses_phishing_active_path = "IPv4PhishingActive"
+ipv4_addresses_phishing_inactive_path = "IPv4PhishingInActive"
+ipv4_whitelist_path = "WhiteListIPv4"
+ipv6_addresses_path = "IPv6Malware"
+ipv6_addresses_spam_path = "IPv6Spam"
+ipv4_addresses_ddos_path = "IPv4DDoS"
+ipv6_addresses_ddos_path = "IPv6DDoS"
+ipv6_whitelist_path = "WhiteListIPv6"
+malware_domains_path = "MalwareDomains"
+malware_domains_mail_path = "MaliciousMailDomains"
+phishing_domains_path = "PhishingDomains"
+abuse_domains_path = "AbuseDomains"
+mining_domains_path = "MiningDomains"
+spam_domains_path = "SpamDomains"
+whitelist_domains_path = "WhiteListDomains"
+whitelist_domains_mail_path = "BenignMailDomains"
+
+malware_sub_domains_path = "MalwareSubDomains"
+malware_mail_sub_domains_path = "MaliciousMailSubDomains"
+phishing_sub_domains_path = "PhishingSubDomains"
+abuse_sub_domains_path = "AbuseSubDomains"
+mining_sub_domains_path = "MiningSubDomains"
+spam_sub_domains_path = "SpamSubDomains"
+whitelist_sub_domains_path = "WhiteListSubDomains"
+whitelist_mail_sub_domains_path = "BenignMailSubDomains"
+
 antivirus_domains_data = []
 # Scanned entities with "_general" suffix
 scanned_urls_general = []
