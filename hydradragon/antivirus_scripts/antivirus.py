@@ -4876,8 +4876,7 @@ def scan_file_real_time(
             if stop_event.is_set():
                 logger.info(f"Detection found for {file_path}, stopping other scan threads.")
                 break
-            time.sleep(0)  # Polling interval to check for completion or stop signal
-
+ 
         # Final decision is made based on the 'results' dict, which is updated
         # by the worker threads under a lock.
         with thread_lock_real_time:
