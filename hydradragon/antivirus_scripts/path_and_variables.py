@@ -148,6 +148,7 @@ whitelist_sub_domains_path = "WhiteListSubDomains"
 whitelist_mail_sub_domains_path = "BenignMailSubDomains"
 
 antivirus_domains_data = []
+urlhauss_data = []
 # Scanned entities with "_general" suffix
 scanned_urls_general = []
 scanned_domains_general = []
