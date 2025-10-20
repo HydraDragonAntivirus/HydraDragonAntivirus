@@ -86,6 +86,10 @@ import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from concurrent.futures import ThreadPoolExecutor, as_completed
+logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import mmh3
 logger.debug(f"mmh3 module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4601,46 +4605,55 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-
 def load_all_resources_non_blocking():
     """
-    Start all resource-loading threads immediately (non-blocking).
+    Starts all resource-loading tasks in a limited thread pool to prevent
+    system starvation and UI freezing.
     """
     def load_yargen():
         global yarGen_rules
         yarGen_rules = load_yara_rule(yarGen_rule_path, "yarGen Rules")
+        return "yarGen_rules"
 
     def load_icewater():
         global icewater_rules
         icewater_rules = load_yara_rule(icewater_rule_path, "Icewater Rules")
+        return "icewater_rules"
 
     def load_valhalla():
         global valhalla_rules
         valhalla_rules = load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules")
+        return "valhalla_rules"
 
     def load_clean():
         global clean_rules
         clean_rules = load_yara_rule(clean_rules_path, "(clean) YARA Rules")
+        return "(clean) rules"
 
     def load_yaraxtr():
         global yaraxtr_rules
         yaraxtr_rules = load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
+        return "yaraxtr_rules"
 
     def load_clamav_engine():
         global clamav_scanner
         try:
             clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path,
                                            dbpath=clamav_database_directory_path)
+            return "clamav_scanner"
         except Exception as e:
             logger.error("Failed to create ClamAV scanner in loader thread: %s", e)
+            raise  # Re-raise to be caught by the executor
 
     def load_ml_defs():
         global ml_definitions
         ml_definitions = None
         try:
             ml_definitions = load_ml_definitions_pickle(machine_learning_pickle_path)
+            return "ml_definitions"
         except Exception as e:
             logger.error(f"Error loading ML definitions: {e}")
+            raise
 
     def load_excluded():
         global excluded_rules
@@ -4648,35 +4661,54 @@ def load_all_resources_non_blocking():
         try:
             with open(excluded_rules_path, "r") as f:
                 excluded_rules = [line.strip() for line in f if line.strip()]
+            return "excluded_rules"
         except Exception as e:
             logger.error(f"Error loading excluded rules: {e}")
+            raise
 
-    tasks = {
-        "load_website_data": load_website_data,
-        "load_antivirus_list": load_antivirus_list,
-        "yarGen_rules": load_yargen,
-        "icewater_rules": load_icewater,
-        "valhalla_rules": load_valhalla,
-        "(clean) rules": load_clean,
-        "yaraxtr_rules": load_yaraxtr,
-        "clamav_scanner": load_clamav_engine,
-        "ml_definitions": load_ml_defs,
-        "excluded_rules": load_excluded
-    }
+    def load_website_data_task():
+        load_website_data()
+        return "load_website_data"
 
-    # Start each task in its own thread
-    for name, func in tasks.items():
-        def safe_task(f=func, n=name):
+    def load_antivirus_list_task():
+        load_antivirus_list()
+        return "load_antivirus_list"
+
+    # List of all task functions to run
+    tasks = [
+        load_website_data_task,
+        load_antivirus_list_task,
+        load_yargen,
+        load_icewater,
+        load_valhalla,
+        load_clean,
+        load_yaraxtr,
+        load_clamav_engine,
+        load_ml_defs,
+        load_excluded
+    ]
+
+    # Use a ThreadPoolExecutor to limit concurrent tasks.
+    # We set max_workers to 3 to avoid overwhelming the disk and CPU.
+    # This leaves resources for your main application thread to stay responsive.
+    logger.info("Starting resource loading pool (max_workers=3)...")
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="ResourceLoader") as executor:
+        
+        # Submit all tasks to the pool
+        future_to_task = {executor.submit(task): task for task in tasks}
+
+        # Process results as they complete
+        for future in as_completed(future_to_task):
             try:
-                f()
-                logger.info(f"{n} loaded")
+                # Get the result (which is the task's name)
+                task_name = future.result()
+                logger.info(f"{task_name} loaded successfully")
             except Exception as e:
-                logger.error(f"Error loading {n}: {e}")
+                # Find the original task function for logging
+                task_func = future_to_task[future]
+                logger.error(f"Error loading task '{task_func.__name__}': {e}")
 
-        thread = threading.Thread(target=safe_task, daemon=True, name=f"Resource_{name}")
-        thread.start()
-
-    logger.info("All resource loading threads started (non-blocking)")
+    logger.info("All resource loading tasks have completed.")
 
 # Start load_all_resources_non_blocking()
 starter = threading.Thread(target=load_all_resources_non_blocking, daemon=True, name="ResourceLoaderStarter")
