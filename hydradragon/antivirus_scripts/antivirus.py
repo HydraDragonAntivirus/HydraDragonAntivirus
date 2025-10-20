@@ -1186,11 +1186,7 @@ class WebsiteFilters:
         logger.info(f"[HydraDragon] Loading {len(hdf_files)} shards...")
 
         loaded = 0
-        for idx, hdf_path in enumerate(hdf_files):
-            # CRITICAL FIX: Yield CPU periodically to prevent deadlock
-            if idx % 10 == 0:  # Every 10 files
-                time.sleep(0.001)  # Small yield
-            
+        for idx, hdf_path in enumerate(hdf_files):            
             # Extract basename without -NNN suffix
             stem = hdf_path.stem  # e.g. MalwareDomains-000
             m = re.match(r"(?P<name>.+?)-\d{3,}$", stem)
@@ -1312,9 +1308,6 @@ def load_website_data():
     Load all HydraDragon .hdf shards with CPU yielding to prevent deadlock
     Returns WebsiteFilters instance and spam_email_365 binary hashes
     """
-    # Yield before heavy I/O
-    time.sleep(0.01)
-    
     WF = WebsiteFilters(website_rules_dir_normal)
 
     stats = WF.stats()
@@ -1323,9 +1316,6 @@ def load_website_data():
     logger.info(f"  Shards: {stats['total_shards']}")
     logger.info(f"  Items: {stats['total_items']:,}")
     logger.info(f"  References: {stats['references']}")
-
-    # Yield after stats
-    time.sleep(0.01)
 
     # load urlhaus if present (keeps original behavior)
     urlhaus_data = []
@@ -1346,9 +1336,6 @@ def load_website_data():
                             urlhaus_data.append({'url': line})
         except Exception:
             urlhaus_data = []
-
-    # Yield after URLhaus
-    time.sleep(0.01)
 
     # ---- Load spam_email_365.bin ----
     if spam_email_365_path.exists():
@@ -4296,18 +4283,6 @@ def process_alert_data(priority, src_ip, dest_ip):
         logger.error(f"Error processing alert data: {ex}")
         return False
 
-def is_suricata_running():
-    """
-    Check if Suricata process is already running.
-    """
-    try:
-        for proc in psutil.process_iter(['pid', 'name']):
-            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
-                return True
-    except psutil.Error:
-        pass
-    return False
-
 def run_suricata():
     """
     Run Suricata in PCAP mode on all available interfaces.
@@ -4355,12 +4330,7 @@ def suricata_callback():
     try:
         success = run_suricata()
         if success:
-            # Wait a moment and double-check
-            time.sleep(1)
-            if is_suricata_running():
-                logger.info("Suricata started successfully.")
-            else:
-                logger.error("Suricata may have failed to start properly.")
+            logger.info("Suricata started successfully.")
         else:
             logger.error("Failed to start Suricata.")
     except Exception as ex:
@@ -4375,7 +4345,6 @@ def monitor_suricata_log():
     # Wait for the file to exist instead of creating it
     while not os.path.exists(log_path):
         logger.info(f"Waiting for log file to be created: {log_path}")
-        time.sleep(0.05)  # Wait 0.05 seconds before checking again
 
     logger.info(f"Log file found: {log_path}")
 
@@ -11147,361 +11116,15 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
     except Exception as overall_ex:
         logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
-
-@dataclass
-class ProcessInfo:
-    """Safe container for process information"""
-    pid: int
-    name: str
-    exe_path: str
-    rss: int
-
-
-class SafeProcessMonitor:
-    """Thread-safe process monitor with proper resource management
-
-    NOTE: This version has the stop-request mechanism removed as requested.
-    The monitor runs until interrupted (KeyboardInterrupt) or an unhandled fatal error occurs.
-    """
-
-    def __init__(self, sandboxie_folder: str, main_file_path: str):
-        self.sandboxie_folder = sandboxie_folder.lower()
-        self.main_file_path = main_file_path.lower()
-        self.current_pid = os.getpid()
-
-        # Thread-safe tracking structures
-        self._lock = threading.RLock()
-        self._last_rss: Dict[int, int] = {}
-        self._analysis_cooldown: Dict[int, float] = {}
-
-        # Thread pool for analysis tasks
-        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="MemAnalysis")
-        self._active_futures: Set = set()
-
-    def _cleanup_stale_data(self, existing_pids: Set[int]) -> None:
-        """Remove tracking data for processes that no longer exist"""
-        with self._lock:
-            stale_pids = set(self._last_rss.keys()) - existing_pids
-            for pid in stale_pids:
-                self._last_rss.pop(pid, None)
-                self._analysis_cooldown.pop(pid, None)
-
-    def _get_safe_process_info(self, proc) -> Optional[ProcessInfo]:
-        """Safely extract process information with comprehensive error handling"""
-        try:
-            # Get basic info that was pre-fetched
-            pid = proc.info.get('pid')
-            name = proc.info.get('name', 'Unknown')
-            memory_info = proc.info.get('memory_info')
-
-            if not all([pid, memory_info]):
-                return None
-
-            # Skip our own process immediately
-            if pid == self.current_pid:
-                return None
-
-            # Verify process still exists before getting exe path
-            if not psutil.pid_exists(pid):
-                return None
-
-            # Get RSS from pre-fetched info
-            rss = memory_info.rss
-
-            # Try to get executable path with multiple fallback strategies
-            exe_path = None
-            try:
-                # Primary method
-                exe_path = proc.exe()
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                return None
-            except Exception:
-                # Fallback: try cmdline for path hints
-                try:
-                    cmdline = proc.cmdline()
-                    if cmdline:
-                        exe_path = cmdline[0]
-                    else:
-                        return None
-                except Exception:
-                    return None
-
-            if not exe_path:
-                return None
-
-            exe_lower = exe_path.lower()
-            is_in_sandbox = exe_lower.startswith(self.sandboxie_folder)
-            is_main_file = exe_lower == self.main_file_path
-
-            # Only track processes in our scope
-            if not (is_in_sandbox or is_main_file):
-                return None
-
-            return ProcessInfo(
-                pid=pid,
-                name=name,
-                exe_path=exe_path,
-                rss=rss,
-            )
-
-        except Exception as e:
-            # Log unexpected exceptions for debugging
-            logger.debug(f"Unexpected error getting process info: {e}")
-            return None
-
-    def _should_analyze_process(self, proc_info: ProcessInfo, change_threshold: int) -> tuple[bool, str]:
-        """Determine if process should be analyzed based on memory change and cooldown"""
-        with self._lock:
-            prev_rss = self._last_rss.get(proc_info.pid)
-            current_time = time.time()
-
-            # Check memory change threshold
-            if prev_rss is not None:
-                memory_change = abs(proc_info.rss - prev_rss)
-                if memory_change <= change_threshold:
-                    return False, "Below threshold"
-            else:
-                memory_change = proc_info.rss
-
-            # Check analysis cooldown (30 seconds minimum)
-            last_analysis = self._analysis_cooldown.get(proc_info.pid, 0)
-            if current_time - last_analysis < 30:
-                return False, "In cooldown"
-
-            # Update tracking data
-            self._last_rss[proc_info.pid] = proc_info.rss
-            self._analysis_cooldown[proc_info.pid] = current_time
-
-            # Determine change type for logging
-            if prev_rss is None:
-                change_type = "initial"
-            elif proc_info.rss > prev_rss:
-                change_type = "increase"
-            else:
-                change_type = "decrease"
-
-            change_amount = proc_info.rss - prev_rss if prev_rss else proc_info.rss
-            exe_lower = proc_info.exe_path.lower()
-            is_in_sandbox = exe_lower.startswith(self.sandboxie_folder)
-            is_main_file = exe_lower == self.main_file_path
-
-            logger.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
-            logger.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
-            logger.info(f"  Current RSS: {proc_info.rss} bytes")
-            logger.info(f"  Change: {change_amount:+} bytes")
-            logger.info(f"  In sandbox: {is_in_sandbox}, Is main file: {is_main_file}")
-
-            return True, "Ready for analysis"
-
-    def _submit_analysis_task(self, proc_info: ProcessInfo) -> None:
-        """Submit memory analysis task to thread pool"""
-
-        def analysis_task():
-            try:
-                # Verify process still exists before analysis
-                if not psutil.pid_exists(proc_info.pid):
-                    logger.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
-                    return None
-
-                logger.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
-
-                # Call the external analysis function (uses HydraDragonDumper internally)
-                result_file = analyze_specific_process(proc_info.name)
-
-                if result_file:
-                    logger.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
-
-                    # Launch scan in separate thread, passing proc_info for context
-                    scan_thread = threading.Thread(daemon=True,
-                        target=self._safe_scan_and_warn,
-                        args=(result_file, proc_info),
-                        name=f"Scan-{proc_info.pid}",
-                    )
-                    scan_thread.start()
-                else:
-                    logger.error(f"Memory analysis for PID {proc_info.pid} returned no results")
-
-                return result_file
-
-            except Exception as e:
-                logger.error(f"Memory analysis failed for PID {proc_info.pid}: {e}")
-                return None
-
-        # Submit task to thread pool
-        try:
-            future = self._executor.submit(analysis_task)
-            self._active_futures.add(future)
-
-            # Clean up completed futures
-            completed_futures = {f for f in self._active_futures if f.done()}
-            self._active_futures -= completed_futures
-
-        except Exception as e:
-            logger.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
-
-    def _safe_scan_and_warn(self, result_file: str, proc_info: ProcessInfo) -> None:
-        """Safely execute scan_and_warn, or if protector detected and main process running,
-        send result to main process via marker file.
-
-        Behavior:
-          1. Check if the dumped file has a protector (using is_protector_from_output)
-          2. If protector exists AND main_file_path process is running:
-             - Write marker file next to main executable with result_file path
-             - Skip normal scan_and_warn
-          3. Otherwise:
-             - Call normal scan_and_warn(result_file) with main_file_path tracking
-        """
-        try:
-            # First check if this dump has a protector
-            protector_name = None
-            try:
-                # Run DIE on the result_file to check for protector
-                die_output = get_die_output_binary(result_file)
-                protector_name = is_protector_from_output(die_output)
-
-                if protector_name:
-                    logger.info(f"Protector detected in dump: {protector_name}")
-            except Exception as prot_err:
-                logger.debug(f"Failed to check for protector: {prot_err}")
-
-            # If protector found, try to send to main process
-            if protector_name:
-                target_norm = os.path.normcase(os.path.abspath(self.main_file_path))
-
-                try:
-                    for proc in psutil.process_iter(['pid', 'exe']):
-                        try:
-                            exe = proc.info.get('exe')
-                            if not exe:
-                                try:
-                                    exe = proc.exe()
-                                except Exception:
-                                    exe = None
-
-                            if not exe:
-                                continue
-
-                            exe_norm = os.path.normcase(os.path.abspath(exe))
-                            if exe_norm == target_norm:
-                                pid = proc.info.get('pid') or proc.pid
-                                logger.info(f"Protector detected - sending to main process (PID {pid})")
-
-                                # Write marker file
-                                try:
-                                    target_dir = os.path.dirname(exe)
-                                    marker_name = f".hydra_scan_{pid}.txt"
-                                    marker_path = os.path.join(target_dir, marker_name)
-
-                                    with open(marker_path, "w", encoding="utf-8") as mf:
-                                        mf.write(f"timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                                        mf.write(f"protector: {protector_name}\n")
-                                        mf.write(f"result_file: {os.path.abspath(result_file)}\n")
-                                        mf.write(f"source_pid: {proc_info.pid}\n")
-                                        mf.write(f"source_exe: {proc_info.exe_path}\n")
-
-                                    logger.info(f"Wrote protector marker at: {marker_path}")
-                                    return  # Exit early - don't call scan_and_warn
-
-                                except Exception as write_err:
-                                    logger.error(f"Failed to write marker file: {write_err}")
-
-                                break
-
-                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                            continue
-                        except Exception as inner:
-                            logger.debug(f"Error checking process: {inner}")
-                            continue
-
-                except Exception as enum_err:
-                    logger.debug(f"Failed to enumerate processes: {enum_err}")
-
-            # No protector or couldn't send to main - use normal scan with main_file_path tracking
-            try:
-                scan_and_warn(result_file, main_file_path=proc_info.exe_path)
-            except Exception as scan_err:
-                logger.error(f"scan_and_warn failed for {result_file}: {scan_err}")
-
-        except Exception as e:
-            logger.error(f"Scan and warn wrapper failed for {result_file}: {e}")
-
-    def cleanup(self) -> None:
-        """Clean up resources"""
-        logger.info("Memory monitor shutting down...")
-
-        # Cancel pending futures
-        for future in self._active_futures:
-            future.cancel()
-
-        # Shutdown thread pool with timeout
-        self._executor.shutdown(wait=True, timeout=10)
-
-        logger.info("Memory monitor shutdown complete")
-
-    def monitor_processes(self, change_threshold_bytes: int, sleep_interval: float = 0.1) -> None:
-        """Main monitoring loop
-
-        This version runs continuously until interrupted (KeyboardInterrupt) or a fatal error occurs.
-        """
-        logger.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
-        logger.info(f"Monitoring main file: {self.main_file_path}")
-        logger.info(f"Memory change threshold: {change_threshold_bytes} bytes")
-        logger.info(f"Our PID (excluded from analysis): {self.current_pid}")
-
-        iteration_count = 0
-
-        try:
-            while True:
-                iteration_count += 1
-                current_pids = set()
-
-                try:
-                    # Get process list with required info pre-fetched
-                    processes = list(psutil.process_iter(['pid', 'memory_info', 'name']))
-
-                    for proc in processes:
-                        proc_info = self._get_safe_process_info(proc)
-                        if not proc_info:
-                            continue
-
-                        current_pids.add(proc_info.pid)
-
-                        should_analyze, reason = self._should_analyze_process(
-                            proc_info, change_threshold_bytes
-                        )
-
-                        if should_analyze:
-                            logger.info(f"Analyzing process {proc_info.pid}: {reason}")
-                            self._submit_analysis_task(proc_info)
-
-                    # Cleanup stale tracking data every 100 iterations
-                    if iteration_count % 100 == 0:
-                        self._cleanup_stale_data(current_pids)
-
-                except Exception as e:
-                    logger.error(f"Error in monitoring iteration {iteration_count}: {e}")
-                    # Add longer delay on error to prevent rapid error loops
-                    time.sleep(min(sleep_interval * 10, 5.0))
-                    continue
-
-                # Sleep between iterations
-                time.sleep(sleep_interval)
-
-        except KeyboardInterrupt:
-            logger.info("Memory monitor interrupted by user")
-        except Exception as e:
-            logger.error(f"Fatal error in memory monitor: {e}")
-        finally:
-            self.cleanup()
-
+    
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
 
-def periodic_yield_worker(yield_interval=0.1):
+def periodic_yield_worker():
     """Background thread that yields CPU periodically"""
     windows_yield_cpu()
-    time.sleep(yield_interval)
+    time.sleep(0)
 
 def start_real_time_protection():
     """
