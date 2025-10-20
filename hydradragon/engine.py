@@ -1074,51 +1074,6 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         return page
 
-    def create_hayabusa_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
-
-        title = QLabel("Hayabusa Event Log Analysis")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-
-        info_box = QGroupBox("About Hayabusa")
-        info_layout = QVBoxLayout(info_box)
-        info_text = QLabel(
-            "Hayabusa is a Windows event log fast forensics timeline generator and threat hunting tool. "
-            "It can create DFIR timelines, search for specific events, and generate various security metrics."
-        )
-        info_text.setWordWrap(True)
-        info_text.setObjectName("warning_text")
-        info_layout.addWidget(info_text)
-        layout.addWidget(info_box)
-        return page
-
-    def create_generate_whitelist_db_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
-
-        title = QLabel("Generate Whitelist DB")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-
-        generate_button = QPushButton("Run Generate Whitelist DB (Highly Recommended)")
-        generate_button.setObjectName("action_button")
-        generate_button.clicked.connect(lambda: self.start_worker("generate_whitelist_db"))
-        layout.addWidget(generate_button)
-
-        log_output = QTextEdit("Generate Whitelist DB logs will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-
-        self.log_outputs.append(log_output)
-        return page
-
     def create_about_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -1155,7 +1110,6 @@ class AntivirusApp(QWidget):
             "update_defs",
             additional_tasks=[("Update Hayabusa Rules", "update_hayabusa_rules")]
         ))
-        self.main_stack.addWidget(self.create_hayabusa_page())
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
 
