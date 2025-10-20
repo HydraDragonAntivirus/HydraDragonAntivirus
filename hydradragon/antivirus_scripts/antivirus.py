@@ -4339,25 +4339,11 @@ def run_suricata():
 
         logger.info(f"Starting Suricata in PCAP mode with command: {' '.join(suricata_cmd)}")
 
-        process = subprocess.Popen(
-            suricata_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        # Start process without piping stdout/stderr to avoid deadlocks
+        process = subprocess.Popen(suricata_cmd)
 
-        # Immediately check if process started
-        if process.poll() is None:
-            logger.info(f"Suricata running in PCAP mode (PID: {process.pid})")
-            return True
-        else:
-            stdout, stderr = process.communicate()
-            logger.error(f"Suricata failed to start with code {process.returncode}")
-            if stdout:
-                logger.error(f"stdout:\n{stdout}")
-            if stderr:
-                logger.error(f"stderr:\n{stderr}")
-            return False
+        logger.info(f"Suricata process task started (PID: {process.pid})")
+        return True
 
     except Exception as ex:
         logger.error(f"Unexpected error: {ex}")
