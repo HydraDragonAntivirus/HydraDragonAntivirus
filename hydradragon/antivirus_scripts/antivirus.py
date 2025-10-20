@@ -86,10 +86,6 @@ import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor, as_completed
-logger.debug(f"concurrent.futures.ThreadPoolExecutor, as_completed module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import mmh3
 logger.debug(f"mmh3 module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4323,8 +4319,6 @@ def suricata_callback():
     except Exception as ex:
         logger.error("Error starting Suricata: %s", ex)
 
-threading.Thread(daemon=True, target=suricata_callback).start()
-
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
     log_path = eve_log_path  # Use EVE JSON by default
@@ -4605,6 +4599,8 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
+import threading # Make sure this is imported
+
 def load_all_resources_non_blocking():
     """
     Starts all resource-loading tasks in a limited thread pool to prevent
@@ -4673,42 +4669,39 @@ def load_all_resources_non_blocking():
     def load_antivirus_list_task():
         load_antivirus_list()
         return "load_antivirus_list"
+    
+    # This task was in your list, but it doesn't return a name.
+    # The safe_task wrapper will handle it, but it's one of the 11 tasks.
+    def suricata_callback_task(): 
+        suricata_callback()
 
     # List of all task functions to run
-    tasks = [
-        load_website_data_task,
-        load_antivirus_list_task,
-        load_yargen,
-        load_icewater,
-        load_valhalla,
-        load_clean,
-        load_yaraxtr,
-        load_clamav_engine,
-        load_ml_defs,
-        load_excluded
-    ]
+    tasks = {
+        "suricata_callback": suricata_callback_task,
+        "load_website_data": load_website_data_task,
+        "load_antivirus_list": load_antivirus_list_task,
+        "yarGen_rules": load_yargen,
+        "icewater_rules": load_icewater,
+        "load_valhalla": load_valhalla,
+        "(clean) rules": load_clean,
+        "yaraxtr_rules": load_yaraxtr,
+        "clamav_scanner": load_clamav_engine,
+        "ml_definitions": load_ml_defs,
+        "excluded_rules": load_excluded
+    }
 
-    # Use a ThreadPoolExecutor to limit concurrent tasks.
-    # We set max_workers to 3 to avoid overwhelming the disk and CPU.
-    # This leaves resources for your main application thread to stay responsive.
-    logger.info("Starting resource loading pool (max_workers=3)...")
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="ResourceLoader") as executor:
-        
-        # Submit all tasks to the pool
-        future_to_task = {executor.submit(task): task for task in tasks}
-
-        # Process results as they complete
-        for future in as_completed(future_to_task):
+    for name, func in tasks.items():
+        def safe_task(f=func, n=name):
             try:
-                # Get the result (which is the task's name)
-                task_name = future.result()
-                logger.info(f"{task_name} loaded successfully")
+                f()
+                logger.info(f"{n} loaded")
             except Exception as e:
-                # Find the original task function for logging
-                task_func = future_to_task[future]
-                logger.error(f"Error loading task '{task_func.__name__}': {e}")
+                logger.error(f"Error loading {n}: {e}")
 
-    logger.info("All resource loading tasks have completed.")
+        thread = threading.Thread(target=safe_task, daemon=True, name=f"Resource_{name}")
+        thread.start()
+
+    logger.info("All resource loading threads started (non-blocking) - FREEZE LIKELY")
 
 # Start load_all_resources_non_blocking()
 starter = threading.Thread(target=load_all_resources_non_blocking, daemon=True, name="ResourceLoaderStarter")
