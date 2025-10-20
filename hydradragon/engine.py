@@ -23,7 +23,7 @@ from hydra_logger import (
 )
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
-                               QFrame, QStackedWidget, QApplication, QButtonGroup, QGroupBox, QFileDialog)
+                               QFrame, QStackedWidget, QApplication, QButtonGroup, QGroupBox)
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
