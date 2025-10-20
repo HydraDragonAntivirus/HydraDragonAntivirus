@@ -10300,6 +10300,27 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
+            def protected_process_thread():
+                """
+                Thread function: if a process is running and protected according to DIE output,
+                automatically run analyze_specific_process on it.
+                """
+                try:
+                    if die_output:
+                        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                            try:
+                                if proc.info['name'] and proc.info['name'].lower() == os.path.basename(file_path).lower():
+                                    protector = is_protector_from_output(die_output)
+                                    if protector:
+                                        logger.info(f"Process {file_path} (PID {proc.info['pid']}) is protected: {protector}. Starting analysis...")
+                                        # Run the full analysis on this process
+                                        analyze_specific_process(file_path)
+                                        return  # thread ends after calling analysis
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                continue
+                except Exception as e:
+                    logger.error(f"Error in protected_process_thread for {file_path}: {e}")
+
             def unipacker_thread():
                 try:
                     if is_packed_from_output(die_output):
@@ -10402,6 +10423,7 @@ def scan_and_warn(file_path,
             # Start binary processing threads
             binary_threads = [
                 threading.Thread(daemon=True, target=extraction_thread),
+                threading.Thread(daemon=True, target=protected_process_thread),
                 threading.Thread(daemon=True, target=unipacker_thread),
                 threading.Thread(daemon=True, target=upx_thread),
                 threading.Thread(daemon=True, target=inno_setup_thread),
