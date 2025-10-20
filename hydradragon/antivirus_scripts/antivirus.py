@@ -4364,19 +4364,6 @@ def run_suricata():
         logger.exception("Full traceback:")
         return False
 
-def stop_suricata():
-    """
-    Stop running Suricata processes.
-    """
-    try:
-        for proc in psutil.process_iter(['pid', 'name']):
-            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
-                logger.info(f"Terminating Suricata process with PID: {proc.info['pid']}")
-                proc.terminate()
-                proc.wait(timeout=10)  # Wait up to 10 seconds for graceful termination
-    except psutil.Error as ex:
-        logger.error(f"Failed to stop Suricata: {ex}")
-
 def suricata_callback():
     """Start Suricata and verify it's running properly."""
     try:
