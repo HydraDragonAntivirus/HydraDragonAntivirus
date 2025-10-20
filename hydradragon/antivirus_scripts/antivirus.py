@@ -11190,15 +11190,10 @@ def run_real_time_protection_with_yield():
     try:
         logger.info("Starting real-time protection with CPU yielding...")
 
-        # Let Qt process events before starting protection
-        QApplication.processEvents()
-        windows_yield_cpu()
-
         # Start the real-time protection
         result = start_real_time_protection()
 
         # Let Qt process events after starting protection
-        QApplication.processEvents()
         windows_yield_cpu()
 
         return result if result else "[+] Real-time protection started successfully"
