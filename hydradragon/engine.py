@@ -382,11 +382,6 @@ class Worker(QThread):
         super().__init__()
         self.task_type = task_type
         self.args = args
-        self.stop_requested = False
-
-    def request_stop(self):
-        """Public method to request stopping the worker"""
-        self.stop_requested = True
 
     def update_definitions(self):
         try:
@@ -443,14 +438,7 @@ class Worker(QThread):
                 cmd,
                 cwd=os.path.dirname(hayabusa_path)
             )
-
-            # Wait for process to complete and get return code
-            rc = process.wait()
-
-            if rc == 0:
-                self.output_signal.emit("[+] Hayabusa rules updated successfully!")
-            else:
-                self.output_signal.emit(f"[!] Failed to update Hayabusa rules. Return code: {rc}")
+            self.output_signal.emit("[+] Hayabusa rules update started successfully!")
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
@@ -512,9 +500,6 @@ class Worker(QThread):
                 reader = csv.DictReader(f)
 
                 for row in reader:
-                    if self.stop_requested:
-                        break
-
                     # Get key fields from CSV
                     timestamp = row.get('Timestamp', 'N/A')
                     computer = row.get('Computer', 'N/A')
@@ -527,7 +512,6 @@ class Worker(QThread):
                     # Only process critical alerts
                     if level == 'critical' or level == 'crit':
                         critical_count += 1
-                        # Notify on critical events
                         notify_user_hayabusa_critical(
                             event_log=f"{channel} (EID: {event_id})",
                             rule_title=rule_title,
@@ -555,7 +539,7 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error analyzing Hayabusa results: {str(e)}")
 
     def run_hayabusa_live_timeline(self):
-        """Run Hayabusa CSV timeline in live analysis mode and analyze results (critical only)"""
+        """Run Hayabusa CSV timeline in live analysis mode and analyze results dynamically."""
         try:
             self.output_signal.emit("[*] Starting Hayabusa live timeline analysis...")
 
@@ -568,32 +552,81 @@ class Worker(QThread):
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
 
-            # Use -m critical to only scan for critical alerts
-            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
+            cmd = [
+                hayabusa_path, "csv-timeline", "-l",
+                "-o", output_file, "--profile", "standard", "-m", "critical"
+            ]
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            process = subprocess.Popen(cmd, cwd=os.path.dirname(hayabusa_path))
-            rc = process.wait()
+            process = subprocess.Popen(
+                cmd,
+                cwd=os.path.dirname(hayabusa_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,   # line buffered
+            )
 
-            if rc == 0:
-                self.output_signal.emit("[+] Hayabusa live timeline analysis completed!")
-                self.output_signal.emit(f"[+] Output saved to: {output_file}")
+            # --- Stream stdout/stderr ---
+            def reader(pipe, label):
+                for line in iter(pipe.readline, ''):
+                    self.output_signal.emit(f"[{label}] {line.strip()}")
+                pipe.close()
 
-                if os.path.exists(output_file):
-                    file_size = os.path.getsize(output_file)
-                    self.output_signal.emit(f"[+] Timeline file size: {file_size:,} bytes")
-                    try:
-                        with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
-                            line_count = sum(1 for _ in f)
-                            self.output_signal.emit(f"[+] Total critical events: {line_count - 1:,}")
-                    except Exception as e:
-                        self.output_signal.emit(f"[!] Could not count events: {str(e)}")
+            threading.Thread(target=reader, args=(process.stdout, "Hayabusa"), daemon=True).start()
+            threading.Thread(target=reader, args=(process.stderr, "Hayabusa-ERR"), daemon=True).start()
 
-                    # Analyze the results for critical threats only
-                    self.output_signal.emit("\n[*] Analyzing results for critical threats...")
-                    self.analyze_hayabusa_results(output_file)
-            else:
-                self.output_signal.emit(f"[!] Hayabusa live timeline failed. Return code: {rc}")
+            # --- Continuous CSV tailer for critical alerts ---
+            def tail_csv_and_analyze(csv_file_path):
+                import csv, time
+
+                # Wait until file exists and has a header
+                while not os.path.exists(csv_file_path):
+                    time.sleep(0.01)
+
+                with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    reader = csv.DictReader(f)
+                    seen = set()
+
+                    # consume any existing rows
+                    for row in reader:
+                        seen.add((row.get('Timestamp'), row.get('EventID')))
+
+                    # follow file forever
+                    while True:
+                        pos = f.tell()
+                        line = f.readline()
+                        if not line:
+                            time.sleep(0)
+                            f.seek(pos)
+                            continue
+
+                        try:
+                            row = dict(zip(reader.fieldnames, line.strip().split(',')))
+                            key = (row.get('Timestamp'), row.get('EventID'))
+                            if key not in seen:
+                                seen.add(key)
+                                level = row.get('Level', '').lower()
+                                if level in ('critical', 'crit'):
+                                    notify_user_hayabusa_critical(
+                                        event_log=f"{row.get('Channel')} (EID: {row.get('EventID')})",
+                                        rule_title=row.get('RuleTitle'),
+                                        details=row.get('Details'),
+                                        computer=row.get('Computer'),
+                                    )
+                                    self.output_signal.emit(
+                                        f"[!] LIVE CRITICAL [{row.get('Timestamp')}]: "
+                                        f"{row.get('RuleTitle')} | {row.get('Computer')} "
+                                        f"| {row.get('Channel')} | {row.get('Details')[:100]}"
+                                    )
+                        except Exception as e:
+                            self.output_signal.emit(f"[!] CSV parse error: {str(e)}")
+
+            threading.Thread(target=tail_csv_and_analyze, args=(output_file,), daemon=True).start()
+
+            # Nothing else — we don’t wait for process exit
+            self.output_signal.emit("[*] Hayabusa live monitoring started (running indefinitely).")
+
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa live timeline: {str(e)}")
 
