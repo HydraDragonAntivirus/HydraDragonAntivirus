@@ -4271,53 +4271,73 @@ def process_alert_data(priority, src_ip, dest_ip):
         logger.error(f"Error processing alert data: {ex}")
         return False
 
-def run_suricata():
+# Interval to check for new interfaces (seconds)
+CHECK_INTERVAL = 1
+
+# Dictionary to track running Suricata processes per interface
+running_processes = {}
+
+def validate_paths():
+    for path, desc in [(suricata_exe_path, "Suricata executable"),
+                       (suricata_config_path, "Suricata config")]:
+        if not os.path.exists(path):
+            logger.error(f"{desc} not found at: {path}")
+            return False
+        if not os.access(path, os.R_OK):
+            logger.error(f"{desc} is not readable: {path}")
+            return False
+    os.makedirs(suricata_log_dir, exist_ok=True)
+    if not os.access(suricata_log_dir, os.W_OK):
+        logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
+        return False
+    return True
+
+def get_active_interfaces():
+    # List all interfaces except loopback
+    return [nic for nic in psutil.net_if_addrs().keys() if "Loopback" not in nic]
+
+def start_suricata_on_interface(iface):
+    if iface in running_processes:
+        return  # already running
+    cmd = [suricata_exe_path, "-c", suricata_config_path, "-i", iface, "--pcap-file-continuous"]
+    logger.info(f"Starting Suricata on interface: {iface}")
+    process = subprocess.Popen(cmd)
+    running_processes[iface] = process
+    logger.info(f"Suricata PID {process.pid} started for {iface}")
+
+def monitor_interfaces():
+    while True:
+        interfaces = get_active_interfaces()
+        for iface in interfaces:
+            if iface not in running_processes:
+                start_suricata_on_interface(iface)
+        # Remove stopped processes
+        stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
+        for iface in stopped:
+            logger.warning(f"Suricata process for {iface} stopped unexpectedly")
+            del running_processes[iface]
+        time.sleep(CHECK_INTERVAL)
+
+def suricata_callback():
     """
-    Run Suricata in PCAP mode on all available interfaces.
+    Start Suricata on all interfaces and monitor for new ones.
+    Keeps running; does not terminate existing processes.
     """
     try:
-        # Validate paths
-        for path, desc in [(suricata_exe_path, "Suricata executable"),
-                           (suricata_config_path, "Suricata config")]:
-            if not os.path.exists(path):
-                logger.error(f"{desc} not found at: {path}")
-                return False
-            if not os.access(path, os.R_OK | os.X_OK):
-                logger.error(f"{desc} is not accessible: {path}")
-                return False
-
-        # Ensure log directory exists
-        os.makedirs(suricata_log_dir, exist_ok=True)
-        if not os.access(suricata_log_dir, os.W_OK):
-            logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
+        if not validate_paths():
+            logger.error("Suricata paths are invalid. Cannot start.")
             return False
 
-        # Build Suricata command for PCAP mode
-        suricata_cmd = [suricata_exe_path, "-c", suricata_config_path, "--pcap"]
-
-        logger.info(f"Starting Suricata in PCAP mode with command: {' '.join(suricata_cmd)}")
-
-        # Start process without piping stdout/stderr to avoid deadlocks
-        process = subprocess.Popen(suricata_cmd)
-
-        logger.info(f"Suricata process task started (PID: {process.pid})")
-        return True
+        # Start the monitor loop (blocks)
+        logger.info("Starting Suricata interface monitor...")
+        monitor_interfaces()  # This will keep checking for new interfaces
 
     except Exception as ex:
-        logger.error(f"Unexpected error: {ex}")
+        logger.error("Unexpected error starting Suricata: %s", ex)
         logger.exception("Full traceback:")
         return False
 
-def suricata_callback():
-    """Start Suricata and verify it's running properly."""
-    try:
-        success = run_suricata()
-        if success:
-            logger.info("Suricata started successfully.")
-        else:
-            logger.error("Failed to start Suricata.")
-    except Exception as ex:
-        logger.error("Error starting Suricata: %s", ex)
+    return True
 
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
