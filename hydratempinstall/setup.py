@@ -446,25 +446,25 @@ def main():
     else:
         log.info("clamavconfig directory not found.")
 
-    # 2. Copy suricata.yaml only
+    # 2-3. Copy suricata.yaml & threshold.config
     hipsconfig = HYDRADRAGON_PATH / "hipsconfig"
-    cfg = "suricata.yaml"
-    src = hipsconfig / cfg
-    dst = SURICATA_DIR / cfg
-    if src.exists():
-        try:
-            log.info("Copying %s -> %s", src, dst)
-            ensure_parent(dst)
-            if not DRY_RUN:
-                shutil.copy2(src, dst)
-            log.info("Copied %s", cfg)
-        except Exception as e:
-            log.exception("Failed to copy %s: %s", cfg, e)
-            errors.append((f"copy {cfg}", 1))
-    else:
-        log.info("%s not found in hipsconfig directory.", cfg)
+    for cfg in ("suricata.yaml", "threshold.config"):
+        src = hipsconfig / cfg
+        dst = SURICATA_DIR / cfg
+        if src.exists():
+            try:
+                log.info("Copying %s -> %s", src, dst)
+                ensure_parent(dst)
+                if not DRY_RUN:
+                    shutil.copy2(src, dst)
+                log.info("Copied %s", cfg)
+            except Exception as e:
+                log.exception("Failed to copy %s: %s", cfg, e)
+                errors.append((f"copy {cfg}", 1))
+        else:
+            log.info("%s not found in hipsconfig directory.", cfg)
 
-    # 3. Copy hips rules
+    # 4. Copy hips rules
     hips_dir = HYDRADRAGON_PATH / "hips"
     if hips_dir.exists():
         try:
@@ -487,7 +487,7 @@ def main():
     else:
         log.info("hips directory not found.")
 
-    # 4. Copy database
+    # 5. Copy database
     database_src = HYDRADRAGON_PATH / "database"
     if database_src.exists():
         rc = safe_copy_dir(database_src, CLAMAV_DIR / "database")
@@ -502,7 +502,7 @@ def main():
         log.info("database directory not found.")
 
     # ------------------------------
-    # 5. Ensure ClamAV bin directory is in PATH
+    # 6. Ensure ClamAV bin directory is in PATH
     # ------------------------------
     def ensure_clamav_in_path() -> bool:
         """
@@ -515,7 +515,7 @@ def main():
     if not ensure_clamav_in_path():
         log.warning("Failed to add ClamAV directory to PATH. ClamAV commands may fail.")
 
-    # 6. Update ClamAV virus definitions with retry
+    # 7. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
         # Change to ClamAV directory so it can find its DLLs
@@ -538,7 +538,7 @@ def main():
     # ------------------------------
     log.info("Updating Hayabusa rules...")
 
-    # 7. Update Hayabusa rules
+    # 8. Update Hayabusa rules
     HAYABUSA_DIR = HYDRADRAGON_PATH / "hayabusa"
     HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.6.0-win-x64.exe"
 
@@ -572,7 +572,7 @@ def main():
     # ------------------------------
     log.info("Processing Sanctum folder...")
 
-    # 8. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
+    # 9. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
     if CLEAN_VM_PSB_PATH.exists():
         log.info("Running installer_clean_vm.ps1...")
         # Use -Command with OutputEncoding set to UTF8 to improve decoding reliability
@@ -590,7 +590,7 @@ def main():
     else:
         log.info("installer_clean_vm.ps1 not found. Skipping.")
 
-    # 9. Remove clean_vm folder
+    # 10. Remove clean_vm folder
     if CLEAN_VM_FOLDER.exists():
         rc = safe_delete_dir(CLEAN_VM_FOLDER)
         if rc != 0:
@@ -598,7 +598,7 @@ def main():
     else:
         log.info("clean_vm folder not found. Skipping.")
 
-    # 10. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
+    # 11. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
     if SANCTUM_APPDATA_PATH.exists():
         log.info("Copying Sanctum\\appdata to %s", ROAMING_SANCTUM)
         rc = safe_copy_dir(SANCTUM_APPDATA_PATH, ROAMING_SANCTUM)
@@ -613,7 +613,7 @@ def main():
     else:
         log.info("Sanctum\\appdata folder not found. Skipping.")
 
-    # 11. Copy entire Sanctum folder to Desktop and remove original
+    # 12. Copy entire Sanctum folder to Desktop and remove original
     if SANCTUM_ROOT_PATH.exists():
         log.info("Copying Sanctum folder to Desktop: %s", DESKTOP_SANCTUM)
         rc = safe_copy_dir(SANCTUM_ROOT_PATH, DESKTOP_SANCTUM)
@@ -638,7 +638,7 @@ def main():
         errors.append(("missing root path", 1))
         summary_and_exit(errors)
 
-    # 12. Create Python virtual environment inside HydraDragonAntivirus folder
+    # 13. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         import venv as venv_module  # type: ignore
@@ -663,21 +663,21 @@ def main():
             errors.append(("venv create", 1))
             summary_and_exit(errors)
 
-    # 13. Resolve venv activate script
+    # 14. Resolve venv activate script
     activate_bat = venv_dir / "Scripts" / "activate.bat"
     if not activate_bat.exists():
         log.error("Virtual environment activate.bat not found at %s", activate_bat)
         errors.append(("venv activate.bat missing", 1))
         summary_and_exit(errors)
 
-    # 14. Upgrade pip in the venv using activate.bat
+    # 15. Upgrade pip in the venv using activate.bat
     log.info("Upgrading pip in virtual environment...")
     pip_cmd = f'"{activate_bat}" && python -m pip install --upgrade pip'
     rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
-    # 15. Install Poetry in the venv
+    # 16. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
     poetry_install_cmd = f'"{activate_bat}" && python -m pip install poetry'
     rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
@@ -689,7 +689,7 @@ def main():
     else:
         poetry_available = True
 
-    # 16. Poetry install dependencies if pyproject.toml exists
+    # 17. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists() and poetry_available:
         log.info("pyproject.toml found at: %s", pyproject)
@@ -759,22 +759,22 @@ def main():
         cmd = f'set "PATH={nodejs_bin};%PATH%" && "{npm_cmd_path}" {" ".join(args_list)}'
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
-    # 17. asar
+    # 18. asar
     rc = npm_run(["install", "-g", "asar"], "asar installation")
     if rc != 0:
         errors.append(("asar install", rc))
     
-    # 18. webcrack
+    # 19. webcrack
     rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
     if rc != 0:
         errors.append(("webcrack install", rc))
     
-    # 19. nexe_unpacker
+    # 20. nexe_unpacker
     rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
     if rc != 0:
         errors.append(("nexe_unpacker install", rc))
 
-    # 20. pkg-unpacker build
+    # 21. pkg-unpacker build
     if PKG_UNPACKER_DIR.exists():
         log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
         # Save current directory
