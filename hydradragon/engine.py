@@ -29,7 +29,7 @@ from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection,
+    run_real_time_protection_with_yield,
     reload_clamav_database,
     get_latest_clamav_def_time,
 )
@@ -448,7 +448,7 @@ class Worker(QThread):
 
         def _worker():
             try:
-                for output in start_real_time_protection():
+                for output in run_real_time_protection_with_yield():
                     try:
                         self.output_signal.emit(str(output))
                     except Exception:

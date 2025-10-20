@@ -11180,20 +11180,18 @@ def start_real_time_protection():
         analysis_threads = []
         thread_function_map = {}
 
-        def create_monitored_thread(target_func, *args, **kwargs):
-            def monitored_wrapper():
-                try:
-                    target_func(*args, **kwargs)
-                except Exception as e:
-                    logger.exception("Error in monitor thread %s: %s", target_func.__name__, e)
-
-            thread = threading.Thread(daemon=True, target=monitored_wrapper, name=f"Protection_{target_func.__name__}")
-            thread.daemon = True  # ensure threads don't block exit
+        def create_thread(target_func, *args, **kwargs):
+            thread = threading.Thread(
+                daemon=True,
+                target=target_func,
+                args=args,
+                kwargs=kwargs,
+                name=f"Protection_{target_func.__name__}"
+            )
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
 
-        # monitoring functions — keep them cooperative (should respect stop_event or return often)
         threads_to_start = [
             monitor_suricata_log,
             web_protection_observer.begin_observing,
@@ -11201,7 +11199,7 @@ def start_real_time_protection():
         ]
 
         for func in threads_to_start:
-            t = create_monitored_thread(func)
+            t = create_thread(func)
             t.start()
 
         logger.info("Real-time protection started in background (non-blocking).")
