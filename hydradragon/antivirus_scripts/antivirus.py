@@ -46,10 +46,6 @@ total_start_time = time.time()
 
 # Measure and logger.debug time taken for each import
 start_time = time.time()
-from PySide6.QtWidgets import QApplication
-logger.debug(f"PySide6.QtWidgets.QApplication module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
