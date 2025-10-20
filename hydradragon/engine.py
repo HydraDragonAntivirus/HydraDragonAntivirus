@@ -779,22 +779,6 @@ class AntivirusApp(QWidget):
                 background: #4C6A94;
             }
 
-            #action_button_danger {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #BF616A, stop:1 #B34C56);
-                color: #ECEFF4;
-                border-radius: 10px;
-                padding: 14px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-            }
-
-            #action_button_danger:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #D08770, stop:1 #C47766);
-            }
-
             QGroupBox {
                 font-weight: bold;
                 border: 2px solid #4C566A;
