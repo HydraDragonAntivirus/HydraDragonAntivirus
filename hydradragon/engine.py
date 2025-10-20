@@ -445,30 +445,14 @@ class Worker(QThread):
 
     def run_real_time_protection(self):
         """Run the start real time protection in a background thread and stream outputs."""
+
         def _worker():
             try:
-                result = start_real_time_protection()
-
-                # If result is an iterable generator (but not a string/bytes), iterate and emit
-                if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                for output in start_real_time_protection():
                     try:
-                        for output in result:
-                            # protect against exceptions from the signal emit
-                            try:
-                                self.output_signal.emit(output)
-                            except Exception:
-                                logger.exception("Failed to emit an output from real-time protection.")
+                        self.output_signal.emit(str(output))
                     except Exception:
-                        # If the generator raised during iteration
-                        logger.exception("Exception while iterating outputs from start_real_time_protection()")
-                        self.output_signal.emit(f"[!] Real-time protection iteration error: {traceback.format_exc()}")
-                else:
-                    # Single-return value (string or other) — emit once
-                    try:
-                        if result is not None:
-                            self.output_signal.emit(str(result))
-                    except Exception:
-                        logger.exception("Failed to emit result from start_real_time_protection()")
+                        logger.exception("Failed to emit output from real-time protection.")
             except Exception:
                 # Catch anything unexpected in the worker
                 logger.exception("Unhandled exception inside run_real_time_protection worker")
