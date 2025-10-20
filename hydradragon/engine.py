@@ -19,8 +19,6 @@ if main_dir not in sys.path:
 from datetime import datetime, timedelta
 from hydra_logger import (
     logger,
-    setup_gui_mode,
-    get_alert_counts,
     log_directory,
 )
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
@@ -976,16 +974,6 @@ class AntivirusApp(QWidget):
         # Status cards row
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
-
-        # Enable GUI mode for alert tracking
-        setup_gui_mode(self)
-
-        # Create status cards first
-        self.threat_card = StatusCard("Critical Threats", "0", "⚠️")
-
-        # Now update status cards with current counts
-        critical_count = get_alert_counts()
-        self.threat_card.value_label.setText(str(critical_count))
 
         # Add the whole card widgets to the layout
         cards_layout.addWidget(self.threat_card)
