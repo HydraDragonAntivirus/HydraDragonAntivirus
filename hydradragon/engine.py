@@ -975,9 +975,6 @@ class AntivirusApp(QWidget):
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
 
-        # Add the whole card widgets to the layout
-        cards_layout.addWidget(self.threat_card)
-
         # Add the card layout to the main layout
         layout.addLayout(cards_layout)
 
