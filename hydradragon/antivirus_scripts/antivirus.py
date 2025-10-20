@@ -4719,7 +4719,7 @@ def load_all_resources_non_blocking():
         thread = threading.Thread(target=safe_task, daemon=True, name=f"Resource_{name}")
         thread.start()
 
-    logger.info("All resource loading threads started (non-blocking) - FREEZE LIKELY")
+    logger.info("All resource loading threads started (non-blocking)")
 
 # Start load_all_resources_non_blocking()
 starter = threading.Thread(target=load_all_resources_non_blocking, daemon=True, name="ResourceLoaderStarter")
