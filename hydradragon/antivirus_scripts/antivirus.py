@@ -4619,8 +4619,6 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-import threading # Make sure this is imported
-
 def load_all_resources_non_blocking():
     """
     Starts all resource-loading tasks in a limited thread pool to prevent
