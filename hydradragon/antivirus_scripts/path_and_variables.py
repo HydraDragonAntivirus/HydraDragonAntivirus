@@ -160,6 +160,9 @@ scanned_ipv6_addresses_general = []
 # Unified cache for all PE feature extractions
 unified_pe_cache = {}
 
+# List to keep track of existing project names
+existing_projects = []
+
 APP_NAME = "HydraDragon Antivirus"
 APP_VERSION = "v0.1 (Beta 6)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"

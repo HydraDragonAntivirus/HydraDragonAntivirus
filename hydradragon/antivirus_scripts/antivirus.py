@@ -498,6 +498,7 @@ from .path_and_variables import (
     scanned_ipv4_addresses_general,
     scanned_ipv6_addresses_general,
     unified_pe_cache,
+    existing_projects,
     system_drive,
     system32_dir,
     file_md5_cache,
@@ -4611,13 +4612,6 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         name = display_name or path
         logger.error(f"Error loading {name}: {ex}")
         return None
-
-# List to keep track of existing project names
-existing_projects = []
-
-# List of already scanned files and their modification times
-scanned_files = []
-file_mod_times = {}
 
 def load_all_resources_non_blocking():
     """
