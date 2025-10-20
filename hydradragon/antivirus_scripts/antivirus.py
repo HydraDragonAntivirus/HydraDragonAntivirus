@@ -70,10 +70,6 @@ import threading
 logger.debug(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor
-logger.debug(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import re
 logger.debug(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -209,10 +205,6 @@ logger.debug(f"macholib.MachO module loaded in {time.time() - start_time:.6f} se
 start_time = time.time()
 import macholib.mach_o
 logger.debug(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from dataclasses import dataclass
-logger.debug(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
@@ -4303,11 +4295,6 @@ def run_suricata():
         if not os.access(suricata_log_dir, os.W_OK):
             logger.error(f"Suricata log directory is not writable: {suricata_log_dir}")
             return False
-
-        # Check if Suricata is already running
-        if 'is_suricata_running' in globals() and is_suricata_running():
-            logger.info("Suricata process is already running.")
-            return True
 
         # Build Suricata command for PCAP mode
         suricata_cmd = [suricata_exe_path, "-c", suricata_config_path, "--pcap"]
