@@ -27,18 +27,22 @@ class ReferenceRegistry:
         self.id_to_ref: Dict[int, str] = {}
         self.next_id = 0
 
-    def register(self, ref: str) -> int:
-        """Return existing ID or create a new one."""
-        # normalize small variations
+    def register(self, ref: str) -> Optional[int]:
+        """
+        Return existing ID or create a new one.
+        Returns None for empty/blank reference strings.
+        """
         key = ref.strip()
-        if key == '':
-            return -1  # sentinel for "no ref" (optional, adjust logic if you don't want -1)
+        if not key:
+            return None  # empty/blank refs are ignored by the builder
+
         if key not in self.ref_to_id:
             rid = self.next_id
             self.ref_to_id[key] = rid
             self.id_to_ref[rid] = key
             self.next_id += 1
             return rid
+
         return self.ref_to_id[key]
 
     def get(self, ref_id: int) -> Optional[str]:
@@ -300,30 +304,36 @@ class HydraCuckooFilter:
 
 class MinimalMetadataStore:
     """
-    Memory-lean metadata store: keep only a single dict mapping domain_hash -> list(ref_ids).
-    Avoid duplicated structures (no entries+_map).
+    Backwards-compatible metadata store.
+    - Keeps `entries` (list of (domain_hash, [ref_ids])) for older code expecting it.
+    - Keeps `_map` for O(1) lookups.
+    - Save/load uses the compact HDM binary layout (same as your current format).
     """
-    MAGIC = b'HDMM'
+
+    MAGIC = b'HDMM'  # HydraDragon Minimal Metadata
     VERSION = 1
 
     def __init__(self):
-        # Keep list for backward-compatible save order, but also build a dict for O(1) lookup
-        self._map: Dict[int, List[int]] = {}
+        # Keep both for compatibility. _map is the authoritative store for fast lookup.
+        self.entries: List[Tuple[int, List[int]]] = []   # preserves insertion order / older API
+        self._map: Dict[int, List[int]] = {}             # fast lookup
 
     def add_threat(self, domain: str, ref_ids: List[int]):
-        """Add threat with minimal data"""
-        # Use 64-bit hash of domain
+        """Add threat with minimal data (preserve entries order and update map)."""
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
-        self._map[domain_hash] = list(ref_ids)  # copy
+        ref_list = list(ref_ids)  # copy to avoid accidental external mutation
+        self.entries.append((domain_hash, ref_list))
+        self._map[domain_hash] = ref_list
 
     def save(self, path: str):
-        """Save in ultra-compact binary format"""
+        """Save in ultra-compact binary format (same layout as before)."""
         with open(path, 'wb') as f:
             f.write(self.MAGIC)
             f.write(struct.pack('B', self.VERSION))
+            f.write(struct.pack('I', len(self.entries)))
+
+            for domain_hash, ref_ids in self.entries:
                 # 8 bytes for hash (signed long long)
-            f.write(struct.pack('I', len(self._map)))
-            for domain_hash, ref_ids in self._map.items():
                 f.write(struct.pack('q', domain_hash))
                 # 1 byte for ref count
                 f.write(struct.pack('B', min(len(ref_ids), 255)))
@@ -333,7 +343,7 @@ class MinimalMetadataStore:
 
     @classmethod
     def load(cls, path: str) -> 'MinimalMetadataStore':
-        """Load from binary; builds a dict for fast lookups"""
+        """Load from binary; build both entries list and _map for compatibility."""
         meta = cls()
 
         with open(path, 'rb') as f:

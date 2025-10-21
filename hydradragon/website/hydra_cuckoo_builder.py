@@ -27,18 +27,22 @@ class ReferenceRegistry:
         self.id_to_ref: Dict[int, str] = {}
         self.next_id = 0
 
-    def register(self, ref: str) -> int:
-        """Return existing ID or create a new one."""
-        # normalize small variations
+    def register(self, ref: str) -> Optional[int]:
+        """
+        Return existing ID or create a new one.
+        Returns None for empty/blank reference strings.
+        """
         key = ref.strip()
-        if key == '':
-            return -1  # sentinel for "no ref" (optional, adjust logic if you don't want -1)
+        if not key:
+            return None  # empty/blank refs are ignored by the builder
+
         if key not in self.ref_to_id:
             rid = self.next_id
             self.ref_to_id[key] = rid
             self.id_to_ref[rid] = key
             self.next_id += 1
             return rid
+
         return self.ref_to_id[key]
 
     def get(self, ref_id: int) -> Optional[str]:
@@ -300,30 +304,36 @@ class HydraCuckooFilter:
 
 class MinimalMetadataStore:
     """
-    Memory-lean metadata store: keep only a single dict mapping domain_hash -> list(ref_ids).
-    Avoid duplicated structures (no entries+_map).
+    Backwards-compatible metadata store.
+    - Keeps `entries` (list of (domain_hash, [ref_ids])) for older code expecting it.
+    - Keeps `_map` for O(1) lookups.
+    - Save/load uses the compact HDM binary layout (same as your current format).
     """
-    MAGIC = b'HDMM'
+
+    MAGIC = b'HDMM'  # HydraDragon Minimal Metadata
     VERSION = 1
 
     def __init__(self):
-        # Keep list for backward-compatible save order, but also build a dict for O(1) lookup
-        self._map: Dict[int, List[int]] = {}
+        # Keep both for compatibility. _map is the authoritative store for fast lookup.
+        self.entries: List[Tuple[int, List[int]]] = []   # preserves insertion order / older API
+        self._map: Dict[int, List[int]] = {}             # fast lookup
 
     def add_threat(self, domain: str, ref_ids: List[int]):
-        """Add threat with minimal data"""
-        # Use 64-bit hash of domain
+        """Add threat with minimal data (preserve entries order and update map)."""
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
-        self._map[domain_hash] = list(ref_ids)  # copy
+        ref_list = list(ref_ids)  # copy to avoid accidental external mutation
+        self.entries.append((domain_hash, ref_list))
+        self._map[domain_hash] = ref_list
 
     def save(self, path: str):
-        """Save in ultra-compact binary format"""
+        """Save in ultra-compact binary format (same layout as before)."""
         with open(path, 'wb') as f:
             f.write(self.MAGIC)
             f.write(struct.pack('B', self.VERSION))
+            f.write(struct.pack('I', len(self.entries)))
+
+            for domain_hash, ref_ids in self.entries:
                 # 8 bytes for hash (signed long long)
-            f.write(struct.pack('I', len(self._map)))
-            for domain_hash, ref_ids in self._map.items():
                 f.write(struct.pack('q', domain_hash))
                 # 1 byte for ref count
                 f.write(struct.pack('B', min(len(ref_ids), 255)))
@@ -333,7 +343,7 @@ class MinimalMetadataStore:
 
     @classmethod
     def load(cls, path: str) -> 'MinimalMetadataStore':
-        """Load from binary; builds a dict for fast lookups"""
+        """Load from binary; build both entries list and _map for compatibility."""
         meta = cls()
 
         with open(path, 'rb') as f:
@@ -386,76 +396,82 @@ class MinimalMetadataStore:
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
         return self._map.get(domain_hash)
 
-def parse_threat_line(line: str) -> Tuple[str, List[str]]:
+# parse_threat_line (full function - replace previous version)
+def parse_threat_line(line: str) -> Tuple[Optional[str], List[str]]:
     """
-    Parse: dangerous.domains,Unknown(Malware) | github.com/T145/black-mirror(WhiteList)
-    Returns: (domain, [full_references])
+    Parse a single CSV line.
+
+    Example input:
+        dangerous.domains,Unknown(Malware) | github.com/T145/black-mirror(WhiteList)
+
+    Returns:
+        (domain or None, [full_reference_strings])
     """
     line = line.strip()
     if not line or line.startswith('#'):
         return None, []
-    
+
     parts = line.split(',', 1)
     domain = parts[0].strip().lower()
-    
-    references = []
-    
+
+    references: List[str] = []
     if len(parts) > 1:
         refs_part = parts[1]
         ref_items = [r.strip() for r in refs_part.split('|')]
-        
         for ref in ref_items:
-            if ref:  # Store entire reference string
+            if ref:
                 references.append(ref)
-    
+
     return domain, references
 
 
-def build_filter_from_csv(csv_path: Path, output_dir: Path, registry: ReferenceRegistry, 
+# build_filter_from_csv (full function - replace the previous implementation)
+def build_filter_from_csv(csv_path: Path, output_dir: Path, registry: ReferenceRegistry,
                           shard_size: int = 1_000_000):
     """Build HDF shards with minimal binary format"""
-    
+
     print(f"\n{'='*60}")
     print(f"Processing: {csv_path.name}")
     print(f"{'='*60}")
-    
+
     # Count lines
     with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
         total_lines = sum(1 for _ in f)
-    
+
     print(f"Total lines: {total_lines:,}")
-    
+
     shard_idx = 0
     cf = HydraCuckooFilter(capacity=min(shard_size, total_lines))
     meta = MinimalMetadataStore()
     inserted = 0
-    
+
     basename = csv_path.stem
-    
+
     with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
         pbar = tqdm(f, total=total_lines, desc="Building filter", unit="lines")
-        
+
         for line in pbar:
             domain, references = parse_threat_line(line)
             if not domain:
                 continue
-            
-            # Convert references to IDs
-            ref_ids = [registry.register(ref) for ref in references]
-            
+
+            # Convert references to IDs and drop empty/invalid refs (register returns None for blank)
+            ref_ids = [rid for rid in (registry.register(ref) for ref in references) if rid is not None]
+
             try:
                 cf.insert(domain)
                 meta.add_threat(domain, ref_ids)
                 inserted += 1
-                
+
                 if inserted >= shard_size:
                     save_shard(output_dir, basename, shard_idx, cf, meta)
                     shard_idx += 1
                     cf = HydraCuckooFilter(capacity=shard_size)
                     meta = MinimalMetadataStore()
                     inserted = 0
-                    
+
             except Exception:
+                # On fill/exception, flush current shard (if any) and continue with a fresh shard.
                 if inserted > 0:
                     save_shard(output_dir, basename, shard_idx, cf, meta)
                     shard_idx += 1
@@ -466,15 +482,15 @@ def build_filter_from_csv(csv_path: Path, output_dir: Path, registry: ReferenceR
                         cf.insert(domain)
                         meta.add_threat(domain, ref_ids)
                         inserted += 1
-                    except:
-                        print(f"\nFailed: {domain}")
-    
+                    except Exception:
+                        print(f"\nFailed to insert domain after shard flush: {domain}")
+
     if inserted > 0:
         save_shard(output_dir, basename, shard_idx, cf, meta)
-    
+
     total_shards = shard_idx + 1 if inserted > 0 else shard_idx
     print(f"\n✓ Created {total_shards} shard(s)")
-    
+
     # Calculate size
     total_size = 0
     for i in range(total_shards):
@@ -485,7 +501,7 @@ def build_filter_from_csv(csv_path: Path, output_dir: Path, registry: ReferenceR
             total_size += filter_path.stat().st_size
         if meta_path.exists():
             total_size += meta_path.stat().st_size
-    
+
     print(f"Size: {total_size:,} bytes ({total_size / 1024 / 1024:.2f} MB)")
     return total_size
 
