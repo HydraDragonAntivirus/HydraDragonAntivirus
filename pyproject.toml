@@ -49,7 +49,6 @@ dependencies = [
     "androguard",
     "oletools",
     "unipacker",
-    "mmh3",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",
