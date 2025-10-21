@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # hydra_cuckoo_builder.py
 """
 HydraDragonAntivirus Custom Cuckoo Filter Builder
@@ -12,12 +13,12 @@ Maximum compression for huge databases
 import mmh3
 import random
 import struct
-from typing import Optional, Dict, List, Tuple, BinaryIO
+from typing import Optional, Dict, List, Tuple
 from pathlib import Path
-import tqdm
+from tqdm import tqdm
 
 class ReferenceRegistry:
-    """Map references to IDs for compression"""
+    """Map reference strings -> small integer IDs; save/load to binary HREF format."""
 
     VERSION = 1
 
@@ -27,45 +28,53 @@ class ReferenceRegistry:
         self.next_id = 0
 
     def register(self, ref: str) -> int:
-        """Get or create ID for reference"""
-        if ref not in self.ref_to_id:
-            self.ref_to_id[ref] = self.next_id
-            self.id_to_ref[self.next_id] = ref
+        """Return existing ID or create a new one."""
+        # normalize small variations
+        key = ref.strip()
+        if key == '':
+            return -1  # sentinel for "no ref" (optional, adjust logic if you don't want -1)
+        if key not in self.ref_to_id:
+            rid = self.next_id
+            self.ref_to_id[key] = rid
+            self.id_to_ref[rid] = key
             self.next_id += 1
-        return self.ref_to_id[ref]
+            return rid
+        return self.ref_to_id[key]
+
+    def get(self, ref_id: int) -> Optional[str]:
+        return self.id_to_ref.get(ref_id)
 
     def save(self, path: str):
-        """Save registry to binary"""
         with open(path, 'wb') as f:
-            f.write(b'HREF')  # Magic
-            f.write(struct.pack('B', self.VERSION))  # Version
-            f.write(struct.pack('I', len(self.id_to_ref)))  # Count (4 bytes)
-            for ref_id, ref_str in sorted(self.id_to_ref.items()):
-                ref_bytes = ref_str.encode('utf-8')
-                f.write(struct.pack('I', ref_id))  # ID (4 bytes)
-                f.write(struct.pack('I', len(ref_bytes)))  # Length (4 bytes)
-                f.write(ref_bytes)  # String data
+            f.write(b'HREF')
+            f.write(struct.pack('B', self.VERSION))
+            f.write(struct.pack('I', len(self.id_to_ref)))
+            # write in id order for compatibility/readability
+            for ref_id in sorted(self.id_to_ref.keys()):
+                ref_str = self.id_to_ref[ref_id].encode('utf-8')
+                f.write(struct.pack('I', ref_id))
+                f.write(struct.pack('I', len(ref_str)))
+                f.write(ref_str)
 
     @classmethod
     def load(cls, path: str) -> 'ReferenceRegistry':
-        """Load registry from binary"""
         reg = cls()
         with open(path, 'rb') as f:
             magic = f.read(4)
             if magic != b'HREF':
-                raise ValueError("Invalid reference registry")
-
-            version_bytes = f.read(1)
-            if len(version_bytes) < 1:
+                raise ValueError("Invalid reference registry file")
+            version_b = f.read(1)
+            if len(version_b) < 1:
                 raise EOFError("Unexpected EOF while reading registry version")
-            version = struct.unpack('B', version_bytes)[0]
+            version = struct.unpack('B', version_b)[0]
             if version != cls.VERSION:
                 raise ValueError(f"Unsupported registry version {version}")
 
-            count_bytes = f.read(4)
-            if len(count_bytes) < 4:
+            count_b = f.read(4)
+            if len(count_b) < 4:
                 raise EOFError("Unexpected EOF while reading registry count")
-            count = struct.unpack('I', count_bytes)[0]
+            count = struct.unpack('I', count_b)[0]
+
             for _ in range(count):
                 ref_id_b = f.read(4)
                 if len(ref_id_b) < 4:
@@ -77,10 +86,10 @@ class ReferenceRegistry:
                     raise EOFError("Unexpected EOF while reading ref len")
                 ref_len = struct.unpack('I', ref_len_b)[0]
 
-                ref_str_b = f.read(ref_len)
-                if len(ref_str_b) < ref_len:
+                ref_bytes = f.read(ref_len)
+                if len(ref_bytes) < ref_len:
                     raise EOFError("Unexpected EOF while reading ref string")
-                ref_str = ref_str_b.decode('utf-8')
+                ref_str = ref_bytes.decode('utf-8')
 
                 reg.id_to_ref[ref_id] = ref_str
                 reg.ref_to_id[ref_str] = ref_id
@@ -88,81 +97,35 @@ class ReferenceRegistry:
             reg.next_id = max(reg.id_to_ref.keys()) + 1 if reg.id_to_ref else 0
         return reg
 
-
-class HydraCuckooBucket:
-    """Single bucket in the Cuckoo filter table"""
-
-    def __init__(self, bucket_size: int):
-        self.bucket_size = bucket_size
-        self.bucket: List[bytes] = []
-
-    def __contains__(self, fingerprint: bytes) -> bool:
-        return fingerprint in self.bucket
-
-    def insert(self, fingerprint: bytes) -> bool:
-        if len(self.bucket) < self.bucket_size:
-            self.bucket.append(fingerprint)
-            return True
-        return False
-
-    def swap(self, fingerprint: bytes) -> bytes:
-        idx = random.randrange(len(self.bucket))
-        old = self.bucket[idx]
-        self.bucket[idx] = fingerprint
-        return old
-
-    def to_bytes(self) -> bytes:
-        """Serialize bucket to bytes"""
-        data = struct.pack('B', len(self.bucket))
-        for fp in self.bucket:
-            data += fp
-        return data
-
-    @classmethod
-    def from_stream(cls, stream: BinaryIO, bucket_size: int, fp_size: int) -> 'HydraCuckooBucket':
-        """
-        Read a single bucket from a file-like stream.
-        Format: 1 byte count, then count * fp_size bytes.
-        """
-        count_b = stream.read(1)
-        if not count_b or len(count_b) < 1:
-            raise EOFError("Unexpected EOF while reading bucket count")
-        count = count_b[0]
-        bucket = cls(bucket_size)
-        if count:
-            to_read = count * fp_size
-            data = stream.read(to_read)
-            if len(data) < to_read:
-                raise EOFError("Unexpected EOF while reading bucket fingerprints")
-            offset = 0
-            for _ in range(count):
-                fp = data[offset:offset + fp_size]
-                bucket.bucket.append(fp)
-                offset += fp_size
-        return bucket
-
-
 class HydraCuckooFilter:
-    """Custom Cuckoo filter with native binary serialization"""
-
     MAGIC = b'HDCF'
     VERSION = 1
 
     def __init__(self, capacity: int = 10000, bucket_size: int = 4,
                  fingerprint_size: int = 2, max_swaps: int = 500):
+        # same interface but memory-compact internals
         self.capacity = capacity
         self.bucket_size = bucket_size
         self.fingerprint_size = fingerprint_size
         self.max_swaps = max_swaps
-        self.table_size = self._next_power_of_2(capacity // bucket_size)
-        self.table: List[HydraCuckooBucket] = [HydraCuckooBucket(bucket_size) for _ in range(self.table_size)]
+
+        # compute table size as before
+        self.table_size = self._next_power_of_2(max(1, capacity // bucket_size))
+        # ensure fingerprint_size fits
+        if not (1 <= self.fingerprint_size <= 8):
+            raise ValueError("fingerprint_size should be between 1 and 8")
+
+        # compact storage
+        self.counts = bytearray(self.table_size)  # one byte per bucket (0..bucket_size)
+        total_slots = self.table_size * self.bucket_size * self.fingerprint_size
+        self.slots = bytearray(total_slots)  # contiguous area for all fingerprints
         self.item_count = 0
 
     @staticmethod
     def _next_power_of_2(n: int) -> int:
         power = 1
         while power < n:
-            power *= 2
+            power <<= 1
         return max(power, 16)
 
     def _fingerprint(self, item: bytes) -> bytes:
@@ -177,25 +140,55 @@ class HydraCuckooFilter:
         fp_hash = int.from_bytes(fingerprint, 'big')
         return (index ^ fp_hash) % self.table_size
 
+    def _slot_offset(self, bucket_index: int, slot_index: int) -> int:
+        # byte offset into self.slots for slot (bucket_index, slot_index)
+        return ((bucket_index * self.bucket_size) + slot_index) * self.fingerprint_size
+
+    def _read_fp_at(self, bucket_index: int, slot_index: int) -> bytes:
+        off = self._slot_offset(bucket_index, slot_index)
+        return bytes(self.slots[off:off + self.fingerprint_size])
+
+    def _write_fp_at(self, bucket_index: int, slot_index: int, fp: bytes):
+        off = self._slot_offset(bucket_index, slot_index)
+        self.slots[off:off + self.fingerprint_size] = fp
+
     def insert(self, item: str) -> bool:
         item_bytes = item.encode('utf-8')
         fp = self._fingerprint(item_bytes)
         i1 = self._index(item_bytes)
         i2 = self._alt_index(i1, fp)
 
-        if self.table[i1].insert(fp):
+        # try i1
+        c1 = self.counts[i1]
+        if c1 < self.bucket_size:
+            self._write_fp_at(i1, c1, fp)
+            self.counts[i1] = c1 + 1
             self.item_count += 1
             return True
 
-        if self.table[i2].insert(fp):
+        # try i2
+        c2 = self.counts[i2]
+        if c2 < self.bucket_size:
+            self._write_fp_at(i2, c2, fp)
+            self.counts[i2] = c2 + 1
             self.item_count += 1
             return True
 
+        # evict loop
         idx = random.choice([i1, i2])
+        cur_fp = fp
         for _ in range(self.max_swaps):
-            fp = self.table[idx].swap(fp)
-            idx = self._alt_index(idx, fp)
-            if self.table[idx].insert(fp):
+            cnt = self.counts[idx]
+            chosen_slot = random.randrange(cnt)  # pick an occupied slot
+            old_fp = self._read_fp_at(idx, chosen_slot)
+            self._write_fp_at(idx, chosen_slot, cur_fp)
+            cur_fp = old_fp
+            idx = self._alt_index(idx, cur_fp)
+            cnt = self.counts[idx]
+            if cnt < self.bucket_size:
+                # append at end of that bucket
+                self._write_fp_at(idx, cnt, cur_fp)
+                self.counts[idx] = cnt + 1
                 self.item_count += 1
                 return True
 
@@ -206,7 +199,20 @@ class HydraCuckooFilter:
         fp = self._fingerprint(item_bytes)
         i1 = self._index(item_bytes)
         i2 = self._alt_index(i1, fp)
-        return fp in self.table[i1] or fp in self.table[i2]
+
+        # check bucket i1
+        c1 = self.counts[i1]
+        for s in range(c1):
+            if self._read_fp_at(i1, s) == fp:
+                return True
+
+        # check bucket i2
+        c2 = self.counts[i2]
+        for s in range(c2):
+            if self._read_fp_at(i2, s) == fp:
+                return True
+
+        return False
 
     def save(self, path: str):
         with open(path, 'wb') as f:
@@ -218,8 +224,11 @@ class HydraCuckooFilter:
             f.write(struct.pack('H', self.max_swaps))
             f.write(struct.pack('I', self.item_count))
 
-            for bucket in self.table:
-                f.write(bucket.to_bytes())
+            # write counts (exactly table_size bytes)
+            f.write(self.counts)
+
+            # write raw slots
+            f.write(self.slots)
 
     @classmethod
     def load(cls, path: str) -> 'HydraCuckooFilter':
@@ -264,6 +273,7 @@ class HydraCuckooFilter:
                 raise EOFError("Unexpected EOF while reading item_count")
             item_count = struct.unpack('I', item_count_b)[0]
 
+            # create instance without running __init__
             cf = cls.__new__(cls)
             cf.table_size = table_size
             cf.bucket_size = bucket_size
@@ -271,47 +281,49 @@ class HydraCuckooFilter:
             cf.max_swaps = max_swaps
             cf.item_count = item_count
             cf.capacity = table_size * bucket_size
-            cf.table = []
 
-            # Read each bucket sequentially to avoid reading whole file
-            for _ in range(table_size):
-                bucket = HydraCuckooBucket.from_stream(f, bucket_size, fingerprint_size)
-                cf.table.append(bucket)
+            # read counts
+            counts = f.read(table_size)
+            if len(counts) < table_size:
+                raise EOFError("Unexpected EOF while reading counts")
+            cf.counts = bytearray(counts)
+
+            # read slots
+            total_slots = table_size * bucket_size * fingerprint_size
+            slots = f.read(total_slots)
+            if len(slots) < total_slots:
+                raise EOFError("Unexpected EOF while reading slots")
+            cf.slots = bytearray(slots)
 
             return cf
 
 
 class MinimalMetadataStore:
     """
-    ULTRA MINIMAL metadata storage
-    Only stores domain hash (8 bytes) + reference IDs (2 bytes each)
-    No timestamps, no strings - maximum compression
+    Memory-lean metadata store: keep only a single dict mapping domain_hash -> list(ref_ids).
+    Avoid duplicated structures (no entries+_map).
     """
-
-    MAGIC = b'HDMM'  # HydraDragon Minimal Metadata
+    MAGIC = b'HDMM'
     VERSION = 1
 
     def __init__(self):
         # Keep list for backward-compatible save order, but also build a dict for O(1) lookup
-        self.entries: List[Tuple[int, List[int]]] = []  # List of (domain_hash, [ref_ids])
         self._map: Dict[int, List[int]] = {}
 
     def add_threat(self, domain: str, ref_ids: List[int]):
         """Add threat with minimal data"""
         # Use 64-bit hash of domain
         domain_hash = mmh3.hash64(domain.encode('utf-8'))[0]
-        self.entries.append((domain_hash, ref_ids))
-        self._map[domain_hash] = ref_ids
+        self._map[domain_hash] = list(ref_ids)  # copy
 
     def save(self, path: str):
         """Save in ultra-compact binary format"""
         with open(path, 'wb') as f:
             f.write(self.MAGIC)
             f.write(struct.pack('B', self.VERSION))
-            f.write(struct.pack('I', len(self.entries)))
-
-            for domain_hash, ref_ids in self.entries:
                 # 8 bytes for hash (signed long long)
+            f.write(struct.pack('I', len(self._map)))
+            for domain_hash, ref_ids in self._map.items():
                 f.write(struct.pack('q', domain_hash))
                 # 1 byte for ref count
                 f.write(struct.pack('B', min(len(ref_ids), 255)))
