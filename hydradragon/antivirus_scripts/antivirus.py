@@ -4963,8 +4963,6 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
     """
     Run Ghidra analyzeHeadless with DecompileAndSave.java, remember produced artifacts
     for the absolute input path, and return the list of artifact paths.
-
-    This version does NOT call scan_and_warn automatically.
     """
     try:
         norm_path = os.path.abspath(file_path)
