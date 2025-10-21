@@ -922,16 +922,6 @@ class AntivirusApp(QWidget):
         except Exception as e:
             self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
 
-    def perform_hayabusa_search(self):
-        if not hasattr(self, 'search_input'):
-            self.append_log_output("[!] Search input not available.")
-            return
-        keywords = self.search_input.text().strip()
-        if keywords:
-            self.start_worker("hayabusa_search", keywords, False)
-        else:
-            self.append_log_output("[!] Please enter search keywords first.")
-
     def switch_page_with_animation(self, index):
         if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
             self.main_stack.currentIndex() == index):
