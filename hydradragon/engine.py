@@ -674,7 +674,7 @@ class AntivirusApp(QWidget):
         self.start_worker("run_real_time_protection")
 
         # Run Hayabusa live analysis
-        self.start_worker("hayabusa_live_timeline")
+        self.start_worker("run_hayabusa_live_timeline")
 
     def apply_extreme_stylesheet(self):
         stylesheet = """
