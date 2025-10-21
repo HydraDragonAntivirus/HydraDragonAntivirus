@@ -501,21 +501,7 @@ def main():
     else:
         log.info("database directory not found.")
 
-    # ------------------------------
-    # 6. Ensure ClamAV bin directory is in PATH
-    # ------------------------------
-    def ensure_clamav_in_path() -> bool:
-        """
-        Ensure ClamAV installation directory is in PATH for this process.
-        Returns True if added successfully or already present, False otherwise.
-        """
-        return ensure_path_includes(CLAMAV_DIR)
-
-    log.info("Ensuring ClamAV directory is in PATH...")
-    if not ensure_clamav_in_path():
-        log.warning("Failed to add ClamAV directory to PATH. ClamAV commands may fail.")
-
-    # 7. Update ClamAV virus definitions with retry
+    # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
         # Change to ClamAV directory so it can find its DLLs
@@ -538,7 +524,7 @@ def main():
     # ------------------------------
     log.info("Updating Hayabusa rules...")
 
-    # 8. Update Hayabusa rules
+    # 7. Update Hayabusa rules
     HAYABUSA_DIR = HYDRADRAGON_PATH / "hayabusa"
     HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.6.0-win-x64.exe"
 
@@ -572,7 +558,7 @@ def main():
     # ------------------------------
     log.info("Processing Sanctum folder...")
 
-    # 9. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
+    # 8. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
     if CLEAN_VM_PSB_PATH.exists():
         log.info("Running installer_clean_vm.ps1...")
         # Use -Command with OutputEncoding set to UTF8 to improve decoding reliability
@@ -590,7 +576,7 @@ def main():
     else:
         log.info("installer_clean_vm.ps1 not found. Skipping.")
 
-    # 10. Remove clean_vm folder
+    # 9. Remove clean_vm folder
     if CLEAN_VM_FOLDER.exists():
         rc = safe_delete_dir(CLEAN_VM_FOLDER)
         if rc != 0:
@@ -598,7 +584,7 @@ def main():
     else:
         log.info("clean_vm folder not found. Skipping.")
 
-    # 11. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
+    # 10. Copy Sanctum\appdata to %APPDATA%\Sanctum and remove it
     if SANCTUM_APPDATA_PATH.exists():
         log.info("Copying Sanctum\\appdata to %s", ROAMING_SANCTUM)
         rc = safe_copy_dir(SANCTUM_APPDATA_PATH, ROAMING_SANCTUM)
@@ -613,7 +599,7 @@ def main():
     else:
         log.info("Sanctum\\appdata folder not found. Skipping.")
 
-    # 12. Copy entire Sanctum folder to Desktop and remove original
+    # 11. Copy entire Sanctum folder to Desktop and remove original
     if SANCTUM_ROOT_PATH.exists():
         log.info("Copying Sanctum folder to Desktop: %s", DESKTOP_SANCTUM)
         rc = safe_copy_dir(SANCTUM_ROOT_PATH, DESKTOP_SANCTUM)
@@ -638,7 +624,7 @@ def main():
         errors.append(("missing root path", 1))
         summary_and_exit(errors)
 
-    # 13. Create Python virtual environment inside HydraDragonAntivirus folder
+    # 12. Create Python virtual environment inside HydraDragonAntivirus folder
     venv_dir = HYDRADRAGON_ROOT_PATH / "venv"
     try:
         import venv as venv_module  # type: ignore
@@ -663,21 +649,21 @@ def main():
             errors.append(("venv create", 1))
             summary_and_exit(errors)
 
-    # 14. Resolve venv activate script
+    # 13. Resolve venv activate script
     activate_bat = venv_dir / "Scripts" / "activate.bat"
     if not activate_bat.exists():
         log.error("Virtual environment activate.bat not found at %s", activate_bat)
         errors.append(("venv activate.bat missing", 1))
         summary_and_exit(errors)
 
-    # 15. Upgrade pip in the venv using activate.bat
+    # 14. Upgrade pip in the venv using activate.bat
     log.info("Upgrading pip in virtual environment...")
     pip_cmd = f'"{activate_bat}" && python -m pip install --upgrade pip'
     rc = run_cmd(pip_cmd, "pip upgrade", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
     if rc != 0:
         log.warning("pip upgrade returned rc=%s (continuing anyway)", rc)
 
-    # 16. Install Poetry in the venv
+    # 15. Install Poetry in the venv
     log.info("Installing Poetry in virtual environment...")
     poetry_install_cmd = f'"{activate_bat}" && python -m pip install poetry'
     rc = run_cmd(poetry_install_cmd, "poetry installation", retries=MAX_RETRIES, retry_delay=RETRY_DELAY)
@@ -689,7 +675,7 @@ def main():
     else:
         poetry_available = True
 
-    # 17. Poetry install dependencies if pyproject.toml exists
+    # 16. Poetry install dependencies if pyproject.toml exists
     pyproject = HYDRADRAGON_ROOT_PATH / "pyproject.toml"
     if pyproject.exists() and poetry_available:
         log.info("pyproject.toml found at: %s", pyproject)
@@ -759,22 +745,22 @@ def main():
         cmd = f'set "PATH={nodejs_bin};%PATH%" && "{npm_cmd_path}" {" ".join(args_list)}'
         return run_cmd(cmd, desc, retries=MAX_RETRIES, retry_delay=RETRY_DELAY, npm_clear_on_retry=True)
 
-    # 18. asar
+    # 17. asar
     rc = npm_run(["install", "-g", "asar"], "asar installation")
     if rc != 0:
         errors.append(("asar install", rc))
     
-    # 19. webcrack
+    # 18. webcrack
     rc = npm_run(["install", "-g", "webcrack"], "webcrack installation")
     if rc != 0:
         errors.append(("webcrack install", rc))
     
-    # 20. nexe_unpacker
+    # 19. nexe_unpacker
     rc = npm_run(["install", "-g", "nexe_unpacker"], "nexe_unpacker installation")
     if rc != 0:
         errors.append(("nexe_unpacker install", rc))
 
-    # 21. pkg-unpacker build
+    # 20. pkg-unpacker build
     if PKG_UNPACKER_DIR.exists():
         log.info("Building pkg-unpacker in %s", PKG_UNPACKER_DIR)
         # Save current directory
