@@ -444,29 +444,19 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
 
     def run_real_time_protection(self):
-        """Run the start real time protection in a background thread and stream outputs."""
-
-        def _worker():
-            try:
-                for output in run_real_time_protection_with_yield():
-                    try:
-                        self.output_signal.emit(str(output))
-                    except Exception:
-                        logger.exception("Failed to emit output from real-time protection.")
-            except Exception:
-                # Catch anything unexpected in the worker
-                logger.exception("Unhandled exception inside run_real_time_protection worker")
+        """Run real-time protection and keep thread alive"""
+        try:
+            for output in run_real_time_protection_with_yield():
                 try:
-                    self.output_signal.emit(f"[!] Error during real time protection: {traceback.format_exc()}")
+                    self.output_signal.emit(str(output))
                 except Exception:
-                    logger.exception("Also failed to emit exception message to output_signal")
-
-        # start the worker as a daemon thread so it cannot block shutdown and runs asynchronous
-        t = threading.Thread(target=_worker, name="RTProtectionRunner", daemon=True)
-        t.start()
-
-        # return immediately — UI / caller should not block waiting for the worker
-        return None
+                    logger.exception("Failed to emit output from real-time protection.")
+        except Exception:
+            logger.exception("Unhandled exception in real-time protection")
+            try:
+                self.output_signal.emit(f"[!] Error during real time protection: {traceback.format_exc()}")
+            except Exception:
+                logger.exception("Failed to emit exception message")
 
     def analyze_hayabusa_results(self, csv_file_path):
         """Analyze Hayabusa CSV results and notify on critical alerts only"""
