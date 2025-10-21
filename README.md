@@ -226,109 +226,106 @@ See the [LICENSE](./LICENSE) file for more information.
 
 This document describes all the output directories used by the malware analysis tool for various extraction, decompilation, and unpacking operations.
 
-## Directory Structure
+# HydraDragon Extraction & Decompilation Output — README
 
-### Packer/Obfuscator Extraction
+This document describes the output directories used by the HydraDragon analysis tool and what each directory contains. Keep this README next to the analysis output so analysts can quickly find decompiled/ extracted artifacts.
 
-| Directory | Description |
-|-----------|-------------|
-| `hydra_dragon_dumper_extracted/` | Hydra Dragon Dumper (Mega Dumper Fork) output extracted |
-| `enigma1_extracted/` | Enigma Virtual Box extracted files |
-| `upx_extracted/` | UPX (Ultimate Packer for eXecutables) extracted files |
-| `themida_unpacked/` | Themida unpacked files |
-| `vmprotect_unpacked/` | VMProtect unpacked files |
-| `debloat/` | Debloated files directory |
+---
 
-### .NET Analysis
+## How the output is organized
 
-| Directory | Description |
-|-----------|-------------|
-| `dotnet/` | .NET decompiled files |
-| `obfuscar/` | .NET files obfuscated with Obfuscar |
-| `de4dot_extracted/` | .NET files deobfuscated with de4dot |
-| `net_reactor_extracted/` | .NET files deobfuscated with .NET Reactor Slayer |
-| `un_confuser_ex_extracted/` | .NET files deobfuscated with UnConfuserEx |
+* Each extractor/decompiler writes into a dedicated directory under the analysis root.
+* Tools create numbered subfolders (`1/`, `2/`, ...) to avoid overwrites when the same packer/result is processed multiple times.
+* Filenames and subfolders are preserved where possible to make tracing back to the original artifact easier.
+* Directories are created automatically by the extraction/decompilation modules.
 
-### Android APK Analysis
+---
 
-| Directory | Description |
-|-----------|-------------|
-| `jadx_decompiled/` | APK decompiled with JADX (Java source code) |
-| `androguard/` | APK decompiled with Androguard (smali/Java) |
+## Top-level directory categories (quick reference)
 
-### Python Analysis
+* **Packer/Obfuscator extraction**: `hydra_dragon_dumper_extracted/`, `upx_extracted/`, `themida_unpacked/`, `vmprotect_unpacked/`, `debloat/`
+* **.NET analysis**: `dotnet/`, `obfuscar/`, `de4dot_extracted/`, `net_reactor_extracted/`, `un_confuser_ex_extracted/`
+* **Android/APK**: `jadx_decompiled/`, `androguard/`
+* **Python**: `pyinstaller_extracted/`, `pyarmor8_and_9_extracted/`, `pyarmor7_extracted/`, `nuitka/`, `nuitka_extracted/`, `nuitka_source_code/`, `cx_freeze_extracted/`, `pylingual_extracted/`, `python_deobfuscated/`, `python_deobfuscated_marshal_pyc/`, `pycdas_extracted/`, `python_source_code/`
+* **JavaScript / Node / Electron**: `webcrack_javascript_deobfuscated/`, `asar/`, `npm_pkg_extracted/`, `decompiled_jsc/`
+* **Java**: `jar_extracted/`, `FernFlower_decompiled/`
+* **Installer / archive**: `inno_setup_unpacked/`, `advanced_installer_extracted/`, `installshield_extracted/`, `zip_extracted/`, `seven_zip_extracted/`, `tar_extracted/`, `general_extracted_with_7z/`, `pe_extracted/`
+* **Script decompilers**: `autohotkey_decompiled/`, `autoit_extracted/`
+* **Go / Ungarbler outputs**: `ungarbler/`, `ungarbler_string/`
+* **Misc / analysis artifacts**: `decompiled/`, `ole2/`, `memory/`, `resource_extractor/`, `html_extracted/`
 
-| Directory | Description |
-|-----------|-------------|
-| `pyinstaller_extracted/` | PyInstaller onefile extracted |
-| `pyarmor8_and_9_extracted/` | PyArmor 8 and 9 extracted |
-| `pyarmor7_extracted/` | PyArmor 7 extracted |
-| `nuitka/` | Nuitka onefile extracted |
-| `nuitka_extracted/` | Nuitka binary files |
-| `nuitka_source_code/` | Nuitka reversed-engineered Python source code |
-| `cx_freeze_extracted/` | cx_freeze library.zip extracted |
-| `pylingual_extracted/` | .pyc reversed-engineered Python source code with pylingual |
-| `python_deobfuscated/` | Unobfuscated Python files |
-| `python_deobfuscated_marshal_pyc/` | Deobfuscated .pyc from marshal data |
-| `pycdas_extracted/` | .pyc reversed-engineered Python source code with pycdas.exe (Decompyle++ 15-Aug-2025) |
-| `python_source_code/` | PyInstaller/.pyc reversed-engineered Python source code base |
+---
 
-### JavaScript/Node.js Analysis
+## Detailed directory descriptions
 
-| Directory | Description |
-|-----------|-------------|
-| `webcrack_javascript_deobfuscated/` | JavaScript files deobfuscated with webcrack |
-| `asar/` | ASAR archive (Electron) extracted |
-| `npm_pkg_extracted/` | NPM packer (JavaScript) extracted |
-| `decompiled_jsc/` | V8 bytecode objects (JSC files) extracted |
+(Each line shows directory name and the purpose of files found there.)
 
-### Java Analysis
+* `hydra_dragon_dumper_extracted/` — Hydra Dragon Dumper (Mega Dumper Fork) output extracted.
+* `enigma1_extracted/` — Enigma Virtual Box extracted files.
+* `decompiled/` — General decompiled files from miscellaneous tools.
+* `upx_extracted/` — UPX (Ultimate Packer for eXecutables) extracted files.
+* `webcrack_javascript_deobfuscated/` — JavaScript files deobfuscated with webcrack.
+* `inno_setup_unpacked/` — Inno Setup unpacked installer files.
+* `autohotkey_decompiled/` — AutoHotkey script decompiled outputs.
+* `themida_unpacked/` — Themida unpacked outputs.
+* `nuitka/` — Nuitka onefile extracted directory.
+* `ole2/` — OLE2 extracted resources and compound file structures.
+* `dotnet/` — .NET decompiled sources.
+* `jadx_decompiled/` — APK decompiled with JADX (Java sources).
+* `androguard/` — APK decompiled output from androguard (smali/java).
+* `asar/` — ASAR (Electron) archive extracted contents.
+* `npm_pkg_extracted/` — NPM package extraction (JavaScript bundles).
+* `decompiled_jsc/` — V8 / JSC bytecode objects and decompiled artifacts.
+* `obfuscar/` — .NET assemblies obfuscated with Obfuscar.
+* `de4dot_extracted/` — .NET files deobfuscated using de4dot.
+* `net_reactor_extracted/` — .NET Reactor Slayer outputs.
+* `un_confuser_ex_extracted/` — UnConfuserEx deobfuscation outputs.
+* `pyinstaller_extracted/` — PyInstaller onefile extraction results.
+* `pyarmor8_and_9_extracted/` — PyArmor 8/9 unpacked outputs.
+* `pyarmor7_extracted/` — PyArmor 7-specific unpacking outputs.
+* `cx_freeze_extracted/` — cx_Freeze `library.zip` contents extracted.
+* `pe_extracted/` — PE file internals and extracted sections/resources.
+* `zip_extracted/` — ZIP archive contents.
+* `seven_zip_extracted/` — 7-Zip archive contents.
+* `general_extracted_with_7z/` — General extraction area for 7-Zip operations.
+* `nuitka_extracted/` — Nuitka binary outputs and support files.
+* `advanced_installer_extracted/` — Advanced Installer extraction outputs.
+* `tar_extracted/` — TAR archive contents.
+* `memory/` — Dynamic analysis memory dump files (.dmp / raw memory dumps).
+* `resource_extractor/` — RCData and embedded resources extracted by resource extractor.
+* `ungarbler/` — Deobfuscated Go (garble) binaries and output.
+* `ungarbler_string/` — Deobfuscated strings from Go Garble outputs.
+* `debloat/` — Debloated files directory (trimmed installers/binaries).
+* `jar_extracted/` — Extracted contents of JAR files.
+* `FernFlower_decompiled/` — JARs decompiled with FernFlower.
+* `pylingual_extracted/` — pylingual-reversed Python sources (.pyc -> .py).
+* `vmprotect_unpacked/` — VMProtect unpacked directories.
+* `python_deobfuscated/` — Deobfuscated Python sources.
+* `python_deobfuscated_marshal_pyc/` — Deobfuscated .pyc from marshal blobs.
+* `pycdas_extracted/` — pycdas / Decompyle++ extracted Python sources.
+* `python_source_code/` — Extracted and organized Python project sources.
+* `nuitka_source_code/` — Nuitka reversed-engineered source tree.
+* `html_extracted/` — HTML and web page resources captured during analysis.
+* `installshield_extracted/` — InstallShield unpack outputs.
+* `autoit_extracted/` — AutoIt script extraction results.
 
-| Directory | Description |
-|-----------|-------------|
-| `jar_extracted/` | Extracted files from JAR (Java Archive) |
-| `FernFlower_decompiled/` | JAR decompiled using Fernflower decompiler |
+---
 
-### Installer/Archive Extraction
+## Usage & Best practices
 
-| Directory | Description |
-|-----------|-------------|
-| `inno_setup_unpacked/` | Inno Setup unpacked files |
-| `advanced_installer_extracted/` | Advanced Installer extracted files |
-| `installshield_extracted/` | InstallShield extracted with ISx |
-| `zip_extracted/` | ZIP archive extracted |
-| `seven_zip_extracted/` | 7-Zip archive extracted |
-| `tar_extracted/` | TAR archive extracted |
-| `general_extracted_with_7z/` | All files extracted with 7-Zip |
-| `pe_extracted/` | PE (Portable Executable) file extracted |
+* Inspect each extraction directory after the run to locate configuration blobs, embedded resources, strings, and suspicious binaries.
+* If you need to regenerate extracted outputs, run the relevant extractor again; numbered subfolders prevent accidental overwrites.
 
-### Script Decompilation
+---
 
-| Directory | Description |
-|-----------|-------------|
-| `autohotkey_decompiled/` | AutoHotkey script decompiled |
-| `autoit_extracted/` | AutoIt extracted with AutoIt-Ripper |
+## Troubleshooting
 
-### Go Analysis
+* If a directory is empty, check the corresponding extraction log for errors. Tools may fail silently if binaries are corrupted.
+* If references look malformed (e.g. `Unknown.0,Unknown`), run the provided `reference_fix_and_rebuild.py` to normalize and rebuild references.
+* If the loader is slow, enable shard caching or batch queries (see loader docs) rather than re-loading every shard for each lookup.
 
-| Directory | Description |
-|-----------|-------------|
-| `ungarbler/` | Deobfuscated Go Garble files |
-| `ungarbler_string/` | Deobfuscated Go Garble strings |
+---
 
-### Other Directories
+## Contact
 
-| Directory | Description |
-|-----------|-------------|
-| `decompiled/` | General decompiled files |
-| `ole2/` | OLE2 (Object Linking and Embedding) extracted |
-| `memory/` | Dynamic analysis memory dump files |
-| `resource_extractor/` | RCData resources extracted |
-| `html_extracted/` | HTML files from visited websites |
-
-## Usage Notes
-
-- Each directory is automatically created when the corresponding extraction/decompilation operation is performed
-- Files are organized into numbered subdirectories (1, 2, 3, etc.) to prevent overwrites
-- All directories are relative to the main script directory
-- These directories should be reviewed after analysis to locate extracted malicious components, configuration files, and embedded resources
+For changes to this README or to add new extractor directories, update this file and check it into your repo so everyone can see the mapping.

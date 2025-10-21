@@ -86,7 +86,7 @@ from .path_and_variables import (
     ungarbler_string_dir,
     excluded_rules_path,
     html_extracted_dir,
-    WF,
+    website_rules_dir,
     spam_email_365_path,
     ipv4_addresses_path,
     ipv4_addresses_spam_path,
@@ -115,7 +115,6 @@ from .path_and_variables import (
     spam_sub_domains_path,
     whitelist_sub_domains_path,
     whitelist_mail_sub_domains_path,
-    website_rules_dir_normal,
     urlhaus_path,
     antivirus_list_path,
     yaraxtr_yrc_path,
@@ -124,8 +123,6 @@ from .path_and_variables import (
     icewater_rule_path,
     valhalla_rule_path,
     bypass_pyarmor7_path,
-    spam_hashes,
-    antivirus_domains_data,
     urlhaus_data,
     scanned_urls_general,
     scanned_domains_general,
@@ -225,10 +222,6 @@ logger.debug(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import mmh3
-logger.debug(f"mmh3 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
@@ -420,6 +413,10 @@ logger.debug(f"decompilers.advancedInstallerExtractor.AdvancedInstallerReader mo
 start_time = time.time()
 from decompilers.vmprotectunpacker import unpack_pe
 logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from .reference_registry import ReferenceRegistry
+logger.debug(f"reference_registry.ReferenceRegistry function loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .utils_and_helpers import (
@@ -649,58 +646,6 @@ for make_directory in MANAGED_DIRECTORIES:
         logger.info(f"Created directory: {make_directory}")
     except Exception as e:
         logger.error(f"Failed to create directory '{make_directory}': {e}")
-
-# Directory conditions and their corresponding logging messages
-DIRECTORY_MESSAGES = [
-    (lambda fp: fp.startswith(hydra_dragon_dumper_extracted_dir), "Hydra Dragon Dumper (Mega Dumper Fork) output extracted."),
-    (lambda fp: fp.startswith(enigma1_extracted_dir), "Enigma Virtual Box extracted."),
-    (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
-    (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
-    (lambda fp: fp.startswith(webcrack_javascript_deobfuscated_dir), "JavaScript file deobfuscated with webcrack."),
-    (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
-    (lambda fp: fp.startswith(autohotkey_decompiled_dir), "AutoHotkey script decompiled."),
-    (lambda fp: fp.startswith(themida_unpacked_dir), "Themida unpacked."),
-    (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
-    (lambda fp: fp.startswith(ole2_dir), "OLE2 extracted."),
-    (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
-    (lambda fp: fp.startswith(jadx_decompiled_dir), "APK decompiled with JADX."),
-    (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
-    (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
-    (lambda fp: fp.startswith(npm_pkg_extracted_dir), "NPM packer (JavaScript) extracted."),
-    (lambda fp: fp.startswith(decompiled_jsc_dir), "V8 bytecode objects (JSC files) extracted."),
-    (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
-    (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
-    (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
-    (lambda fp: fp.startswith(un_confuser_ex_extracted_dir), ".NET file deobfuscated with UnConfuserEx."),
-    (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
-    (lambda fp: fp.startswith(pyarmor8_and_9_extracted_dir), "PyArmor 8 and 9 extracted."),
-    (lambda fp: fp.startswith(pyarmor7_extracted_dir), "PyArmor 7 extracted."),
-    (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
-    (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
-    (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
-    (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
-    (lambda fp: fp.startswith(general_extracted_with_7z_dir), "All files extracted with 7-Zip go here."),
-    (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
-    (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
-    (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
-    (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
-    (lambda fp: fp.startswith(resource_extractor_dir), "It's an RCData resources extracted directory."),
-    (lambda fp: fp.startswith(ungarbler_dir), "It's a deobfuscated Go Garble directory."),
-    (lambda fp: fp.startswith(ungarbler_string_dir), "It's a directory of deobfuscated Go Garble strings."),
-    (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
-    (lambda fp: fp.startswith(jar_extracted_dir), "It's a directory containing extracted files from a JAR (Java Archive) file."),
-    (lambda fp: fp.startswith(FernFlower_decompiled_dir), "It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler."),
-    (lambda fp: fp.startswith(pylingual_extracted_dir), "It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pylingual."),
-    (lambda fp: fp.startswith(vmprotect_unpacked_dir), "It's a VMProtect unpacked directory."),
-    (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
-    (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
-    (lambda fp: fp.startswith(pycdas_extracted_dir), "It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe."),
-    (lambda fp: fp.startswith(python_source_code_dir), "It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code base directory."),
-    (lambda fp: fp.startswith(nuitka_source_code_dir), "It's a Nuitka reversed-engineered Python source code directory."),
-    (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites."),
-    (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx."),
-    (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
-]
 
 def try_unpack_enigma1(input_exe: str) -> str | None:
     """
@@ -1123,267 +1068,102 @@ def load_antivirus_list():
     try:
         with open(antivirus_list_path, 'r') as antivirus_file:
             antivirus_domains_data = antivirus_file.read().splitlines()
-        return antivirus_domains_data
     except Exception as ex:
         logger.error(f"Error loading Antivirus domains: {ex}")
-        return []
 
-class WebsiteFilters:
-    """
-    Loads all '*.hdf' files in WEBSITE_RULES_DIR.
-    Groups shards by basename (e.g. 'MalwareDomains-000.hdf' -> basename 'MalwareDomains').
-    Provides contains() helpers for domain/ip keys.
-    """
-
-    def __init__(self, rules_dir: Path):
-        self.dir = Path(rules_dir)
-        self.shards = {}  # basename -> list of dicts: {'cf': obj, 'meta': obj, 'shard_path': Path}
-        self.registry: Optional[ReferenceRegistry] = None
-        self._load_all()
-
-    def _load_registry(self):
-        """Load global reference registry"""
-        reg_path = self.dir / "references.hrf"
-        if reg_path.exists():
-            try:
-                self.registry = ReferenceRegistry.load(str(reg_path))
-                logger.info(f"[HydraDragon] Loaded {len(self.registry.id_to_ref)} references")
-            except Exception as e:
-                logger.error(f"[HydraDragon] Warning: Failed to load references.hrf: {e}")
-                self.registry = None
-        else:
-            logger.warning("[HydraDragon] Warning: references.hrf not found")
-            self.registry = None
-
-    def _infer_type_from_name(self, name: str) -> str:
-        """Infer type from filename"""
-        n = name.lower()
-        if "ipv4" in n:
-            return "ipv4"
-        if "ipv6" in n:
-            return "ipv6"
-        if "subdomain" in n or "subdomains" in n or "sub" in n:
-            return "subdomain"
-        return "domain"
-
-    def _load_all(self):
-        """Load all .hdf shards with progress yielding"""
-        # Load reference registry first
-        self._load_registry()
-
-        hdf_files = sorted(self.dir.glob("*.hdf"))
-
-        if not hdf_files:
-            logger.warning(f"[HydraDragon] Warning: No .hdf files found in {self.dir}")
-            return
-
-        logger.info(f"[HydraDragon] Loading {len(hdf_files)} shards...")
-
-        loaded = 0
-        for idx, hdf_path in enumerate(hdf_files):            
-            # Extract basename without -NNN suffix
-            stem = hdf_path.stem  # e.g. MalwareDomains-000
-            m = re.match(r"(?P<name>.+?)-\d{3,}$", stem)
-            basename = m.group("name") if m else stem
-
-            try:
-                # Load filter
-                cf = HydraCuckooFilter.load(str(hdf_path))
-
-                # Load metadata
-                meta_path = hdf_path.with_suffix('.hdm')
-                meta = None
-                if meta_path.exists():
-                    meta = MinimalMetadataStore.load(str(meta_path))
-
-                info = {
-                    'cf': cf,
-                    'meta': meta,
-                    'shard_path': hdf_path,
-                    'type': self._infer_type_from_name(basename)
-                }
-
-                self.shards.setdefault(basename, []).append(info)
-                loaded += 1
-
-            except Exception as e:
-                logger.warning(f"[HydraDragon] Warning: Failed to load {hdf_path.name}: {e}")
-
-        logger.info(f"[HydraDragon] Loaded {loaded} shards, {len(self.shards)} basenames")
-
-    def _contains_single_shard(self, shard_info: dict, domain_or_ip: str) -> bool:
-        """Check if domain/ip is in single shard"""
-        cf = shard_info['cf']
-        try:
-            return domain_or_ip in cf
-        except Exception:
-            return False
-
-    def contains_in_basename(self, basename: str, domain_or_ip: str) -> Tuple[bool, str]:
-        """
-        Check a domain/ip in all shards for basename.
-        Returns (True, reference_string) or (False, "")
-        """
-        shards = self.shards.get(basename)
-        if not shards:
-            return False, ""
-
-        # Normalize input
-        domain_or_ip = domain_or_ip.lower().strip()
-
-        for shard in shards:
-            if self._contains_single_shard(shard, domain_or_ip):
-                # Get reference from metadata
-                ref_str = ""
-                if shard['meta'] and self.registry:
-                    ref_ids = shard['meta'].get_threat(domain_or_ip)
-                    if ref_ids:
-                        # Get first reference as string
-                        refs = [self.registry.id_to_ref.get(rid, f"ID:{rid}")
-                               for rid in ref_ids]
-                        ref_str = refs[0] if refs else basename
-                    else:
-                        ref_str = basename
-                else:
-                    ref_str = basename
-
-                return True, ref_str
-
-        return False, ""
-
-    def contains_any(self, basenames: List[str], domain_or_ip: str) -> Tuple[Optional[str], str]:
-        """
-        Check multiple basenames in order; returns first match as (basename, reference) or (None, "")
-        """
-        for basename in basenames:
-            ok, ref = self.contains_in_basename(basename, domain_or_ip)
-            if ok:
-                return basename, ref
-        return None, ""
-
-    def get_all_references(self, basename: str, domain_or_ip: str) -> List[str]:
-        """Get all references for a domain/ip in basename"""
-        shards = self.shards.get(basename)
-        if not shards:
-            return []
-
-        domain_or_ip = domain_or_ip.lower().strip()
-
-        for shard in shards:
-            if self._contains_single_shard(shard, domain_or_ip):
-                if shard['meta'] and self.registry:
-                    ref_ids = shard['meta'].get_threat(domain_or_ip)
-                    if ref_ids:
-                        return [self.registry.id_to_ref.get(rid, f"ID:{rid}")
-                               for rid in ref_ids]
-
-        return []
-
-    def stats(self) -> Dict:
-        """Get loader statistics"""
-        total_items = 0
-        total_shards = 0
-
-        for basename, shards in self.shards.items():
-            for shard in shards:
-                total_shards += 1
-                total_items += shard['cf'].item_count
-
-        return {
-            'basenames': len(self.shards),
-            'total_shards': total_shards,
-            'total_items': total_items,
-            'references': len(self.registry.id_to_ref) if self.registry else 0
-        }
-
-# ----------------- Loader function -----------------
 def load_website_data():
-    """
-    Load all HydraDragon .hdf shards with CPU yielding to prevent deadlock
-    Returns WebsiteFilters instance and spam_email_365 binary hashes
-    """
-    WF = WebsiteFilters(website_rules_dir_normal)
+    global registry
+    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data, \
+           ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, \
+           ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data, \
+           ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data, \
+           ipv6_addresses_ddos_signatures_data, ipv6_whitelist_data, \
+           malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, \
+           mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, \
+           malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, \
+           abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, \
+           whitelist_mail_sub_domains_data, urlhaus_data, spam_email_365_data
 
-    stats = WF.stats()
-    logger.info("[HydraDragon] Stats:")
-    logger.info(f"  Basenames: {stats['basenames']}")
-    logger.info(f"  Shards: {stats['total_shards']}")
-    logger.info(f"  Items: {stats['total_items']:,}")
-    logger.info(f"  References: {stats['references']}")
-
-    # load urlhaus if present (keeps original behavior)
-    urlhaus_data = []
-    if urlhaus_path.exists():
+    def load_csv(file_path, data_name):
+        data = []
         try:
-            # urlhaus may be CSV/dict; try CSV DictReader, fallback to simple lines
-            with open(urlhaus_path, 'r', encoding='utf-8', errors='ignore') as f:
-                try:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        urlhaus_data.append(row)
-                except Exception:
-                    # fallback: read lines
-                    f.seek(0)
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            urlhaus_data.append({'url': line})
-        except Exception:
-            urlhaus_data = []
-
-    # ---- Load spam_email_365.bin ----
-    if spam_email_365_path.exists():
-        try:
-            with open(spam_email_365_path, "rb") as f:
-                data = f.read()
-                # Each entry = 8 bytes = one 64-bit hash
-                entry_size = 8
-                count = len(data) // entry_size
-                global spam_hashes
-                spam_hashes = [
-                    struct.unpack_from("<Q", data, offset)[0]
-                    for offset in range(0, len(data), entry_size)
-                ]
-                logger.info(f"[HydraDragon] Loaded {count:,} spam email fingerprints.")
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if not row:
+                        continue
+                    address = row[0].strip()
+                    refs = row[1:] if len(row) > 1 else []
+                    ref_ids = [registry.register(r.strip()) for r in refs if r.strip()]
+                    data.append({'address': address, 'ref_ids': ref_ids})
+            logger.info(f"{data_name} loaded ({len(data)} entries)")
         except Exception as e:
-            logger.warning(f"[HydraDragon] Failed to load listed_email_365.bin: {e}")
-    else:
-        logger.info("[HydraDragon] No listed_email_365.bin found.")
+            logger.error(f"Failed to load {data_name}: {e}")
+        return data
 
-# ----------------- helpers used by scanners -----------------
-def is_domain_in_filters(domain: str, basenames: list):
-    """
-    domain: full host (e.g. 'a.b.example.com' or 'example.com')
-    basenames: list of logical filter basenames to check (e.g. ['MalwareDomains','MalwareSubDomains'])
-    Returns (True, matched_basename, reference)
-    """
-    # direct check full domain first
-    for b in basenames:
-        ok, ref = WF.contains_in_basename(b, domain)
-        if ok:
-            return True, b, ref
-    # also try parent domain checks for subdomain lists (a.b.c.example.com -> b.c.example.com, c.example.com, example.com)
-    parts = domain.split(".")
-    if len(parts) > 2:
-        for i in range(1, len(parts)-1):
-            candidate = ".".join(parts[i:])
-            for b in basenames:
-                ok, ref = WF.contains_in_basename(b, candidate)
-                if ok:
-                    return True, b, ref
-    return False, None, ""
+    # Directly use your file path variables
+    ipv4_addresses_signatures_data = load_csv(ipv4_addresses_path, "IPv4 Malicious Addresses")
+    ipv4_addresses_spam_signatures_data = load_csv(ipv4_addresses_spam_path, "IPv4 Spam Addresses")
+    ipv4_addresses_bruteforce_signatures_data = load_csv(ipv4_addresses_bruteforce_path, "IPv4 BruteForce Addresses")
+    ipv4_addresses_phishing_active_signatures_data = load_csv(ipv4_addresses_phishing_active_path, "IPv4 Active Phishing Addresses")
+    ipv4_addresses_phishing_inactive_signatures_data = load_csv(ipv4_addresses_phishing_inactive_path, "IPv4 Inactive Phishing Addresses")
+    ipv4_addresses_ddos_signatures_data = load_csv(ipv4_addresses_ddos_path, "IPv4 DDoS Addresses")
+    ipv4_whitelist_data = load_csv(ipv4_whitelist_path, "IPv4 Whitelist")
+    ipv6_addresses_signatures_data = load_csv(ipv6_addresses_path, "IPv6 Malicious Addresses")
+    ipv6_addresses_spam_signatures_data = load_csv(ipv6_addresses_spam_path, "IPv6 Spam Addresses")
+    ipv6_addresses_ddos_signatures_data = load_csv(ipv6_addresses_ddos_path, "IPv6 DDoS Addresses")
+    ipv6_whitelist_data = load_csv(ipv6_whitelist_path, "IPv6 Whitelist")
 
-def is_ip_in_filters(ip: str, basenames: list):
-    """
-    ip: e.g. '1.2.3.4' or IPv6 string
-    basenames: list of logical filter basenames (e.g. ['IPv4Malware','IPv4Spam'])
-    Returns (True, matched_basename, reference)
-    """
-    for b in basenames:
-        ok, ref = WF.contains_in_basename(b, ip)
-        if ok:
-            return True, b, ref
-    return False, None, ""
+    malware_domains_data = load_csv(malware_domains_path, "Malware Domains")
+    malware_domains_mail_data = load_csv(malware_domains_mail_path, "Malware Mail Domains")
+    phishing_domains_data = load_csv(phishing_domains_path, "Phishing Domains")
+    abuse_domains_data = load_csv(abuse_domains_path, "Abuse Domains")
+    mining_domains_data = load_csv(mining_domains_path, "Mining Domains")
+    spam_domains_data = load_csv(spam_domains_path, "Spam Domains")
+    whitelist_domains_data = load_csv(whitelist_domains_path, "Whitelist Domains")
+    whitelist_domains_mail_data = load_csv(whitelist_domains_mail_path, "Whitelist Mail Domains")
+
+    malware_sub_domains_data = load_csv(malware_sub_domains_path, "Malware Subdomains")
+    malware_mail_sub_domains_data = load_csv(malware_mail_sub_domains_path, "Malware Mail Subdomains")
+    phishing_sub_domains_data = load_csv(phishing_sub_domains_path, "Phishing Subdomains")
+    abuse_sub_domains_data = load_csv(abuse_sub_domains_path, "Abuse Subdomains")
+    mining_sub_domains_data = load_csv(mining_sub_domains_path, "Mining Subdomains")
+    spam_sub_domains_data = load_csv(spam_sub_domains_path, "Spam Subdomains")
+    whitelist_sub_domains_data = load_csv(whitelist_sub_domains_path, "Whitelist Subdomains")
+    whitelist_mail_sub_domains_data = load_csv(whitelist_mail_sub_domains_path, "Whitelist Mail Subdomains")
+
+    # URLhaus (DictReader style)
+    try:
+        with open(urlhaus_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                refs = row.get('reference', '').split('|')
+                row['ref_ids'] = [registry.register(r.strip()) for r in refs if r.strip()]
+                urlhaus_data.append(row)
+        logger.info(f"URLhaus loaded ({len(urlhaus_data)} entries)")
+    except Exception as e:
+        logger.error(f"Failed to load URLhaus: {e}")
+
+    # Spam Email 365 (plain text)
+    try:
+        with spam_email_365_path.open('r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    spam_email_365_data.append(line)  # no registry, single source
+        logger.info(f"Spam Email 365 loaded ({len(spam_email_365_data)} entries)")
+    except Exception as e:
+        logger.error(f"Failed to load Spam Email 365: {e}")
+
+    # Save registry
+    try:
+        registry_path = Path(website_rules_dir) / "references.txt"
+        registry.save(str(registry_path))
+        logger.info(f"Reference registry saved ({len(registry.id_to_ref)} entries)")
+    except Exception as e:
+        logger.error(f"Failed to save reference registry: {e}")
+
+    logger.info("All website data loaded successfully.")
 
 # --------------------------------------------------------------------------
 # Check for Discord and Telegram indicators in code
@@ -1424,13 +1204,11 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
 
     return False  # No detection
 
-# ----------------- updated scan functions using cuckoo filters -----------------
+# --------------------------------------------------------------------------
+# Generalized scan for domains (CSV format with reference support)
 def scan_domain_general(url, file_path, **flags):
-    """
-    Uses WF (cuckoo filters) instead of CSV lists.
-    Kept behavior/notifications from original code; only changed membership checks.
-    """
     try:
+        # Normalize and parse URL
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
         parsed_url = urlparse(url)
@@ -1440,7 +1218,13 @@ def scan_domain_general(url, file_path, **flags):
 
         full_domain = parsed_url.netloc.lower()
         domain_parts = full_domain.split('.')
-        main_domain = full_domain if len(domain_parts) < 3 else ".".join(domain_parts[-2:])
+
+        if len(domain_parts) > 2:
+            main_domain = '.'.join(domain_parts[-2:])
+            subdomain = '.'.join(domain_parts[:-2])
+        else:
+            main_domain = full_domain
+            subdomain = None
 
         if full_domain in scanned_domains_general:
             logger.info(f"Domain {full_domain} has already been scanned.")
@@ -1449,64 +1233,70 @@ def scan_domain_general(url, file_path, **flags):
         scanned_domains_general.append(full_domain)
         logger.info(f"Scanning domain: {full_domain}")
 
-        # Whitelist checks (logical basenames)
-        whitelist_checks = [
-            ( [whitelist_domains_path], "domain" ),
-            ( [whitelist_domains_mail_path], "mail domain" ),
-            ( [whitelist_sub_domains_path], "subdomain" ),
-            ( [whitelist_mail_sub_domains_path], "mail subdomain" )
+        # Helper to check CSV-like data lists
+        def is_domain_in_data_general(domain, data_list):
+            for entry in data_list:
+                if entry.get('address') == domain:
+                    # return True and list of reference IDs
+                    return True, entry.get('ref_ids', [])
+            return False, []
+
+        # Whitelist checks
+        whitelist_data = [
+            (whitelist_domains_data, "domain"),
+            (whitelist_domains_mail_data, "mail domain"),
+            (whitelist_sub_domains_data, "subdomain"),
+            (whitelist_mail_sub_domains_data, "mail subdomain")
         ]
-        for basenames, whitelist_type in whitelist_checks:
-            ok, matched, ref = is_domain_in_filters(full_domain, basenames)
-            if ok:
-                logger.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {ref}")
+
+        for data_list, whitelist_type in whitelist_data:
+            is_whitelisted, ref_ids = is_domain_in_data_general(full_domain, data_list)
+            if is_whitelisted:
+                logger.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference IDs: {ref_ids}")
                 return False
 
-        # subdomain threat lists (logical basenames)
+        # Threat check configurations
         subdomain_threats = [
-            ([spam_sub_domains_path], "Spam"),
-            ([mining_sub_domains_path], "Mining"),
-            ([abuse_sub_domains_path], "Abuse"),
-            ([phishing_sub_domains_path], "Phishing"),
-            ([malware_mail_sub_domains_path], "Malware.Mail"),
-            ([malware_sub_domains_path], "Malware")
+            (spam_sub_domains_data, "Spam", "Spam.SubDomain"),
+            (mining_sub_domains_data, "Mining", "Mining.SubDomain"),
+            (abuse_sub_domains_data, "Abuse", "Abuse.SubDomain"),
+            (phishing_sub_domains_data, "Phishing", "Phishing.SubDomain"),
+            (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain"),
+            (malware_sub_domains_data, "Malware", "Malware.SubDomain")
         ]
-        # check full domain & parents via helper
-        for basenames, threat_name in subdomain_threats:
-            ok, matched, ref = is_domain_in_filters(full_domain, basenames)
-            if ok:
-                logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {ref})")
-                notify_user_for_web_source(domain=full_domain,
-                                           detection_type=f"{threat_name}.SubDomain",
-                                           file_path=file_path,
-                                           main_file_path=flags.get('main_file_path'))
-                return True
 
-        # main domain threat lists (logical basenames)
         main_threats = [
-            ([spam_domains_path], "Spam"),
-            ([mining_domains_path], "Mining"),
-            ([abuse_domains_path], "Abuse"),
-            ([phishing_domains_path], "Phishing"),
-            ([malware_domains_mail_path], "Malware.Mail"),
-            ([malware_domains_path], "Malware")
+            (spam_domains_data, "Spam", "Spam.Domain"),
+            (mining_domains_data, "Mining", "Mining.Domain"),
+            (abuse_domains_data, "Abuse", "Abuse.Domain"),
+            (phishing_domains_data, "Phishing", "Phishing.Domain"),
+            (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain"),
+            (malware_domains_data, "Malware", "Malware.Domain")
         ]
-        for basenames, threat_name in main_threats:
-            # check full_domain first
-            ok_full, matched_full, ref_full = is_domain_in_filters(full_domain, basenames)
-            if ok_full:
-                logger.critical(f"{threat_name} domain detected: {full_domain} (Reference: {ref_full})")
-                notify_user_for_web_source(domain=full_domain,
-                                           detection_type=f"{threat_name}.Domain",
-                                           file_path=file_path,
-                                           main_file_path=flags.get('main_file_path'))
-                return True
-            # then check main domain
-            ok_main, matched_main, ref_main = is_domain_in_filters(main_domain, basenames)
-            if ok_main:
-                logger.critical(f"{threat_name} domain detected: {main_domain} (Reference: {ref_main})")
-                notify_user_for_web_source(domain=main_domain,
-                                           detection_type=f"{threat_name}.Domain",
+
+        # Check subdomain threats
+        if subdomain:
+            for data_list, threat_name, signature_suffix in subdomain_threats:
+                is_threat, ref_ids = is_domain_in_data_general(full_domain, data_list)
+                if is_threat:
+                    logger.critical(f"{threat_name} subdomain detected: {full_domain} (Reference IDs: {ref_ids})")
+                    notify_user_for_web_source(domain=full_domain,
+                                               detection_type=signature_suffix,
+                                               file_path=file_path,
+                                               main_file_path=flags.get('main_file_path'))
+                    return True
+
+        # Check main domain threats (full domain and main domain)
+        for data_list, threat_name, signature_suffix in main_threats:
+            is_full_threat, full_ref_ids = is_domain_in_data_general(full_domain, data_list)
+            is_main_threat, main_ref_ids = is_domain_in_data_general(main_domain, data_list)
+
+            if is_full_threat or is_main_threat:
+                ref_ids = full_ref_ids if is_full_threat else main_ref_ids
+                domain_to_report = full_domain if is_full_threat else main_domain
+                logger.critical(f"{threat_name} domain detected: {domain_to_report} (Reference IDs: {ref_ids})")
+                notify_user_for_web_source(domain=domain_to_report,
+                                           detection_type=signature_suffix,
                                            file_path=file_path,
                                            main_file_path=flags.get('main_file_path'))
                 return True
@@ -1518,79 +1308,84 @@ def scan_domain_general(url, file_path, **flags):
         logger.error(f"Error scanning domain {url}: {ex}")
         return False
 
+
+# --------------------------------------------------------------------------
+# Generalized scan for IP addresses (CSV format with reference support)
 def scan_ip_address_general(ip_address, file_path, **flags):
-    """
-    Uses WF (cuckoo filters) instead of CSV lists.
-    """
     try:
-        # validate ip
-        try:
-            ip_obj = ipaddress.ip_address(ip_address)
-        except Exception:
+        # Skip invalid IPs
+        if not is_valid_ip(ip_address):
             logger.info(f"Skipping non-valid IP address: {ip_address}")
             return False
 
-        v = ip_obj.version
         if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
             logger.info(f"IP address {ip_address} has already been scanned.")
             return False
 
-        if v == 6:
+        def is_ip_in_data_general(ip, data_list):
+            for entry in data_list:
+                if entry.get('address') == ip:
+                    return True, entry.get('ref_ids', [])
+            return False, []
+
+        # IPv6 processing
+        if re.match(IPv6_pattern_standard, ip_address):
             scanned_ipv6_addresses_general.append(ip_address)
             logger.info(f"Scanning IPv6 address: {ip_address}")
-            # whitelist
-            ok, matched, ref = is_ip_in_filters(ip_address, [ipv6_whitelist_path])
-            if ok:
-                logger.info(f"IPv6 address {ip_address} is whitelisted. Reference: {ref}")
+
+            # Whitelist
+            is_whitelisted, ref_ids = is_ip_in_data_general(ip_address, ipv6_whitelist_data)
+            if is_whitelisted:
+                logger.info(f"IPv6 address {ip_address} is whitelisted. Reference IDs: {ref_ids}")
                 return False
-            # threats
+
+            # Threat checks
             ipv6_threats = [
-                ([ipv6_addresses_ddos_path], "DDoS"),
-                ([ipv6_addresses_spam_path], "Spam"),
-                ([ipv6_addresses_path], "Malware")
+                (ipv6_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv6"),
+                (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6"),
+                (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6")
             ]
-            for basenames, threat_name in ipv6_threats:
-                ok, matched, ref = is_ip_in_filters(ip_address, basenames)
-                if ok:
-                    logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {ref})")
+
+            for data_list, threat_name, signature_suffix in ipv6_threats:
+                is_threat, ref_ids = is_ip_in_data_general(ip_address, data_list)
+                if is_threat:
+                    logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference IDs: {ref_ids})")
                     notify_user_for_web_source(ipv6_address=ip_address,
-                                               detection_type=f"{threat_name}.IPv6",
+                                               detection_type=signature_suffix,
                                                file_path=file_path,
                                                main_file_path=flags.get('main_file_path'))
                     return True
+
             logger.info(f"Unknown IPv6 address scanned (no matches): {ip_address}")
             return False
 
-        else:  # IPv4
+        # IPv4 processing
+        elif re.match(IPv4_pattern_standard, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
             logger.info(f"Scanning IPv4 address: {ip_address}")
-            # whitelist
-            ok, matched, ref = is_ip_in_filters(ip_address, [ipv4_whitelist_path])
-            if ok:
-                logger.info(f"IPv4 address {ip_address} is whitelisted. Reference: {ref}")
+
+            # Whitelist
+            is_whitelisted, ref_ids = is_ip_in_data_general(ip_address, ipv4_whitelist_data)
+            if is_whitelisted:
+                logger.info(f"IPv4 address {ip_address} is whitelisted. Reference IDs: {ref_ids}")
                 return False
 
+            # Threat checks
             ipv4_threats = [
-                ([ipv4_addresses_phishing_active_path], "PhishingActive"),
-                ([ipv4_addresses_ddos_path], "DDoS"),
-                ([ipv4_addresses_phishing_inactive_path], "PhishingInactive"),
-                ([ipv4_addresses_bruteforce_path], "BruteForce"),
-                ([ipv4_addresses_spam_path], "Spam"),
-                ([ipv4_addresses_path], "Malware")
+                (ipv4_addresses_phishing_active_signatures_data, "PhishingActive", "PhishingActive.IPv4"),
+                (ipv4_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv4"),
+                (ipv4_addresses_phishing_inactive_signatures_data, "PhishingInactive", "PhishingInactive.IPv4"),
+                (ipv4_addresses_bruteforce_signatures_data, "BruteForce", "BruteForce.IPv4"),
+                (ipv4_addresses_spam_signatures_data, "Spam", "Spam.IPv4"),
+                (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4")
             ]
-            for basenames, threat_name in ipv4_threats:
-                ok, matched, ref = is_ip_in_filters(ip_address, basenames)
-                if ok:
-                    if threat_name in ["PhishingActive", "PhishingInactive"]:
-                        status = "active" if threat_name == "PhishingActive" else "inactive"
-                        logger.critical(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {ref})")
-                    elif threat_name in ["DDoS", "BruteForce"]:
-                        logger.critical(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {ref})")
-                    else:
-                        logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {ref})")
 
+            for data_list, threat_name, signature_suffix in ipv4_threats:
+                is_threat, ref_ids = is_ip_in_data_general(ip_address, data_list)
+                if is_threat:
+                    logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference IDs: {ref_ids})")
                     notify_user_for_web_source(ipv4_address=ip_address,
-                                               detection_type=f"{threat_name}.IPv4",
+                                               detection_type=signature_suffix,
                                                file_path=file_path,
                                                main_file_path=flags.get('main_file_path'))
                     return True
@@ -1598,72 +1393,41 @@ def scan_ip_address_general(ip_address, file_path, **flags):
             logger.info(f"Unknown IPv4 address scanned (no matches): {ip_address}")
             return False
 
+        else:
+            logger.debug(f"Invalid IP address format detected: {ip_address}")
+            return False
+
     except Exception as ex:
         logger.error(f"Error scanning IP address {ip_address}: {ex}")
         return False
 
-def _email_normalize(email: str, gmail_canonicalize: bool = True) -> str:
-    """Normalize an email for hashing/comparison.
-    - lowercases, strips whitespace
-    - optional: canonicalize Gmail addresses (remove dots, remove +tag)
-    """
-    e = email.strip().lower()
-    if gmail_canonicalize and e.endswith("@gmail.com"):
-        local, domain = e.split("@", 1)
-        # remove +tag
-        if '+' in local:
-            local = local.split('+', 1)[0]
-        # remove dots
-        local = local.replace('.', '')
-        e = f"{local}@{domain}"
-    return e
-
-def _hash_le64_of_email(email: str) -> int:
-    """Return little-endian uint64 fingerprint used by listed_email_365.bin loader."""
-    fp = mmh3.hash_bytes(email.encode('utf-8'))[:8]
-    return int.from_bytes(fp, 'little', signed=False)
-
-def scan_spam_email_365_emails_only(email_content: str,
-                                   file_path: str,
-                                   gmail_canonicalize: bool = True,
-                                   **flags) -> bool:
-    """
-    Scan the email content for spam by extracting email addresses and checking
-    their 64-bit MMH3 hashes against the preloaded spam_hashes set.
-    Returns True if any match is found.
-    """
+# --------------------------------------------------------------------------
+# Spam Email 365 Scanner
+def scan_spam_email_365_general(email_content, file_path, **flags):
+    """Scans email content for spam keywords from StopForum Spam Database."""
     try:
         if not email_content:
             logger.info("No email content provided for spam scanning.")
             return False
 
-        found = []
+        email_content_lower = email_content.lower()
+        detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
 
-        # Extract emails (headers + body)
-        for raw_email in EMAIL_RE.findall(email_content):
-            norm = _email_normalize(raw_email, gmail_canonicalize=gmail_canonicalize)
-            hv = _hash_le64_of_email(norm)
-            if hv in spam_hashes:  # Directly use global preloaded set
-                found.append(norm)
-
-        if found:
-            sample = ", ".join(sorted(set(found))[:5])
+        if detected_spam_words:
             logger.critical(
-                f"Spam email detected! Matched {len(found)} email(s): {sample}"
+                f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}"
             )
-            notify_user_for_web_source(
-                domain="EmailContent",
-                detection_type="Spam.Email365d",
-                file_path=file_path,
-                main_file_path=flags.get('main_file_path')
-            )
+            notify_user_for_web_source(domain="EmailContent",
+                                       detection_type="Spam.Email365d",
+                                       file_path=file_path,
+                                       main_file_path=flags.get('main_file_path'))
             return True
 
-        logger.info("Email passed spam check - no spam emails found.")
+        logger.info("Email content passed spam check - no spam indicators found.")
         return False
 
     except Exception as ex:
-        logger.error(f"Error scanning email content for spam (emails-only): {ex}")
+        logger.error(f"Error scanning email content for spam: {ex}")
         return False
 
 # --------------------------------------------------------------------------
@@ -1802,7 +1566,7 @@ def scan_html_content(html_content, html_content_file_path, **flags):
                 logger.error(f"Error in scan_domain_general for {url}: {e}")
 
             try:
-                if scan_spam_email_365_emails_only(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
+                if scan_spam_email_365_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
                     logger.info(f"Early exit: Spam/email indicator detected in HTML: {url}")
                     return True
             except Exception as e:
@@ -2435,9 +2199,11 @@ class RealTimeWebProtectionHandler:
 
     def scan(self, entity_type, entity_value, detection_type=None):
         """
-        Unified scan entry-point (cuckoo-backed membership checks).
+        Unified scan entry-point.
+        Dedupe, detect, fetch, extract, and recurse via this one method.
+        Uses ReferenceRegistry-aware data structures.
         """
-        # 1) classify into our four buckets
+        # 1) classify entity
         if entity_type in ('subdomain', 'domain'):
             kind = 'domain'
         elif entity_type in ('ipv4_address', 'ipv6_address'):
@@ -2452,96 +2218,77 @@ class RealTimeWebProtectionHandler:
             if entity_value in self.scanned_domains:
                 return
             self.scanned_domains.append(entity_value)
-
         elif kind == 'ipv4':
             if entity_value in self.scanned_ipv4_addresses:
                 return
             self.scanned_ipv4_addresses.append(entity_value)
-
         elif kind == 'ipv6':
             if entity_value in self.scanned_ipv6_addresses:
                 return
             self.scanned_ipv6_addresses.append(entity_value)
-
-        else:  # url
+        else:
             if entity_value in self.scanned_urls:
                 return
             self.scanned_urls.append(entity_value)
 
-        # 3) run existing detection hook
-        self.handle_detection(entity_type, entity_value, detection_type)
+        # 3) detection logic helpers
+        def lookup_domain(domain, data_list):
+            for entry in data_list:
+                if entry.get('address') == domain:
+                    return True, entry.get('ref_ids', [])
+            return False, []
 
-        # 4) fetch/extract/recurse using cuckoo-backed checks
+        def lookup_ip(ip, data_list):
+            for entry in data_list:
+                if entry.get('address') == ip:
+                    return True, entry.get('ref_ids', [])
+            return False, []
+
+        # 4) run detection for domains
         if kind == 'domain':
-            domain = entity_value
-            if domain.lower().startswith("www."):
+            domain = entity_value.lower()
+            if domain.startswith("www."):
                 domain = domain[4:]
 
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            # Whitelist checks (logical basenames)
+            # Whitelist check
             whitelist_checks = [
-                ([whitelist_sub_domains_path], "subdomain"),
-                ([whitelist_mail_sub_domains_path], "mail subdomain"),
-                ([whitelist_domains_path], "domain"),
-                ([whitelist_domains_mail_path], "mail domain")
+                (whitelist_sub_domains_data, "subdomain"),
+                (whitelist_mail_sub_domains_data, "mail subdomain"),
+                (whitelist_domains_data, "domain"),
+                (whitelist_domains_mail_data, "mail domain")
             ]
-            for basenames, whitelist_type in whitelist_checks:
-                ok, matched_basename, reference = is_domain_in_filters(main_domain, basenames)
-                if ok:
-                    logger.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
+            for data_list, whitelist_type in whitelist_checks:
+                is_whitelisted, ref_ids = lookup_domain(main_domain, data_list)
+                if is_whitelisted:
+                    logger.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). Reference IDs: {ref_ids}")
                     return
 
-            # subdomain threat lists (check full + parents inside helper)
-            subdomain_threats = [
-                ([spam_sub_domains_path], "Spam", "Spam.SubDomain"),
-                ([mining_sub_domains_path], "Mining", "Mining.SubDomain"),
-                ([abuse_sub_domains_path], "Abuse", "Abuse.SubDomain"),
-                ([phishing_sub_domains_path], "Phishing", "Phishing.SubDomain"),
-                ([malware_mail_sub_domains_path], "Malware.Mail", "Malware.Mail.SubDomain"),
-                ([malware_sub_domains_path], "Malware", "Malware.SubDomain"),
+            # Threat checks
+            threat_checks = [
+                (spam_sub_domains_data, 'subdomain', 'SPAM SUBDOMAIN'),
+                (mining_sub_domains_data, 'subdomain', 'MINING SUBDOMAIN'),
+                (abuse_sub_domains_data, 'subdomain', 'ABUSE SUBDOMAIN'),
+                (phishing_sub_domains_data, 'subdomain', 'PHISHING SUBDOMAIN'),
+                (malware_sub_domains_data, 'subdomain', 'MALWARE SUBDOMAIN'),
+                (malware_mail_sub_domains_data, 'subdomain', 'MALWARE MAIL SUBDOMAIN'),
+                (spam_domains_data, 'domain', 'SPAM'),
+                (mining_domains_data, 'domain', 'MINING'),
+                (abuse_domains_data, 'domain', 'ABUSE'),
+                (phishing_domains_data, 'domain', 'PHISHING'),
+                (malware_domains_data, 'domain', 'MALWARE'),
+                (malware_domains_mail_data, 'domain', 'MALWARE MAIL')
             ]
-            for basenames, threat_name, signature_suffix in subdomain_threats:
-                ok, matched_basename, reference = is_domain_in_filters(domain, basenames)
-                if ok:
-                    logger.critical(f"{threat_name} subdomain detected: {domain} (Reference: {reference})")
-                    notify_user_for_web_source(domain=domain,
-                                            detection_type=signature_suffix,
-                                            file_path=None,
-                                            main_file_path=None)
+            for data_list, etype, d_type in threat_checks:
+                is_threat, ref_ids = lookup_domain(main_domain, data_list)
+                if is_threat:
+                    self.handle_detection(etype, main_domain, d_type, ref_ids)
                     return
 
-            # main domain threat lists (check full_domain then main_domain)
-            main_threats = [
-                ([spam_domains_path], "Spam", "Spam.Domain"),
-                ([mining_domains_path], "Mining", "Mining.Domain"),
-                ([abuse_domains_path], "Abuse", "Abuse.Domain"),
-                ([phishing_domains_path], "Phishing", "Phishing.Domain"),
-                ([malware_domains_mail_path], "Malware.Mail", "Malware.Mail.Domain"),
-                ([malware_domains_path], "Malware", "Malware.Domain"),
-            ]
-            for basenames, threat_name, signature_suffix in main_threats:
-                ok_full, mb_full, ref_full = is_domain_in_filters(domain, basenames)
-                if ok_full:
-                    logger.critical(f"{threat_name} domain detected: {domain} (Reference: {ref_full})")
-                    notify_user_for_web_source(domain=domain,
-                                            detection_type=signature_suffix,
-                                            file_path=None,
-                                            main_file_path=None)
-                    return
-                ok_main, mb_main, ref_main = is_domain_in_filters(main_domain, basenames)
-                if ok_main:
-                    logger.critical(f"{threat_name} domain detected: {main_domain} (Reference: {ref_main})")
-                    notify_user_for_web_source(domain=main_domain,
-                                            detection_type=signature_suffix,
-                                            file_path=None,
-                                            main_file_path=None)
-                    return
-
-            # fetch & parse HTML & recurse as before
-            full_url = f"http://{domain}"
-            html_content = fetch_html(full_url)
+            # Fetch HTML and recurse
+            html_content = fetch_html(f"http://{domain}")
             if html_content:
                 for ip in self.extract_ip_addresses(html_content):
                     self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
@@ -2550,72 +2297,62 @@ class RealTimeWebProtectionHandler:
                 for dom in self.extract_domains(html_content):
                     self.scan('domain', dom)
 
+        # 5) detection for IP addresses
         elif kind in ('ipv4', 'ipv6'):
             ip_address = entity_value
             if not is_valid_ip(ip_address):
-                logger.info(f"Skipping non valid IP address: {ip_address}")
+                logger.info(f"Skipping non-valid IP: {ip_address}")
                 return
 
             if kind == 'ipv6':
                 logger.info(f"Scanning IPv6 address: {ip_address}")
-                ok, mb, ref = is_ip_in_filters(ip_address, [ipv6_whitelist_path])
-                if ok:
-                    logger.info(f"IPv6 address {ip_address} is whitelisted. Reference: {ref}")
+                # Whitelist
+                is_whitelisted, ref_ids = lookup_ip(ip_address, ipv6_whitelist_data)
+                if is_whitelisted:
+                    logger.info(f"IPv6 {ip_address} is whitelisted. Reference IDs: {ref_ids}")
                     return
-
+                # Threats
                 ipv6_threats = [
-                    ([ipv6_addresses_ddos_path], "DDoS", "DDoS.IPv6"),
-                    ([ipv6_addresses_spam_path], "Spam", "Spam.IPv6"),
-                    ([ipv6_addresses_path], "Malware", "Malware.IPv6"),
+                    (ipv6_addresses_ddos_signatures_data, 'DDOS'),
+                    (ipv6_addresses_spam_signatures_data, 'SPAM'),
+                    (ipv6_addresses_signatures_data, 'MALWARE')
                 ]
-                for basenames, threat_name, sig in ipv6_threats:
-                    ok, mb, ref = is_ip_in_filters(ip_address, basenames)
-                    if ok:
-                        logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {ref})")
-                        notify_user_for_web_source(ipv6_address=ip_address,
-                                                detection_type=sig,
-                                                file_path=None,
-                                                main_file_path=None)
+                for data_list, d_type in ipv6_threats:
+                    is_threat, ref_ids = lookup_ip(ip_address, data_list)
+                    if is_threat:
+                        self.handle_detection('ipv6_address', ip_address, d_type, ref_ids)
                         return
                 logger.info(f"Unknown IPv6 address detected: {ip_address}")
-                return
-
-            else:  # ipv4
+            else:
                 logger.info(f"Scanning IPv4 address: {ip_address}")
-                ok, mb, ref = is_ip_in_filters(ip_address, [ipv4_whitelist_path])
-                if ok:
-                    logger.info(f"IPv4 address {ip_address} is whitelisted. Reference: {ref}")
+                is_whitelisted, ref_ids = lookup_ip(ip_address, ipv4_whitelist_data)
+                if is_whitelisted:
+                    logger.info(f"IPv4 {ip_address} is whitelisted. Reference IDs: {ref_ids}")
                     return
-
                 ipv4_threats = [
-                    ([ipv4_addresses_phishing_active_path], "PhishingActive", "PhishingActive.IPv4"),
-                    ([ipv4_addresses_ddos_path], "DDoS", "DDoS.IPv4"),
-                    ([ipv4_addresses_phishing_inactive_path], "PhishingInactive", "PhishingInactive.IPv4"),
-                    ([ipv4_addresses_bruteforce_path], "BruteForce", "BruteForce.IPv4"),
-                    ([ipv4_addresses_spam_path], "Spam", "Spam.IPv4"),
-                    ([ipv4_addresses_path], "Malware", "Malware.IPv4"),
+                    (ipv4_addresses_phishing_active_signatures_data, 'PHISHING_ACTIVE'),
+                    (ipv4_addresses_phishing_inactive_signatures_data, 'PHISHING_INACTIVE'),
+                    (ipv4_addresses_bruteforce_signatures_data, 'BRUTEFORCE'),
+                    (ipv4_addresses_spam_signatures_data, 'SPAM'),
+                    (ipv4_addresses_signatures_data, 'MALWARE')
                 ]
-                for basenames, threat_name, sig in ipv4_threats:
-                    ok, mb, ref = is_ip_in_filters(ip_address, basenames)
-                    if ok:
-                        if threat_name in ["PhishingActive", "PhishingInactive"]:
-                            status = "active" if threat_name == "PhishingActive" else "inactive"
-                            logger.critical(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {ref})")
-                        elif threat_name in ["DDoS", "BruteForce"]:
-                            logger.critical(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {ref})")
-                        else:
-                            logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {ref})")
-
-                        notify_user_for_web_source(ipv4_address=ip_address,
-                                                detection_type=sig,
-                                                file_path=None,
-                                                main_file_path=None)
+                for data_list, d_type in ipv4_threats:
+                    is_threat, ref_ids = lookup_ip(ip_address, data_list)
+                    if is_threat:
+                        self.handle_detection('ipv4_address', ip_address, d_type, ref_ids)
                         return
-
                 logger.info(f"Unknown IPv4 address detected: {ip_address}")
-                return
 
-        else:  # url
+            # Fetch HTML and recurse
+            html_content = fetch_html(f"http://{ip_address}")
+            if html_content:
+                for dom in self.extract_domains(html_content):
+                    self.scan('domain', dom)
+                for url in self.extract_urls(html_content):
+                    self.scan('url', url)
+
+        # 6) detection for URLs
+        elif kind == 'url':
             url = entity_value
             html_content = fetch_html(url)
             if html_content:
@@ -2626,61 +2363,43 @@ class RealTimeWebProtectionHandler:
                 for u in self.extract_urls(html_content):
                     self.scan('url', u)
 
-            # --- keep your regex/url heuristic checks unchanged ---
-            if re.compile(discord_webhook_pattern_standard).search(url):
-                self.handle_detection('url', url, 'HEUR:Discord.Webhook')
-                return
-            if re.compile(discord_attachment_pattern_standard).search(url):
-                self.handle_detection('url', url, 'HEUR:Discord.Attachment')
-                return
-            if re.compile(discord_canary_webhook_pattern_standard).search(url):
-                self.handle_detection('url', url, 'HEUR:Discord.CanaryWebhook')
-                return
-            if re.compile(cdn_attachment_pattern_standard).search(url):
-                self.handle_detection('url', url, 'HEUR:Discord.CDNAttachment')
-                return
-            if re.compile(telegram_pattern_standard).search(url):
-                self.handle_detection('url', url, 'HEUR:Telegram.Token')
-                return
-
-            # URLhaus checks (unchanged)
-            for entry in urlhaus_data:
-                if entry.get('url') and entry['url'] in url:
-                    message = (
-                        f"URL {url} matches the URLhaus signatures.\n"
-                        f"ID: {entry.get('id')}\n"
-                        f"Date Added: {entry.get('dateadded')}\n"
-                        f"URL Status: {entry.get('url_status')}\n"
-                        f"Last Online: {entry.get('last_online')}\n"
-                        f"Threat: {entry.get('threat')}\n"
-                        f"Tags: {entry.get('tags')}\n"
-                        f"URLhaus Link: {entry.get('urlhaus_link')}\n"
-                        f"Reporter: {entry.get('reporter')}"
-                    )
-                    logger.critical(message)
-                    self.handle_detection('url', url, 'URLhaus Match')
+            # Heuristic Discord/Telegram checks
+            heuristic_patterns = {
+                'HEUR:Discord.Webhook': discord_webhook_pattern_standard,
+                'HEUR:Discord.Attachment': discord_attachment_pattern_standard,
+                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern_standard,
+                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern_standard,
+                'HEUR:Telegram.Token': telegram_pattern_standard
+            }
+            for label, pattern in heuristic_patterns.items():
+                if re.search(pattern, url):
+                    self.handle_detection('url', url, label)
                     return
 
+            # URLhaus
+            for entry in urlhaus_data:
+                if entry['url'] in url:
+                    self.handle_detection('url', url, 'URLhaus Match', entry.get('ref_ids', []))
+                    return
+
+            # uBlock heuristic
             if ublock_detect(url):
                 self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
-                logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
                 return
 
             logger.info(f"No match found for URL: {url}")
-            return
 
-    # thin wrappers
     def scan_domain(self, domain):
-        return self.scan('domain', domain)
+        self.scan('domain', domain)
 
     def scan_ipv4_address(self, ip_address):
-        return self.scan('ipv4_address', ip_address)
+        self.scan('ipv4_address', ip_address)
 
     def scan_ipv6_address(self, ip_address):
-        return self.scan('ipv6_address', ip_address)
+        self.scan('ipv6_address', ip_address)
 
     def scan_url(self, url):
-        return self.scan('url', url)
+        self.scan('url', url)
 
     def handle_ipv4(self, packet):
         try:
@@ -2762,7 +2481,7 @@ class RealTimeWebProtectionObserver:
 
     def begin_observing(self):
         if not self.is_started:
-            self.thread = threading.Thread(daemon=True, target=self.start_sniffing)
+            self.thread = threading.Thread(target=self.start_sniffing)
             self.thread.start()
             self.is_started = True
             message = "Real-time web protection observer started"
@@ -4206,61 +3925,43 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
             logger.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
 def process_alert_data(priority, src_ip, dest_ip):
-    """Process parsed alert data from EVE JSON format using cuckoo filters"""
+    """Process parsed alert data from EVE JSON format using reference registry"""
     try:
-        # Check if the source IP is in the IPv4 or IPv6 whitelist using filters
-        ipv4_ok, _, _ = is_ip_in_filters(src_ip, [ipv4_whitelist_path])
-        ipv6_ok, _, _ = is_ip_in_filters(src_ip, [ipv6_whitelist_path])
-
-        if ipv4_ok or ipv6_ok:
+        # Check if the source IP is in the IPv4 or IPv6 whitelist
+        if any(entry['address'] == src_ip for entry in ipv4_whitelist_data + ipv6_whitelist_data):
             logger.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
             return False
 
-        # Determine threat type based on signature lists using filters
+        # Default threat type
         threat_type = "Unknown Threat Detected"
+        ref_ids = []
 
-        # Check IPv4 signatures
-        ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_path])
-        if ok:
-            threat_type = "General Threat (IPv4)"
-        else:
-            ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_spam_path])
-            if ok:
-                threat_type = "Spam"
-            else:
-                ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_bruteforce_path])
-                if ok:
-                    threat_type = "Brute Force"
-                else:
-                    ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_phishing_active_path])
-                    if ok:
-                        threat_type = "Active Phishing"
-                    else:
-                        ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_phishing_inactive_path])
-                        if ok:
-                            threat_type = "Inactive Phishing"
-                        else:
-                            ok, _, _ = is_ip_in_filters(src_ip, [ipv4_addresses_ddos_path])
-                            if ok:
-                                threat_type = "DDoS"
+        # Check IPv4 signature lists
+        for dataset, label in [
+            (ipv4_addresses_signatures_data, "General Threat (IPv4)"),
+            (ipv4_addresses_spam_signatures_data, "Spam"),
+            (ipv4_addresses_bruteforce_signatures_data, "Brute Force"),
+            (ipv4_addresses_phishing_active_signatures_data, "Active Phishing"),
+            (ipv4_addresses_phishing_inactive_signatures_data, "Inactive Phishing"),
+            (ipv4_addresses_ddos_signatures_data, "DDoS"),
+            (ipv6_addresses_signatures_data, "General Threat (IPv6)"),
+            (ipv6_addresses_spam_signatures_data, "Spam"),
+            (ipv6_addresses_ddos_signatures_data, "DDoS"),
+        ]:
+            match = next((entry for entry in dataset if entry['address'] == src_ip), None)
+            if match:
+                threat_type = label
+                ref_ids = match.get('ref_ids', [])
+                break
 
-        # Check IPv6 signatures if no IPv4 match
-        if threat_type == "Unknown Threat Detected":
-            ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_path])
-            if ok:
-                threat_type = "General Threat (IPv6)"
-            else:
-                ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_spam_path])
-                if ok:
-                    threat_type = "Spam"
-                else:
-                    ok, _, _ = is_ip_in_filters(src_ip, [ipv6_addresses_ddos_path])
-                    if ok:
-                        threat_type = "DDoS"
+        # Convert reference IDs to human-readable strings for logging
+        ref_names = [registry.get_name(rid) for rid in ref_ids] if ref_ids else []
+        ref_str = f" | References: {', '.join(ref_names)}" if ref_names else ""
 
-        # Create a formatted line for logging (similar to fast.log format)
-        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}"
+        # Create a formatted line
+        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}{ref_str}"
 
+        # Handle actions based on priority
         if priority == 1:
             logger.critical(
                 f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority} | Threat: {threat_type}")
@@ -4272,6 +3973,9 @@ def process_alert_data(priority, src_ip, dest_ip):
         elif priority == 3:
             convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Info - {threat_type}")
             return True
+
+        # No match or ignored
+        return False
 
     except Exception as ex:
         logger.error(f"Error processing alert data: {ex}")
@@ -9620,30 +9324,50 @@ def nexe_unpacker(file_path) -> list:
 
 def check_hosts_file_for_blocked_antivirus():
     """
-    Scan hosts_path for any entries that match one of your cuckoo filters.
-    Returns True if anything was flagged.
+    Scan hosts_path for any entries that match one of your lists:
+      - IPv4 whitelist
+      - IPv6 whitelist
+      - Exact domain whitelist
+      - Mail-domain whitelist
+      - Subdomain whitelist
+      - Mail-subdomain whitelist
+      - Antivirus domain list (with references)
+
+    For each category that triggers, we call notify_user_hosts() with its
+    specific HEUR signature. Returns True if anything was flagged.
     """
-    # Precompile antivirus regex
-    ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$'
-                    for d in antivirus_domains_data]
-    antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
-
-    # Buckets for each reason
-    flagged = {
-        'ipv4': set(),
-        'ipv6': set(),
-        'domain': set(),
-        'mail_domain': set(),
-        'sub_domain': set(),
-        'mail_sub_domain': set(),
-        'antivirus': set(),
-    }
-
     try:
         if not os.path.exists(hosts_path):
             return False
 
-        with open(hosts_path, 'r') as hf:
+        # Pre-build sets for fast lookups
+        ipv4_set = set(entry['address'] for entry in ipv4_whitelist_data)
+        ipv6_set = set(entry['address'] for entry in ipv6_whitelist_data)
+        domain_set = set(entry['address'] for entry in whitelist_domains_data)
+        mail_domain_set = set(entry['address'] for entry in whitelist_domains_mail_data)
+        subdomain_list = [entry['address'] for entry in whitelist_sub_domains_data]
+        mail_subdomain_list = [entry['address'] for entry in whitelist_mail_sub_domains_data]
+        antivirus_list = [entry['address'] for entry in antivirus_domains_data]
+
+        # Precompile antivirus regex
+        if antivirus_list:
+            ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$' for d in antivirus_list]
+            antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
+        else:
+            antivirus_re = None
+
+        # Buckets for each reason
+        flagged = {
+            'ipv4': set(),
+            'ipv6': set(),
+            'domain': set(),
+            'mail_domain': set(),
+            'sub_domain': set(),
+            'mail_sub_domain': set(),
+            'antivirus': set(),
+        }
+
+        with open(hosts_path, 'r', encoding='utf-8') as hf:
             for raw in hf:
                 line = raw.strip()
                 if not line or line.startswith('#'):
@@ -9653,96 +9377,45 @@ def check_hosts_file_for_blocked_antivirus():
                 ip = parts[0]
                 hosts = parts[1:]
 
-                # IP-based buckets using filters
-                ok, _, _ = is_ip_in_filters(ip, [ipv4_whitelist_path])
-                if ok:
+                # IP-based buckets
+                if ip in ipv4_set:
                     flagged['ipv4'].update(hosts)
-
-                ok, _, _ = is_ip_in_filters(ip, [ipv6_whitelist_path])
-                if ok:
+                if ip in ipv6_set:
                     flagged['ipv6'].update(hosts)
 
+                # Host/domain checks
                 for host in hosts:
-                    # Exact domain
-                    ok, _, _ = is_domain_in_filters(host, [whitelist_domains_path])
-                    if ok:
+                    if host in domain_set:
                         flagged['domain'].add(host)
                         continue
-
-                    # Exact mail-domain
-                    ok, _, _ = is_domain_in_filters(host, [whitelist_domains_mail_path])
-                    if ok:
+                    if host in mail_domain_set:
                         flagged['mail_domain'].add(host)
                         continue
-
-                    # Subdomain
-                    ok, _, _ = is_domain_in_filters(host, [whitelist_sub_domains_path])
-                    if ok:
+                    if any(host.endswith('.' + d) for d in subdomain_list):
                         flagged['sub_domain'].add(host)
                         continue
-
-                    # Mail subdomain
-                    ok, _, _ = is_domain_in_filters(host, [whitelist_mail_sub_domains_path])
-                    if ok:
+                    if any(host.endswith('.' + d) for d in mail_subdomain_list):
                         flagged['mail_sub_domain'].add(host)
                         continue
-
-                    # Antivirus pattern
-                    if antivirus_re.search(host):
+                    if antivirus_re and antivirus_re.search(host):
                         flagged['antivirus'].add(host)
 
+        # Emit notifications
         any_flagged = False
+        heur_mapping = {
+            'ipv4': "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
+            'ipv6': "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
+            'domain': "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
+            'mail_domain': "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
+            'sub_domain': "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
+            'mail_sub_domain': "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
+            'antivirus': "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen"
+        }
 
-        # Emit per-bucket notifications
-        if flagged['ipv4']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
-                details=list(flagged['ipv4'])
-            )
-        if flagged['ipv6']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
-                details=list(flagged['ipv6'])
-            )
-        if flagged['domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
-                details=list(flagged['domain'])
-            )
-        if flagged['mail_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
-                details=list(flagged['mail_domain'])
-            )
-        if flagged['sub_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
-                details=list(flagged['sub_domain'])
-            )
-        if flagged['mail_sub_domain']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
-                details=list(flagged['mail_sub_domain'])
-            )
-        if flagged['antivirus']:
-            any_flagged = True
-            notify_user_hosts(
-                hosts_path,
-                "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
-                details=list(flagged['antivirus'])
-            )
+        for key, heuristic in heur_mapping.items():
+            if flagged[key]:
+                any_flagged = True
+                notify_user_hosts(hosts_path, heuristic, details=list(flagged[key]))
 
         return any_flagged
 
