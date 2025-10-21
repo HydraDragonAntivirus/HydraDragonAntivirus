@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import json
-from datetime import datetime, timezone
 import os
 import win32file
 import win32pipe
@@ -21,7 +20,6 @@ from .notify_user import (
 )
 from .path_and_variables import (
     PIPE_AV_TO_EDR,
-    PIPE_EDR_TO_AV,
     PIPE_MBR_ALERT,
     PIPE_SELF_DEFENSE_ALERT,
     system_root,
@@ -170,51 +168,9 @@ def _is_system_executable(path: str) -> bool:
 
     return False
 
-
 # ============================================================================
 # PIPE 2: Receiving Scan Requests FROM Owlyshield EDR
 # ============================================================================
-
-def _send_scan_request_to_av(file_path: str, event_type: str = "NEW_FILE_DETECTED", pid: int = None):
-    """
-    Sends a scan request FROM Owlyshield TO HydraDragon AV.
-    Called when EDR detects a new file that needs scanning.
-    """
-    # Check if the file is in a protected path before sending the request
-    if _is_protected_path(file_path):
-        logger.debug(f"Skipping scan request for protected path: {file_path}")
-        return
-
-    request = {
-        "event_type": event_type,
-        "file_path": str(file_path),
-        "timestamp": datetime.now(timezone.utc).isoformat(),  # timezone-aware UTC
-        "pid": pid,
-        "additional_context": None
-    }
-
-    try:
-        message_bytes = json.dumps(request).encode('utf-8')
-        handle = win32file.CreateFile(
-            PIPE_EDR_TO_AV,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None
-        )
-        win32file.WriteFile(handle, message_bytes)
-        win32file.CloseHandle(handle)
-        logger.info(f"Successfully sent scan request to HydraDragon for: {file_path}")
-    except pywintypes.error as e:
-        if hasattr(e, 'winerror') and e.winerror == 2:
-            logger.error("Could not connect to HydraDragon AV. Is the service running?")
-        else:
-            logger.error(f"Failed to send scan request to HydraDragon: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error sending scan request to HydraDragon: {e}")
-
 
 def _process_threat_event(data: str):
     """

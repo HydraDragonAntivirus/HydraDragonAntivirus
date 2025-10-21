@@ -10,7 +10,148 @@ from datetime import datetime
 from hydra_logger import (
     logger,
     log_directory,
-    script_dir
+)
+
+from .path_and_variables import (
+    script_dir,
+    PIPE_EDR_TO_AV,
+    python_path,
+    jadx_decompiled_dir,
+    nexe_javascript_unpacked_dir,
+    unlicense_path,
+    unlicense_x64_path,
+    webcrack_javascript_deobfuscated_dir,
+    pkg_unpacker_dir,
+    enigma1_extracted_dir,
+    upx_path,
+    upx_extracted_dir,
+    inno_unpack_path,
+    autohotkey_decompiled_dir,
+    inno_setup_unpacked_dir,
+    themida_unpacked_dir,
+    decompiled_dir,
+    pyinstaller_extracted_dir,
+    pyarmor8_and_9_extracted_dir,
+    pyarmor7_extracted_dir,
+    cx_freeze_extracted_dir,
+    ghidra_logs_dir,
+    ghidra_scripts_dir,
+    FernFlower_decompiled_dir,
+    jar_extracted_dir,
+    dotnet_dir,
+    obfuscar_dir,
+    androguard_dir,
+    decompiled_jsc_dir,
+    npm_pkg_extracted_dir,
+    asar_dir,
+    un_confuser_ex_path,
+    un_confuser_ex_extracted_dir,
+    net_reactor_slayer_x64_cli_path,
+    nuitka_dir,
+    ole2_dir,
+    FernFlower_path,
+    system_file_names_path,
+    extensions_path,
+    vmprotect_unpacked_dir,
+    python_source_code_dir,
+    python_deobfuscated_dir,
+    python_deobfuscated_marshal_pyc_dir,
+    pylingual_extracted_dir,
+    pycdas_extracted_dir,
+    de4dot_cex_x64_path,
+    net_reactor_extracted_dir,
+    de4dot_extracted_dir,
+    nuitka_source_code_dir,
+    pe_extracted_dir,
+    zip_extracted_dir,
+    tar_extracted_dir,
+    seven_zip_extracted_dir,
+    general_extracted_with_7z_dir,
+    nuitka_extracted_dir,
+    advanced_installer_extracted_dir,
+    memory_dir,
+    debloat_dir,
+    detectiteasy_console_path,
+    ilspycmd_path,
+    pycdas_path,
+    ISx_installshield_extractor_path,
+    installshield_extracted_dir,
+    autoit_extracted_dir,
+    hydra_dragon_dumper_path,
+    hydra_dragon_dumper_extracted_dir,
+    deobfuscar_path,
+    machine_learning_pickle_path,
+    resource_extractor_dir,
+    ungarbler_dir,
+    ungarbler_string_dir,
+    excluded_rules_path,
+    html_extracted_dir,
+    WF,
+    spam_email_365_path,
+    ipv4_addresses_path,
+    ipv4_addresses_spam_path,
+    ipv4_addresses_bruteforce_path,
+    ipv4_addresses_phishing_active_path,
+    ipv4_addresses_phishing_inactive_path,
+    ipv4_whitelist_path,
+    ipv6_addresses_path,
+    ipv6_addresses_spam_path,
+    ipv4_addresses_ddos_path,
+    ipv6_addresses_ddos_path,
+    ipv6_whitelist_path,
+    malware_domains_path,
+    malware_domains_mail_path,
+    phishing_domains_path,
+    abuse_domains_path,
+    mining_domains_path,
+    spam_domains_path,
+    whitelist_domains_path,
+    whitelist_domains_mail_path,
+    malware_sub_domains_path,
+    malware_mail_sub_domains_path,
+    phishing_sub_domains_path,
+    abuse_sub_domains_path,
+    mining_sub_domains_path,
+    spam_sub_domains_path,
+    whitelist_sub_domains_path,
+    whitelist_mail_sub_domains_path,
+    website_rules_dir_normal,
+    urlhaus_path,
+    antivirus_list_path,
+    yaraxtr_yrc_path,
+    clean_rules_path,
+    yarGen_rule_path,
+    icewater_rule_path,
+    valhalla_rule_path,
+    bypass_pyarmor7_path,
+    spam_hashes,
+    antivirus_domains_data,
+    urlhaus_data,
+    scanned_urls_general,
+    scanned_domains_general,
+    scanned_ipv4_addresses_general,
+    scanned_ipv6_addresses_general,
+    unified_pe_cache,
+    existing_projects,
+    system_drive,
+    system32_dir,
+    file_md5_cache,
+    die_cache,
+    binary_die_cache,
+    malicious_hashes,
+    malicious_hashes_lock,
+    decompile_outputs,
+    decompile_outputs_lock,
+    uefi_100kb_paths,
+    uefi_paths,
+    get_startup_paths,
+    eve_log_path,
+    suricata_log_dir,
+    suricata_config_path,
+    suricata_exe_path,
+    seven_zip_path,
+    libclamav_path,
+    clamav_database_directory_path,
 )
 
 # Separate log files for different purposes
@@ -175,16 +316,20 @@ import base64
 logger.debug(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from pathlib import Path, WindowsPath
+logger.debug(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from accelerate import Accelerator
 logger.debug(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import py7zr
-logger.debug(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import inspect
 logger.debug(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import py7zr
+logger.debug(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
@@ -227,8 +372,10 @@ from Crypto.Util import Counter
 logger.debug(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from pathlib import Path, WindowsPath
-logger.debug(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
+import win32file
+import win32pipe
+import pywintypes
+logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import requests
@@ -351,8 +498,8 @@ from .notify_user import (
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .pipe_events import start_all_pipe_listeners
-logger.debug(f"pipe_events.start_all_pipe_listeners loaded in {time.time() - start_time:.6f} seconds")
+from .pipe_events import start_all_pipe_listeners, _is_protected_path
+logger.debug(f"pipe_events.start_all_pipe_listeners, _is_protected_path loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .pattern import (
@@ -378,148 +525,6 @@ from .pattern import (
     build_ip_patterns
 )
 logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from .path_and_variables import (
-    python_path,
-    jadx_decompiled_dir,
-    nexe_javascript_unpacked_dir,
-    unlicense_path,
-    unlicense_x64_path,
-    webcrack_javascript_deobfuscated_dir,
-    pkg_unpacker_dir,
-    enigma1_extracted_dir,
-    upx_path,
-    upx_extracted_dir,
-    inno_unpack_path,
-    autohotkey_decompiled_dir,
-    inno_setup_unpacked_dir,
-    themida_unpacked_dir,
-    decompiled_dir,
-    pyinstaller_extracted_dir,
-    pyarmor8_and_9_extracted_dir,
-    pyarmor7_extracted_dir,
-    cx_freeze_extracted_dir,
-    ghidra_logs_dir,
-    ghidra_scripts_dir,
-    FernFlower_decompiled_dir,
-    jar_extracted_dir,
-    dotnet_dir,
-    obfuscar_dir,
-    androguard_dir,
-    decompiled_jsc_dir,
-    npm_pkg_extracted_dir,
-    asar_dir,
-    un_confuser_ex_path,
-    un_confuser_ex_extracted_dir,
-    net_reactor_slayer_x64_cli_path,
-    nuitka_dir,
-    ole2_dir,
-    FernFlower_path,
-    system_file_names_path,
-    extensions_path,
-    vmprotect_unpacked_dir,
-    python_source_code_dir,
-    python_deobfuscated_dir,
-    python_deobfuscated_marshal_pyc_dir,
-    pylingual_extracted_dir,
-    pycdas_extracted_dir,
-    de4dot_cex_x64_path,
-    net_reactor_extracted_dir,
-    de4dot_extracted_dir,
-    nuitka_source_code_dir,
-    pe_extracted_dir,
-    zip_extracted_dir,
-    tar_extracted_dir,
-    seven_zip_extracted_dir,
-    general_extracted_with_7z_dir,
-    nuitka_extracted_dir,
-    advanced_installer_extracted_dir,
-    memory_dir,
-    debloat_dir,
-    detectiteasy_console_path,
-    ilspycmd_path,
-    pycdas_path,
-    ISx_installshield_extractor_path,
-    installshield_extracted_dir,
-    autoit_extracted_dir,
-    hydra_dragon_dumper_path,
-    hydra_dragon_dumper_extracted_dir,
-    deobfuscar_path,
-    machine_learning_pickle_path,
-    resource_extractor_dir,
-    ungarbler_dir,
-    ungarbler_string_dir,
-    excluded_rules_path,
-    html_extracted_dir,
-    WF,
-    spam_email_365_path,
-    ipv4_addresses_path,
-    ipv4_addresses_spam_path,
-    ipv4_addresses_bruteforce_path,
-    ipv4_addresses_phishing_active_path,
-    ipv4_addresses_phishing_inactive_path,
-    ipv4_whitelist_path,
-    ipv6_addresses_path,
-    ipv6_addresses_spam_path,
-    ipv4_addresses_ddos_path,
-    ipv6_addresses_ddos_path,
-    ipv6_whitelist_path,
-    malware_domains_path,
-    malware_domains_mail_path,
-    phishing_domains_path,
-    abuse_domains_path,
-    mining_domains_path,
-    spam_domains_path,
-    whitelist_domains_path,
-    whitelist_domains_mail_path,
-    malware_sub_domains_path,
-    malware_mail_sub_domains_path,
-    phishing_sub_domains_path,
-    abuse_sub_domains_path,
-    mining_sub_domains_path,
-    spam_sub_domains_path,
-    whitelist_sub_domains_path,
-    whitelist_mail_sub_domains_path,
-    website_rules_dir_normal,
-    urlhaus_path,
-    antivirus_list_path,
-    yaraxtr_yrc_path,
-    clean_rules_path,
-    yarGen_rule_path,
-    icewater_rule_path,
-    valhalla_rule_path,
-    bypass_pyarmor7_path,
-    spam_hashes,
-    antivirus_domains_data,
-    urlhaus_data,
-    scanned_urls_general,
-    scanned_domains_general,
-    scanned_ipv4_addresses_general,
-    scanned_ipv6_addresses_general,
-    unified_pe_cache,
-    existing_projects,
-    system_drive,
-    system32_dir,
-    file_md5_cache,
-    die_cache,
-    binary_die_cache,
-    malicious_hashes,
-    malicious_hashes_lock,
-    decompile_outputs,
-    decompile_outputs_lock,
-    uefi_100kb_paths,
-    uefi_paths,
-    get_startup_paths,
-    eve_log_path,
-    suricata_log_dir,
-    suricata_config_path,
-    suricata_exe_path,
-    seven_zip_path,
-    libclamav_path,
-    clamav_database_directory_path,
-)
-logger.debug(f"path_and_variables functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from .pe_feature_extractor import (
@@ -11135,7 +11140,92 @@ def scan_and_warn(file_path,
     except Exception as ex:
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
-   
+
+def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
+    """
+    Listens for incoming scan requests FROM the EDR component
+    (OwlyShield EDR logic) and automatically forwards
+    them to HydraDragon Antivirus.
+
+    It does NOT scan directories — only handles incoming file scan
+    requests through the named pipe.
+    """
+    logger.info(f"Starting EDR -> AV bridge listener on: {pipe_name}")
+
+    while True:
+        pipe = None
+        try:
+            # Create the named pipe to RECEIVE scan requests from the EDR
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND,  # EDR writes, AV reads
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536,
+                65536,
+                0,
+                None
+            )
+
+            logger.info("Waiting for EDR scan requests...")
+            win32pipe.ConnectNamedPipe(pipe, None)
+            logger.debug("EDR connected to AV scan request pipe.")
+
+            hr, data = win32file.ReadFile(pipe, 4096)
+            if not data:
+                continue
+
+            logger.debug(f"EDR hr data info: {hr}")
+
+            try:
+                request_json = data.decode("utf-8", errors="replace")
+                request = json.loads(request_json)
+
+                file_path = request.get("file_path")
+                pid = request.get("pid")
+
+                logger.debug(f"PID of the new process: {pid}")
+
+                if not file_path or not os.path.exists(file_path):
+                    logger.warning(f"Invalid or missing file_path from EDR: {file_path}")
+                    continue
+
+                if os.path.isdir(file_path):
+                    logger.debug(f"Skipping directory (not a file): {file_path}")
+                    continue
+
+                if _is_protected_path(file_path):
+                    logger.debug(f"Skipping protected path: {file_path}")
+                    continue
+
+                logger.info(f"Received scan request from EDR for: {file_path}")
+                #Forward to HydraDragon scan routine
+                scan_and_warn(file_path, main_file_path=None)
+
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON from EDR: {data}")
+            except Exception as e:
+                logger.error(f"Error processing EDR request: {e}")
+
+        except pywintypes.error as e:
+            if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
+                logger.debug("EDR disconnected from AV pipe.")
+            else:
+                logger.error(f"Pipe error in EDR -> AV bridge: {e}")
+            time.sleep(0.1)
+
+        except Exception as e:
+            logger.exception(f"Unexpected error in EDR -> AV bridge: {e}")
+            time.sleep(0.1)
+
+        finally:
+            if pipe:
+                try:
+                    win32pipe.DisconnectNamedPipe(pipe)
+                    win32file.CloseHandle(pipe)
+                except Exception:
+                    pass
+
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
@@ -11154,6 +11244,14 @@ def start_real_time_protection():
         def start_monitoring():
             """Wrapper to start all monitoring in background"""
             try:
+                # Start Suricata log monitoring
+                monitor_thread = threading.Thread(
+                    daemon=True, 
+                    target=_send_scan_request_to_av,
+                    name="EDRMonitor"
+                )
+                monitor_thread.start()
+
                 # Start Suricata log monitoring
                 monitor_thread = threading.Thread(
                     daemon=True, 

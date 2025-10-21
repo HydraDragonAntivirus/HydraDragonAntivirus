@@ -6,10 +6,26 @@ import sys
 import threading
 import ctypes
 from pathlib import Path
-from hydra_logger import script_dir
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
+
+# Resolve system drive path
+system_drive = os.getenv("SystemDrive", "C:") + os.sep
+# Resolve Program Files directory via environment (fallback to standard path)
+program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
+# Get SystemRoot (usually C:\Windows)
+system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
+# Fallback to %SystemRoot%\System32 if %System32% is not set
+system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
+
+# Suricata base folder path
+suricata_dir = os.path.join(program_files, "Suricata")
+
+# Hydra Dragon Antivirus base folder path
+hydra_dragon_antivirus_dir = os.path.join(program_files, "HydraDragonAntivirus")
+
+script_dir = os.path.join(hydra_dragon_antivirus_dir, "hydradragon")
 
 # Global instance (will be created by load_website_data)
 WF = None
@@ -166,18 +182,6 @@ existing_projects = []
 APP_NAME = "HydraDragon Antivirus"
 APP_VERSION = "v0.1 (Beta 6)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
-
-# Resolve system drive path
-system_drive = os.getenv("SystemDrive", "C:") + os.sep
-# Resolve Program Files directory via environment (fallback to standard path)
-program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
-# Get SystemRoot (usually C:\Windows)
-system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
-# Fallback to %SystemRoot%\System32 if %System32% is not set
-system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
-
-# Suricata base folder path
-suricata_dir = os.path.join(program_files, "Suricata")
 
 # File paths and configurations
 suricata_log_dir = os.path.join(suricata_dir, "log")

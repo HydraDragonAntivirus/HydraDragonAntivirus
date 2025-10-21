@@ -5,11 +5,12 @@
 # Inspired by: https://github.com/clamwin/python-clamav/blob/master/clamav.py
 
 import os
-from hydra_logger import logger
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
     c_void_p, byref
 )
+from hydra_logger import logger
+
 
 # --- helpers ---
 def _to_bytes_or_none(value):
@@ -51,10 +52,54 @@ CL_EMALFDB = 4
 CL_EPARSE = 5
 
 # --- loader ---
+def _setup_lib_prototypes(lib, libfile):
+    lib.cl_init.argtypes = (c_uint,)
+    lib.cl_init.restype = c_int
+
+    lib.cl_engine_new.argtypes = None
+    lib.cl_engine_new.restype = cl_engine_p
+
+    lib.cl_engine_free.argtypes = (cl_engine_p,)
+    lib.cl_engine_free.restype = c_int
+
+    lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
+    lib.cl_load.restype = c_int
+
+    lib.cl_engine_compile.argtypes = (cl_engine_p,)
+    lib.cl_engine_compile.restype = c_int
+
+    lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
+    lib.cl_engine_set_num.restype = c_int
+
+    lib.cl_scanfile.argtypes = [
+        c_char_p,
+        POINTER(c_char_p),
+        c_ulong_p,
+        cl_engine_p,
+        POINTER(cl_scan_options)
+    ]
+    lib.cl_scanfile.restype = c_int
+
+    lib.cl_retver.argtypes = None
+    lib.cl_retver.restype = c_char_p
+
+    if hasattr(lib, 'cl_strerror'):
+        lib.cl_strerror.argtypes = (c_int,)
+        lib.cl_strerror.restype = c_char_p
+
+    logger.debug(f"Set libclamav prototypes for: {libfile}")
+
+
+# --- loader ---
 def load_clamav(libpath):
     if not libpath or not os.path.exists(libpath):
         logger.error(f"Invalid or missing libclamav.dll path: {libpath}")
         return None
+
+    # Change current working directory to the DLL directory
+    dll_dir = os.path.dirname(os.path.abspath(libpath))
+    os.chdir(dll_dir)
+    logger.debug(f"Changed working directory to: {dll_dir}")
 
     try:
         lib = CDLL(libpath)
@@ -63,47 +108,9 @@ def load_clamav(libpath):
         return None
 
     try:
-        # define prototypes with proper error checking
-        lib.cl_init.argtypes = (c_uint,)
-        lib.cl_init.restype = c_int
-
-        lib.cl_engine_new.argtypes = None
-        lib.cl_engine_new.restype = cl_engine_p
-
-        lib.cl_engine_free.argtypes = (cl_engine_p,)
-        lib.cl_engine_free.restype = c_int
-
-        lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
-        lib.cl_load.restype = c_int
-
-        lib.cl_engine_compile.argtypes = (cl_engine_p,)
-        lib.cl_engine_compile.restype = c_int
-
-        # Apply engine options
-        lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
-        lib.cl_engine_set_num.restype = c_int
-
-        # *** FIXED ***: Changed the last argument from c_uint to POINTER(cl_scan_options)
-        lib.cl_scanfile.argtypes = [
-            c_char_p,
-            POINTER(c_char_p),
-            c_ulong_p,
-            cl_engine_p,
-            POINTER(cl_scan_options)
-        ]
-        lib.cl_scanfile.restype = c_int
-
-        lib.cl_retver.argtypes = None
-        lib.cl_retver.restype = c_char_p
-
-        # Add error message function
-        if hasattr(lib, 'cl_strerror'):
-            lib.cl_strerror.argtypes = (c_int,)
-            lib.cl_strerror.restype = c_char_p
-
+        _setup_lib_prototypes(lib, libpath)
         logger.debug(f"Loaded libclamav: {libpath}")
         return lib
-
     except Exception as e:
         logger.error(f"Failed to setup function prototypes: {e}")
         return None
@@ -129,11 +136,6 @@ class Scanner:
         except Exception as e:
             logger.error(f"cl_init exception: {e}")
             return
-
-        # database path validation
-        if dbpath is None:
-            pf = os.environ.get("ProgramFiles", r"C:\\Program Files")
-            dbpath = os.path.join(pf, "ClamAV", "database") # Corrected db path
 
         if not os.path.isdir(dbpath):
             logger.error(f"Invalid database path: {dbpath}")
