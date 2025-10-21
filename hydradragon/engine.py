@@ -636,10 +636,6 @@ class Worker(QThread):
             # 2) Fallback mapping for task_type strings that are not methods
             task_mapping = {
                 "update_defs": self.update_definitions,
-                "update_hayabusa_rules": self.update_hayabusa_rules,
-                "run_real_time_protection": self.run_real_time_protection,
-                "hayabusa_live_timeline": self.run_hayabusa_live_timeline,
-                # Add other explicit mappings here if needed
             }
 
             func = task_mapping.get(self.task_type)
