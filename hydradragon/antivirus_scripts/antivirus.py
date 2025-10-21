@@ -11171,68 +11171,80 @@ def periodic_yield_worker():
 def start_real_time_protection():
     """
     Starts real-time protection threads and RETURNS IMMEDIATELY.
-    Threads are started as daemon threads so they won't block process exit.
+    All long-running operations are started in daemon threads.
     """
-    global analysis_threads
-    global thread_function_map
-
     try:
-        analysis_threads = []
-        thread_function_map = {}
-
-        def create_thread(target_func, *args, **kwargs):
-            thread = threading.Thread(
-                daemon=True,
-                target=target_func,
-                args=args,
-                kwargs=kwargs,
-                name=f"Protection_{target_func.__name__}"
-            )
-            analysis_threads.append(thread)
-            thread_function_map[thread] = target_func.__name__
-            return thread
-
-        threads_to_start = [
-            monitor_suricata_log,
-            web_protection_observer.begin_observing,
-            start_all_pipe_listeners,
-        ]
-
-        for func in threads_to_start:
-            t = create_thread(func)
-            t.start()
-
-        logger.info("Real-time protection started in background (non-blocking).")
+        def start_monitoring():
+            """Wrapper to start all monitoring in background"""
+            try:
+                # Start Suricata log monitoring
+                monitor_thread = threading.Thread(
+                    daemon=True, 
+                    target=monitor_suricata_log,
+                    name="SuricataMonitor"
+                )
+                monitor_thread.start()
+                
+                # Start web protection
+                web_thread = threading.Thread(
+                    daemon=True,
+                    target=web_protection_observer.begin_observing,
+                    name="WebProtection"
+                )
+                web_thread.start()
+                
+                # Start pipe listeners
+                pipe_thread = threading.Thread(
+                    daemon=True,
+                    target=start_all_pipe_listeners,
+                    name="PipeListeners"
+                )
+                pipe_thread.start()
+                
+                logger.info("All real-time protection threads started")
+                
+            except Exception as ex:
+                logger.error(f"Error in start_monitoring: {ex}")
+        
+        # Start all monitoring in a background thread so we return immediately
+        starter_thread = threading.Thread(
+            daemon=True,
+            target=start_monitoring,
+            name="ProtectionStarter"
+        )
+        starter_thread.start()
+        
+        # Return immediately - don't wait for threads
+        logger.info("Real-time protection startup initiated (non-blocking)")
         return "[+] Real-time protection started (background, non-blocking)"
-
+        
     except Exception as ex:
-        logger.exception("An error occurred starting real-time protection: %s", ex)
+        logger.exception("Error starting real-time protection: %s", ex)
         return f"[-] Error starting real-time protection: {ex}"
+
 
 def run_real_time_protection_with_yield():
     """
-    Starts real-time protection with periodic CPU yielding for better system responsiveness.
-    Runs a background thread that periodically yields CPU during protection.
+    Starts real-time protection and returns immediately.
+    The actual monitoring happens in background daemon threads.
     """
-    # Start background yielding thread
-    yield_thread = threading.Thread(daemon=True, target=periodic_yield_worker)
-    yield_thread.start()
-
     try:
         logger.info("Starting real-time protection with CPU yielding...")
-
-        # Start the real-time protection
+        
+        # This now returns immediately
         result = start_real_time_protection()
-
-        # Let Qt process events after starting protection
+        
+        # Yield CPU after starting
         windows_yield_cpu()
-
-        return result if result else "[+] Real-time protection started successfully"
-
+        
+        # Yield to the message in the output
+        yield result if result else "[+] Real-time protection started successfully"
+        yield "[+] Real-time monitoring is now active in the background"
+        
     except Exception as ex:
         error_message = f"An error occurred while starting real-time protection: {ex}"
         logger.error(error_message)
-        return error_message
+        yield error_message
 
 def run_de4dot(file_path):
     """
