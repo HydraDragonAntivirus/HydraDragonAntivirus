@@ -9745,6 +9745,104 @@ def check_hosts_file_for_blocked_antivirus():
         logger.error(f"Error reading hosts file: {ex}")
         return False
 
+def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
+    """
+    Dump a process using HydraDragonDumper and return a dumped .exe according to:
+      1) Any .exe directly in the dump folder (root) -> highest priority.
+      2) Otherwise, look inside subfolders whose name contains 'vdump' and return
+         a vdump_*.exe if present, else the first .exe in that folder.
+      3) Return None if nothing suitable found.
+
+    Does NOT extract strings and does NOT remove dumps.
+    """
+    try:
+        process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
+
+        # Find matching processes
+        matching_processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                pname = proc.info.get('name')
+                if pname and pname.lower() == process_name.lower():
+                    matching_processes.append((proc.info['pid'], proc.info.get('exe')))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        if not matching_processes:
+            logger.error(f"No running processes found matching: {process_name}")
+            return None
+
+        if len(matching_processes) > 1:
+            logger.info(f"Multiple processes found matching {process_name}: {matching_processes}")
+
+        target_pid, target_exe = matching_processes[0]
+        logger.info(f"Found target process: {target_exe} (PID: {target_pid})")
+
+        pid_hydra_dir = os.path.join(hydra_dragon_dumper_extracted_dir, f"pid_{target_pid}")
+        os.makedirs(pid_hydra_dir, exist_ok=True)
+
+        logger.info(f"Running HydraDragonDumper on process PID: {target_pid}")
+        try:
+            if not extract_with_hydra(str(target_pid), pid_hydra_dir):
+                logger.error(f"HydraDragonDumper extraction failed for PID {target_pid}")
+                return None
+
+            logger.info(f"HydraDragonDumper successfully extracted to: {pid_hydra_dir}")
+
+            # 1) Highest priority: any .exe directly in pid_hydra_dir (no subfolders)
+            if os.path.exists(pid_hydra_dir):
+                for fname in os.listdir(pid_hydra_dir):
+                    full_path = os.path.join(pid_hydra_dir, fname)
+                    if os.path.isfile(full_path) and fname.lower().endswith('.exe'):
+                        logger.info(f"Returning .exe found in root of dump folder: {full_path}")
+                        return full_path
+
+            # 2) If none in root, search subfolders that look like 'vdump' (non-recursive)
+            if os.path.exists(pid_hydra_dir):
+                vdump_dirs = []
+                for fname in os.listdir(pid_hydra_dir):
+                    sub_path = os.path.join(pid_hydra_dir, fname)
+                    if os.path.isdir(sub_path):
+                        lname = fname.lower()
+                        if 'vdump' in lname:  # includes names like 'vdump', 'vdump_1', 'something_vdump'
+                            vdump_dirs.append(sub_path)
+
+                for d in vdump_dirs:
+                    try:
+                        vdump_pref = None
+                        fallback = None
+                        for sf in os.listdir(d):
+                            sf_full = os.path.join(d, sf)
+                            if not os.path.isfile(sf_full):
+                                continue
+                            sl = sf.lower()
+                            if sl.startswith('vdump_') and sl.endswith('.exe'):
+                                vdump_pref = sf_full
+                                break
+                            if fallback is None and sl.endswith('.exe'):
+                                fallback = sf_full
+                        if vdump_pref:
+                            logger.info(f"Returning prioritized vdump exe from {d}: {vdump_pref}")
+                            return vdump_pref
+                        if fallback:
+                            logger.info(f"Returning first .exe from vdump folder {d}: {fallback}")
+                            return fallback
+                    except Exception as e:
+                        logger.error(f"Error scanning vdump folder {d}: {e}")
+                        continue
+
+            # 3) Nothing found
+            logger.error(f"No dumped executables found for PID {target_pid} in {pid_hydra_dir} or vdump subfolders")
+            return None
+
+        except Exception as hydra_ex:
+            logger.error(f"Error during HydraDragonDumper extraction for PID {target_pid}: {hydra_ex}")
+            return None
+
+    except Exception as overall_ex:
+        logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
+        return None
+
 # --- Updated scan_and_warn with main_file_path propagation ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -10331,26 +10429,58 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
-            def protected_process_thread():
+            def protected_process_thread(file_path: str, die_output: Optional[str], main_file_path: Optional[str] = None) -> bool:
                 """
-                Thread function: if a process is running and protected according to DIE output,
-                automatically run analyze_specific_process on it.
+                Thread helper: if a process is running and is marked 'protected' according to die_output,
+                queue a scan via scan_and_warn(file_path, main_file_path=...) instead of calling analyze_specific_process.
+
+                Returns:
+                    True if a scan was queued, False otherwise.
                 """
                 try:
-                    if die_output:
-                        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-                            try:
-                                if proc.info['name'] and proc.info['name'].lower() == os.path.basename(file_path).lower():
-                                    protector = is_protector_from_output(die_output)
-                                    if protector:
-                                        logger.info(f"Process {file_path} (PID {proc.info['pid']}) is protected: {protector}. Starting analysis...")
-                                        # Run the full analysis on this process
-                                        analyze_specific_process(file_path)
-                                        return  # thread ends after calling analysis
-                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    if not die_output:
+                        return False
+
+                    target_basename = os.path.basename(file_path).lower()
+
+                    for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                        try:
+                            pname = proc.info.get('name')
+                            if not pname:
                                 continue
+
+                            if pname.lower() == target_basename:
+                                protector = is_protector_from_output(die_output)
+                                if protector:
+                                    # prefer the actual exe path for main_file_path if caller didn't provide one
+                                    resolved_main = main_file_path or proc.info.get('exe') or file_path
+
+                                    logger.info(
+                                        f"Process {file_path} (PID {proc.info.get('pid')}) is protected: {protector}. "
+                                        "Queuing scan via scan_and_warn."
+                                    )
+
+                                    t = threading.Thread(
+                                        target=scan_and_warn,
+                                        args=(file_path,),
+                                        kwargs={"main_file_path": resolved_main},
+                                        daemon=True
+                                    )
+                                    t.start()
+                                    return True  # end this helper thread after queuing the scan
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            # Process disappeared or we couldn't access it — skip
+                            continue
+                        except Exception as e:
+                            logger.error(f"Unexpected error while checking process {proc}: {e}")
+                            continue
+
+                    # no matching protected process found
+                    return False
+
                 except Exception as e:
                     logger.error(f"Error in protected_process_thread for {file_path}: {e}")
+                    return False
 
             def unipacker_thread():
                 try:
@@ -11005,158 +11135,7 @@ def scan_and_warn(file_path,
     except Exception as ex:
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
-
-def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
-    """
-    Analyze a specific process by name or path. Uses HydraDragonDumper (Mega Dumper CLI)
-    to dump suspicious modules and then scans the extracted files. Extracted ASCII
-    strings are saved into memory_dir.
-
-    Args:
-        process_name_or_path: Process name (e.g., 'guloader.exe') or full path.
-    Returns:
-        Path to the extracted ASCII strings text file, or None if an error occurred.
-    """
-    try:
-        # Extract process name from path if needed
-        process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
-
-        # Find all processes matching the name
-        matching_processes = []
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            try:
-                if proc.info['name'] and proc.info['name'].lower() == process_name.lower():
-                    matching_processes.append((proc.info['pid'], proc.info.get('exe')))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-
-        if not matching_processes:
-            logger.error(f"No running processes found matching: {process_name}")
-            return None
-
-        if len(matching_processes) > 1:
-            logger.info(f"Multiple processes found matching {process_name}: {matching_processes}")
-
-        # Use the first matching process
-        target_pid, target_exe = matching_processes[0]
-        logger.info(f"Found target process: {target_exe} (PID: {target_pid})")
-
-        extracted_strings = []
-
-        # Run HydraDragonDumper (Mega Dumper CLI) on the process PID to dump suspicious modules
-        logger.info(f"Running HydraDragonDumper on process PID: {target_pid}")
-        pid_hydra_dir = os.path.join(hydra_dragon_dumper_extracted_dir, f"pid_{target_pid}")
-        os.makedirs(pid_hydra_dir, exist_ok=True)
-
-        try:
-            if extract_with_hydra(str(target_pid), pid_hydra_dir):
-                logger.info(f"HydraDragonDumper successfully extracted from PID {target_pid}")
-
-                # Scan main Dumps folder (non-recursive)
-                dumps_folder = pid_hydra_dir
-                files_to_scan = []
-
-                # First priority: scan UnknownName folder (non-recursive)
-                # Look for files directly in the folder (no subfolders)
-                if os.path.exists(dumps_folder):
-                    for fname in os.listdir(dumps_folder):
-                        full_path = os.path.join(dumps_folder, fname)
-                        # Only process files, skip directories
-                        if os.path.isfile(full_path):
-                            # Prioritize vdump_*.exe files first
-                            if fname.lower().startswith('vdump_') and fname.lower().endswith('.exe'):
-                                files_to_scan.insert(0, full_path)  # Add to front
-                            # Then add other files
-                            elif not fname.lower().startswith('vdump_'):
-                                files_to_scan.append(full_path)
-
-                # If no files found, fallback to any .exe files in the folder
-                if not files_to_scan:
-                    if os.path.exists(dumps_folder):
-                        for fname in os.listdir(dumps_folder):
-                            if fname.lower().endswith('.exe'):
-                                full_path = os.path.join(dumps_folder, fname)
-                                if os.path.isfile(full_path):
-                                    files_to_scan.append(full_path)
-
-                # Process collected files
-                for full_path in files_to_scan:
-                    try:
-                        # Check file size before processing
-                        file_size = os.path.getsize(full_path)
-                        if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
-                            logger.info(f"Skipping large file: {full_path} ({file_size} bytes)")
-                            continue
-
-                        logger.info(f"Scanning HydraDragonDumper extracted file: {full_path}")
-
-                        # Extract strings from extracted file
-                        try:
-                            with open(full_path, 'rb') as f:
-                                chunk_size = 1024 * 1024  # 1MB chunks
-                                file_strings = []
-
-                                while True:
-                                    chunk = f.read(chunk_size)
-                                    if not chunk:
-                                        break
-                                    chunk_strings = extract_ascii_strings(chunk)
-                                    if chunk_strings:
-                                        file_strings.extend(chunk_strings[:100])  # Limit per chunk
-
-                                    if len(file_strings) > 1000:
-                                        break
-
-                                if file_strings:
-                                    extracted_strings.append(f"HydraDragonDumper extracted file {os.path.basename(full_path)} Strings:")
-                                    extracted_strings.extend(file_strings[:500])  # Limit total per file
-
-                        except Exception as file_ex:
-                            logger.error(f"Could not read extracted file {full_path}: {file_ex}")
-
-                        # Scan the extracted file for threats (with main_file_path tracking)
-                        scan_and_warn(full_path, main_file_path=target_exe)
-
-                    except Exception as file_process_ex:
-                        logger.error(f"Error processing file {full_path}: {file_process_ex}")
-                        continue
-
-            else:
-                logger.error(f"HydraDragonDumper extraction failed for PID {target_pid}")
-                return None
-
-        except Exception as hydra_ex:
-            logger.error(f"Error during HydraDragonDumper extraction for PID {target_pid}: {hydra_ex}")
-            return None
-
-        # Save extracted ASCII strings to file if we got any
-        output_txt = None
-        if extracted_strings:
-            base_filename = f"extracted_strings_pid_{target_pid}"
-            output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
-            counter = 1
-            while os.path.exists(output_txt):
-                output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
-                counter += 1
-            save_extracted_strings(output_txt, extracted_strings)
-            logger.info(f"Strings analysis complete. Results saved in {output_txt}")
-        else:
-            logger.error(f"No strings extracted from process {target_pid}")
-
-        # Clean up dumped files after scan complete
-        try:
-            if os.path.exists(pid_hydra_dir):
-                shutil.rmtree(pid_hydra_dir)
-                logger.info(f"Cleaned up dump directory: {pid_hydra_dir}")
-        except Exception as cleanup_ex:
-            logger.error(f"Failed to clean up dump directory {pid_hydra_dir}: {cleanup_ex}")
-
-        return output_txt
-
-    except Exception as overall_ex:
-        logger.error(f"Overall error in analyze_specific_process: {overall_ex}")
-        return None
-    
+   
 def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
