@@ -10977,33 +10977,35 @@ async def load_all_resources_async():
 
 async def start_real_time_protection_async():
     """
-    Starts both real-time protection and resource-loading tasks asynchronously.
-    Returns immediately after scheduling all tasks.
+    Start all real-time protection and resource-loading tasks concurrently (non-blocking).
+    Designed as an async method on AntivirusApp, but returns immediately after scheduling.
     """
-    async def safe_to_thread(func, name):
-        try:
-            await asyncio.to_thread(func)
-            logger.info(f"{name} started")
-        except Exception as ex:
-            logger.error(f"Error starting {name}: {ex}", exc_info=True)
 
-    # Real-time protection tasks
+    async def run_in_background(name, func):
+        """Runs sync or async tasks safely in background."""
+        try:
+            if inspect.iscoroutinefunction(func):
+                await func()
+                logger.info(f"{name} started (coroutine)")
+            else:
+                await asyncio.to_thread(func)
+                logger.info(f"{name} started (thread)")
+        except Exception:
+            logger.exception(f"Error starting {name}")
+
     protection_tasks = [
         ("EDRMonitor", _send_scan_request_to_av),
         ("SuricataMonitor", monitor_suricata_log),
         ("WebProtection", web_protection_observer.begin_observing),
         ("PipeListeners", start_all_pipe_listeners),
+        ("ResourceLoader", load_all_resources_async),
     ]
 
-    # Fire-and-forget: start protection tasks
-    for name, func in protection_tasks:
-        asyncio.create_task(safe_to_thread(func, name))
+    # Hepsini paralel başlat
+    tasks = [asyncio.create_task(run_in_background(name, func)) for name, func in protection_tasks]
 
-    # Fire-and-forget: start resource-loading tasks
-    asyncio.create_task(load_all_resources_async())
-
-    logger.info("Startup of real-time protection and resources initiated (async, non-blocking)")
-    return "[+] Real-time protection and resource loading started (background, non-blocking)"
+    logger.info("All protection and resource tasks launched concurrently (non-blocking)")
+    return "[+] Real-time protection and resources started concurrently"
 
 async def run_real_time_protection_with_yield_async():
     """
