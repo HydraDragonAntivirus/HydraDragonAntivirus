@@ -120,7 +120,7 @@ excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 html_extracted_dir = os.path.join(script_dir, "html_extracted")
 website_rules_dir = os.path.join(script_dir, "website")
 # other small files we still load in original format if present:
-urlhaus_path = website_rules_dir / "urlhaus.txt"
+urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
 clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
