@@ -10944,9 +10944,6 @@ async def load_all_resources_async():
     global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
     global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
 
-    yarGen_rules = icewater_rules = valhalla_rules = clean_rules = None
-    yaraxtr_rules = clamav_scanner = ml_definitions = excluded_rules = None
-
     # Define tasks: name -> function (can be sync or async)
     task_definitions = {
         "suricata_callback": suricata_callback, # This is async
