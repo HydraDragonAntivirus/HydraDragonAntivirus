@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # reference_optimizer.py
 """
 Reference optimizer / registry builder
@@ -8,24 +9,21 @@ Reference optimizer / registry builder
 - Extracts reference strings, assigns integer IDs (0,1,2,...)
 - Writes:
     - references.txt   (human readable: id TAB reference)
-    - references.hrf   (binary HREF format)
     - For each input CSV/TXT: <basename>.optimized.csv with references replaced by IDs
 Usage:
     python reference_optimizer.py --dir path/to/rules
 """
 
-import argparse
-import struct
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 SKIP_NAMES = {"urlhaus.txt", "listed_email_365.txt"}
 
 # -----------------------
-# ReferenceRegistry (same format as before)
+# ReferenceRegistry
 # -----------------------
 class ReferenceRegistry:
-    """Map reference strings -> small integer IDs; save/load to binary HREF format."""
+    """Map reference strings -> small integer IDs"""
 
     VERSION = 1
 
@@ -50,17 +48,6 @@ class ReferenceRegistry:
         with path.open("w", encoding="utf-8") as f:
             for rid in sorted(self.id_to_ref.keys()):
                 f.write(f"{rid}\t{self.id_to_ref[rid]}\n")
-
-    def save(self, path: Path):
-        with path.open("wb") as f:
-            f.write(b'HREF')
-            f.write(struct.pack('B', self.VERSION))
-            f.write(struct.pack('I', len(self.id_to_ref)))
-            for ref_id in sorted(self.id_to_ref.keys()):
-                ref_str = self.id_to_ref[ref_id].encode('utf-8')
-                f.write(struct.pack('I', ref_id))
-                f.write(struct.pack('I', len(ref_str)))
-                f.write(ref_str)
 
 # -----------------------
 # CSV parsing helpers

@@ -5,7 +5,6 @@ import os
 import sys
 import threading
 import ctypes
-from pathlib import Path
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
