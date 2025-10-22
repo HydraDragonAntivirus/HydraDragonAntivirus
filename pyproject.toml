@@ -48,8 +48,9 @@ dependencies = [
     "comtypes",
     "androguard",
     "oletools",
+    "aiofiles",
     "unipacker",
-
+   
     # Pylingual reverse-engineering dependencies
     "asttokens",
     "datasets",

@@ -1,0 +1,85 @@
+engine.py:22:1: E402 module level import not at top of file
+engine.py:23:1: E402 module level import not at top of file
+engine.py:27:1: E402 module level import not at top of file
+engine.py:28:80: E501 line too long (89 > 79 characters)
+engine.py:29:80: E501 line too long (82 > 79 characters)
+engine.py:30:1: E402 module level import not at top of file
+engine.py:31:80: E501 line too long (93 > 79 characters)
+engine.py:32:1: E402 module level import not at top of file
+engine.py:34:1: E402 module level import not at top of file
+engine.py:39:1: E402 module level import not at top of file
+engine.py:46:1: E402 module level import not at top of file
+engine.py:46:80: E501 line too long (83 > 79 characters)
+engine.py:49:1: E302 expected 2 blank lines, found 1
+engine.py:57:80: E501 line too long (85 > 79 characters)
+engine.py:102:80: E501 line too long (93 > 79 characters)
+engine.py:219:80: E501 line too long (90 > 79 characters)
+engine.py:221:80: E501 line too long (87 > 79 characters)
+engine.py:229:31: E128 continuation line under-indented for visual indent
+engine.py:273:31: E128 continuation line under-indented for visual indent
+engine.py:273:80: E501 line too long (82 > 79 characters)
+engine.py:275:28: E128 continuation line under-indented for visual indent
+engine.py:277:28: E128 continuation line under-indented for visual indent
+engine.py:378:1: E302 expected 2 blank lines, found 1
+engine.py:380:80: E501 line too long (81 > 79 characters)
+engine.py:395:18: E111 indentation is not a multiple of 4
+engine.py:395:18: E117 over-indented
+engine.py:395:80: E501 line too long (121 > 79 characters)
+engine.py:396:18: E111 indentation is not a multiple of 4
+engine.py:400:80: E501 line too long (87 > 79 characters)
+engine.py:404:22: E261 at least two spaces before inline comment
+engine.py:409:80: E501 line too long (102 > 79 characters)
+engine.py:410:80: E501 line too long (93 > 79 characters)
+engine.py:411:80: E501 line too long (124 > 79 characters)
+engine.py:414:80: E501 line too long (111 > 79 characters)
+engine.py:417:80: E501 line too long (112 > 79 characters)
+engine.py:419:80: E501 line too long (82 > 79 characters)
+engine.py:421:80: E501 line too long (80 > 79 characters)
+engine.py:425:80: E501 line too long (80 > 79 characters)
+engine.py:431:80: E501 line too long (97 > 79 characters)
+engine.py:453:80: E501 line too long (92 > 79 characters)
+engine.py:455:80: E501 line too long (104 > 79 characters)
+engine.py:458:80: E501 line too long (83 > 79 characters)
+engine.py:467:80: E501 line too long (88 > 79 characters)
+engine.py:471:80: E501 line too long (107 > 79 characters)
+engine.py:476:80: E501 line too long (81 > 79 characters)
+engine.py:479:80: E501 line too long (90 > 79 characters)
+engine.py:482:80: E501 line too long (101 > 79 characters)
+engine.py:486:80: E501 line too long (86 > 79 characters)
+engine.py:488:80: E501 line too long (88 > 79 characters)
+engine.py:492:80: E501 line too long (80 > 79 characters)
+engine.py:494:80: E501 line too long (80 > 79 characters)
+engine.py:511:80: E501 line too long (82 > 79 characters)
+engine.py:522:80: E501 line too long (118 > 79 characters)
+engine.py:525:80: E501 line too long (84 > 79 characters)
+engine.py:531:80: E501 line too long (110 > 79 characters)
+engine.py:532:80: E501 line too long (80 > 79 characters)
+engine.py:537:80: E501 line too long (95 > 79 characters)
+engine.py:538:80: E501 line too long (98 > 79 characters)
+engine.py:539:80: E501 line too long (102 > 79 characters)
+engine.py:543:80: E501 line too long (85 > 79 characters)
+engine.py:549:80: E501 line too long (103 > 79 characters)
+engine.py:552:80: E501 line too long (94 > 79 characters)
+engine.py:558:80: E501 line too long (81 > 79 characters)
+engine.py:563:80: E501 line too long (84 > 79 characters)
+engine.py:593:80: E501 line too long (84 > 79 characters)
+engine.py:596:1: E302 expected 2 blank lines, found 1
+engine.py:606:80: E501 line too long (88 > 79 characters)
+engine.py:609:80: E501 line too long (81 > 79 characters)
+engine.py:610:80: E501 line too long (80 > 79 characters)
+engine.py:617:80: E501 line too long (104 > 79 characters)
+engine.py:624:80: E501 line too long (106 > 79 characters)
+engine.py:641:80: E501 line too long (84 > 79 characters)
+engine.py:852:80: E501 line too long (86 > 79 characters)
+engine.py:855:80: E501 line too long (84 > 79 characters)
+engine.py:856:5: E129 visually indented line with same indent as next logical line
+engine.py:861:80: E501 line too long (100 > 79 characters)
+engine.py:875:80: E501 line too long (93 > 79 characters)
+engine.py:882:80: E501 line too long (90 > 79 characters)
+engine.py:957:80: E501 line too long (87 > 79 characters)
+engine.py:987:80: E501 line too long (81 > 79 characters)
+engine.py:997:80: E501 line too long (126 > 79 characters)
+engine.py:1010:80: E501 line too long (81 > 79 characters)
+engine.py:1054:80: E501 line too long (99 > 79 characters)
+engine.py:1081:1: E302 expected 2 blank lines, found 1
+engine.py:1087:1: E305 expected 2 blank lines after class or function definition, found 1

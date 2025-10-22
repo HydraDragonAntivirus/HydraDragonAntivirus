@@ -183,6 +183,10 @@ total_start_time = time.time()
 
 # Measure and logger.debug time taken for each import
 start_time = time.time()
+import asyncio
+logger.debug(f"asyncio module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import io
 logger.debug(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4126,25 +4130,42 @@ def monitor_interfaces():
             del running_processes[iface]
         time.sleep(CHECK_INTERVAL)
 
-def suricata_callback():
+async def suricata_callback():
     """
-    Start Suricata on all interfaces and monitor for new ones.
-    Keeps running; does not terminate existing processes.
+    Asynchronously start Suricata on all interfaces and monitor for new ones.
+    Runs the monitor loop in a background daemon thread (non-blocking).
+    Immediately returns after starting.
     """
+    loop = asyncio.get_event_loop()
+
     try:
-        if not validate_paths():
+        # Validate paths in thread pool (non-blocking)
+        valid = await loop.run_in_executor(None, validate_paths)
+        if not valid:
             logger.error("Suricata paths are invalid. Cannot start.")
             return False
 
-        # Start the monitor loop (blocks)
-        logger.info("Starting Suricata interface monitor...")
-        monitor_interfaces()  # This will keep checking for new interfaces
+        logger.info("Starting Suricata interface monitor (async-thread)...")
+
+        # Thread target
+        def run_monitor():
+            try:
+                monitor_interfaces()
+            except Exception as e:
+                logger.error("Suricata monitor thread crashed: %s", e, exc_info=True)
+
+        # Fire and forget
+        threading.Thread(
+            target=run_monitor,
+            daemon=True,
+            name="SuricataMonitorThread"
+        ).start()
 
     except Exception as ex:
-        logger.error("Unexpected error starting Suricata: %s", ex)
-        logger.exception("Full traceback:")
+        logger.error("Unexpected error starting Suricata: %s", ex, exc_info=True)
         return False
 
+    # Return immediately — no blocking, no waiting
     return True
 
 def monitor_suricata_log():
@@ -4419,112 +4440,6 @@ def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False)
         name = display_name or path
         logger.error(f"Error loading {name}: {ex}")
         return None
-
-def load_all_resources_non_blocking():
-    """
-    Starts all resource-loading tasks in a limited thread pool to prevent
-    system starvation and UI freezing.
-    """
-    def load_yargen():
-        global yarGen_rules
-        yarGen_rules = load_yara_rule(yarGen_rule_path, "yarGen Rules")
-        return "yarGen_rules"
-
-    def load_icewater():
-        global icewater_rules
-        icewater_rules = load_yara_rule(icewater_rule_path, "Icewater Rules")
-        return "icewater_rules"
-
-    def load_valhalla():
-        global valhalla_rules
-        valhalla_rules = load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules")
-        return "valhalla_rules"
-
-    def load_clean():
-        global clean_rules
-        clean_rules = load_yara_rule(clean_rules_path, "(clean) YARA Rules")
-        return "(clean) rules"
-
-    def load_yaraxtr():
-        global yaraxtr_rules
-        yaraxtr_rules = load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True)
-        return "yaraxtr_rules"
-
-    def load_clamav_engine():
-        global clamav_scanner
-        try:
-            clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path,
-                                           dbpath=clamav_database_directory_path)
-            return "clamav_scanner"
-        except Exception as e:
-            logger.error("Failed to create ClamAV scanner in loader thread: %s", e)
-            raise  # Re-raise to be caught by the executor
-
-    def load_ml_defs():
-        global ml_definitions
-        ml_definitions = None
-        try:
-            ml_definitions = load_ml_definitions_pickle(machine_learning_pickle_path)
-            return "ml_definitions"
-        except Exception as e:
-            logger.error(f"Error loading ML definitions: {e}")
-            raise
-
-    def load_excluded():
-        global excluded_rules
-        excluded_rules = []
-        try:
-            with open(excluded_rules_path, "r") as f:
-                excluded_rules = [line.strip() for line in f if line.strip()]
-            return "excluded_rules"
-        except Exception as e:
-            logger.error(f"Error loading excluded rules: {e}")
-            raise
-
-    def load_website_data_task():
-        load_website_data()
-        return "load_website_data"
-
-    def load_antivirus_list_task():
-        load_antivirus_list()
-        return "load_antivirus_list"
-    
-    # This task was in your list, but it doesn't return a name.
-    # The safe_task wrapper will handle it, but it's one of the 11 tasks.
-    def suricata_callback_task(): 
-        suricata_callback()
-
-    # List of all task functions to run
-    tasks = {
-        "suricata_callback": suricata_callback_task,
-        "load_website_data": load_website_data_task,
-        "load_antivirus_list": load_antivirus_list_task,
-        "yarGen_rules": load_yargen,
-        "icewater_rules": load_icewater,
-        "load_valhalla": load_valhalla,
-        "(clean) rules": load_clean,
-        "yaraxtr_rules": load_yaraxtr,
-        "clamav_scanner": load_clamav_engine,
-        "ml_definitions": load_ml_defs,
-        "excluded_rules": load_excluded
-    }
-
-    for name, func in tasks.items():
-        def safe_task(f=func, n=name):
-            try:
-                f()
-                logger.info(f"{n} loaded")
-            except Exception as e:
-                logger.error(f"Error loading {n}: {e}")
-
-        thread = threading.Thread(target=safe_task, daemon=True, name=f"Resource_{name}")
-        thread.start()
-
-    logger.info("All resource loading threads started (non-blocking)")
-
-# Start load_all_resources_non_blocking()
-starter = threading.Thread(target=load_all_resources_non_blocking, daemon=True, name="ResourceLoaderStarter")
-starter.start()
 
 def reload_clamav_database():
     """
@@ -11003,96 +10918,120 @@ def windows_yield_cpu():
     """Windows-specific CPU yielding using SwitchToThread()"""
     ctypes.windll.kernel32.SwitchToThread()
 
-def periodic_yield_worker():
-    """Background thread that yields CPU periodically"""
-    windows_yield_cpu()
-    time.sleep(0)
-
-def start_real_time_protection():
+async def periodic_yield_worker():
     """
-    Starts real-time protection threads and RETURNS IMMEDIATELY.
-    All long-running operations are started in daemon threads.
+    Async background worker that periodically yields the CPU.
+    
+    :param interval: Time in seconds between yields.
     """
     try:
-        def start_monitoring():
-            """Wrapper to start all monitoring in background"""
-            try:
-                # Start Suricata log monitoring
-                monitor_thread = threading.Thread(
-                    daemon=True, 
-                    target=_send_scan_request_to_av,
-                    name="EDRMonitor"
-                )
-                monitor_thread.start()
+        while True:
+            # Yield to other threads/processes immediately
+            windows_yield_cpu()
+            
+            # Async sleep to yield control to the event loop
+            await asyncio.sleep(0)
+    except asyncio.CancelledError:
+        # Handle cancellation gracefully
+        pass
 
-                # Start Suricata log monitoring
-                monitor_thread = threading.Thread(
-                    daemon=True, 
-                    target=monitor_suricata_log,
-                    name="SuricataMonitor"
-                )
-                monitor_thread.start()
-                
-                # Start web protection
-                web_thread = threading.Thread(
-                    daemon=True,
-                    target=web_protection_observer.begin_observing,
-                    name="WebProtection"
-                )
-                web_thread.start()
-                
-                # Start pipe listeners
-                pipe_thread = threading.Thread(
-                    daemon=True,
-                    target=start_all_pipe_listeners,
-                    name="PipeListeners"
-                )
-                pipe_thread.start()
-                
-                logger.info("All real-time protection threads started")
-                
-            except Exception as ex:
-                logger.error(f"Error in start_monitoring: {ex}")
-        
-        # Start all monitoring in a background thread so we return immediately
-        starter_thread = threading.Thread(
-            daemon=True,
-            target=start_monitoring,
-            name="ProtectionStarter"
-        )
-        starter_thread.start()
-        
-        # Return immediately - don't wait for threads
-        logger.info("Real-time protection startup initiated (non-blocking)")
-        return "[+] Real-time protection started (background, non-blocking)"
-        
-    except Exception as ex:
-        logger.exception("Error starting real-time protection: %s", ex)
-        return f"[-] Error starting real-time protection: {ex}"
-
-
-def run_real_time_protection_with_yield():
+async def load_all_resources_async():
     """
-    Starts real-time protection and returns immediately.
-    The actual monitoring happens in background daemon threads.
+    Async version of resource loading tasks.
+    Each blocking task runs in a thread.
+    """
+    async def safe_task(func, name):
+        try:
+            result = await asyncio.to_thread(func)
+            logger.info(f"{name} loaded")
+            return result
+        except Exception as e:
+            logger.error(f"Error loading {name}: {e}", exc_info=True)
+            return None
+
+    global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
+    global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
+
+    yarGen_rules = icewater_rules = valhalla_rules = clean_rules = None
+    yaraxtr_rules = clamav_scanner = ml_definitions = excluded_rules = None
+
+    tasks = {
+        "suricata_callback": suricata_callback,
+        "load_website_data": load_website_data,
+        "load_antivirus_list": load_antivirus_list,
+        "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
+        "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
+        "load_valhalla": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
+        "(clean) rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
+        "yaraxtr_rules": lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
+        "clamav_scanner": lambda: clamav.Scanner(libclamav_path=libclamav_path,
+                                                 dbpath=clamav_database_directory_path),
+        "ml_definitions": lambda: load_ml_definitions_pickle(machine_learning_pickle_path),
+        "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()]
+    }
+
+    async_tasks = [safe_task(func, name) for name, func in tasks.items()]
+    results = await asyncio.gather(*async_tasks, return_exceptions=True)
+    logger.info("All async resource loading tasks started")
+    return results
+
+async def start_real_time_protection_async():
+    """
+    Starts both real-time protection and resource-loading tasks asynchronously.
+    Returns immediately after scheduling all tasks.
+    """
+    async def safe_to_thread(func, name):
+        try:
+            await asyncio.to_thread(func)
+            logger.info(f"{name} started")
+        except Exception as ex:
+            logger.error(f"Error starting {name}: {ex}", exc_info=True)
+
+    # Real-time protection tasks
+    protection_tasks = [
+        ("EDRMonitor", _send_scan_request_to_av),
+        ("SuricataMonitor", monitor_suricata_log),
+        ("WebProtection", web_protection_observer.begin_observing),
+        ("PipeListeners", start_all_pipe_listeners),
+    ]
+
+    # Fire-and-forget: start protection tasks
+    for name, func in protection_tasks:
+        asyncio.create_task(safe_to_thread(func, name))
+
+    # Fire-and-forget: start resource-loading tasks
+    asyncio.create_task(load_all_resources_async())
+
+    logger.info("Startup of real-time protection and resources initiated (async, non-blocking)")
+    return "[+] Real-time protection and resource loading started (background, non-blocking)"
+
+async def run_real_time_protection_with_yield_async():
+    """
+    Starts real-time protection asynchronously and yields status messages.
+    Periodically yields CPU to keep the loop responsive.
     """
     try:
-        logger.info("Starting real-time protection with CPU yielding...")
-        
-        # This now returns immediately
-        result = start_real_time_protection()
-        
-        # Yield CPU after starting
-        windows_yield_cpu()
-        
-        # Yield to the message in the output
+        logger.info("Starting real-time protection with periodic CPU yielding...")
+
+        # Start the periodic yield worker in background
+        yield_task = asyncio.create_task(periodic_yield_worker())
+
+        # Start real-time protection asynchronously
+        result = await start_real_time_protection_async()
+
+        # Yield first message
         yield result if result else "[+] Real-time protection started successfully"
+
+        # Yield second message
         yield "[+] Real-time monitoring is now active in the background"
-        
+
+        # Stop the periodic yield worker
+        yield_task.cancel()
+        await yield_task
+
     except Exception as ex:
         error_message = f"An error occurred while starting real-time protection: {ex}"
         logger.error(error_message)
-        yield error_message
 
 def run_de4dot(file_path):
     """

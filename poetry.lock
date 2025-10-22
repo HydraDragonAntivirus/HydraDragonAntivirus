@@ -34,6 +34,18 @@ test-trackers = ["comet-ml", "dvclive", "matplotlib", "mlflow", "swanlab", "tens
 testing = ["bitsandbytes", "datasets", "diffusers", "evaluate", "parameterized", "pytest (>=7.2.0,<=8.0.0)", "pytest-order", "pytest-subtests", "pytest-xdist", "scikit-learn", "scipy", "timm", "torchdata (>=0.8.0)", "torchpippy (>=0.2.0)", "tqdm", "transformers"]
 
 [[package]]
+name = "aiofiles"
+version = "25.1.0"
+description = "File support for asyncio."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "aiofiles-25.1.0-py3-none-any.whl", hash = "sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695"},
+    {file = "aiofiles-25.1.0.tar.gz", hash = "sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2"},
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 description = "Happy Eyeballs for asyncio"
@@ -6666,4 +6678,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "d4bfb30dee372755618578705aa699c458a420783d1c746d09fb81f5a890cd3b"
+content-hash = "cfd8809fec4cbe250cb5bda4a0977d07ccc8529a902242bb22c7b2669c8187b0"
