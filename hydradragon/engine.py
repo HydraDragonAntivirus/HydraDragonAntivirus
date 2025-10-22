@@ -10,6 +10,7 @@ import subprocess
 import asyncio
 import csv
 import aiofiles
+from qasync import QEventLoop
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1080,9 +1081,17 @@ class AntivirusApp(QWidget):
 
 def main():
     app = QApplication(sys.argv)
+
+    # Wrap the Qt event loop with qasync
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
     window = AntivirusApp()
     window.show()
-    sys.exit(app.exec_())
+
+    # Start the combined asyncio + Qt event loop
+    with loop:
+        loop.run_forever()
 
 if __name__ == "__main__":
     main()

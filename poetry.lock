@@ -4588,6 +4588,21 @@ files = [
 typing-extensions = {version = ">=4.13.2", markers = "python_version < \"3.13\""}
 
 [[package]]
+name = "qasync"
+version = "0.28.0"
+description = "Python library for using asyncio in Qt-based applications"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "qasync-0.28.0-py3-none-any.whl", hash = "sha256:21faba8d047c717008378f5ac29ea58c32a8128528629e4afd57c59b768dba0f"},
+    {file = "qasync-0.28.0.tar.gz", hash = "sha256:6f7f1f18971f59cb259b107218269ba56e3ad475ec456e54714b426a6e30b71d"},
+]
+
+[package.extras]
+typing = ["mypy (>=1.0)"]
+
+[[package]]
 name = "regex"
 version = "2024.11.6"
 description = "Alternative regular expression module, to replace re."
@@ -6678,4 +6693,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "cfd8809fec4cbe250cb5bda4a0977d07ccc8529a902242bb22c7b2669c8187b0"
+content-hash = "32da3b2d468833531f7604a6f417ef8111f9416e131a61defb36e77951e30ba5"

@@ -49,6 +49,7 @@ dependencies = [
     "androguard",
     "oletools",
     "aiofiles",
+    "qasync",
     "unipacker",
    
     # Pylingual reverse-engineering dependencies
