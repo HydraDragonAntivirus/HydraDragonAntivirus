@@ -11010,33 +11010,31 @@ async def start_real_time_protection_async():
         """
         try:
             if inspect.iscoroutinefunction(func):
-                # Wrap async functions to run safely in a separate thread
-                await asyncio.to_thread(asyncio.run, func())
+                # Run async function in a separate thread using its own loop
+                def thread_runner():
+                    asyncio.run(func())
+
+                await asyncio.to_thread(thread_runner)
                 logger.info(f"{name} task started/completed (async via thread)")
             else:
-                await asyncio.to_thread(func) # Run sync functions in a thread
+                await asyncio.to_thread(func)
                 logger.info(f"{name} task started/completed (thread)")
         except Exception:
             logger.exception(f"Error starting {name}")
 
-    # List of tasks to start
     protection_tasks = [
         ("EDRMonitor", _send_scan_request_to_av),
         ("SuricataMonitor", monitor_suricata_log),
         ("WebProtection", web_protection_observer.begin_observing),
         ("PipeListeners", start_all_pipe_listeners),
-        ("ResourceLoader", load_all_resources_async), # load_all_resources_async is now async
+        ("ResourceLoader", load_all_resources_async),
     ]
 
-    # Schedule all tasks concurrently using create_task for background execution
-    # No need to gather here, just launch them
     for name, func in protection_tasks:
         asyncio.create_task(run_in_background(name, func))
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
-    # Return immediately, the tasks run in the background
     return "[+] Real-time protection and resources scheduled concurrently"
-
 
 async def run_real_time_protection_with_yield_async():
     """
