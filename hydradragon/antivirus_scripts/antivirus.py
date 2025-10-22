@@ -10940,47 +10940,104 @@ async def load_all_resources_async():
     Asynchronously load all core HydraDragon resources concurrently.
     Runs blocking functions in threads and awaits async functions directly.
     Returns a dict mapping task names to results or exceptions.
+
+    Additionally: assigns successful results into module globals for key resources.
     """
-    task_definitions = {
-        "suricata_callback": suricata_callback,  # async
-        "load_website_data": load_website_data,
-        "load_antivirus_list": load_antivirus_list,
-        "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
-        "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
-        "valhalla_rules": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
-        "clean_rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
-        "yaraxtr_rules": lambda: load_yara_rule(
-            yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
-        "clamav_scanner": lambda: clamav.Scanner(
-            libclamav_path=libclamav_path,
-            dbpath=clamav_database_directory_path),
-        "ml_definitions": lambda: load_ml_definitions_pickle(machine_learning_pickle_path),
-        "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()],
-    }
+    # Explicitly declare globals
+    global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
+    global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
 
-    logger.info(f"Starting to load {len(task_definitions)} resources asynchronously...")
+    logger.info("Starting to load all resources asynchronously...")
 
-    names = list(task_definitions.keys())
-    tasks = []
-    for name, func in task_definitions.items():
-        if inspect.iscoroutinefunction(func):
-            tasks.append(func())
+    # Load each resource individually, assign directly to globals
+    try:
+        if inspect.iscoroutinefunction(suricata_callback):
+            suricata_callback_result = await suricata_callback()
         else:
-            tasks.append(asyncio.to_thread(func))
+            suricata_callback_result = await asyncio.to_thread(suricata_callback)
+    except Exception as e:
+        suricata_callback_result = e
+        logger.error(f"Error loading suricata_callback: {e}", exc_info=e)
 
-    # Run all tasks concurrently
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        load_website_data_result = await asyncio.to_thread(load_website_data)
+    except Exception as e:
+        load_website_data_result = e
+        logger.error(f"Error loading load_website_data: {e}", exc_info=e)
 
-    results = {}
-    for i, name in enumerate(names):
-        result = raw_results[i]
-        if isinstance(result, Exception):
-            logger.error(f"Error loading {name}: {result}", exc_info=result)
-        else:
-            logger.info(f"{name} loaded successfully")
-        results[name] = result
+    try:
+        load_antivirus_list_result = await asyncio.to_thread(load_antivirus_list)
+    except Exception as e:
+        load_antivirus_list_result = e
+        logger.error(f"Error loading load_antivirus_list: {e}", exc_info=e)
+
+    try:
+        yarGen_rules = await asyncio.to_thread(load_yara_rule, yarGen_rule_path, "yarGen Rules")
+    except Exception as e:
+        yarGen_rules = e
+        logger.error(f"Error loading yarGen_rules: {e}", exc_info=e)
+
+    try:
+        icewater_rules = await asyncio.to_thread(load_yara_rule, icewater_rule_path, "Icewater Rules")
+    except Exception as e:
+        icewater_rules = e
+        logger.error(f"Error loading icewater_rules: {e}", exc_info=e)
+
+    try:
+        valhalla_rules = await asyncio.to_thread(load_yara_rule, valhalla_rule_path, "Vallhalla Demo Rules")
+    except Exception as e:
+        valhalla_rules = e
+        logger.error(f"Error loading valhalla_rules: {e}", exc_info=e)
+
+    try:
+        clean_rules = await asyncio.to_thread(load_yara_rule, clean_rules_path, "(clean) YARA Rules")
+    except Exception as e:
+        clean_rules = e
+        logger.error(f"Error loading clean_rules: {e}", exc_info=e)
+
+    try:
+        yaraxtr_rules = await asyncio.to_thread(load_yara_rule, yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True)
+    except Exception as e:
+        yaraxtr_rules = e
+        logger.error(f"Error loading yaraxtr_rules: {e}", exc_info=e)
+
+    try:
+        clamav_scanner = await asyncio.to_thread(clamav.Scanner, libclamav_path=libclamav_path,
+                                                 dbpath=clamav_database_directory_path)
+    except Exception as e:
+        clamav_scanner = e
+        logger.error(f"Error loading clamav_scanner: {e}", exc_info=e)
+
+    try:
+        ml_definitions = await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_path)
+    except Exception as e:
+        ml_definitions = e
+        logger.error(f"Error loading ml_definitions: {e}", exc_info=e)
+
+    try:
+        with open(excluded_rules_path, "r") as f:
+            excluded_rules = [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        excluded_rules = e
+        logger.error(f"Error loading excluded_rules: {e}", exc_info=e)
 
     logger.info("Resource loading completed.")
+
+    # Collect all results in a dict
+    results = {
+        "suricata_callback": suricata_callback_result,
+        "load_website_data": load_website_data_result,
+        "load_antivirus_list": load_antivirus_list_result,
+        "yarGen_rules": yarGen_rules,
+        "icewater_rules": icewater_rules,
+        "valhalla_rules": valhalla_rules,
+        "clean_rules": clean_rules,
+        "yaraxtr_rules": yaraxtr_rules,
+        "clamav_scanner": clamav_scanner,
+        "ml_definitions": ml_definitions,
+        "excluded_rules": excluded_rules,
+    }
+
     return results
 
 async def start_real_time_protection_async():
