@@ -1104,8 +1104,6 @@ class AntivirusApp(QWidget):
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
         cards_layout.addWidget(StatusCard("Real-time", "Active", "🛡️"))
-        cards_layout.addWidget(StatusCard("Definitions", "Loading...", "📄")) # Placeholder
-        cards_layout.addWidget(StatusCard("Last Scan", "Never", "⏱️"))
         layout.addLayout(cards_layout)
 
         # Main status area
