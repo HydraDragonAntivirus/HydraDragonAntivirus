@@ -11010,8 +11010,9 @@ async def start_real_time_protection_async():
         """
         try:
             if inspect.iscoroutinefunction(func):
-                await func() # Await async functions directly
-                logger.info(f"{name} task started/completed (coroutine)")
+                # Wrap async functions to run safely in a separate thread
+                await asyncio.to_thread(asyncio.run, func())
+                logger.info(f"{name} task started/completed (async via thread)")
             else:
                 await asyncio.to_thread(func) # Run sync functions in a thread
                 logger.info(f"{name} task started/completed (thread)")
@@ -11030,8 +11031,7 @@ async def start_real_time_protection_async():
     # Schedule all tasks concurrently using create_task for background execution
     # No need to gather here, just launch them
     for name, func in protection_tasks:
-         asyncio.create_task(run_in_background(name, func))
-
+        asyncio.create_task(run_in_background(name, func))
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
     # Return immediately, the tasks run in the background
