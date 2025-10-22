@@ -1004,8 +1004,7 @@ class AntivirusApp(QWidget):
         # Updated line below:
         self.main_stack.addWidget(self.create_task_page(
             "Update Definitions",
-            "update_defs",
-            additional_tasks=[("Update Hayabusa Rules", "update_hayabusa_rules")]
+            "update_defs"
         ))
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
