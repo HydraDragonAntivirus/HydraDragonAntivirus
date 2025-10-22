@@ -326,123 +326,6 @@ class ShieldWidget(QWidget):
 
         painter.restore() # Restore transform state
 
-
-# --- Animated Status Card Widget ---
-class StatusCard(QFrame):
-    """Modern card widget with hover effects and animations."""
-    def __init__(self, title, value, icon_text="", parent=None):
-        super().__init__(parent)
-        self.setObjectName("status_card")
-        self.setMinimumHeight(120)
-        self._hover_scale = 1.0
-        self.scale_animation = None
-        self.original_width = 0
-        self.original_height = 0
-        self.original_pos = QPoint()
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-
-        if icon_text:
-            icon_label = QLabel(icon_text)
-            icon_label.setStyleSheet("font-size: 32px; color: #88C0D0;")
-            layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignCenter) # Center icon
-
-        title_label = QLabel(title)
-        title_label.setObjectName("card_title")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center title
-        layout.addWidget(title_label)
-
-        self.value_label = QLabel(value)
-        self.value_label.setObjectName("card_value")
-        self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center value
-        layout.addWidget(self.value_label)
-
-        self.hover_animation = QPropertyAnimation(self, b"hover_scale")
-        self.hover_animation.setDuration(200)
-        self.hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(0, 5)
-        self.setGraphicsEffect(shadow)
-
-        # Store original size after widget is shown and laid out
-        QTimer.singleShot(0, self._store_original_geometry)
-
-    def _store_original_geometry(self):
-        """Store original dimensions and position after widget is laid out"""
-        if self.original_width == 0: # Store only once
-            self.original_width = self.width()
-            self.original_height = self.height()
-            self.original_pos = self.pos()
-            # print(f"Stored original geom: {self.original_pos}, {self.original_width}x{self.original_height}")
-
-    def get_hover_scale(self):
-        return self._hover_scale
-
-    def set_hover_scale(self, value):
-        """Animate widget scaling on hover"""
-        if self._hover_scale == value:
-            return
-
-        self._hover_scale = value
-
-        # Ensure original geometry is stored
-        if self.original_width == 0 or self.original_height == 0:
-             # Try storing again if missed initially
-             self._store_original_geometry()
-             if self.original_width == 0: # Still not ready
-                  # print("Original geometry not ready for scaling")
-                  return
-
-        # Calculate new scaled size and position to keep it centered
-        new_width = int(self.original_width * value)
-        new_height = int(self.original_height * value)
-        new_x = self.original_pos.x() - (new_width - self.original_width) // 2
-        new_y = self.original_pos.y() - (new_height - self.original_height) // 2
-        scaled_rect = QRect(new_x, new_y, new_width, new_height)
-
-        # print(f"Scaling to: {scaled_rect} (Scale: {value})")
-
-        if self.scale_animation is None:
-            self.scale_animation = QPropertyAnimation(self, b"geometry")
-            self.scale_animation.setDuration(150)
-            self.scale_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        self.scale_animation.stop()
-        self.scale_animation.setEndValue(scaled_rect)
-        self.scale_animation.start()
-
-    hover_scale = Property(float, get_hover_scale, set_hover_scale)
-
-    def enterEvent(self, event):
-        # Ensure geometry is stored before animating
-        self._store_original_geometry()
-        self.hover_animation.stop() # Stop any ongoing animation
-        self.hover_animation.setStartValue(self.get_hover_scale()) # Start from current scale
-        self.hover_animation.setEndValue(1.05)
-        self.hover_animation.start()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-         self.hover_animation.stop() # Stop any ongoing animation
-         self.hover_animation.setStartValue(self.get_hover_scale()) # Start from current scale
-         self.hover_animation.setEndValue(1.0)
-         self.hover_animation.start()
-         super().leaveEvent(event)
-
-    # Add resizeEvent to update original position if layout changes
-    def resizeEvent(self, event):
-        # Update original position when the widget is resized by the layout
-        # But only if not currently animating scale
-        if not self.scale_animation or self.scale_animation.state() != QPropertyAnimation.State.Running:
-            # Delay slightly to ensure layout is settled
-             QTimer.singleShot(10, self._store_original_geometry)
-        super().resizeEvent(event)
-
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
     # Signal to append log messages safely from any thread/task
@@ -1100,12 +983,6 @@ class AntivirusApp(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(30)
 
-        # Status cards row (Example - adapt as needed)
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(20)
-        cards_layout.addWidget(StatusCard("Real-time", "Active", "🛡️"))
-        layout.addLayout(cards_layout)
-
         # Main status area
         main_area = QHBoxLayout()
         main_area.setSpacing(40)
@@ -1221,9 +1098,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(title)
 
         about_text = QLabel(
-             "HydraDragon Antivirus - Open Source Real-Time Protection.\n\n"
-             "Utilizing ClamAV, Suricata (via Npcap/WinPcap), Hayabusa, YARA, and Machine Learning "
-             "for comprehensive threat detection."
+             "HydraDragon Antivirus - Open Source Antvirus with Advanced Real-Time Protection."
         )
         about_text.setWordWrap(True)
         about_text.setStyleSheet("font-size: 15px; line-height: 1.6;") # Slightly larger text
