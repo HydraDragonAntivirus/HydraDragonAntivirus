@@ -11000,25 +11000,21 @@ async def load_all_resources_async():
 
 async def start_real_time_protection_async():
     """
-    Start all real-time protection and resource-loading tasks concurrently in the background.
-    Returns immediately after scheduling (non-blocking).
+    Start all real-time protection and resource-loading tasks concurrently.
+    Non-blocking: returns immediately after scheduling.
     """
 
     async def run_in_background(name, func):
-        """
-        Run a synchronous or asynchronous task safely in a background thread or directly.
-        """
+        """Run a sync or async function safely."""
         try:
             if inspect.iscoroutinefunction(func):
-                # Run async function in a separate thread using its own loop
-                def thread_runner():
-                    asyncio.run(func())
-
-                await asyncio.to_thread(thread_runner)
-                logger.info(f"{name} task started/completed (async via thread)")
+                # Schedule coroutine directly
+                asyncio.create_task(func())
+                logger.info(f"{name} task scheduled (coroutine)")
             else:
-                await asyncio.to_thread(func)
-                logger.info(f"{name} task started/completed (thread)")
+                # Run sync in background thread
+                asyncio.create_task(asyncio.to_thread(func))
+                logger.info(f"{name} task scheduled (thread)")
         except Exception:
             logger.exception(f"Error starting {name}")
 
@@ -11031,7 +11027,7 @@ async def start_real_time_protection_async():
     ]
 
     for name, func in protection_tasks:
-        asyncio.create_task(run_in_background(name, func))
+        await run_in_background(name, func)
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
     return "[+] Real-time protection and resources scheduled concurrently"
