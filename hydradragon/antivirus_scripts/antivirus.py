@@ -10937,18 +10937,20 @@ async def periodic_yield_worker():
 
 async def load_all_resources_async():
     """
-    Async version of resource loading tasks.
-    Each blocking task runs in a thread.
+    Asynchronously load all core HydraDragon resources concurrently.
+    Each blocking function runs in its own thread.
     """
-    async def safe_task(func, name):
+
+    async def safe_task(name, func):
         try:
             result = await asyncio.to_thread(func)
-            logger.info(f"{name} loaded")
-            return result
+            logger.info(f"{name} loaded successfully")
+            return name, result
         except Exception as e:
             logger.error(f"Error loading {name}: {e}", exc_info=True)
-            return None
+            return name, None
 
+    # Globals to store results
     global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
     global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
 
@@ -10961,24 +10963,30 @@ async def load_all_resources_async():
         "load_antivirus_list": load_antivirus_list,
         "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
         "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
-        "load_valhalla": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
-        "(clean) rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
+        "valhalla_rules": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
+        "clean_rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
         "yaraxtr_rules": lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
         "clamav_scanner": lambda: clamav.Scanner(libclamav_path=libclamav_path,
                                                  dbpath=clamav_database_directory_path),
         "ml_definitions": lambda: load_ml_definitions_pickle(machine_learning_pickle_path),
-        "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()]
+        "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()],
     }
 
-    async_tasks = [safe_task(func, name) for name, func in tasks.items()]
-    results = await asyncio.gather(*async_tasks, return_exceptions=True)
-    logger.info("All async resource loading tasks started")
+    # Run everything in parallel (each in its own thread)
+    results = await asyncio.gather(*[safe_task(name, func) for name, func in tasks.items()])
+
+    # Assign results to globals
+    for name, result in results:
+        if name in globals():
+            globals()[name] = result
+
+    logger.info("All resources loaded concurrently (non-blocking)")
     return results
 
 async def start_real_time_protection_async():
     """
-    Start all real-time protection and resource-loading tasks concurrently (non-blocking).
-    Designed as an async method on AntivirusApp, but returns immediately after scheduling.
+    Start all real-time protection and resource-loading tasks concurrently in the background.
+    Returns immediately after scheduling (non-blocking).
     """
 
     async def run_in_background(name, func):
@@ -11001,8 +11009,10 @@ async def start_real_time_protection_async():
         ("ResourceLoader", load_all_resources_async),
     ]
 
-    # Hepsini paralel başlat
-    tasks = [asyncio.create_task(run_in_background(name, func)) for name, func in protection_tasks]
+    asyncio.create_task(asyncio.gather(
+        *(run_in_background(name, func) for name, func in protection_tasks),
+        return_exceptions=True
+    ))
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
     return "[+] Real-time protection and resources started concurrently"
