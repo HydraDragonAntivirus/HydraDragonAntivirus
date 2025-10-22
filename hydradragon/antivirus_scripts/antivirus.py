@@ -583,9 +583,6 @@ def parse_suricata_alert(json_line):
         return None, None, None, None, None
     return None, None, None, None, None
 
-# Alternative regex for fast.log format if not using EVE JSON
-alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
-
 thread_lock = threading.Lock()
 
 drivers_path = os.path.join(system32_dir, "drivers")
