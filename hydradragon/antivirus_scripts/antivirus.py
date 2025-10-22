@@ -11060,11 +11060,6 @@ async def run_real_time_protection_with_yield_async():
 
         yield "[+] Real-time monitoring is now active in the background"
 
-        # Keep the generator alive indefinitely (or until cancelled)
-        # to allow background tasks to run.
-        while True:
-             await asyncio.sleep(3600) # Sleep for a long time, effectively pausing the generator
-
     except asyncio.CancelledError:
          logger.info("Real-time protection yield generator cancelled.")
          if yield_task and not yield_task.done():
