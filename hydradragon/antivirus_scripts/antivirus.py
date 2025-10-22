@@ -10939,64 +10939,49 @@ async def load_all_resources_async():
     """
     Asynchronously load all core HydraDragon resources concurrently.
     Runs blocking functions in threads and awaits async functions directly.
+    Returns a dict mapping task names to results or exceptions.
     """
-    # Globals to store results
-    global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
-    global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
-
-    # Define tasks: name -> function (can be sync or async)
     task_definitions = {
-        "suricata_callback": suricata_callback, # This is async
+        "suricata_callback": suricata_callback,  # async
         "load_website_data": load_website_data,
         "load_antivirus_list": load_antivirus_list,
         "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
         "icewater_rules": lambda: load_yara_rule(icewater_rule_path, "Icewater Rules"),
         "valhalla_rules": lambda: load_yara_rule(valhalla_rule_path, "Vallhalla Demo Rules"),
         "clean_rules": lambda: load_yara_rule(clean_rules_path, "(clean) YARA Rules"),
-        "yaraxtr_rules": lambda: load_yara_rule(yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
-        "clamav_scanner": lambda: clamav.Scanner(libclamav_path=libclamav_path,
-                                                 dbpath=clamav_database_directory_path),
+        "yaraxtr_rules": lambda: load_yara_rule(
+            yaraxtr_yrc_path, "YARA-X yaraxtr Rules", is_yara_x=True),
+        "clamav_scanner": lambda: clamav.Scanner(
+            libclamav_path=libclamav_path,
+            dbpath=clamav_database_directory_path),
         "ml_definitions": lambda: load_ml_definitions_pickle(machine_learning_pickle_path),
         "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()],
     }
 
-    # Create awaitables: await async funcs, wrap sync funcs in to_thread
-    tasks_to_gather = []
-    task_names = list(task_definitions.keys()) # Keep track of names for result assignment
+    logger.info(f"Starting to load {len(task_definitions)} resources asynchronously...")
 
-    for name in task_names:
-        func = task_definitions[name]
+    names = list(task_definitions.keys())
+    tasks = []
+    for name, func in task_definitions.items():
         if inspect.iscoroutinefunction(func):
-            # If it's async, await it directly
-            tasks_to_gather.append(func())
+            tasks.append(func())
         else:
-            # If it's sync, run it in a thread
-            tasks_to_gather.append(asyncio.to_thread(func))
+            tasks.append(asyncio.to_thread(func))
 
-    logger.info(f"Gathering {len(tasks_to_gather)} resource loading tasks...")
+    # Run all tasks concurrently
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Run everything in parallel
-    # Use return_exceptions=True to prevent one failure from stopping others
-    raw_results = await asyncio.gather(*tasks_to_gather, return_exceptions=True)
-
-    # Process results and assign to globals
     results = {}
-    successful_loads = 0
-    for i, name in enumerate(task_names):
-        result_or_exception = raw_results[i]
-        if isinstance(result_or_exception, Exception):
-            logger.error(f"Error loading {name}: {result_or_exception}", exc_info=result_or_exception)
-            results[name] = None # Assign None on error
+    for i, name in enumerate(names):
+        result = raw_results[i]
+        if isinstance(result, Exception):
+            logger.error(f"Error loading {name}: {result}", exc_info=result)
         else:
             logger.info(f"{name} loaded successfully")
-            results[name] = result_or_exception
-            successful_loads += 1
-            # Assign result to global variable if it exists
-            if name in globals():
-                globals()[name] = result_or_exception
+        results[name] = result
 
-    logger.info(f"Finished loading resources: {successful_loads} successful, {len(task_names) - successful_loads} failed.")
-    return results # Return the dictionary of results
+    logger.info("Resource loading completed.")
+    return results
 
 async def start_real_time_protection_async():
     """
