@@ -10990,7 +10990,9 @@ async def start_real_time_protection_async():
     """
 
     async def run_in_background(name, func):
-        """Runs sync or async tasks safely in background."""
+        """
+        Run a synchronous or asynchronous task safely in a background thread.
+        """
         try:
             if inspect.iscoroutinefunction(func):
                 await func()
@@ -11001,6 +11003,7 @@ async def start_real_time_protection_async():
         except Exception:
             logger.exception(f"Error starting {name}")
 
+    # List of tasks to start
     protection_tasks = [
         ("EDRMonitor", _send_scan_request_to_av),
         ("SuricataMonitor", monitor_suricata_log),
@@ -11009,6 +11012,8 @@ async def start_real_time_protection_async():
         ("ResourceLoader", load_all_resources_async),
     ]
 
+    # Schedule all tasks concurrently
+    # Using gather inside create_task ensures tasks run in the background
     asyncio.create_task(asyncio.gather(
         *(run_in_background(name, func) for name, func in protection_tasks),
         return_exceptions=True
@@ -11019,31 +11024,26 @@ async def start_real_time_protection_async():
 
 async def run_real_time_protection_with_yield_async():
     """
-    Starts real-time protection asynchronously and yields status messages.
+    Async generator that starts real-time protection and yields status messages.
     Periodically yields CPU to keep the loop responsive.
     """
+    # Run the yield worker in a background thread
+    yield_thread = threading.Thread(target=lambda: asyncio.run(periodic_yield_worker()), daemon=True)
+    yield_thread.start()
+
     try:
         logger.info("Starting real-time protection with periodic CPU yielding...")
 
-        # Start the periodic yield worker in background
-        yield_task = asyncio.create_task(periodic_yield_worker())
-
-        # Start real-time protection asynchronously
+        # Start real-time protection (non-blocking)
         result = await start_real_time_protection_async()
+        yield result or "[+] Real-time protection started successfully"
 
-        # Yield first message
-        yield result if result else "[+] Real-time protection started successfully"
-
-        # Yield second message
         yield "[+] Real-time monitoring is now active in the background"
-
-        # Stop the periodic yield worker
-        yield_task.cancel()
-        await yield_task
 
     except Exception as ex:
         error_message = f"An error occurred while starting real-time protection: {ex}"
         logger.error(error_message)
+        yield error_message
 
 def run_de4dot(file_path):
     """
