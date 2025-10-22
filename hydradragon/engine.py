@@ -458,20 +458,20 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
 
-    async def run_real_time_protection_async(self):
-        """Run real-time protection asynchronously and keep coroutine alive"""
-        try:
-            async for output in run_real_time_protection_with_yield_async():
-                try:
-                    self.output_signal.emit(str(output))
-                except Exception:
-                    logger.exception("Failed to emit output from real-time protection.")
-        except Exception:
-            logger.exception("Unhandled exception in real-time protection")
+        async def run_real_time_protection_async(self):
+            """Run real-time protection asynchronously and keep coroutine alive"""
             try:
-                self.output_signal.emit(f"[!] Error during real-time protection: {traceback.format_exc()}")
+                async for output in run_real_time_protection_with_yield_async():
+                    try:
+                        self.output_signal.emit(str(output))
+                    except Exception:
+                        logger.exception("Failed to emit output from real-time protection.")
             except Exception:
-                logger.exception("Failed to emit exception message")
+                logger.exception("Unhandled exception in real-time protection")
+                try:
+                    self.output_signal.emit(f"[!] Error during real-time protection: {traceback.format_exc()}")
+                except Exception:
+                    logger.exception("Failed to emit exception message")
 
         async def run_hayabusa_live_timeline_async(self):
             """Run Hayabusa CSV timeline in live analysis mode asynchronously."""
@@ -609,20 +609,17 @@ class AntivirusApp(QWidget):
     async def run_startup_task_async(self):
         """Run automatic real-time protection and Hayabusa analysis on startup"""
         self.append_log_output("[*] Starting automatic real-time protection...")
-
         # Run real-time protection asynchronously
-        try:
-            await self.run_real_time_protection_async()
-        except Exception:
-            logger.exception("Failed to start real-time protection")
-            self.append_log_output(f"[!] Error starting real-time protection: {traceback.format_exc()}")
+        worker_rt = Worker("run_real_time_protection_async")
+        worker_rt.output_signal.connect(self.append_log_output)
+        self.workers.append(worker_rt)
+        worker_rt.start()
 
         # Run Hayabusa live analysis asynchronously
-        try:
-            await self.run_hayabusa_live_timeline_async()
-        except Exception:
-            logger.exception("Failed to start Hayabusa live analysis")
-            self.append_log_output(f"[!] Error starting Hayabusa live analysis: {traceback.format_exc()}")
+        worker_haya = Worker("run_hayabusa_live_timeline_async")
+        worker_haya.output_signal.connect(self.append_log_output)
+        self.workers.append(worker_haya)
+        worker_haya.start()
 
     def apply_extreme_stylesheet(self):
         stylesheet = """
