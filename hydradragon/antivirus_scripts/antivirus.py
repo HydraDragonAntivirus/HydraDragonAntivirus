@@ -10938,18 +10938,8 @@ async def periodic_yield_worker():
 async def load_all_resources_async():
     """
     Asynchronously load all core HydraDragon resources concurrently.
-    Each blocking function runs in its own thread.
+    Runs blocking functions in threads and awaits async functions directly.
     """
-
-    async def safe_task(name, func):
-        try:
-            result = await asyncio.to_thread(func)
-            logger.info(f"{name} loaded successfully")
-            return name, result
-        except Exception as e:
-            logger.error(f"Error loading {name}: {e}", exc_info=True)
-            return name, None
-
     # Globals to store results
     global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
     global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
@@ -10957,8 +10947,9 @@ async def load_all_resources_async():
     yarGen_rules = icewater_rules = valhalla_rules = clean_rules = None
     yaraxtr_rules = clamav_scanner = ml_definitions = excluded_rules = None
 
-    tasks = {
-        "suricata_callback": suricata_callback,
+    # Define tasks: name -> function (can be sync or async)
+    task_definitions = {
+        "suricata_callback": suricata_callback, # This is async
         "load_website_data": load_website_data,
         "load_antivirus_list": load_antivirus_list,
         "yarGen_rules": lambda: load_yara_rule(yarGen_rule_path, "yarGen Rules"),
@@ -10972,16 +10963,43 @@ async def load_all_resources_async():
         "excluded_rules": lambda: [line.strip() for line in open(excluded_rules_path, "r") if line.strip()],
     }
 
-    # Run everything in parallel (each in its own thread)
-    results = await asyncio.gather(*[safe_task(name, func) for name, func in tasks.items()])
+    # Create awaitables: await async funcs, wrap sync funcs in to_thread
+    tasks_to_gather = []
+    task_names = list(task_definitions.keys()) # Keep track of names for result assignment
 
-    # Assign results to globals
-    for name, result in results:
-        if name in globals():
-            globals()[name] = result
+    for name in task_names:
+        func = task_definitions[name]
+        if inspect.iscoroutinefunction(func):
+            # If it's async, await it directly
+            tasks_to_gather.append(func())
+        else:
+            # If it's sync, run it in a thread
+            tasks_to_gather.append(asyncio.to_thread(func))
 
-    logger.info("All resources loaded concurrently (non-blocking)")
-    return results
+    logger.info(f"Gathering {len(tasks_to_gather)} resource loading tasks...")
+
+    # Run everything in parallel
+    # Use return_exceptions=True to prevent one failure from stopping others
+    raw_results = await asyncio.gather(*tasks_to_gather, return_exceptions=True)
+
+    # Process results and assign to globals
+    results = {}
+    successful_loads = 0
+    for i, name in enumerate(task_names):
+        result_or_exception = raw_results[i]
+        if isinstance(result_or_exception, Exception):
+            logger.error(f"Error loading {name}: {result_or_exception}", exc_info=result_or_exception)
+            results[name] = None # Assign None on error
+        else:
+            logger.info(f"{name} loaded successfully")
+            results[name] = result_or_exception
+            successful_loads += 1
+            # Assign result to global variable if it exists
+            if name in globals():
+                globals()[name] = result_or_exception
+
+    logger.info(f"Finished loading resources: {successful_loads} successful, {len(task_names) - successful_loads} failed.")
+    return results # Return the dictionary of results
 
 async def start_real_time_protection_async():
     """
@@ -10991,15 +11009,15 @@ async def start_real_time_protection_async():
 
     async def run_in_background(name, func):
         """
-        Run a synchronous or asynchronous task safely in a background thread.
+        Run a synchronous or asynchronous task safely in a background thread or directly.
         """
         try:
             if inspect.iscoroutinefunction(func):
-                await func()
-                logger.info(f"{name} started (coroutine)")
+                await func() # Await async functions directly
+                logger.info(f"{name} task started/completed (coroutine)")
             else:
-                await asyncio.to_thread(func)
-                logger.info(f"{name} started (thread)")
+                await asyncio.to_thread(func) # Run sync functions in a thread
+                logger.info(f"{name} task started/completed (thread)")
         except Exception:
             logger.exception(f"Error starting {name}")
 
@@ -11009,41 +11027,60 @@ async def start_real_time_protection_async():
         ("SuricataMonitor", monitor_suricata_log),
         ("WebProtection", web_protection_observer.begin_observing),
         ("PipeListeners", start_all_pipe_listeners),
-        ("ResourceLoader", load_all_resources_async),
+        ("ResourceLoader", load_all_resources_async), # load_all_resources_async is now async
     ]
 
-    # Schedule all tasks concurrently
-    # Using gather inside create_task ensures tasks run in the background
-    asyncio.create_task(asyncio.gather(
-        *(run_in_background(name, func) for name, func in protection_tasks),
-        return_exceptions=True
-    ))
+    # Schedule all tasks concurrently using create_task for background execution
+    # No need to gather here, just launch them
+    for name, func in protection_tasks:
+         asyncio.create_task(run_in_background(name, func))
+
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
-    return "[+] Real-time protection and resources started concurrently"
+    # Return immediately, the tasks run in the background
+    return "[+] Real-time protection and resources scheduled concurrently"
+
 
 async def run_real_time_protection_with_yield_async():
     """
     Async generator that starts real-time protection and yields status messages.
     Periodically yields CPU to keep the loop responsive.
     """
-    # Run the yield worker in a background thread
-    yield_thread = threading.Thread(target=lambda: asyncio.run(periodic_yield_worker()), daemon=True)
-    yield_thread.start()
+    # Start the yield worker in the background using asyncio.create_task
+    # No need for a separate thread if the main loop is async
+    yield_task = asyncio.create_task(periodic_yield_worker())
 
     try:
         logger.info("Starting real-time protection with periodic CPU yielding...")
 
-        # Start real-time protection (non-blocking)
-        result = await start_real_time_protection_async()
-        yield result or "[+] Real-time protection started successfully"
+        # Start real-time protection tasks (non-blocking)
+        # This function now just schedules tasks and returns a string immediately.
+        result_message = await start_real_time_protection_async()
+        yield result_message or "[+] Real-time protection scheduled successfully"
 
         yield "[+] Real-time monitoring is now active in the background"
 
+        # Keep the generator alive indefinitely (or until cancelled)
+        # to allow background tasks to run.
+        while True:
+             await asyncio.sleep(3600) # Sleep for a long time, effectively pausing the generator
+
+    except asyncio.CancelledError:
+         logger.info("Real-time protection yield generator cancelled.")
+         if yield_task and not yield_task.done():
+              yield_task.cancel() # Cancel the yield worker too
     except Exception as ex:
-        error_message = f"An error occurred while starting real-time protection: {ex}"
-        logger.error(error_message)
-        yield error_message
+        error_message = f"An error occurred during real-time protection yield loop: {ex}"
+        logger.error(error_message, exc_info=True)
+        yield f"[!] {error_message}"
+    finally:
+        # Ensure yield task is cancelled on exit
+        if 'yield_task' in locals() and yield_task and not yield_task.done():
+             yield_task.cancel()
+             try:
+                 await yield_task # Allow cancellation to propagate
+             except asyncio.CancelledError:
+                 pass # Expected
 
 def run_de4dot(file_path):
     """
