@@ -107,1416 +107,1421 @@
 .\antivirus.py:490:80: E501 line too long (87 > 79 characters)
 .\antivirus.py:493:1: E402 module level import not at top of file
 .\antivirus.py:494:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:497:1: F401 '.pattern.EMAIL_RE' imported but unused
 .\antivirus.py:497:1: E402 module level import not at top of file
-.\antivirus.py:519:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:522:1: E402 module level import not at top of file
-.\antivirus.py:526:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:529:1: E402 module level import not at top of file
-.\antivirus.py:530:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:545:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:546:4: E111 indentation is not a multiple of 4
+.\antivirus.py:520:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:523:1: E402 module level import not at top of file
+.\antivirus.py:527:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:530:1: E402 module level import not at top of file
+.\antivirus.py:531:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:546:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:547:4: E111 indentation is not a multiple of 4
-.\antivirus.py:548:8: E111 indentation is not a multiple of 4
+.\antivirus.py:548:4: E111 indentation is not a multiple of 4
 .\antivirus.py:549:8: E111 indentation is not a multiple of 4
-.\antivirus.py:550:4: E111 indentation is not a multiple of 4
-.\antivirus.py:551:8: E111 indentation is not a multiple of 4
-.\antivirus.py:553:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:554:4: E111 indentation is not a multiple of 4
+.\antivirus.py:550:8: E111 indentation is not a multiple of 4
+.\antivirus.py:551:4: E111 indentation is not a multiple of 4
+.\antivirus.py:552:8: E111 indentation is not a multiple of 4
+.\antivirus.py:554:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:555:4: E111 indentation is not a multiple of 4
-.\antivirus.py:556:8: E111 indentation is not a multiple of 4
+.\antivirus.py:556:4: E111 indentation is not a multiple of 4
 .\antivirus.py:557:8: E111 indentation is not a multiple of 4
-.\antivirus.py:558:4: E111 indentation is not a multiple of 4
-.\antivirus.py:559:8: E111 indentation is not a multiple of 4
-.\antivirus.py:563:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:568:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:586:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:586:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:612:80: E501 line too long (135 > 79 characters)
-.\antivirus.py:613:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:614:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:615:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:616:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:617:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:619:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:621:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:622:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:641:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:654:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:667:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:671:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:675:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:679:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:692:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:693:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:698:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:730:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:753:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:761:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:767:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:773:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:781:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:793:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:795:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:829:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:830:9: E117 over-indented
-.\antivirus.py:842:17: E117 over-indented
-.\antivirus.py:843:25: E117 over-indented
-.\antivirus.py:844:51: E231 missing whitespace after ','
-.\antivirus.py:845:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:848:33: E117 over-indented
-.\antivirus.py:849:41: E117 over-indented
-.\antivirus.py:850:63: E231 missing whitespace after ','
-.\antivirus.py:851:33: E117 over-indented
-.\antivirus.py:852:42: E111 indentation is not a multiple of 4
-.\antivirus.py:852:42: E117 over-indented
-.\antivirus.py:852:58: E227 missing whitespace around bitwise or shift operator
+.\antivirus.py:558:8: E111 indentation is not a multiple of 4
+.\antivirus.py:559:4: E111 indentation is not a multiple of 4
+.\antivirus.py:560:8: E111 indentation is not a multiple of 4
+.\antivirus.py:564:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:569:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:587:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:587:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:613:80: E501 line too long (135 > 79 characters)
+.\antivirus.py:614:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:615:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:616:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:617:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:618:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:620:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:622:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:623:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:642:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:655:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:668:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:672:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:676:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:680:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:693:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:694:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:699:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:731:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:754:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:762:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:768:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:774:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:782:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:794:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:796:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:830:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:831:9: E117 over-indented
+.\antivirus.py:843:17: E117 over-indented
+.\antivirus.py:844:25: E117 over-indented
+.\antivirus.py:845:51: E231 missing whitespace after ','
+.\antivirus.py:846:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:849:33: E117 over-indented
+.\antivirus.py:850:41: E117 over-indented
+.\antivirus.py:851:63: E231 missing whitespace after ','
+.\antivirus.py:852:33: E117 over-indented
 .\antivirus.py:853:42: E111 indentation is not a multiple of 4
-.\antivirus.py:854:50: E111 indentation is not a multiple of 4
-.\antivirus.py:854:50: E117 over-indented
-.\antivirus.py:855:42: E111 indentation is not a multiple of 4
-.\antivirus.py:862:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:864:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:873:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:891:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:895:80: E501 line too long (130 > 79 characters)
-.\antivirus.py:899:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:914:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:937:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:950:17: E221 multiple spaces before operator
-.\antivirus.py:962:11: E221 multiple spaces before operator
-.\antivirus.py:985:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:991:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:997:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1003:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1007:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1020:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1022:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:1043:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1057:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1065:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1066:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1067:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:1068:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1069:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:1071:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:1072:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:1073:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:1074:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:1075:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:1091:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1099:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:1100:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1101:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:1102:80: E501 line too long (132 > 79 characters)
-.\antivirus.py:1103:80: E501 line too long (138 > 79 characters)
-.\antivirus.py:1104:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1106:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:1107:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:853:42: E117 over-indented
+.\antivirus.py:853:58: E227 missing whitespace around bitwise or shift operator
+.\antivirus.py:854:42: E111 indentation is not a multiple of 4
+.\antivirus.py:855:50: E111 indentation is not a multiple of 4
+.\antivirus.py:855:50: E117 over-indented
+.\antivirus.py:856:42: E111 indentation is not a multiple of 4
+.\antivirus.py:863:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:865:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:874:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:892:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:896:80: E501 line too long (130 > 79 characters)
+.\antivirus.py:900:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:915:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:938:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:951:17: E221 multiple spaces before operator
+.\antivirus.py:963:11: E221 multiple spaces before operator
+.\antivirus.py:986:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:992:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:998:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1004:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1008:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1021:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1023:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:1044:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1058:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1066:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1067:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:1068:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:1069:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1070:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:1072:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:1073:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:1074:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:1075:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:1076:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:1092:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1100:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:1101:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1102:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:1103:80: E501 line too long (132 > 79 characters)
+.\antivirus.py:1104:80: E501 line too long (138 > 79 characters)
+.\antivirus.py:1105:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1107:80: E501 line too long (94 > 79 characters)
 .\antivirus.py:1108:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1112:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:1117:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1118:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:1120:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:1121:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:1122:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1123:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1124:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1126:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:1127:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:1129:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:1136:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:1148:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1109:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1113:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:1118:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1119:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:1121:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:1122:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:1123:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1124:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:1125:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1127:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:1128:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:1130:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:1137:80: E501 line too long (87 > 79 characters)
 .\antivirus.py:1149:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1157:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1163:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1178:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1180:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1185:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1187:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1189:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1191:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1196:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:1197:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:1199:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1205:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:1217:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1260:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:1263:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:1272:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1288:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1291:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:1295:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1300:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1150:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1158:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1164:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1179:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1181:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1186:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1188:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1190:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1192:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1197:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:1198:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:1200:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1206:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:1218:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1261:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:1264:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:1273:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1289:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1292:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:1296:80: E501 line too long (90 > 79 characters)
 .\antivirus.py:1301:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1306:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1307:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:1311:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1323:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1330:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:1346:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1349:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1360:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1363:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:1367:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1370:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1379:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1382:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1387:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:1389:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:1390:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:1396:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1399:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:1403:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1406:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1419:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1427:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:1431:80: E501 line too long (126 > 79 characters)
-.\antivirus.py:1436:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1439:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1448:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1463:27: E128 continuation line under-indented for visual indent
-.\antivirus.py:1463:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1464:27: E128 continuation line under-indented for visual indent
-.\antivirus.py:1464:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:1465:27: E128 continuation line under-indented for visual indent
-.\antivirus.py:1465:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:1466:27: E128 continuation line under-indented for visual indent
-.\antivirus.py:1466:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:1471:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1478:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:1480:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1481:80: E501 line too long (111 > 79 characters)
-.\antivirus.py:1493:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1500:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:1506:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1507:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:1520:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:1523:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1532:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:1535:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1551:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1554:5: E303 too many blank lines (2)
-.\antivirus.py:1556:80: E501 line too long (137 > 79 characters)
-.\antivirus.py:1557:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:1568:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:1569:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:1575:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:1576:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:1582:80: E501 line too long (130 > 79 characters)
-.\antivirus.py:1583:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1586:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1592:80: E501 line too long (111 > 79 characters)
-.\antivirus.py:1601:80: E501 line too long (139 > 79 characters)
-.\antivirus.py:1602:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:1615:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1670:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:1681:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:1700:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1703:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:1704:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1711:5: E303 too many blank lines (2)
-.\antivirus.py:1713:80: E501 line too long (127 > 79 characters)
-.\antivirus.py:1714:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1717:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1736:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:1751:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:1762:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:1765:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:1775:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:1782:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:1789:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:1790:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:1796:80: E501 line too long (127 > 79 characters)
-.\antivirus.py:1797:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1800:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1806:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:1816:80: E501 line too long (126 > 79 characters)
-.\antivirus.py:1831:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1835:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:1841:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1848:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1852:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1857:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1859:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:1883:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:1889:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:1892:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1943:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:1950:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1955:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1968:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:1985:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:1990:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1991:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:1999:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:2002:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:2014:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2015:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:2016:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2032:80: E501 line too long (148 > 79 characters)
-.\antivirus.py:2037:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:2038:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:2050:80: E501 line too long (135 > 79 characters)
-.\antivirus.py:2053:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:2061:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1302:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1307:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:1308:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:1312:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1324:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1331:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:1347:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1350:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1361:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:1364:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:1368:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1371:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1380:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1383:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:1388:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:1390:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:1391:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:1397:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:1400:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:1404:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1407:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1418:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1436:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1436:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:1450:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:1453:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:1459:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:1477:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1479:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1480:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:1489:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1493:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1498:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1513:27: E128 continuation line under-indented for visual indent
+.\antivirus.py:1513:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1514:27: E128 continuation line under-indented for visual indent
+.\antivirus.py:1514:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:1515:27: E128 continuation line under-indented for visual indent
+.\antivirus.py:1515:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:1516:27: E128 continuation line under-indented for visual indent
+.\antivirus.py:1516:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:1521:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1528:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:1530:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1531:80: E501 line too long (111 > 79 characters)
+.\antivirus.py:1543:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1550:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:1556:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1557:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:1570:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:1573:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1582:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:1585:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1601:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1604:5: E303 too many blank lines (2)
+.\antivirus.py:1606:80: E501 line too long (137 > 79 characters)
+.\antivirus.py:1607:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:1618:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:1619:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:1625:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:1626:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:1632:80: E501 line too long (130 > 79 characters)
+.\antivirus.py:1633:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1636:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1642:80: E501 line too long (111 > 79 characters)
+.\antivirus.py:1651:80: E501 line too long (139 > 79 characters)
+.\antivirus.py:1652:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:1665:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1720:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:1731:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:1750:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1753:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:1754:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:1761:5: E303 too many blank lines (2)
+.\antivirus.py:1763:80: E501 line too long (127 > 79 characters)
+.\antivirus.py:1764:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1767:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1786:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:1801:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:1812:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:1815:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:1825:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:1832:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:1839:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:1840:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:1846:80: E501 line too long (127 > 79 characters)
+.\antivirus.py:1847:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1850:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:1856:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:1866:80: E501 line too long (126 > 79 characters)
+.\antivirus.py:1881:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1885:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:1891:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:1898:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1902:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1907:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1909:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:1933:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:1939:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:1942:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:1993:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:2000:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2005:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2018:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2035:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:2040:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2041:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:2049:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:2052:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:2064:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2065:80: E501 line too long (81 > 79 characters)
 .\antivirus.py:2066:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2079:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:2095:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:2103:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:2108:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:2128:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2130:1: W293 blank line contains whitespace
-.\antivirus.py:2133:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:2134:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:2134:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:2141:1: W293 blank line contains whitespace
-.\antivirus.py:2144:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:2145:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:2145:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:2152:1: W293 blank line contains whitespace
-.\antivirus.py:2155:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:2156:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:2156:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:2157:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:2157:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:2164:1: W293 blank line contains whitespace
-.\antivirus.py:2167:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:2168:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:2175:1: W293 blank line contains whitespace
-.\antivirus.py:2185:1: W293 blank line contains whitespace
-.\antivirus.py:2186:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:2189:1: W293 blank line contains whitespace
-.\antivirus.py:2203:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:2214:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:2224:80: E501 line too long (110 > 79 characters)
-.\antivirus.py:2315:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:2325:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:2343:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:2359:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2362:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:2373:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:2378:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2381:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:2384:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:2385:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:2393:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:2411:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:2421:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:2438:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:2491:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2526:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:2543:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:2557:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:2590:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:2619:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:2620:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:2630:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:2638:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:2639:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:2640:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:2646:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:2651:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:2655:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:2656:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:2661:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:2663:80: E501 line too long (141 > 79 characters)
-.\antivirus.py:2666:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:2668:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:2670:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:2674:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:2676:80: E501 line too long (151 > 79 characters)
-.\antivirus.py:2683:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:2686:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:2694:9: E303 too many blank lines (2)
-.\antivirus.py:2701:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:2705:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:2711:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:2715:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:2718:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:2724:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:2728:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:2729:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:2733:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2735:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:2739:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2741:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2744:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:2746:80: E501 line too long (140 > 79 characters)
-.\antivirus.py:2753:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:2756:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:2779:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:2785:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2804:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:2807:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:2812:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2829:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:2832:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:2837:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2854:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:2857:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2082:80: E501 line too long (148 > 79 characters)
+.\antivirus.py:2087:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:2088:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:2100:80: E501 line too long (135 > 79 characters)
+.\antivirus.py:2103:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:2111:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2116:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:2129:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:2145:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:2153:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:2158:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2178:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2180:1: W293 blank line contains whitespace
+.\antivirus.py:2183:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:2184:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:2184:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:2191:1: W293 blank line contains whitespace
+.\antivirus.py:2194:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:2195:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:2195:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:2202:1: W293 blank line contains whitespace
+.\antivirus.py:2205:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:2206:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:2206:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:2207:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:2207:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:2214:1: W293 blank line contains whitespace
+.\antivirus.py:2217:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:2218:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:2225:1: W293 blank line contains whitespace
+.\antivirus.py:2235:1: W293 blank line contains whitespace
+.\antivirus.py:2236:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2239:1: W293 blank line contains whitespace
+.\antivirus.py:2253:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:2264:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:2274:80: E501 line too long (110 > 79 characters)
+.\antivirus.py:2365:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:2375:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:2393:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:2409:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:2412:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:2423:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:2428:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:2431:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:2434:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:2435:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:2443:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:2461:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:2471:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:2488:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:2541:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2576:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2593:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:2607:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2640:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:2669:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:2670:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:2680:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:2688:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:2689:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:2690:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:2696:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:2701:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:2705:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2706:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:2711:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:2713:80: E501 line too long (141 > 79 characters)
+.\antivirus.py:2716:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:2718:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:2720:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:2724:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:2726:80: E501 line too long (151 > 79 characters)
+.\antivirus.py:2733:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:2736:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:2744:9: E303 too many blank lines (2)
+.\antivirus.py:2751:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:2755:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:2761:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:2765:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:2768:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:2774:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:2778:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:2779:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:2783:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2785:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:2789:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:2791:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2794:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:2796:80: E501 line too long (140 > 79 characters)
+.\antivirus.py:2803:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:2806:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:2829:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:2835:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2854:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:2857:80: E501 line too long (91 > 79 characters)
 .\antivirus.py:2862:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:2882:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:2894:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:2897:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:2903:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:2914:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:2922:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:2933:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:2942:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:2944:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:2947:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:2986:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:3033:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:3035:25: E221 multiple spaces before operator
-.\antivirus.py:3036:21: E221 multiple spaces before operator
-.\antivirus.py:3037:19: E221 multiple spaces before operator
-.\antivirus.py:3038:23: E221 multiple spaces before operator
-.\antivirus.py:3047:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3055:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:3060:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3068:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3086:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:3120:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3139:9: E221 multiple spaces before operator
-.\antivirus.py:3142:16: E221 multiple spaces before operator
-.\antivirus.py:3183:15: E221 multiple spaces before operator
-.\antivirus.py:3194:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:3220:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3224:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3226:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:3227:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:3234:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:3242:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:3245:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:3247:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:3250:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:3253:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3282:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:3292:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3298:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:3305:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:3309:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:3315:80: E501 line too long (123 > 79 characters)
-.\antivirus.py:3325:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:3333:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3372:5: E303 too many blank lines (2)
-.\antivirus.py:3407:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:3417:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:3455:34: E128 continuation line under-indented for visual indent
-.\antivirus.py:3455:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3462:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3466:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:3478:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:3487:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:3494:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3519:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:3571:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:3585:80: E501 line too long (120 > 79 characters)
-.\antivirus.py:3591:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:3602:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:3608:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3619:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:3630:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3631:80: E501 line too long (139 > 79 characters)
-.\antivirus.py:3633:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:3640:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:3641:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:3652:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:3653:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:3675:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:3681:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3693:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:3704:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3705:80: E501 line too long (137 > 79 characters)
-.\antivirus.py:3707:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:3714:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:3715:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:3726:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:3727:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:3743:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3750:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:3761:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3765:80: E501 line too long (127 > 79 characters)
-.\antivirus.py:3768:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:3771:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:3775:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:3781:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:3783:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:3786:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:3787:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:3788:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:3797:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3809:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:3812:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:3816:80: E501 line too long (120 > 79 characters)
-.\antivirus.py:3826:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3845:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3858:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:3862:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:3864:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:3888:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3896:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3904:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:3918:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:3923:80: E501 line too long (120 > 79 characters)
-.\antivirus.py:3931:80: E501 line too long (125 > 79 characters)
-.\antivirus.py:3934:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:3936:80: E501 line too long (110 > 79 characters)
-.\antivirus.py:3938:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:3947:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:3950:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3960:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:3963:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:3965:80: E501 line too long (143 > 79 characters)
-.\antivirus.py:3966:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:3975:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:3977:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:3978:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:3981:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:3982:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:3994:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:3995:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:4001:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:4012:80: E501 line too long (110 > 79 characters)
-.\antivirus.py:4017:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:4021:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:4025:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:4036:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:4041:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4052:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4056:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4058:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:4060:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4063:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:4069:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4076:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:4078:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:4082:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4103:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4123:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:4126:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:4136:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4144:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4150:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4168:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4183:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4213:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:4222:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:4230:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:4297:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4300:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:4303:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:4306:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:4316:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:4325:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:4335:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:4345:80: E501 line too long (165 > 79 characters)
-.\antivirus.py:4352:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4352:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:4376:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4393:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4403:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:4410:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:4410:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:4413:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4420:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:4444:1: W293 blank line contains whitespace
-.\antivirus.py:4447:34: W291 trailing whitespace
-.\antivirus.py:4473:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:4479:1: E305 expected 2 blank lines after class or function definition, found 1
-.\antivirus.py:4479:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:4482:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4494:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4495:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:4505:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:4511:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4518:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:4522:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:4531:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:4535:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:4539:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:4566:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:4575:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:4577:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4581:80: E501 line too long (136 > 79 characters)
-.\antivirus.py:4593:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:4603:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:4605:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:4614:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:4618:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:4628:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:4630:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:4632:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:4644:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:4654:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:4656:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:4658:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:4670:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:4680:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4682:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:4684:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:4705:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:4709:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:4712:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4722:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4724:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:4729:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4731:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:4774:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:4780:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:4796:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:4814:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:4825:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:4851:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:4863:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:4871:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4883:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:4888:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:4891:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:4902:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2879:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:2882:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2887:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2904:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:2907:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2912:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:2932:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:2944:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:2947:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:2953:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:2964:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:2972:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:2983:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2992:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:2994:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:2997:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:3036:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:3083:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:3085:25: E221 multiple spaces before operator
+.\antivirus.py:3086:21: E221 multiple spaces before operator
+.\antivirus.py:3087:19: E221 multiple spaces before operator
+.\antivirus.py:3088:23: E221 multiple spaces before operator
+.\antivirus.py:3097:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3105:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:3110:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3118:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3136:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:3170:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3189:9: E221 multiple spaces before operator
+.\antivirus.py:3192:16: E221 multiple spaces before operator
+.\antivirus.py:3233:15: E221 multiple spaces before operator
+.\antivirus.py:3244:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:3270:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3274:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3276:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:3277:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:3284:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:3292:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:3295:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:3297:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:3300:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:3303:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3332:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:3342:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3348:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:3355:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:3359:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:3365:80: E501 line too long (123 > 79 characters)
+.\antivirus.py:3375:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:3383:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3422:5: E303 too many blank lines (2)
+.\antivirus.py:3457:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:3467:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:3505:34: E128 continuation line under-indented for visual indent
+.\antivirus.py:3505:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3512:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3516:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:3528:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:3537:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:3544:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3569:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:3621:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:3635:80: E501 line too long (120 > 79 characters)
+.\antivirus.py:3641:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:3652:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:3658:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3669:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:3680:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3681:80: E501 line too long (139 > 79 characters)
+.\antivirus.py:3683:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:3690:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:3691:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:3702:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:3703:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:3725:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:3731:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3743:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:3754:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3755:80: E501 line too long (137 > 79 characters)
+.\antivirus.py:3757:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:3764:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:3765:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:3776:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:3777:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:3793:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3800:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:3811:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3815:80: E501 line too long (127 > 79 characters)
+.\antivirus.py:3818:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:3821:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:3825:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:3831:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:3833:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:3836:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:3837:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:3838:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:3847:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3859:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:3862:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:3866:80: E501 line too long (120 > 79 characters)
+.\antivirus.py:3876:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3895:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3908:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:3912:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:3914:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:3938:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3946:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:3954:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:3968:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:3973:80: E501 line too long (120 > 79 characters)
+.\antivirus.py:3981:80: E501 line too long (125 > 79 characters)
+.\antivirus.py:3984:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:3986:80: E501 line too long (110 > 79 characters)
+.\antivirus.py:3988:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:3997:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:4000:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4010:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:4013:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:4015:80: E501 line too long (143 > 79 characters)
+.\antivirus.py:4016:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:4025:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:4027:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4028:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:4031:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:4032:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4044:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:4045:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:4051:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:4062:80: E501 line too long (110 > 79 characters)
+.\antivirus.py:4067:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:4071:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:4075:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:4086:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:4091:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4102:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4106:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4108:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:4110:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4113:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:4119:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4126:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:4128:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:4132:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4153:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4173:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:4176:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:4186:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4194:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4200:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4218:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4233:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4263:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:4272:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:4280:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:4347:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4350:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:4353:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:4356:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:4366:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:4375:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:4385:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:4395:80: E501 line too long (165 > 79 characters)
+.\antivirus.py:4402:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4402:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:4426:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4443:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4453:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:4460:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:4460:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:4463:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4470:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:4494:1: W293 blank line contains whitespace
+.\antivirus.py:4497:34: W291 trailing whitespace
+.\antivirus.py:4523:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:4529:1: E305 expected 2 blank lines after class or function definition, found 1
+.\antivirus.py:4529:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:4532:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4544:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4545:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:4555:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:4561:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4568:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:4572:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:4581:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:4585:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:4589:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:4616:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:4625:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:4627:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4631:80: E501 line too long (136 > 79 characters)
+.\antivirus.py:4643:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:4653:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:4655:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:4664:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:4668:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:4678:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:4680:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:4682:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:4694:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:4704:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:4706:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:4708:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:4720:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:4730:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4732:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:4734:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:4755:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:4759:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:4762:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4772:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4774:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:4779:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4781:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:4824:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:4830:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:4846:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:4864:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:4875:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:4901:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:4913:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:4921:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:4933:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:5010:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5013:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:5016:21: E741 ambiguous variable name 'l'
-.\antivirus.py:5021:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:5029:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:5033:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:5035:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:5039:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:5043:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:5045:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5087:13: E741 ambiguous variable name 'l'
-.\antivirus.py:5097:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:5099:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5101:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5123:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5143:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:5160:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5162:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5165:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5173:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5178:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:5183:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:5186:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:5187:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:5191:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5199:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5208:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:5213:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:5219:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5240:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:5250:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:5260:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:5270:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:5274:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5279:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5280:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:5288:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5291:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5304:9: E722 do not use bare 'except'
-.\antivirus.py:5312:9: E722 do not use bare 'except'
-.\antivirus.py:5327:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5349:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:5378:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:5382:9: E722 do not use bare 'except'
-.\antivirus.py:5387:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:5431:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:5438:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:5447:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:5482:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:5489:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5526:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5536:20: E712 comparison to True should be 'if cond is True:' or 'if cond:'
-.\antivirus.py:5556:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:5564:13: E722 do not use bare 'except'
-.\antivirus.py:5565:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:5571:16: E721 do not compare types, for exact checks use `is` / `is not`, for instance checks use `isinstance()`
-.\antivirus.py:5580:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5582:17: E722 do not use bare 'except'
-.\antivirus.py:5586:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:5601:17: E722 do not use bare 'except'
-.\antivirus.py:5610:21: E722 do not use bare 'except'
-.\antivirus.py:5616:25: E722 do not use bare 'except'
-.\antivirus.py:5617:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:5618:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5665:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5674:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:5684:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:5688:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5693:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:5700:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:5714:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5725:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:5747:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:5750:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5751:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5755:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5769:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5769:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5803:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5804:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5805:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:5806:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:5808:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5816:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:5821:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:5822:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:5829:80: E501 line too long (147 > 79 characters)
-.\antivirus.py:5840:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5847:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5855:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5856:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5864:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:5866:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:5883:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:5896:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5903:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:5909:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:5916:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:5919:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5939:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:5974:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:5976:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6003:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6012:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6014:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:6016:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:6023:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6032:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6034:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6040:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6052:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:6054:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6055:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6063:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6069:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:6072:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6075:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:6082:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6086:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6090:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:6093:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6129:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6156:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6192:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:6213:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6215:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6235:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6237:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6264:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6265:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:6277:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6302:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6304:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6325:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6330:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6356:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6388:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6398:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6402:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6434:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6460:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:6484:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:6487:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6487:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6498:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6500:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:6501:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6502:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:6511:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6512:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6538:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6543:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:6585:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6590:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:6592:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6606:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6609:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6623:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:6624:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6631:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6632:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:6633:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6636:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6653:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:6655:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:6660:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:6668:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6679:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6681:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6685:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:6688:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:6695:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:6699:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6702:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:6707:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6709:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:6710:80: E501 line too long (129 > 79 characters)
-.\antivirus.py:6717:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:6721:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6727:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:6728:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6732:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6738:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:6752:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:6763:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6765:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:6775:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:6786:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6791:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6799:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6821:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6830:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6832:80: E501 line too long (133 > 79 characters)
-.\antivirus.py:6841:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:6848:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:6850:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:6851:80: E501 line too long (124 > 79 characters)
-.\antivirus.py:6855:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:6857:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6858:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:6860:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6865:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:6872:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6875:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6879:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6886:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:6894:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6897:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:6899:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:6902:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:6905:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:6909:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:6915:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:6917:80: E501 line too long (123 > 79 characters)
-.\antivirus.py:6918:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:6932:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6939:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:6943:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6948:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:6950:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:6960:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:6961:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:6964:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:6971:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6996:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:6996:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:7036:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7036:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:7058:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:7081:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:7083:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:7102:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:7135:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:7137:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:7158:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:7168:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:7174:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7210:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:7214:80: E501 line too long (123 > 79 characters)
-.\antivirus.py:7217:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:7222:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7237:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:7259:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:4938:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:4941:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4952:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:4983:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:5060:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5063:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:5066:21: E741 ambiguous variable name 'l'
+.\antivirus.py:5071:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:5079:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:5083:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:5085:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:5089:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:5093:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:5095:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:5137:13: E741 ambiguous variable name 'l'
+.\antivirus.py:5147:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:5149:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5151:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5173:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5193:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:5210:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5212:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5215:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5223:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:5228:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:5233:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:5236:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:5237:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:5241:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5249:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5258:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:5263:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:5269:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5290:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:5300:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:5310:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:5320:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:5324:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5329:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5330:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:5338:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5341:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5354:9: E722 do not use bare 'except'
+.\antivirus.py:5362:9: E722 do not use bare 'except'
+.\antivirus.py:5377:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5399:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:5428:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:5432:9: E722 do not use bare 'except'
+.\antivirus.py:5437:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:5481:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:5488:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:5497:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:5532:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:5539:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5576:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5586:20: E712 comparison to True should be 'if cond is True:' or 'if cond:'
+.\antivirus.py:5606:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:5614:13: E722 do not use bare 'except'
+.\antivirus.py:5615:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:5621:16: E721 do not compare types, for exact checks use `is` / `is not`, for instance checks use `isinstance()`
+.\antivirus.py:5630:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5632:17: E722 do not use bare 'except'
+.\antivirus.py:5636:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:5651:17: E722 do not use bare 'except'
+.\antivirus.py:5660:21: E722 do not use bare 'except'
+.\antivirus.py:5666:25: E722 do not use bare 'except'
+.\antivirus.py:5667:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:5668:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:5715:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5724:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:5734:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:5738:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5743:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:5750:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:5764:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5775:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:5797:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:5800:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5801:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:5805:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5819:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5819:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:5853:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5854:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5855:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:5856:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:5858:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5866:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:5871:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:5872:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:5879:80: E501 line too long (147 > 79 characters)
+.\antivirus.py:5890:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5897:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5905:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5906:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5914:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:5916:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:5933:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:5946:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5953:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:5959:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:5966:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:5969:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:5989:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6024:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6026:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6053:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6062:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6064:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:6066:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:6073:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:6082:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6084:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6090:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6102:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:6104:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6105:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6113:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6119:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:6122:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6125:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:6132:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6136:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6140:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:6143:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6179:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6206:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6242:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:6263:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6265:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6285:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6287:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6314:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6315:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:6327:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6352:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6354:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6375:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6380:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6406:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6438:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6448:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6452:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6484:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6510:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:6534:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:6537:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6537:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6548:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6550:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:6551:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6552:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:6561:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:6562:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6588:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6593:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:6635:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6640:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:6642:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6656:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6659:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6673:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:6674:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6681:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6682:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:6683:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:6686:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6703:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:6705:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:6710:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:6718:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6729:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6731:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:6735:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:6738:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:6745:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:6749:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:6752:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:6757:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:6759:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:6760:80: E501 line too long (129 > 79 characters)
+.\antivirus.py:6767:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:6771:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6777:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:6778:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:6782:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6788:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:6802:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:6813:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6815:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:6825:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:6836:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6841:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6849:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:6871:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6880:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6882:80: E501 line too long (133 > 79 characters)
+.\antivirus.py:6891:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:6898:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:6900:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:6901:80: E501 line too long (124 > 79 characters)
+.\antivirus.py:6905:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:6907:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6908:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:6910:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:6915:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:6922:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:6925:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:6929:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:6936:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:6944:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:6947:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:6949:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:6952:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:6955:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:6959:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:6965:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:6967:80: E501 line too long (123 > 79 characters)
+.\antivirus.py:6968:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:6982:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:6989:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:6993:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:6998:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:7000:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:7010:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:7011:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:7014:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:7021:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7046:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7046:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:7086:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7086:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:7108:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:7131:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:7133:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:7152:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:7185:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:7187:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:7208:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:7218:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:7224:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7260:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:7264:80: E501 line too long (123 > 79 characters)
+.\antivirus.py:7267:80: E501 line too long (85 > 79 characters)
 .\antivirus.py:7272:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7309:21: E128 continuation line under-indented for visual indent
-.\antivirus.py:7309:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:7310:17: E124 closing bracket does not match visual indentation
-.\antivirus.py:7321:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7332:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:7334:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:7336:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:7359:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7365:80: E501 line too long (130 > 79 characters)
-.\antivirus.py:7372:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:7391:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:7404:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:7407:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:7413:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:7423:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7477:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:7497:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:7508:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:7518:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:7524:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:7540:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:7546:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:7547:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:7549:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:7578:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:7599:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:7630:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:7667:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7678:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7688:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:7721:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7732:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7735:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7742:48: E502 the backslash is redundant between brackets
-.\antivirus.py:7743:45: E502 the backslash is redundant between brackets
-.\antivirus.py:7752:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7754:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:7763:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:7765:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:7771:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:7774:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:7783:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7785:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:7788:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:7789:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:7790:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:7795:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:7798:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:7801:80: E501 line too long (110 > 79 characters)
-.\antivirus.py:7815:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:7817:80: E501 line too long (134 > 79 characters)
-.\antivirus.py:7843:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:7853:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:7856:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7858:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:7865:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:7869:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:7872:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:7876:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:7885:80: E501 line too long (134 > 79 characters)
-.\antivirus.py:7902:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:7909:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:7912:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7918:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:7919:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:7924:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:7946:80: E501 line too long (125 > 79 characters)
-.\antivirus.py:7958:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:7965:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:7977:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:8015:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:8018:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:8030:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8032:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:8036:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:8039:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8046:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8047:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:8051:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:8054:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:8055:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:8058:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:8065:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8066:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:8071:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:8082:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:8085:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8088:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:8092:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:8107:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8112:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8162:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8170:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:8179:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:8183:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:8186:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8197:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:8211:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8214:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:8215:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8218:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8228:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:8259:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:8265:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:8275:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8281:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:8300:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:8305:80: E501 line too long (130 > 79 characters)
-.\antivirus.py:8323:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:8325:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:8327:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8335:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8338:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:8365:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:8367:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8369:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8382:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:8385:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:8387:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:8396:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8402:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8411:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:8412:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:8434:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:8444:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8450:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8459:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:8483:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:8493:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8509:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:8541:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8559:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8576:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8578:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:8584:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8585:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:8596:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8598:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:8612:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8614:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:8630:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8638:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:8641:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:8647:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:8652:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8660:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:8661:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:8676:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:8692:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:8695:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:8703:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:8705:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:8708:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:8717:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:8720:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:8724:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:8766:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:8824:13: E722 do not use bare 'except'
-.\antivirus.py:8832:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:8838:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:8846:13: E722 do not use bare 'except'
-.\antivirus.py:8862:13: E722 do not use bare 'except'
-.\antivirus.py:8938:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:8947:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:8969:13: E722 do not use bare 'except'
-.\antivirus.py:9023:9: E722 do not use bare 'except'
-.\antivirus.py:9039:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9053:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:9100:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9122:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9127:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9130:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:9141:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9156:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9193:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9194:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9201:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:9203:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:9205:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9212:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9218:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9220:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9222:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9226:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:9236:80: E501 line too long (110 > 79 characters)
-.\antivirus.py:9242:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9243:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9247:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:9255:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:9259:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:9268:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9272:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:9282:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9301:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9317:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9326:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:9330:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:9344:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9346:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:9348:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:7287:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:7309:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:7322:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7359:21: E128 continuation line under-indented for visual indent
+.\antivirus.py:7359:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:7360:17: E124 closing bracket does not match visual indentation
+.\antivirus.py:7371:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7382:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:7384:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:7386:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:7409:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7415:80: E501 line too long (130 > 79 characters)
+.\antivirus.py:7422:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:7441:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:7454:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:7457:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:7463:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:7473:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7527:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:7547:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:7558:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:7568:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:7574:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:7590:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:7596:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:7597:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:7599:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:7628:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:7649:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:7680:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:7717:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7728:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7738:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:7771:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7782:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7785:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7792:48: E502 the backslash is redundant between brackets
+.\antivirus.py:7793:45: E502 the backslash is redundant between brackets
+.\antivirus.py:7802:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7804:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:7813:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:7815:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:7821:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:7824:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:7833:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7835:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:7838:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:7839:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:7840:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:7845:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:7848:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:7851:80: E501 line too long (110 > 79 characters)
+.\antivirus.py:7865:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:7867:80: E501 line too long (134 > 79 characters)
+.\antivirus.py:7893:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:7903:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:7906:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7908:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:7915:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:7919:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:7922:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:7926:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:7935:80: E501 line too long (134 > 79 characters)
+.\antivirus.py:7952:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:7959:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:7962:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:7968:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:7969:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:7974:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:7996:80: E501 line too long (125 > 79 characters)
+.\antivirus.py:8008:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:8015:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8027:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:8065:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:8068:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:8080:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8082:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:8086:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:8089:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8096:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8097:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:8101:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:8104:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:8105:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:8108:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:8115:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8116:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:8121:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:8132:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:8135:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8138:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:8142:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:8157:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8162:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8212:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8220:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:8229:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:8233:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:8236:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8247:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:8261:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8264:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:8265:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8268:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8278:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:8309:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:8315:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:8325:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8331:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:8350:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:8355:80: E501 line too long (130 > 79 characters)
+.\antivirus.py:8373:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:8375:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:8377:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8385:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8388:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:8415:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:8417:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8419:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8432:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:8435:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:8437:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:8446:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8452:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8461:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:8462:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:8484:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:8494:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8500:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8509:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:8533:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:8543:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8559:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:8591:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8609:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8626:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8628:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:8634:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8635:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:8646:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8648:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:8662:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8664:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:8680:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8688:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:8691:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:8697:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:8702:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8710:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:8711:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:8726:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:8742:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:8745:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:8753:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:8755:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:8758:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:8767:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:8770:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:8774:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:8816:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:8874:13: E722 do not use bare 'except'
+.\antivirus.py:8882:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:8888:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:8896:13: E722 do not use bare 'except'
+.\antivirus.py:8912:13: E722 do not use bare 'except'
+.\antivirus.py:8988:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:8997:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9019:13: E722 do not use bare 'except'
+.\antivirus.py:9073:9: E722 do not use bare 'except'
+.\antivirus.py:9089:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9103:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:9150:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9172:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9177:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9180:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:9191:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9206:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9243:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9244:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9251:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:9253:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:9255:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9262:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9268:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9270:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9272:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9276:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:9286:80: E501 line too long (110 > 79 characters)
+.\antivirus.py:9292:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9293:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9297:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:9305:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:9309:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:9318:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9322:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:9332:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9351:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9367:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:9376:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:9398:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:9399:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9400:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9401:1: W293 blank line contains whitespace
-.\antivirus.py:9407:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9450:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9471:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:9479:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:9481:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:9483:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:9490:80: E501 line too long (126 > 79 characters)
-.\antivirus.py:9498:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9503:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9507:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:9512:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:9518:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:9521:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:9523:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9527:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:9528:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:9531:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9538:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:9556:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:9559:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:9566:80: E501 line too long (116 > 79 characters)
-.\antivirus.py:9570:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:9574:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9578:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:9590:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9593:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:9596:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9639:80: E501 line too long (109 > 79 characters)
-.\antivirus.py:9656:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9665:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:9668:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9676:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:9677:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9681:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9682:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9686:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:9687:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9691:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:9692:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9701:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9710:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9713:80: E501 line too long (98 > 79 characters)
-.\antivirus.py:9715:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:9723:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:9734:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9765:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9773:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9776:80: E501 line too long (120 > 79 characters)
-.\antivirus.py:9789:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9792:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9793:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:9803:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:9809:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:9824:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9825:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:9826:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:9831:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:9833:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:9834:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:9834:80: E501 line too long (117 > 79 characters)
-.\antivirus.py:9837:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9840:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:9846:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9848:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9849:36: E128 continuation line under-indented for visual indent
-.\antivirus.py:9849:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9851:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:9853:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9854:36: E128 continuation line under-indented for visual indent
-.\antivirus.py:9854:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9856:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:9861:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9871:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:9873:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:9874:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:9887:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:9890:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:9892:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:9893:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:9894:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:9898:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:9899:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:9904:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:9915:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:9916:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:9916:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:9923:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:9926:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:9927:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:9927:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:9937:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:9938:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:9938:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:9944:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:9945:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9954:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:9958:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:9960:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:9965:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:9966:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:9969:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9971:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:9978:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:9979:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:9992:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:9997:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:9998:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:9999:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10003:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10004:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10009:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10017:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:10018:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:10019:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10020:80: E501 line too long (113 > 79 characters)
-.\antivirus.py:10021:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10021:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10023:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10028:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10031:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:10032:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10032:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10034:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10038:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10047:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:10050:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10053:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:10058:25: E128 continuation line under-indented for visual indent
-.\antivirus.py:10059:25: E128 continuation line under-indented for visual indent
-.\antivirus.py:10076:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:10077:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10080:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:10081:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10082:80: E501 line too long (161 > 79 characters)
-.\antivirus.py:10093:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10096:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10097:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10097:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10099:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10115:17: E128 continuation line under-indented for visual indent
-.\antivirus.py:10138:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10144:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10146:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:10148:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10149:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10149:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10151:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10158:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:10159:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10159:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10161:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10163:80: E501 line too long (130 > 79 characters)
-.\antivirus.py:10165:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:10166:80: E501 line too long (122 > 79 characters)
-.\antivirus.py:10184:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10186:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:10187:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10190:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:10197:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10201:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10203:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10206:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10213:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:10221:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:10222:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10222:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10224:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10231:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10233:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:10234:48: E128 continuation line under-indented for visual indent
-.\antivirus.py:10234:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:10236:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10241:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:10242:80: E501 line too long (125 > 79 characters)
-.\antivirus.py:10243:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10246:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:10247:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10247:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10249:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:10250:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10250:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10252:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10267:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10269:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:10273:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:10274:52: E128 continuation line under-indented for visual indent
-.\antivirus.py:10274:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:10279:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10280:56: E128 continuation line under-indented for visual indent
-.\antivirus.py:10280:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:10282:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10286:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:10287:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:10290:56: E261 at least two spaces before inline comment
-.\antivirus.py:10290:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10291:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10292:52: E128 continuation line under-indented for visual indent
-.\antivirus.py:10292:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10293:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:10294:80: E501 line too long (163 > 79 characters)
-.\antivirus.py:10297:53: E261 at least two spaces before inline comment
-.\antivirus.py:10297:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10298:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10299:52: E128 continuation line under-indented for visual indent
-.\antivirus.py:10299:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10302:80: E501 line too long (99 > 79 characters)
-.\antivirus.py:10305:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10313:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10341:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:10342:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:10344:80: E501 line too long (173 > 79 characters)
-.\antivirus.py:10351:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10353:80: E501 line too long (176 > 79 characters)
-.\antivirus.py:10357:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10361:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10370:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10372:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10390:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:10392:45: E128 continuation line under-indented for visual indent
-.\antivirus.py:10393:45: E128 continuation line under-indented for visual indent
-.\antivirus.py:10394:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10399:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10400:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10406:80: E501 line too long (114 > 79 characters)
-.\antivirus.py:10408:80: E501 line too long (111 > 79 characters)
-.\antivirus.py:10411:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10417:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:10419:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:10420:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10420:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10422:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10426:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:10429:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10430:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10430:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10432:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10442:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10443:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10444:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10444:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10446:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10448:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:10450:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10457:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:10458:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10459:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10459:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10461:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:10466:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:10469:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10471:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10472:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10472:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10474:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10481:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10483:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10503:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10504:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:10505:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10508:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10509:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10509:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:10511:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10515:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:10516:80: E501 line too long (108 > 79 characters)
-.\antivirus.py:10517:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10519:80: E501 line too long (102 > 79 characters)
-.\antivirus.py:10520:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10520:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10522:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10529:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:10530:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10531:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10532:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10535:80: E501 line too long (119 > 79 characters)
-.\antivirus.py:10536:80: E501 line too long (106 > 79 characters)
-.\antivirus.py:10537:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10540:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10541:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10542:80: E501 line too long (94 > 79 characters)
-.\antivirus.py:10546:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10551:80: E501 line too long (87 > 79 characters)
-.\antivirus.py:10555:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10556:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10556:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:10567:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10567:80: E501 line too long (104 > 79 characters)
-.\antivirus.py:10568:25: E124 closing bracket does not match visual indentation
-.\antivirus.py:10572:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10572:80: E501 line too long (111 > 79 characters)
-.\antivirus.py:10573:25: E124 closing bracket does not match visual indentation
-.\antivirus.py:10575:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10577:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:10589:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10594:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:10602:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10606:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10606:80: E501 line too long (125 > 79 characters)
-.\antivirus.py:10607:25: E124 closing bracket does not match visual indentation
-.\antivirus.py:10609:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10611:29: E128 continuation line under-indented for visual indent
-.\antivirus.py:10612:80: E501 line too long (105 > 79 characters)
-.\antivirus.py:10616:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10627:80: E501 line too long (118 > 79 characters)
-.\antivirus.py:10631:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10632:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10632:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10639:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10642:80: E501 line too long (107 > 79 characters)
-.\antivirus.py:10643:40: E128 continuation line under-indented for visual indent
-.\antivirus.py:10643:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10647:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10648:44: E128 continuation line under-indented for visual indent
-.\antivirus.py:10648:80: E501 line too long (93 > 79 characters)
-.\antivirus.py:10650:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10678:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:10682:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:10687:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10690:80: E501 line too long (103 > 79 characters)
-.\antivirus.py:10693:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:10695:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10696:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10697:80: E501 line too long (115 > 79 characters)
-.\antivirus.py:10702:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10703:37: E128 continuation line under-indented for visual indent
-.\antivirus.py:10708:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:10711:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:10727:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:10732:80: E501 line too long (167 > 79 characters)
-.\antivirus.py:10739:80: E501 line too long (137 > 79 characters)
-.\antivirus.py:10741:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:10747:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10750:80: E501 line too long (175 > 79 characters)
-.\antivirus.py:10753:80: E501 line too long (171 > 79 characters)
-.\antivirus.py:10762:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:10770:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10771:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:10772:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:10777:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:10780:33: E128 continuation line under-indented for visual indent
-.\antivirus.py:10781:33: E128 continuation line under-indented for visual indent
-.\antivirus.py:10782:80: E501 line too long (97 > 79 characters)
-.\antivirus.py:10785:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10788:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:10791:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10794:9: E303 too many blank lines (2)
-.\antivirus.py:10795:9: E306 expected 1 blank line before a nested definition, found 0
-.\antivirus.py:10795:80: E501 line too long (112 > 79 characters)
-.\antivirus.py:10797:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10798:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:10803:80: E501 line too long (90 > 79 characters)
-.\antivirus.py:10806:80: E501 line too long (175 > 79 characters)
-.\antivirus.py:10809:80: E501 line too long (171 > 79 characters)
-.\antivirus.py:10813:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:10818:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:10830:80: E501 line too long (160 > 79 characters)
-.\antivirus.py:10834:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10840:80: E501 line too long (101 > 79 characters)
-.\antivirus.py:10843:80: E501 line too long (92 > 79 characters)
-.\antivirus.py:10851:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:10860:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:10863:80: E501 line too long (95 > 79 characters)
-.\antivirus.py:10870:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:10888:80: E501 line too long (100 > 79 characters)
-.\antivirus.py:10916:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:10920:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:10928:17: E265 block comment should start with '# '
-.\antivirus.py:10955:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:10959:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:10964:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:10975:33: W291 trailing whitespace
-.\antivirus.py:10983:33: W291 trailing whitespace
-.\antivirus.py:10988:1: W293 blank line contains whitespace
-.\antivirus.py:10996:1: W293 blank line contains whitespace
-.\antivirus.py:11004:1: W293 blank line contains whitespace
-.\antivirus.py:11006:1: W293 blank line contains whitespace
-.\antivirus.py:11009:1: W293 blank line contains whitespace
-.\antivirus.py:11017:1: W293 blank line contains whitespace
-.\antivirus.py:11021:1: W293 blank line contains whitespace
-.\antivirus.py:11034:1: W293 blank line contains whitespace
-.\antivirus.py:11037:1: W293 blank line contains whitespace
-.\antivirus.py:11040:1: W293 blank line contains whitespace
-.\antivirus.py:11042:80: E501 line too long (83 > 79 characters)
-.\antivirus.py:11044:1: W293 blank line contains whitespace
-.\antivirus.py:11046:80: E501 line too long (86 > 79 characters)
-.\antivirus.py:11050:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11074:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:11076:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:11079:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11080:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:11085:80: E501 line too long (184 > 79 characters)
-.\antivirus.py:11091:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:9380:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:9394:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9396:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:9398:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:9426:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:9448:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:9449:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9450:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:9451:1: W293 blank line contains whitespace
+.\antivirus.py:9457:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9500:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9521:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:9529:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:9531:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:9533:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:9540:80: E501 line too long (126 > 79 characters)
+.\antivirus.py:9548:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9553:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9557:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:9562:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:9568:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:9571:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:9573:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9577:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:9578:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:9581:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9588:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:9606:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:9609:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:9616:80: E501 line too long (116 > 79 characters)
+.\antivirus.py:9620:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:9624:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9628:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:9640:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9643:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:9646:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:9689:80: E501 line too long (109 > 79 characters)
+.\antivirus.py:9706:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9715:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:9718:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9726:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:9727:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9731:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9732:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9736:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:9737:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9741:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:9742:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9751:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:9760:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9763:80: E501 line too long (98 > 79 characters)
+.\antivirus.py:9765:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:9773:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:9784:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9815:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9823:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9826:80: E501 line too long (120 > 79 characters)
+.\antivirus.py:9839:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9842:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9843:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:9853:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:9859:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:9874:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9875:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:9876:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:9881:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:9883:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:9884:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:9884:80: E501 line too long (117 > 79 characters)
+.\antivirus.py:9887:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9890:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:9896:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9898:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9899:36: E128 continuation line under-indented for visual indent
+.\antivirus.py:9899:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9901:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:9903:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:9904:36: E128 continuation line under-indented for visual indent
+.\antivirus.py:9904:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9906:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:9911:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:9921:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:9923:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:9924:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:9937:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:9940:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:9942:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:9943:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:9944:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:9948:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:9949:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:9954:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:9965:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:9966:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:9966:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:9973:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:9976:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:9977:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:9977:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:9987:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:9988:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:9988:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:9994:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:9995:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10004:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:10008:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:10010:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10015:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10016:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:10019:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10021:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10028:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:10029:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10042:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10047:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10048:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10049:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10053:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10054:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10059:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10067:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:10068:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:10069:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10070:80: E501 line too long (113 > 79 characters)
+.\antivirus.py:10071:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10071:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10073:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10078:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10081:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:10082:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10082:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10084:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10088:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10097:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10100:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10103:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:10108:25: E128 continuation line under-indented for visual indent
+.\antivirus.py:10109:25: E128 continuation line under-indented for visual indent
+.\antivirus.py:10126:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:10127:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10130:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:10131:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10132:80: E501 line too long (161 > 79 characters)
+.\antivirus.py:10143:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10146:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10147:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10147:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10149:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10165:17: E128 continuation line under-indented for visual indent
+.\antivirus.py:10188:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10194:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10196:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:10198:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10199:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10199:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10201:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10208:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10209:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10209:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10211:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10213:80: E501 line too long (130 > 79 characters)
+.\antivirus.py:10215:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:10216:80: E501 line too long (122 > 79 characters)
+.\antivirus.py:10234:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10236:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:10237:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10240:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:10247:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10251:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10253:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10256:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10263:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:10271:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:10272:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10272:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10274:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10281:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10283:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:10284:48: E128 continuation line under-indented for visual indent
+.\antivirus.py:10284:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:10286:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10291:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:10292:80: E501 line too long (125 > 79 characters)
+.\antivirus.py:10293:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10296:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:10297:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10297:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10299:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:10300:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10300:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10302:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10317:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10319:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:10323:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:10324:52: E128 continuation line under-indented for visual indent
+.\antivirus.py:10324:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10329:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10330:56: E128 continuation line under-indented for visual indent
+.\antivirus.py:10330:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:10332:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10336:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:10337:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:10340:56: E261 at least two spaces before inline comment
+.\antivirus.py:10340:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10341:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10342:52: E128 continuation line under-indented for visual indent
+.\antivirus.py:10342:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10343:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:10344:80: E501 line too long (163 > 79 characters)
+.\antivirus.py:10347:53: E261 at least two spaces before inline comment
+.\antivirus.py:10347:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10348:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10349:52: E128 continuation line under-indented for visual indent
+.\antivirus.py:10349:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10352:80: E501 line too long (99 > 79 characters)
+.\antivirus.py:10355:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10363:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10391:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:10392:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:10394:80: E501 line too long (173 > 79 characters)
+.\antivirus.py:10401:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10403:80: E501 line too long (176 > 79 characters)
+.\antivirus.py:10407:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10411:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10420:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10422:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10440:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:10442:45: E128 continuation line under-indented for visual indent
+.\antivirus.py:10443:45: E128 continuation line under-indented for visual indent
+.\antivirus.py:10444:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10449:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10450:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10456:80: E501 line too long (114 > 79 characters)
+.\antivirus.py:10458:80: E501 line too long (111 > 79 characters)
+.\antivirus.py:10461:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10467:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10469:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:10470:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10470:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10472:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10476:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:10479:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10480:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10480:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10482:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10492:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10493:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10494:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10494:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10496:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10498:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:10500:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10507:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:10508:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10509:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10509:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10511:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:10516:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:10519:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10521:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10522:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10522:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10524:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10531:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10533:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10553:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10554:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:10555:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10558:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10559:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10559:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:10561:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10565:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:10566:80: E501 line too long (108 > 79 characters)
+.\antivirus.py:10567:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10569:80: E501 line too long (102 > 79 characters)
+.\antivirus.py:10570:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10570:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10572:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10579:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:10580:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10581:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10582:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10585:80: E501 line too long (119 > 79 characters)
+.\antivirus.py:10586:80: E501 line too long (106 > 79 characters)
+.\antivirus.py:10587:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10590:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10591:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10592:80: E501 line too long (94 > 79 characters)
+.\antivirus.py:10596:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10601:80: E501 line too long (87 > 79 characters)
+.\antivirus.py:10605:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10606:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10606:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:10617:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10617:80: E501 line too long (104 > 79 characters)
+.\antivirus.py:10618:25: E124 closing bracket does not match visual indentation
+.\antivirus.py:10622:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10622:80: E501 line too long (111 > 79 characters)
+.\antivirus.py:10623:25: E124 closing bracket does not match visual indentation
+.\antivirus.py:10625:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10627:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:10639:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10644:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:10652:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10656:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10656:80: E501 line too long (125 > 79 characters)
+.\antivirus.py:10657:25: E124 closing bracket does not match visual indentation
+.\antivirus.py:10659:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10661:29: E128 continuation line under-indented for visual indent
+.\antivirus.py:10662:80: E501 line too long (105 > 79 characters)
+.\antivirus.py:10666:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10677:80: E501 line too long (118 > 79 characters)
+.\antivirus.py:10681:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10682:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10682:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10689:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10692:80: E501 line too long (107 > 79 characters)
+.\antivirus.py:10693:40: E128 continuation line under-indented for visual indent
+.\antivirus.py:10693:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10697:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10698:44: E128 continuation line under-indented for visual indent
+.\antivirus.py:10698:80: E501 line too long (93 > 79 characters)
+.\antivirus.py:10700:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10728:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10732:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:10737:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10740:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:10743:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:10745:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10746:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10747:80: E501 line too long (115 > 79 characters)
+.\antivirus.py:10752:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10753:37: E128 continuation line under-indented for visual indent
+.\antivirus.py:10758:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:10761:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:10777:80: E501 line too long (96 > 79 characters)
+.\antivirus.py:10782:80: E501 line too long (167 > 79 characters)
+.\antivirus.py:10789:80: E501 line too long (137 > 79 characters)
+.\antivirus.py:10791:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:10797:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10800:80: E501 line too long (175 > 79 characters)
+.\antivirus.py:10803:80: E501 line too long (171 > 79 characters)
+.\antivirus.py:10812:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10820:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10821:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:10822:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10827:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:10830:33: E128 continuation line under-indented for visual indent
+.\antivirus.py:10831:33: E128 continuation line under-indented for visual indent
+.\antivirus.py:10832:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:10835:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10838:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:10841:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10844:9: E303 too many blank lines (2)
+.\antivirus.py:10845:9: E306 expected 1 blank line before a nested definition, found 0
+.\antivirus.py:10845:80: E501 line too long (112 > 79 characters)
+.\antivirus.py:10847:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10848:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:10853:80: E501 line too long (90 > 79 characters)
+.\antivirus.py:10856:80: E501 line too long (175 > 79 characters)
+.\antivirus.py:10859:80: E501 line too long (171 > 79 characters)
+.\antivirus.py:10863:80: E501 line too long (85 > 79 characters)
+.\antivirus.py:10868:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:10880:80: E501 line too long (160 > 79 characters)
+.\antivirus.py:10884:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10890:80: E501 line too long (101 > 79 characters)
+.\antivirus.py:10893:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:10901:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:10910:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:10913:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:10920:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:10938:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:10966:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:10970:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:10978:17: E265 block comment should start with '# '
+.\antivirus.py:11005:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11009:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11014:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11025:33: W291 trailing whitespace
+.\antivirus.py:11033:33: W291 trailing whitespace
+.\antivirus.py:11038:1: W293 blank line contains whitespace
+.\antivirus.py:11046:1: W293 blank line contains whitespace
+.\antivirus.py:11054:1: W293 blank line contains whitespace
+.\antivirus.py:11056:1: W293 blank line contains whitespace
+.\antivirus.py:11059:1: W293 blank line contains whitespace
+.\antivirus.py:11067:1: W293 blank line contains whitespace
+.\antivirus.py:11071:1: W293 blank line contains whitespace
+.\antivirus.py:11084:1: W293 blank line contains whitespace
+.\antivirus.py:11087:1: W293 blank line contains whitespace
+.\antivirus.py:11090:1: W293 blank line contains whitespace
+.\antivirus.py:11092:80: E501 line too long (83 > 79 characters)
+.\antivirus.py:11094:1: W293 blank line contains whitespace
+.\antivirus.py:11096:80: E501 line too long (86 > 79 characters)
+.\antivirus.py:11100:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11124:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:11126:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:11129:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11130:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:11135:80: E501 line too long (184 > 79 characters)
+.\antivirus.py:11141:80: E501 line too long (92 > 79 characters)
 .\clamav.py:26:1: E305 expected 2 blank lines after class or function definition, found 1
 .\clamav.py:30:1: E302 expected 2 blank lines, found 1
 .\clamav.py:40:1: E305 expected 2 blank lines after class or function definition, found 1
@@ -1787,48 +1792,49 @@
 .\pattern.py:98:80: E501 line too long (87 > 79 characters)
 .\pattern.py:103:80: E501 line too long (148 > 79 characters)
 .\pattern.py:113:80: E501 line too long (82 > 79 characters)
-.\pattern.py:115:80: E501 line too long (89 > 79 characters)
-.\pattern.py:119:1: E302 expected 2 blank lines, found 1
-.\pattern.py:120:80: E501 line too long (87 > 79 characters)
-.\pattern.py:124:80: E501 line too long (84 > 79 characters)
-.\pattern.py:128:1: E302 expected 2 blank lines, found 1
-.\pattern.py:129:80: E501 line too long (87 > 79 characters)
-.\pattern.py:132:80: E501 line too long (92 > 79 characters)
-.\pattern.py:152:80: E501 line too long (104 > 79 characters)
-.\pattern.py:153:80: E501 line too long (104 > 79 characters)
-.\pattern.py:154:80: E501 line too long (109 > 79 characters)
-.\pattern.py:171:80: E501 line too long (87 > 79 characters)
-.\pattern.py:172:80: E501 line too long (83 > 79 characters)
-.\pattern.py:177:80: E501 line too long (82 > 79 characters)
-.\pattern.py:178:80: E501 line too long (82 > 79 characters)
-.\pattern.py:179:80: E501 line too long (82 > 79 characters)
-.\pattern.py:185:80: E501 line too long (89 > 79 characters)
-.\pattern.py:191:1: E302 expected 2 blank lines, found 1
-.\pattern.py:194:80: E501 line too long (86 > 79 characters)
-.\pattern.py:195:80: E501 line too long (84 > 79 characters)
-.\pattern.py:207:80: E501 line too long (101 > 79 characters)
-.\pattern.py:216:80: E501 line too long (80 > 79 characters)
-.\pattern.py:219:80: E501 line too long (112 > 79 characters)
-.\pattern.py:224:80: E501 line too long (102 > 79 characters)
-.\pattern.py:232:80: E501 line too long (135 > 79 characters)
-.\pattern.py:234:80: E501 line too long (135 > 79 characters)
-.\pattern.py:237:80: E501 line too long (86 > 79 characters)
-.\pattern.py:249:80: E501 line too long (101 > 79 characters)
+.\pattern.py:116:80: E501 line too long (89 > 79 characters)
+.\pattern.py:118:80: E501 line too long (101 > 79 characters)
+.\pattern.py:122:1: E302 expected 2 blank lines, found 1
+.\pattern.py:123:80: E501 line too long (87 > 79 characters)
+.\pattern.py:127:80: E501 line too long (84 > 79 characters)
+.\pattern.py:131:1: E302 expected 2 blank lines, found 1
+.\pattern.py:132:80: E501 line too long (87 > 79 characters)
+.\pattern.py:135:80: E501 line too long (92 > 79 characters)
+.\pattern.py:155:80: E501 line too long (104 > 79 characters)
+.\pattern.py:156:80: E501 line too long (104 > 79 characters)
+.\pattern.py:157:80: E501 line too long (109 > 79 characters)
+.\pattern.py:174:80: E501 line too long (87 > 79 characters)
+.\pattern.py:175:80: E501 line too long (83 > 79 characters)
+.\pattern.py:180:80: E501 line too long (82 > 79 characters)
+.\pattern.py:181:80: E501 line too long (82 > 79 characters)
+.\pattern.py:182:80: E501 line too long (82 > 79 characters)
+.\pattern.py:188:80: E501 line too long (89 > 79 characters)
+.\pattern.py:194:1: E302 expected 2 blank lines, found 1
+.\pattern.py:197:80: E501 line too long (86 > 79 characters)
+.\pattern.py:198:80: E501 line too long (84 > 79 characters)
+.\pattern.py:210:80: E501 line too long (101 > 79 characters)
+.\pattern.py:219:80: E501 line too long (80 > 79 characters)
+.\pattern.py:222:80: E501 line too long (112 > 79 characters)
+.\pattern.py:227:80: E501 line too long (102 > 79 characters)
+.\pattern.py:235:80: E501 line too long (135 > 79 characters)
+.\pattern.py:237:80: E501 line too long (135 > 79 characters)
+.\pattern.py:240:80: E501 line too long (86 > 79 characters)
 .\pattern.py:252:80: E501 line too long (101 > 79 characters)
-.\pattern.py:262:80: E501 line too long (101 > 79 characters)
+.\pattern.py:255:80: E501 line too long (101 > 79 characters)
 .\pattern.py:265:80: E501 line too long (101 > 79 characters)
-.\pattern.py:270:80: E501 line too long (93 > 79 characters)
-.\pattern.py:273:80: E501 line too long (90 > 79 characters)
-.\pattern.py:275:80: E501 line too long (82 > 79 characters)
-.\pattern.py:283:80: E501 line too long (109 > 79 characters)
-.\pattern.py:284:80: E501 line too long (81 > 79 characters)
+.\pattern.py:268:80: E501 line too long (101 > 79 characters)
+.\pattern.py:273:80: E501 line too long (93 > 79 characters)
+.\pattern.py:276:80: E501 line too long (90 > 79 characters)
+.\pattern.py:278:80: E501 line too long (82 > 79 characters)
 .\pattern.py:286:80: E501 line too long (109 > 79 characters)
 .\pattern.py:287:80: E501 line too long (81 > 79 characters)
-.\pattern.py:313:80: E501 line too long (84 > 79 characters)
-.\pattern.py:317:80: E501 line too long (94 > 79 characters)
-.\pattern.py:327:80: E501 line too long (132 > 79 characters)
-.\pattern.py:333:80: E501 line too long (87 > 79 characters)
-.\pattern.py:334:80: E501 line too long (107 > 79 characters)
+.\pattern.py:289:80: E501 line too long (109 > 79 characters)
+.\pattern.py:290:80: E501 line too long (81 > 79 characters)
+.\pattern.py:316:80: E501 line too long (84 > 79 characters)
+.\pattern.py:320:80: E501 line too long (94 > 79 characters)
+.\pattern.py:330:80: E501 line too long (132 > 79 characters)
+.\pattern.py:336:80: E501 line too long (87 > 79 characters)
+.\pattern.py:337:80: E501 line too long (107 > 79 characters)
 .\pe_feature_extractor.py:8:1: E302 expected 2 blank lines, found 1
 .\pe_feature_extractor.py:18:80: E501 line too long (80 > 79 characters)
 .\pe_feature_extractor.py:30:80: E501 line too long (89 > 79 characters)
