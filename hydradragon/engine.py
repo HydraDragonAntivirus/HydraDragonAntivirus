@@ -75,30 +75,31 @@ class HydraIconWidget(QWidget):
             logger.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.pixmap and not self.pixmap.isNull():
-            painter.drawPixmap(self.rect(), self.pixmap)
+            with QPainter(self) as painter:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.drawPixmap(self.rect(), self.pixmap)
         else:
-            # Fallback drawing if image is not found
-            primary_color = QColor("#88C0D0")
-            shadow_color = QColor("#4C566A")
-            path = QPainterPath()
-            path.moveTo(0, 20)
-            path.quadTo(15, 0, 30, 20)
-            path.quadTo(15, 10, 0, 20)
-            path.moveTo(5, 15)
-            path.cubicTo(-20, 0, -10, -25, 0, -20)
-            path.quadTo(-5, -18, 5, 15)
-            path.moveTo(25, 15)
-            path.cubicTo(50, 0, 40, -25, 30, -20)
-            path.quadTo(35, -18, 25, 15)
-            path.moveTo(15, 10)
-            path.cubicTo(10, -20, 20, -20, 15, 10)
-            painter.setPen(QPen(primary_color, 3))
-            painter.setBrush(shadow_color)
-            painter.drawPath(path)
-
+            # Fallback drawing
+            with QPainter(self) as painter:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                primary_color = QColor("#88C0D0")
+                shadow_color = QColor("#4C566A")
+                path = QPainterPath()
+                path.moveTo(0, 20)
+                path.quadTo(15, 0, 30, 20)
+                path.quadTo(15, 10, 0, 20)
+                path.moveTo(5, 15)
+                path.cubicTo(-20, 0, -10, -25, 0, -20)
+                path.quadTo(-5, -18, 5, 15)
+                path.moveTo(25, 15)
+                path.cubicTo(50, 0, 40, -25, 30, -20)
+                path.quadTo(35, -18, 25, 15)
+                path.moveTo(15, 10)
+                path.cubicTo(10, -20, 20, -20, 15, 10)
+                painter.setPen(QPen(primary_color, 3))
+                painter.setBrush(shadow_color)
+                painter.drawPath(path)
 
 # --- Custom Shield Widget for Status ---
 class ShieldWidget(QWidget):
@@ -183,57 +184,63 @@ class ShieldWidget(QWidget):
             self.update()
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        side = min(self.width(), self.height())
-        painter.translate(self.width() / 2, self.height() / 2)
-        painter.scale(self._scale_factor, self._scale_factor)
-        painter.scale(side / 220.0, side / 220.0)
+            side = min(self.width(), self.height())
+            painter.translate(self.width() / 2, self.height() / 2)
+            painter.scale(self._scale_factor, self._scale_factor)
+            painter.scale(side / 220.0, side / 220.0)
 
-        # Draw the outer glow
-        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
-        gradient = QRadialGradient(0, 0, 110)
-        glow_color.setAlphaF(self._glow_opacity)
-        gradient.setColorAt(0.5, glow_color)
-        glow_color.setAlphaF(0)
-        gradient.setColorAt(1.0, glow_color)
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(-110, -110, 220, 220)
+            # Outer glow
+            glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
+            gradient = QRadialGradient(0, 0, 110)
+            glow_color.setAlphaF(self._glow_opacity)
+            gradient.setColorAt(0.5, glow_color)
+            glow_color.setAlphaF(0)
+            gradient.setColorAt(1.0, glow_color)
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(-110, -110, 220, 220)
 
-        # Draw the main shield shape
-        path = QPainterPath()
-        path.moveTo(0, -90)
-        path.cubicTo(80, -80, 80, 0, 80, 0)
-        path.lineTo(80, 40)
-        path.quadTo(80, 90, 0, 100)
-        path.quadTo(-80, 90, -80, 40)
-        path.lineTo(-80, 0)
-        path.cubicTo(-80, -80, 0, -90, 0, -90)
+            # Shield shape
+            path = QPainterPath()
+            path.moveTo(0, -90)
+            path.cubicTo(80, -80, 80, 0, 80, 0)
+            path.lineTo(80, 40)
+            path.quadTo(80, 90, 0, 100)
+            path.quadTo(-80, 90, -80, 40)
+            path.lineTo(-80, 0)
+            path.cubicTo(-80, -80, 0, -90, 0, -90)
 
-        # Fill shield with a gradient
-        shield_gradient = QLinearGradient(0, -90, 0, 100)
-        shield_gradient.setColorAt(0, QColor("#434C5E"))
-        shield_gradient.setColorAt(1, QColor("#3B4252"))
-        painter.fillPath(path, QBrush(shield_gradient))
+            shield_gradient = QLinearGradient(0, -90, 0, 100)
+            shield_gradient.setColorAt(0, QColor("#434C5E"))
+            shield_gradient.setColorAt(1, QColor("#3B4252"))
+            painter.fillPath(path, QBrush(shield_gradient))
 
-        progress = self._check_progress
+            progress = self._check_progress
 
-        # Draw the correct icon based on protection status
-        if self.is_protected:
-            # Draw the user's PNG inside the shield if protected and available
-            if self.hydra_pixmap and not self.hydra_pixmap.isNull():
-                painter.setOpacity(progress)
-                # Define the rectangle to draw the pixmap in
-                pixmap_rect = QRect(-75, -85, 150, 150)
-                painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
-                painter.setOpacity(1.0) # Reset opacity
-        else:
-            # Draw the cross for the 'unprotected' status
-            painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(int(-35 * progress), int(-35 * progress), int(35 * progress), int(35 * progress))
-            painter.drawLine(int(35 * progress), int(-35 * progress), int(-35 * progress), int(35 * progress))
+            # Draw status icon
+            if self.is_protected:
+                if self.hydra_pixmap and not self.hydra_pixmap.isNull():
+                    painter.setOpacity(progress)
+                    pixmap_rect = QRect(-75, -85, 150, 150)
+                    painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
+                    painter.setOpacity(1.0)
+            else:
+                painter.setPen(
+                    QPen(
+                        QColor("white"),
+                        14,
+                        Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap,
+                        Qt.PenJoinStyle.RoundJoin,
+                    )
+                )
+                painter.drawLine(int(-35 * progress), int(-35 * progress),
+                                int(35 * progress), int(35 * progress))
+                painter.drawLine(int(35 * progress), int(-35 * progress),
+                                int(-35 * progress), int(35 * progress))
 
 class AntivirusApp(QWidget):
     # Signals for safe cross-thread UI marshalling
