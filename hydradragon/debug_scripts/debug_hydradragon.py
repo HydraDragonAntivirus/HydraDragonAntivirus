@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Launcher that starts operation tracing BEFORE importing/running HydraDragon.
+Async Launcher that starts operation tracing BEFORE importing/running HydraDragon.
 Ensures `operation_tracer.py` is imported and active early.
 """
 
+import asyncio
 import threading
 import sys
 import time
@@ -25,44 +26,61 @@ except Exception as e:
 
 # --- Simple thread monitor (Optional, can be noisy with tracing) ---
 if ENABLE_THREAD_MONITOR:
-    def monitor_threads():
+    async def monitor_threads_async():
         try:
             while True:
-                time.sleep(THREAD_MONITOR_INTERVAL)
+                await asyncio.sleep(THREAD_MONITOR_INTERVAL)
                 threads = threading.enumerate()
                 print(f"[Thread Monitor @ {time.time():.2f}] Active threads: {len(threads)}")
+        except asyncio.CancelledError:
+            print("[Thread Monitor] Cancelled.")
+            raise
         except Exception:
             print("[Thread Monitor] Error in monitor loop:", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
 
-    monitor_thread = threading.Thread(target=monitor_threads, daemon=True, name="ThreadMonitor")
-    monitor_thread.start()
-    print("[Launcher] Thread monitor started.")
+    print("[Launcher] Thread monitor will be started.")
 else:
     print("[Launcher] Thread monitor is disabled.")
 
 # --- Cleanup function (ensures tracing is stopped) ---
 _cleanup_called = False
-def _cleanup():
+async def _cleanup_async():
     global _cleanup_called
     if _cleanup_called:
         return
     _cleanup_called = True
     print("[Launcher] Cleaning up: stopping tracers...")
     try:
-        operation_tracer.stop_global_tracing()
+        # Run blocking cleanup in thread to avoid blocking event loop
+        await asyncio.to_thread(operation_tracer.stop_global_tracing)
     except Exception:
         print("[Launcher] Error stopping operation tracer:", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
     print("[Launcher] Cleanup finished.")
 
-atexit.register(_cleanup)
+def _cleanup_sync():
+    """Synchronous cleanup for atexit (fallback)"""
+    global _cleanup_called
+    if _cleanup_called:
+        return
+    _cleanup_called = True
+    print("[Launcher] Sync cleanup: stopping tracers...")
+    try:
+        operation_tracer.stop_global_tracing()
+    except Exception:
+        print("[Launcher] Error stopping operation tracer:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+    print("[Launcher] Sync cleanup finished.")
 
-# --- Signal handling ---
+atexit.register(_cleanup_sync)
+
+# --- Signal handling (async-aware) ---
+_shutdown_event = asyncio.Event()
+
 def _signal_handler(sig, frame):
-    print(f"[Launcher] Signal {sig} received, initiating cleanup and exit...")
-    _cleanup()
-    sys.exit(1 if sig == signal.SIGTERM else 0)
+    print(f"\n[Launcher] Signal {sig} received, initiating async cleanup and exit...")
+    _shutdown_event.set()
 
 signal.signal(signal.SIGINT, _signal_handler)
 try:
@@ -70,25 +88,56 @@ try:
 except AttributeError:
     pass  # SIGTERM not available on Windows
 
-# --- Run HydraDragon main ---
-if __name__ == "__main__":
+# --- Main async function ---
+async def async_main():
+    """Main async entry point for the launcher."""
     main_app_started = False
+    monitor_task = None
+    hydra_task = None
+    
     try:
         # Start tracing BEFORE importing the main app
         print("[Launcher] Starting global operation tracing...")
-        operation_tracer.start_global_tracing()
-        time.sleep(0.1)  # Allow tracer to attach
+        await asyncio.to_thread(operation_tracer.start_global_tracing)
+        await asyncio.sleep(0.1)  # Allow tracer to attach
+
+        # Start thread monitor if enabled
+        if ENABLE_THREAD_MONITOR:
+            monitor_task = asyncio.create_task(monitor_threads_async())
+            print("[Launcher] Thread monitor task started.")
 
         # Import HydraDragon main after tracing is active
         print("[Launcher] Importing hydradragon.engine.main...")
         from hydradragon.engine import main as hydra_main
         print("[Launcher] Import successful.")
+        
         # Run the main application
         print("[Launcher] --- Starting HydraDragon main() ---")
         main_app_started = True
-        hydra_main()
-        print("[Launcher] --- HydraDragon main() returned normally ---")
+        
+        # Run main app with shutdown monitoring
+        hydra_task = asyncio.create_task(hydra_main())
+        
+        # Wait for either the app to finish or shutdown signal
+        done, pending = await asyncio.wait(
+            [hydra_task, asyncio.create_task(_shutdown_event.wait())],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        if _shutdown_event.is_set():
+            print("[Launcher] Shutdown signal received, cancelling main app...")
+            if hydra_task and not hydra_task.done():
+                hydra_task.cancel()
+                try:
+                    await hydra_task
+                except asyncio.CancelledError:
+                    print("[Launcher] Main app task cancelled successfully.")
+        else:
+            print("[Launcher] --- HydraDragon main() returned normally ---")
 
+    except asyncio.CancelledError:
+        print("\n[Launcher] Main launcher task cancelled.")
+        raise
     except KeyboardInterrupt:
         print("\n[Launcher] KeyboardInterrupt received during main execution.")
     except SystemExit as e:
@@ -98,12 +147,35 @@ if __name__ == "__main__":
         print(f"[Launcher] CRITICAL ERROR: Exception raised from hydra_main(): {type(e).__name__}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         print("[Launcher] Keeping tracer active for 10 seconds post-crash...", file=sys.stderr)
-        time.sleep(10)
+        await asyncio.sleep(10)
         sys.exit(1)
     finally:
+        # Cancel monitor task if running
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+        
         if main_app_started:
             print("[Launcher] Main execution finished or interrupted. Running cleanup...")
         else:
             print("[Launcher] Exiting before main app started. Running cleanup...")
-        _cleanup()
+        
+        await _cleanup_async()
         print("[Launcher] Exit.")
+
+# --- Run the async main ---
+if __name__ == "__main__":
+    try:
+        print("[Launcher] Starting async launcher...")
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        print("\n[Launcher] KeyboardInterrupt at top level.")
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"[Launcher] Top-level exception: {type(e).__name__}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
