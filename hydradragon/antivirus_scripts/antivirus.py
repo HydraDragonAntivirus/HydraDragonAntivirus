@@ -10187,7 +10187,10 @@ async def scan_and_warn(file_path,
             asyncio.create_task(vmprotect_detection()) # vmprotect_detection now handles its own logic
         ]
         
-        # We don't await all tasks, just the ones we depend on (dotnet_task)
+        # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
+        await asyncio.gather(*analysis_tasks)
+        
+        # We don't await all tasks, just the ones we depend on (dotnet_task) - This was already awaited via gather
 
         # Cache check - CRITICAL PATH
         if initial_md5_in_cache == md5:
@@ -10388,7 +10391,8 @@ async def scan_and_warn(file_path,
                 asyncio.create_task(pyc_thread()),
                 asyncio.create_task(nsis_thread())
             ]
-            # Fire-and-forget
+            # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
+            await asyncio.gather(*binary_tasks)
 
         # ========== PE FILE SPECIFIC PROCESSING ==========
         if pe_file:
@@ -10536,7 +10540,8 @@ async def scan_and_warn(file_path,
                 asyncio.create_task(enigma1_virtual_box_thread()),
                 asyncio.create_task(debloat_thread())
             ]
-            # Fire-and-forget
+            # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
+            await asyncio.gather(*pe_tasks)
 
         # ========== POST-ANALYSIS PROCESSING ==========
 
@@ -10687,7 +10692,8 @@ async def scan_and_warn(file_path,
             asyncio.create_task(nuitka_thread()),
             asyncio.create_task(pyinstaller_thread())
         ]
-        # Fire-and-forget
+        # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
+        await asyncio.gather(*additional_tasks)
 
         # ========== TEXT FILE PROCESSING ==========
         else:
@@ -10870,13 +10876,15 @@ async def scan_and_warn(file_path,
             asyncio.create_task(filename_detection_thread()),
             asyncio.create_task(decompilation_postprocess_thread())
         ]
-        # Fire-and-forget
+        # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
+        await asyncio.gather(*common_tasks)
 
         # ========== CLEANUP AND RETURN ==========
 
         # Note: We don't await all tasks here because many are fire-and-forget
         # operations that don't affect the main scan flow. The function can return
         # while background tasks continue processing.
+        # FIXED: The tasks are now awaited above.
 
         logger.info(f"Main scan completed for {norm_path}, background processing continues...")
         return False  # Scan completed successfully
