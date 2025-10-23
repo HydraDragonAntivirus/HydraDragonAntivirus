@@ -370,6 +370,7 @@ start_time = time.time()
 import win32file
 import win32pipe
 import pywintypes
+import winerror
 logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -10903,39 +10904,46 @@ async def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
 
     while True:
         try:
-            # Create named pipe (blocking creation is OK inside asyncio.to_thread)
+            # Create named pipe
             pipe = await asyncio.to_thread(
                 win32pipe.CreateNamedPipe,
                 pipe_name,
                 win32pipe.PIPE_ACCESS_INBOUND,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT | win32pipe.PIPE_NOWAIT,
+                win32pipe.PIPE_TYPE_MESSAGE
+                | win32pipe.PIPE_READMODE_MESSAGE
+                | win32pipe.PIPE_WAIT
+                | win32pipe.PIPE_NOWAIT,
                 win32pipe.PIPE_UNLIMITED_INSTANCES,
                 65536,
                 65536,
                 0,
-                None
+                None,
             )
 
             logger.info("Monitoring for EDR scan requests...")
 
             while True:
-                # ConnectNamedPipe is blocking, run in thread
                 try:
+                    # Wait for client connection
                     await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
                     logger.debug("EDR connected to AV scan request pipe.")
                     break
+
                 except pywintypes.error as e:
-                    if e.winerror in (pywintypes.ERROR_PIPE_LISTENING,):
+                    # FIX: use correct constant source or fallback
+                    ERROR_PIPE_LISTENING = getattr(winerror, "ERROR_PIPE_LISTENING", 536)
+                    ERROR_PIPE_CONNECTED = getattr(winerror, "ERROR_PIPE_CONNECTED", 535)
+
+                    if e.winerror in (ERROR_PIPE_LISTENING,):
                         await asyncio.sleep(0.1)
                         continue
-                    elif e.winerror == pywintypes.ERROR_PIPE_CONNECTED:
+                    elif e.winerror == ERROR_PIPE_CONNECTED:
                         break
                     else:
                         raise
 
             while True:
                 try:
-                    # PeekNamedPipe in thread
                     peek_result = await asyncio.to_thread(win32pipe.PeekNamedPipe, pipe, 0)
                     bytes_available = peek_result[2]
 
@@ -10958,8 +10966,6 @@ async def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
 
                             if file_path and os.path.isfile(file_path) and not _is_protected_path(file_path):
                                 logger.info(f"Received scan request from EDR for: {file_path}")
-                                # FIX: Use asyncio.create_task to run the async scan_and_warn function
-                                # Do not use asyncio.to_thread for an async function.
                                 asyncio.create_task(scan_and_warn(file_path))
                             else:
                                 logger.debug(f"Skipping invalid/protected path: {file_path}")
@@ -10972,7 +10978,7 @@ async def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
                         await asyncio.sleep(0.1)
 
                 except pywintypes.error as e:
-                    if e.winerror in [pywintypes.ERROR_BROKEN_PIPE, 109, 232]:
+                    if e.winerror in [winerror.ERROR_BROKEN_PIPE, 109, 232]:
                         logger.debug("EDR disconnected while reading/peeking.")
                         if pipe:
                             await asyncio.to_thread(win32file.CloseHandle, pipe)
@@ -10990,10 +10996,12 @@ async def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
             if pipe:
                 try:
                     await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
-                except: pass
+                except:
+                    pass
                 try:
                     await asyncio.to_thread(win32file.CloseHandle, pipe)
-                except: pass
+                except:
+                    pass
                 pipe = None
             await asyncio.sleep(1)
 
