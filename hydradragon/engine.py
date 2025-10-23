@@ -922,7 +922,7 @@ class AntivirusApp(QWidget):
         self.hide()
         self.append_log_output("[*] Application minimized (window hidden)")
 
-def main():
+async def main():
     try:
         app = QApplication(sys.argv)
 
@@ -934,9 +934,8 @@ def main():
         window.show()
 
         # --- Start the event loop ---
-        with loop:
-            logger.info("Starting asyncio event loop...")
-            loop.run_forever()
+        logger.info("Starting asyncio event loop...")
+        await loop.run_forever_async()
 
     except Exception as e:
         logger.critical(f"Critical error during application startup: {e}", exc_info=True)
@@ -957,7 +956,8 @@ if __name__ == "__main__":
         logger.info(f"Log directory: {log_directory}")
         logger.info(f"Working directory: {main_dir}")
 
-        main()
+        # Run the async main function
+        asyncio.run(main())
     except Exception:
         # Log full traceback and exit with non-zero code
         try:

@@ -11107,73 +11107,118 @@ async def load_all_resources_async():
 async def start_real_time_protection_async():
     """
     Start all real-time protection and resource-loading tasks concurrently.
-    Non-blocking: schedules all tasks and returns immediately with a simple success message.
-    Tasks are NOT exposed to the caller (no cancel handle provided).
+    Returns immediately after scheduling all tasks.
     """
 
     def _task_done_cb(task: asyncio.Task, name: str) -> None:
-        """Log any exception from a finished task (binds name to avoid late-binding issues)."""
+        """Log any exception from a finished task."""
         try:
             exc = task.exception()
             if exc:
                 logger.error(f"Task {name} raised an exception: {exc}")
         except asyncio.CancelledError:
-            # we intentionally avoid cancelling, but log if it happens externally
             logger.info(f"Task {name} was cancelled.")
         except Exception as e:
             logger.exception(f"Error retrieving exception for task {name}: {e}")
 
-    async def schedule_single(name: str, func):
-        """Schedule a single callable (sync or async) as a background Task and attach logging."""
+    async def wrap_sync_function(name: str, func):
+        """Wrap a synchronous function to run in a thread."""
         try:
-            if inspect.iscoroutinefunction(func):
-                coro = func()
-                task = asyncio.create_task(coro, name=name)
-                logger.info(f"{name} task scheduled (coroutine)")
-            else:
-                task = asyncio.create_task(asyncio.to_thread(func), name=name)
-                logger.info(f"{name} task scheduled (thread)")
-
-            # bind name to avoid late-binding in lambda
-            task.add_done_callback(lambda t, n=name: _task_done_cb(t, n))
+            logger.info(f"{name} starting in thread...")
+            await asyncio.to_thread(func)
+            logger.info(f"{name} completed.")
         except Exception as e:
-            logger.exception(f"Error scheduling {name}: {e}")
+            logger.exception(f"Error in {name}: {e}")
 
-    # List of protection and resource tasks (callables)
-    protection_tasks = [
-        ("EDRMonitor", _send_scan_request_to_av),
-        ("SuricataMonitor", monitor_suricata_log),
-        ("WebProtection", web_protection_observer.begin_observing),
-        ("PipeListeners", start_all_pipe_listeners),
-        ("ResourceLoader", load_all_resources_async),
-    ]
+    async def wrap_async_function(name: str, coro):
+        """Wrap an async function with error handling."""
+        try:
+            logger.info(f"{name} starting...")
+            await coro
+            logger.info(f"{name} completed.")
+        except Exception as e:
+            logger.exception(f"Error in {name}: {e}")
 
-    # Schedule them without retaining task objects (no cancel capability exposed)
-    for name, func in protection_tasks:
-        # schedule each but do not await the scheduling coroutine — that would be immediate
-        asyncio.create_task(schedule_single(name, func))
+    # Create tasks for all protection components
+    tasks = []
+    
+    # EDR Monitor (async function)
+    task = asyncio.create_task(
+        wrap_async_function("EDRMonitor", _send_scan_request_to_av()),
+        name="EDRMonitor"
+    )
+    tasks.append(task)
+    
+    # Suricata Monitor (sync function)
+    task = asyncio.create_task(
+        wrap_sync_function("SuricataMonitor", monitor_suricata_log),
+        name="SuricataMonitor"
+    )
+    tasks.append(task)
+    
+    # Web Protection (sync function)
+    task = asyncio.create_task(
+        wrap_sync_function("WebProtection", web_protection_observer.begin_observing),
+        name="WebProtection"
+    )
+    tasks.append(task)
+    
+    # Pipe Listeners (sync function)
+    task = asyncio.create_task(
+        wrap_sync_function("PipeListeners", start_all_pipe_listeners),
+        name="PipeListeners"
+    )
+    tasks.append(task)
+    
+    # Resource Loader (async function)
+    task = asyncio.create_task(
+        wrap_async_function("ResourceLoader", load_all_resources_async()),
+        name="ResourceLoader"
+    )
+    tasks.append(task)
 
-    logger.info("All protection and resource tasks launched (non-blocking, no cancel handle exposed).")
-    return "[+] Real-time protection and resources scheduled (tasks are private; no cancel exposed)"
+    # Add done callbacks
+    for task in tasks:
+        task.add_done_callback(lambda t, n=task.get_name(): _task_done_cb(t, n))
+
+    logger.info("All protection and resource tasks launched.")
+    
+    # Don't await tasks - let them run in background
+    return tasks
+
 
 async def run_real_time_protection_async():
     """
-    Async coroutine that starts real-time protection and returns a status message.
+    Async coroutine that starts real-time protection and keeps running.
     """
     try:
-        logger.info("Starting real-time protection with periodic CPU yielding...")
+        logger.info("Starting real-time protection...")
 
-        result_message = await start_real_time_protection_async()
-        return result_message or "[+] Real-time protection scheduled successfully"
-
+        tasks = await start_real_time_protection_async()
+        
+        logger.info("[+] Real-time protection scheduled successfully")
+        
+        # Keep the event loop alive by waiting forever
+        # Tasks will continue running in the background
+        try:
+            await asyncio.Event().wait()  # Wait forever
+        except asyncio.CancelledError:
+            logger.info("Real-time protection cancelled, cleaning up...")
+            # Cancel all tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            # Wait for all tasks to finish cancelling
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        
     except asyncio.CancelledError:
-        logger.info("Real-time protection yield coroutine cancelled.")
-        return "[!] Real-time protection cancelled."
+        logger.info("Real-time protection cancelled.")
+        raise
     except Exception as ex:
-        error_message = f"An error occurred during real-time protection yield: {ex}"
+        error_message = f"An error occurred during real-time protection: {ex}"
         logger.error(error_message, exc_info=True)
-        return f"[!] {error_message}"
-
+        raise
 
 def run_de4dot(file_path):
     """
