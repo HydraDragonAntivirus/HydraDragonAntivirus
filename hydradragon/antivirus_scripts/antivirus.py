@@ -10830,25 +10830,24 @@ def scan_and_warn(file_path,
         logger.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
-def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
+async def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
     """
-    Listens for incoming scan requests FROM the EDR component
-    (OwlyShield EDR logic) and automatically forwards
-    them to HydraDragon Antivirus.
-
-    It does NOT scan directories — only handles incoming file scan
-    requests through the named pipe.
+    Async version: Listens for incoming scan requests FROM the EDR component
+    and forwards them to HydraDragon Antivirus.
+    Non-blocking.
     """
     logger.info(f"Starting EDR -> AV bridge listener on: {pipe_name}")
 
+    pipe = None
+
     while True:
-        pipe = None
         try:
-            # Create the named pipe to RECEIVE scan requests from the EDR
-            pipe = win32pipe.CreateNamedPipe(
+            # Create named pipe (blocking creation is OK inside asyncio.to_thread)
+            pipe = await asyncio.to_thread(
+                win32pipe.CreateNamedPipe,
                 pipe_name,
-                win32pipe.PIPE_ACCESS_INBOUND,  # EDR writes, AV reads
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_ACCESS_INBOUND,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT | win32pipe.PIPE_NOWAIT,
                 win32pipe.PIPE_UNLIMITED_INSTANCES,
                 65536,
                 65536,
@@ -10856,64 +10855,85 @@ def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
                 None
             )
 
-            logger.info("Waiting for EDR scan requests...")
-            win32pipe.ConnectNamedPipe(pipe, None)
-            logger.debug("EDR connected to AV scan request pipe.")
+            logger.info("Monitoring for EDR scan requests...")
 
-            hr, data = win32file.ReadFile(pipe, 4096)
-            if not data:
-                continue
+            while True:
+                # ConnectNamedPipe is blocking, run in thread
+                try:
+                    await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
+                    logger.debug("EDR connected to AV scan request pipe.")
+                    break
+                except pywintypes.error as e:
+                    if e.winerror in (pywintypes.ERROR_PIPE_LISTENING,):
+                        await asyncio.sleep(0.1)
+                        continue
+                    elif e.winerror == pywintypes.ERROR_PIPE_CONNECTED:
+                        break
+                    else:
+                        raise
 
-            logger.debug(f"EDR hr data info: {hr}")
+            while True:
+                try:
+                    # PeekNamedPipe in thread
+                    peek_result = await asyncio.to_thread(win32pipe.PeekNamedPipe, pipe, 0)
+                    bytes_available = peek_result[2]
 
-            try:
-                request_json = data.decode("utf-8", errors="replace")
-                request = json.loads(request_json)
+                    if bytes_available > 0:
+                        hr, data = await asyncio.to_thread(win32file.ReadFile, pipe, bytes_available)
 
-                file_path = request.get("file_path")
-                pid = request.get("pid")
+                        if not data:
+                            await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                            await asyncio.to_thread(win32file.CloseHandle, pipe)
+                            pipe = None
+                            break
 
-                logger.debug(f"PID of the new process: {pid}")
+                        try:
+                            request_json = data.decode("utf-8", errors="replace")
+                            request = json.loads(request_json)
 
-                if not file_path or not os.path.exists(file_path):
-                    logger.warning(f"Invalid or missing file_path from EDR: {file_path}")
-                    continue
+                            file_path = request.get("file_path")
+                            pid = request.get("pid")
+                            logger.debug(f"PID of new process: {pid}")
 
-                if os.path.isdir(file_path):
-                    logger.debug(f"Skipping directory (not a file): {file_path}")
-                    continue
+                            if file_path and os.path.isfile(file_path) and not _is_protected_path(file_path):
+                                logger.info(f"Received scan request from EDR for: {file_path}")
+                                # Run scan in background thread
+                                asyncio.create_task(asyncio.to_thread(scan_and_warn, file_path))
+                            else:
+                                logger.debug(f"Skipping invalid/protected path: {file_path}")
+                        except Exception as e:
+                            logger.error(f"Error processing EDR request: {e}")
 
-                if _is_protected_path(file_path):
-                    logger.debug(f"Skipping protected path: {file_path}")
-                    continue
+                        await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
 
-                logger.info(f"Received scan request from EDR for: {file_path}")
-                #Forward to HydraDragon scan routine
-                scan_and_warn(file_path, main_file_path=None)
+                    else:
+                        await asyncio.sleep(0.1)
 
-            except json.JSONDecodeError:
-                logger.error(f"Invalid JSON from EDR: {data}")
-            except Exception as e:
-                logger.error(f"Error processing EDR request: {e}")
-
-        except pywintypes.error as e:
-            if e.winerror in [109, 232]:  # BROKEN_PIPE or ERROR_NO_DATA
-                logger.debug("EDR disconnected from AV pipe.")
-            else:
-                logger.error(f"Pipe error in EDR -> AV bridge: {e}")
-            time.sleep(0.1)
+                except pywintypes.error as e:
+                    if e.winerror in [pywintypes.ERROR_BROKEN_PIPE, 109, 232]:
+                        logger.debug("EDR disconnected while reading/peeking.")
+                        if pipe:
+                            await asyncio.to_thread(win32file.CloseHandle, pipe)
+                            pipe = None
+                        break
+                    else:
+                        logger.error(f"ReadFile/PeekNamedPipe error: {e}")
+                        if pipe:
+                            await asyncio.to_thread(win32file.CloseHandle, pipe)
+                            pipe = None
+                        break
 
         except Exception as e:
             logger.exception(f"Unexpected error in EDR -> AV bridge: {e}")
-            time.sleep(0.1)
-
-        finally:
             if pipe:
                 try:
-                    win32pipe.DisconnectNamedPipe(pipe)
-                    win32file.CloseHandle(pipe)
-                except Exception:
-                    pass
+                    await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                except: pass
+                try:
+                    await asyncio.to_thread(win32file.CloseHandle, pipe)
+                except: pass
+                pipe = None
+            await asyncio.sleep(1)
 
 async def load_all_resources_async():
     """
@@ -11023,23 +11043,29 @@ async def load_all_resources_async():
 async def start_real_time_protection_async():
     """
     Start all real-time protection and resource-loading tasks concurrently.
-    Non-blocking: returns immediately after scheduling.
+    Non-blocking: returns immediately after scheduling all tasks.
     """
-
-    async def run_in_background(name, func):
-        """Run a sync or async function safely."""
+    async def run_task(name, func):
+        """Run a sync or async function safely as a task."""
         try:
             if inspect.iscoroutinefunction(func):
-                # Schedule coroutine directly
-                asyncio.create_task(func())
+                task = asyncio.create_task(func())
                 logger.info(f"{name} task scheduled (coroutine)")
             else:
-                # Run sync in background thread
-                asyncio.create_task(asyncio.to_thread(func))
+                # Wrap sync functions in asyncio.to_thread
+                task = asyncio.create_task(asyncio.to_thread(func))
                 logger.info(f"{name} task scheduled (thread)")
-        except Exception:
-            logger.exception(f"Error starting {name}")
 
+            # Add error logging for exceptions
+            task.add_done_callback(
+                lambda t: logger.error(f"Task {name} raised an exception: {t.exception()}")
+                if t.exception() else None
+            )
+            return task
+        except Exception as e:
+            logger.exception(f"Error starting {name}: {e}")
+
+    # List of protection and resource tasks
     protection_tasks = [
         ("EDRMonitor", _send_scan_request_to_av),
         ("SuricataMonitor", monitor_suricata_log),
@@ -11048,8 +11074,8 @@ async def start_real_time_protection_async():
         ("ResourceLoader", load_all_resources_async),
     ]
 
-    for name, func in protection_tasks:
-        await run_in_background(name, func)
+    # Schedule all tasks concurrently
+    tasks = [await run_task(name, func) for name, func in protection_tasks]
 
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
     return "[+] Real-time protection and resources scheduled concurrently"
