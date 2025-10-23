@@ -63,7 +63,6 @@ except ImportError as e:
     logger.critical(f"Failed to import notifier: {e}")
     def notify_user_hayabusa_critical(*args, **kwargs): logger.error("Notifier import failed!")
 
-
 # --- Custom Hydra Icon Widget ---
 class HydraIconWidget(QWidget):
     """A custom widget to draw the Hydra Dragon icon."""
@@ -81,6 +80,7 @@ class HydraIconWidget(QWidget):
         if self.pixmap and not self.pixmap.isNull():
             painter.drawPixmap(self.rect(), self.pixmap)
         else:
+            # Fallback drawing if image is not found
             primary_color = QColor("#88C0D0")
             shadow_color = QColor("#4C566A")
             path = QPainterPath()
@@ -99,9 +99,10 @@ class HydraIconWidget(QWidget):
             painter.setBrush(shadow_color)
             painter.drawPath(path)
 
-# --- Advanced Shield Widget with Particle Effects ---
+
+# --- Custom Shield Widget for Status ---
 class ShieldWidget(QWidget):
-    """Enhanced shield widget with advanced animations and particle effects."""
+    """A custom widget to draw an animated status shield with a glowing effect."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAutoFillBackground(True)
@@ -109,60 +110,42 @@ class ShieldWidget(QWidget):
         self._glow_opacity = 0.0
         self._check_progress = 1.0
         self._scale_factor = 1.0
-        self._rotation_angle = 0.0
-        self._pulse_intensity = 1.0
-        self.setMinimumSize(280, 280)
+        self.setMinimumSize(250, 250)
 
+        # Load the hydra image for the protected state
         self.hydra_pixmap = None
         if os.path.exists(icon_path):
             self.hydra_pixmap = QPixmap(icon_path)
         else:
             logger.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
 
-        # Check animation
-        self.check_animation = QPropertyAnimation(self, b"check_progress")
-        self.check_animation.setDuration(600)
-        self.check_animation.setEasingCurve(QEasingCurve.Type.OutElastic)
 
-        # Glow animation
+        # Animation for the icon appearing/disappearing
+        self.check_animation = QPropertyAnimation(self, b"check_progress")
+        self.check_animation.setDuration(500)
+        self.check_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # Animation for the background glow
         self.glow_animation = QPropertyAnimation(self, b"glow_opacity")
-        self.glow_animation.setDuration(2000)
+        self.glow_animation.setDuration(2500)
         self.glow_animation.setLoopCount(-1)
-        self.glow_animation.setStartValue(0.3)
-        self.glow_animation.setKeyValueAt(0.5, 0.8)
-        self.glow_animation.setEndValue(0.3)
+        self.glow_animation.setStartValue(0.2)
+        self.glow_animation.setKeyValueAt(0.5, 0.7)
+        self.glow_animation.setEndValue(0.2)
         self.glow_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
         self.glow_animation.start()
 
-        # Breathing animation
+        # Breathing animation for the shield
         self.breathe_animation = QPropertyAnimation(self, b"scale_factor")
-        self.breathe_animation.setDuration(4000)
+        self.breathe_animation.setDuration(5000)
         self.breathe_animation.setLoopCount(-1)
         self.breathe_animation.setStartValue(1.0)
-        self.breathe_animation.setKeyValueAt(0.5, 1.08)
+        self.breathe_animation.setKeyValueAt(0.5, 1.05)
         self.breathe_animation.setEndValue(1.0)
-        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
         self.breathe_animation.start()
 
-        # Rotation animation
-        self.rotation_animation = QPropertyAnimation(self, b"rotation_angle")
-        self.rotation_animation.setDuration(20000)
-        self.rotation_animation.setLoopCount(-1)
-        self.rotation_animation.setStartValue(0.0)
-        self.rotation_animation.setEndValue(360.0)
-        self.rotation_animation.setEasingCurve(QEasingCurve.Type.Linear)
-        self.rotation_animation.start()
-
-        # Pulse animation
-        self.pulse_animation = QPropertyAnimation(self, b"pulse_intensity")
-        self.pulse_animation.setDuration(1500)
-        self.pulse_animation.setLoopCount(-1)
-        self.pulse_animation.setStartValue(1.0)
-        self.pulse_animation.setKeyValueAt(0.5, 1.15)
-        self.pulse_animation.setEndValue(1.0)
-        self.pulse_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.pulse_animation.start()
-
+    # --- Getter/Setter for check_progress ---
     def get_check_progress(self):
         return self._check_progress
 
@@ -170,6 +153,7 @@ class ShieldWidget(QWidget):
         self._check_progress = value
         self.update()
 
+    # --- Getter/Setter for glow_opacity ---
     def get_glow_opacity(self):
         return self._glow_opacity
 
@@ -177,6 +161,7 @@ class ShieldWidget(QWidget):
         self._glow_opacity = value
         self.update()
 
+    # --- Getter/Setter for scale_factor ---
     def get_scale_factor(self):
         return self._scale_factor
 
@@ -184,25 +169,10 @@ class ShieldWidget(QWidget):
         self._scale_factor = value
         self.update()
 
-    def get_rotation_angle(self):
-        return self._rotation_angle
-
-    def set_rotation_angle(self, value):
-        self._rotation_angle = value
-        self.update()
-
-    def get_pulse_intensity(self):
-        return self._pulse_intensity
-
-    def set_pulse_intensity(self, value):
-        self._pulse_intensity = value
-        self.update()
-
+    # --- Qt Properties for Animation ---
     check_progress = Property(float, get_check_progress, set_check_progress)
     glow_opacity = Property(float, get_glow_opacity, set_glow_opacity)
     scale_factor = Property(float, get_scale_factor, set_scale_factor)
-    rotation_angle = Property(float, get_rotation_angle, set_rotation_angle)
-    pulse_intensity = Property(float, get_pulse_intensity, set_pulse_intensity)
 
     def set_status(self, is_protected):
         if self.is_protected != is_protected:
@@ -219,80 +189,51 @@ class ShieldWidget(QWidget):
         side = min(self.width(), self.height())
         painter.translate(self.width() / 2, self.height() / 2)
         painter.scale(self._scale_factor, self._scale_factor)
-        painter.scale(side / 240.0, side / 240.0)
+        painter.scale(side / 220.0, side / 220.0)
 
-        # Draw outer rings with rotation
-        painter.save()
-        painter.rotate(self._rotation_angle)
-        for i in range(3):
-            radius = 120 + (i * 15)
-            ring_color = QColor(136, 192, 208, int(30 - i * 10))
-            painter.setPen(QPen(ring_color, 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(-radius, -radius, radius * 2, radius * 2)
-        painter.restore()
+        # Draw the outer glow
+        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
+        gradient = QRadialGradient(0, 0, 110)
+        glow_color.setAlphaF(self._glow_opacity)
+        gradient.setColorAt(0.5, glow_color)
+        glow_color.setAlphaF(0)
+        gradient.setColorAt(1.0, glow_color)
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(-110, -110, 220, 220)
 
-        # Draw multi-layered glow
-        for layer in range(4):
-            glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
-            gradient = QRadialGradient(0, 0, 130 - layer * 20)
-            opacity = self._glow_opacity * (0.4 - layer * 0.08) * self._pulse_intensity
-            glow_color.setAlphaF(opacity)
-            gradient.setColorAt(0.6, glow_color)
-            glow_color.setAlphaF(0)
-            gradient.setColorAt(1.0, glow_color)
-            painter.setBrush(QBrush(gradient))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(-130 + layer * 10, -130 + layer * 10,
-                              (130 - layer * 10) * 2, (130 - layer * 10) * 2)
-
-        # Draw shield with enhanced gradient
+        # Draw the main shield shape
         path = QPainterPath()
-        path.moveTo(0, -95)
-        path.cubicTo(85, -85, 85, 0, 85, 0)
-        path.lineTo(85, 45)
-        path.quadTo(85, 100, 0, 110)
-        path.quadTo(-85, 100, -85, 45)
-        path.lineTo(-85, 0)
-        path.cubicTo(-85, -85, 0, -95, 0, -95)
+        path.moveTo(0, -90)
+        path.cubicTo(80, -80, 80, 0, 80, 0)
+        path.lineTo(80, 40)
+        path.quadTo(80, 90, 0, 100)
+        path.quadTo(-80, 90, -80, 40)
+        path.lineTo(-80, 0)
+        path.cubicTo(-80, -80, 0, -90, 0, -90)
 
-        shield_gradient = QLinearGradient(0, -95, 0, 110)
-        shield_gradient.setColorAt(0, QColor("#4C566A"))
-        shield_gradient.setColorAt(0.3, QColor("#434C5E"))
-        shield_gradient.setColorAt(0.7, QColor("#3B4252"))
-        shield_gradient.setColorAt(1, QColor("#2E3440"))
+        # Fill shield with a gradient
+        shield_gradient = QLinearGradient(0, -90, 0, 100)
+        shield_gradient.setColorAt(0, QColor("#434C5E"))
+        shield_gradient.setColorAt(1, QColor("#3B4252"))
         painter.fillPath(path, QBrush(shield_gradient))
-
-        # Draw shield border with glow
-        border_color = QColor("#88C0D0")
-        border_color.setAlphaF(0.8 * self._pulse_intensity)
-        painter.setPen(QPen(border_color, 3))
-        painter.drawPath(path)
 
         progress = self._check_progress
 
-        # Draw energy lines inside shield
+        # Draw the correct icon based on protection status
         if self.is_protected:
-            painter.save()
-            painter.setPen(QPen(QColor(136, 192, 208, int(100 * progress)), 2))
-            for i in range(-60, 61, 20):
-                painter.drawLine(i, -80, i, 90)
-            painter.restore()
-
-        # Draw icon or cross
-        if self.is_protected:
+            # Draw the user's PNG inside the shield if protected and available
             if self.hydra_pixmap and not self.hydra_pixmap.isNull():
                 painter.setOpacity(progress)
-                pixmap_rect = QRect(-80, -90, 160, 160)
+                # Define the rectangle to draw the pixmap in
+                pixmap_rect = QRect(-75, -85, 150, 150)
                 painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
-                painter.setOpacity(1.0)
+                painter.setOpacity(1.0) # Reset opacity
         else:
-            painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine,
-                              Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(int(-40 * progress), int(-40 * progress),
-                           int(40 * progress), int(40 * progress))
-            painter.drawLine(int(40 * progress), int(-40 * progress),
-                           int(-40 * progress), int(40 * progress))
+            # Draw the cross for the 'unprotected' status
+            painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(int(-35 * progress), int(-35 * progress), int(35 * progress), int(35 * progress))
+            painter.drawLine(int(35 * progress), int(-35 * progress), int(-35 * progress), int(35 * progress))
 
 class AntivirusApp(QWidget):
     # Signals for safe cross-thread UI marshalling
