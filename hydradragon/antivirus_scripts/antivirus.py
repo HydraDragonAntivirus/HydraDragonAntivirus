@@ -423,6 +423,7 @@ from .utils_and_helpers import (
     get_signature,
     compute_md5_via_text,
     compute_md5,
+    run_in_thread,
     _norm
 )
 logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
@@ -9658,24 +9659,25 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         return None
 
 # --- Updated scan_and_warn with main_file_path propagation ---
-async def scan_and_warn(file_path,
-                        mega_optimization_with_anti_false_positive=True,
-                        flag_debloat=False,
-                        flag_obfuscar=False,
-                        flag_de4dot=False,
-                        flag_fernflower=False,
-                        nsis_flag=False,
-                        flag_confuserex=False,
-                        flag_vmprotect=False,
-                        main_file_path=None):
+@run_in_thread
+def scan_and_warn(file_path,
+                  mega_optimization_with_anti_false_positive=True,
+                  flag_debloat=False,
+                  flag_obfuscar=False,
+                  flag_de4dot=False,
+                  flag_fernflower=False,
+                  nsis_flag=False,
+                  flag_confuserex=False,
+                  flag_vmprotect=False,
+                  main_file_path=None):
     """
-    Scans a file for potential issues with comprehensive async/await for performance.
+    Scans a file for potential issues with comprehensive threading for performance.
 
     Args:
         main_file_path: Original main file that initiated this scan chain (for tracking)
     """
     try:
-        # Set main_file_path to the current file_path if it's None at the top level
+        # MODIFIED: Set main_file_path to the current file_path if it's None at the top level
         if main_file_path is None:
             main_file_path = file_path
 
@@ -9688,7 +9690,6 @@ async def scan_and_warn(file_path,
         }
         die_output = ""
         plain_text_flag = False
-        already_vmprotect_unpacked = False
 
         # Convert WindowsPath to string if necessary
         if isinstance(file_path, WindowsPath):
@@ -9699,12 +9700,12 @@ async def scan_and_warn(file_path,
             logger.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
 
-        # Ensure the file exists before proceeding
+        # Ensure the file exists before proceeding.
         if not os.path.exists(file_path):
             logger.error(f"File not found: {file_path}")
             return False
 
-        # Check if the file is empty
+        # Check if the file is empty.
         if os.path.getsize(file_path) == 0:
             logger.debug(f"File {file_path} is empty. Skipping scan.")
             return False
@@ -9716,12 +9717,12 @@ async def scan_and_warn(file_path,
         md5 = compute_md5(norm_path)
 
         # Check if this hash is already known to be malicious
-        async with malicious_hashes_lock:
+        with malicious_hashes_lock:
             if md5 in malicious_hashes:
                 known_virus_name = malicious_hashes[md5]
                 logger.warning(f"File {norm_path} matches known malicious hash: {md5} -> {known_virus_name}")
-                await notify_user_duplicate(norm_path, md5, known_virus_name)
-                return False
+                notify_user_duplicate(norm_path, md5, known_virus_name)
+                return False  # Skip full scan, we already know it's bad
 
         # If we've already scanned this exact (path, hash), skip immediately
         key = (norm_path.lower(), md5)
@@ -9731,52 +9732,52 @@ async def scan_and_warn(file_path,
         # Mark it seen and proceed
         seen_files.add(key)
 
-        # Snapshot the cache entry once up front
+        # SNAPSHOT the cache entry _once_ up front:
         initial_md5_in_cache = file_md5_cache.get(norm_path)
 
         file_name = os.path.basename(norm_path)
 
-        # ========== CRITICAL PATH - NO ASYNC (affects return behavior) ==========
+        # ========== CRITICAL PATH - NO THREADING (affects return behavior) ==========
 
         # Get DIE output first (needed for early exit decisions)
         if md5 in die_cache:
             die_output, plain_text_flag = die_cache[md5]
         else:
-            die_output, plain_text_flag = await get_die_output(norm_path)
+            die_output, plain_text_flag = get_die_output(norm_path)
             die_cache[md5] = (die_output, plain_text_flag)
 
-        # CRITICAL: Unknown file check that can cause early return
+        # CRITICAL: Unknown file check that can cause early return - NO THREADING
         if is_file_fully_unknown(die_output):
             if mega_optimization_with_anti_false_positive:
                 logger.info(f"Stopped analysis; unknown data detected in {norm_path}")
-                return False
+                return False  # EARLY EXIT - must not be threaded
 
-        # CRITICAL: File type checks that can cause early return
+        # CRITICAL: File type checks that can cause early return - NO THREADING
         pefile_result = is_pe_file_from_output(die_output, norm_path)
         if pefile_result:
             logger.info(f"The file {norm_path} is a valid PE file.")
             pe_file = True
         elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         apk_result = is_apk_file_from_output(die_output, norm_path)
         if apk_result == "Broken APK" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken APK file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         elf_result = is_elf_file_from_output(die_output, norm_path)
         if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         macho_result = is_macho_file_from_output(die_output, norm_path)
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logger.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         if norm_path == hosts_path:
-            await check_hosts_file_for_blocked_antivirus(norm_path)
+            check_hosts_file_for_blocked_antivirus(norm_path)
 
         file_norm = os.path.normpath(norm_path).lower()
 
@@ -9794,7 +9795,8 @@ async def scan_and_warn(file_path,
 
             if malware_type:
                 logger.critical(f"Suspicious startup file detected: {file_path} ({malware_type})")
-                await notify_user_startup(file_path, f"Startup malware detected: {file_path}", main_file_path=main_file_path)
+                # MODIFIED: Pass main_file_path to notifier
+                notify_user_startup(file_path, f"Startup malware detected: {file_path}", main_file_path=main_file_path)
                 return True
 
         # --- UEFI detection ---
@@ -9805,71 +9807,77 @@ async def scan_and_warn(file_path,
             in_100kb_group = any(_norm(p) in candidate_norm for p in (uefi_100kb_paths or []))
             if in_100kb_group and is_malicious_file(norm_path, 100):
                 logger.critical(f"UEFI (100kb) suspicious: {norm_path}")
-                await notify_user_for_uefi(
+                notify_user_for_uefi(
                     norm_path,
                     "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware",
                     main_file_path=main_file_path
                 )
-                return True
+                return True  # stop scanning here if detected
 
             # Check normal UEFI group
             in_uefi_group = any(_norm(p) in candidate_norm for p in (uefi_paths or []))
             if in_uefi_group and is_malicious_file(norm_path, 1024):
                 logger.critical(f"UEFI suspicious: {norm_path}")
-                await notify_user_for_uefi(
+                notify_user_for_uefi(
                     norm_path,
                     "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware",
                     main_file_path=main_file_path
                 )
-                return True
+                return True  # stop scanning here if detected
 
         except Exception as e:
             logger.debug(f"UEFI detection check failed for {norm_path}: {e}")
 
-        # ========== ASYNC OPERATIONS START HERE ==========
+        # ========== THREADED OPERATIONS START HERE ==========
+        # Now we can safely use threading since no more early returns
 
-        # Shared data for async tasks
-        task_results = {
+        # Shared data for threads
+        thread_results = {
             'signature_check': None,
             'file_lines': [],
             'dotnet_result': None
         }
 
-        async def signature_check_task():
-            """Task for digital signature verification - can be slow"""
+        def signature_check_thread():
+            """Thread for digital signature verification - can be slow"""
             try:
-                sig_check = await check_signature(norm_path)
-                async with scan_and_warn_lock:
-                    task_results['signature_check'] = sig_check
+                sig_check = check_signature(norm_path)
+                with thread_lock:
+                    thread_results['signature_check'] = sig_check
                 logger.debug(f"Signature check completed for {norm_path}")
             except Exception as e:
-                logger.error(f"Error in signature check task for {norm_path}: {e}")
-                async with scan_and_warn_lock:
-                    task_results['signature_check'] = {
+                logger.error(f"Error in signature check thread for {norm_path}: {e}")
+                with thread_lock:
+                    thread_results['signature_check'] = {
                         "has_microsoft_signature": False,
                         "is_valid": False,
                         "signature_status_issues": False
                     }
 
-            # ML fast-path check
-            sig_for_ml = task_results.get('signature_check', None)
-            if not await ml_fastpath_should_continue(norm_path, sig_for_ml, pe_file):
+            # Use the signature_check produced by the thread when calling ML fast-path
+            sig_for_ml = thread_results.get('signature_check', None)
+
+            # ML fast-path: if returns False -> ML marked benign or malware => EARLY EXIT (do not start realtime thread)
+            if not ml_fastpath_should_continue(norm_path, sig_for_ml, pe_file):
                 return False
 
-        async def file_reading_task():
-            """Task for reading file content as text"""
+        def file_reading_thread():
+            """Thread for reading file content as text"""
             try:
                 lines = []
-                loop = asyncio.get_event_loop()
-                lines = await loop.run_in_executor(None, lambda: open(norm_path, 'r', encoding='utf-8').readlines())
-                async with scan_and_warn_lock:
-                    task_results['file_lines'] = lines
+                with open(norm_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                with thread_lock:
+                    thread_results['file_lines'] = lines
             except Exception as e:
                 logger.error(f"Failed to read text lines from {norm_path}: {e}")
 
-        # Start background tasks for I/O operations
-        signature_task = asyncio.create_task(signature_check_task())
-        file_read_task = asyncio.create_task(file_reading_task())
+        # Start background threads for I/O operations
+        signature_thread = threading.Thread(daemon=True, target=signature_check_thread)
+        file_read_thread = threading.Thread(daemon=True, target=file_reading_thread)
+
+        signature_thread.start()
+        file_read_thread.start()
 
         # Path analysis - direct execution (fast)
         wrap_norm_path = Path(norm_path)
@@ -9884,31 +9892,30 @@ async def scan_and_warn(file_path,
             flag_de4dot = True
             logger.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
 
-        # ========== SPECIALIZED ANALYSIS TASKS ==========
-        
-        async def vmprotect_detection():
-            nonlocal already_vmprotect_unpacked
+        # ========== SPECIALIZED ANALYSIS THREADS ==========
+        def vmprotect_detection():
             try:
                 if flag_vmprotect:
                     return
 
                 if is_vm_protect_from_output(die_output):
                     try:
-                        loop = asyncio.get_event_loop()
-                        packed_data = await loop.run_in_executor(None, lambda: open(file_path, 'rb').read())
+                        with open(file_path, 'rb') as f:
+                            packed_data = f.read()
 
-                        unpacked_data = await unpack_pe(packed_data)
+                        unpacked_data = unpack_pe(packed_data)
                         if unpacked_data:
                             base_name, ext = os.path.splitext(os.path.basename(file_path))
                             unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
                             unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
 
-                            await loop.run_in_executor(None, lambda: open(unpacked_path, 'wb').write(unpacked_data))
+                            with open(unpacked_path, 'wb') as f:
+                                f.write(unpacked_data)
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
-                            already_vmprotect_unpacked = True
 
-                            asyncio.create_task(scan_and_warn(unpacked_path, flag_vmprotect=True, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(unpacked_path,),
+                                           kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}).start()
 
                     except Exception as e:
                         logger.error(f"Error unpacking VMProtect file '{file_path}': {e}")
@@ -9916,36 +9923,41 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in VMProtect detection for '{file_path}': {e}")
 
-        async def themida_detection():
+        def themida_detection():
             try:
                 is_themida_protected = is_themida_from_output(die_output)
                 if is_themida_protected == "PE32 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 32 bit.")
-                    await run_themida_unlicense(norm_path)
-                    asyncio.create_task(scan_and_warn(norm_path, main_file_path=main_file_path))
+                    run_themida_unlicense(norm_path)
+                    threading.Thread(daemon=True, target=scan_and_warn, args=(norm_path,),
+                                   kwargs={"main_file_path": main_file_path}).start()
                 elif is_themida_protected == "PE64 Themida":
                     logger.info(f"File '{norm_path}' is protected by Themida 64 bit.")
-                    await run_themida_unlicense(norm_path, x64=True)
-                    asyncio.create_task(scan_and_warn(norm_path, main_file_path=main_file_path))
+                    run_themida_unlicense(norm_path, x64=True)
+                    threading.Thread(daemon=True, target=scan_and_warn, args=(norm_path,),
+                                   kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Themida detection for {norm_path}: {e}")
 
-        async def nexe_task():
+        def nexe_thread():
             try:
                 if is_nexe_file_from_output(die_output):
                     logger.info(f"Checking if the file {norm_path} contains nexe executable")
 
-                    nexe_files = await nexe_unpacker(norm_path)
+                    # Step 1: Extract nexe files
+                    nexe_files = nexe_unpacker(norm_path)
                     if not nexe_files:
                         return
 
                     for extracted_file in nexe_files:
+                        # Step 2: Optionally deobfuscate with Webcrack
                         try:
-                            js_output_dir = await deobfuscate_webcrack_js(extracted_file)
+                            js_output_dir = deobfuscate_webcrack_js(extracted_file)
                         except Exception as deobf_err:
                             logger.error(f"Webcrack deobfuscation failed for {extracted_file}: {deobf_err}")
-                            js_output_dir = extracted_file
+                            js_output_dir = extracted_file  # fallback: just scan the extracted file
 
+                        # Step 3: Scan extracted/deobfuscated files
                         scan_paths = []
                         if os.path.isdir(js_output_dir):
                             for root, _, files in os.walk(js_output_dir):
@@ -9956,11 +9968,21 @@ async def scan_and_warn(file_path,
 
                         for file_path_full in scan_paths:
                             try:
-                                loop = asyncio.get_event_loop()
-                                content = await loop.run_in_executor(None, lambda: open(file_path_full, "r", encoding="utf-8", errors="ignore").read())
+                                with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                                    content = f.read()
 
-                                asyncio.create_task(scan_code_for_links(content, file_path_full, nexe_flag=True, main_file_path=main_file_path))
-                                asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
+                                # MODIFIED: Pass main_file_path to the scanner thread
+                                threading.Thread(daemon=True,
+                                    target=scan_code_for_links,
+                                    args=(content, file_path_full),
+                                    kwargs={"nexe_flag": True, "main_file_path": main_file_path}
+                                ).start()
+
+                                threading.Thread(daemon=True,
+                                    target=scan_and_warn,
+                                    args=(file_path_full,),
+                                    kwargs={"main_file_path": main_file_path}
+                                ).start()
 
                             except Exception as scan_err:
                                 logger.error(f"Error scanning file {file_path_full}: {scan_err}")
@@ -9968,71 +9990,79 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in nexe analysis for {norm_path}: {e}")
 
-        async def autoit_analysis():
+        def autoit_analysis():
             try:
                 if is_autoit_file_from_output(die_output):
                     logger.info(f"File {norm_path} is a valid AutoIt file.")
-                    extracted_autoit_files = await extract_autoit(norm_path)
+                    extracted_autoit_files = extract_autoit(norm_path)
                     for extracted_autoit_file in extracted_autoit_files:
-                        asyncio.create_task(scan_and_warn(extracted_autoit_file, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_autoit_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in AutoIt analysis for {norm_path}: {e}")
 
-        async def asar_analysis():
+        def asar_analysis():
             try:
                 if is_asar_archive_from_output(die_output):
                     logger.info(f"File {norm_path} is a valid Asar Archive (Electron).")
-                    extracted_asar_files = await extract_asar_file(norm_path)
+                    extracted_asar_files = extract_asar_file(norm_path)
                     for extracted_asar_file in extracted_asar_files:
-                        asyncio.create_task(scan_and_warn(extracted_asar_file, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_asar_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in ASAR analysis for {norm_path}: {e}")
 
-        async def npm_analysis():
+        def npm_analysis():
             try:
                 if is_npm_from_output(die_output):
                     logger.info(f"File {norm_path} is a valid npm package.")
-                    extracted_npm_files = await extract_npm_file(norm_path)
+                    extracted_npm_files = extract_npm_file(norm_path)
                     for extracted_file in extracted_npm_files:
-                        asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in npm analysis for {norm_path}: {e}")
 
-        async def jsc_analysis():
+        def jsc_analysis():
             """
             If DIE output indicates a compiled JavaScript (Bytenode .JSC or bundle.js),
             first decode/decompile using View8, then optionally deobfuscate with Webcrack,
             and finally scan the resulting files.
             """
             try:
+                # Detect if it's a JSC or JS bundle file
                 jsc_result = is_jsc_from_output(die_output)
                 if not jsc_result:
-                    return
+                    return  # Not a JSC file, skip
 
                 logger.info(f"File {norm_path} detected as {jsc_result} (Bytenode / .JSC / JS bundle).")
 
+                # Step 0: Create a unique subfolder for this decompiled JSC
                 folder_number = 1
                 while os.path.exists(os.path.join(decompiled_jsc_dir, str(folder_number))):
                     folder_number += 1
                 file_decompiled_dir = os.path.join(decompiled_jsc_dir, str(folder_number))
                 os.makedirs(file_decompiled_dir, exist_ok=True)
 
+                # Step 1: Decode/Decompile using View8
                 try:
-                    all_func = await disassemble(norm_path, input_is_disassembled=False, disassembler=None)
+                    all_func = disassemble(norm_path, input_is_disassembled=False, disassembler=None)
                     export_file_path = os.path.join(file_decompiled_dir, Path(norm_path).stem + "_decompiled.js")
-                    await decompile(all_func)
-                    await export_to_file(export_file_path, all_func, ["decompiled"])
+                    decompile(all_func)
+                    export_to_file(export_file_path, all_func, ["decompiled"])
                     logger.info(f"Successfully decompiled {norm_path} to {export_file_path}")
                 except Exception as decomp_err:
                     logger.error(f"View8 decompilation failed for {norm_path}: {decomp_err}")
                     return
 
+                # Step 2: Optionally deobfuscate with Webcrack
                 try:
-                    js_output_dir = await deobfuscate_webcrack_js(export_file_path)
+                    js_output_dir = deobfuscate_webcrack_js(export_file_path)
                 except Exception as deobf_err:
                     logger.error(f"Webcrack deobfuscation failed for {export_file_path}: {deobf_err}")
-                    js_output_dir = export_file_path
+                    js_output_dir = export_file_path  # fallback: just scan the decompiled file
 
+                # Step 3: Scan decompiled/deobfuscated files
                 scan_paths = []
                 if os.path.isdir(js_output_dir):
                     for root, _, files in os.walk(js_output_dir):
@@ -10043,11 +10073,21 @@ async def scan_and_warn(file_path,
 
                 for file_path_full in scan_paths:
                     try:
-                        loop = asyncio.get_event_loop()
-                        content = await loop.run_in_executor(None, lambda: open(file_path_full, "r", encoding="utf-8", errors="ignore").read())
+                        with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
 
-                        asyncio.create_task(scan_code_for_links(content, file_path_full, jsc_flag=True, main_file_path=main_file_path))
-                        asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
+                        # MODIFIED: Pass main_file_path to the scanner thread
+                        threading.Thread(daemon=True,
+                            target=scan_code_for_links,
+                            args=(content, file_path_full),
+                            kwargs={"jsc_flag": True, "main_file_path": main_file_path}
+                        ).start()
+
+                        threading.Thread(daemon=True,
+                            target=scan_and_warn,
+                            args=(file_path_full,),
+                            kwargs={"main_file_path": main_file_path}
+                        ).start()
 
                     except Exception as scan_err:
                         logger.error(f"Error scanning file {file_path_full}: {scan_err}")
@@ -10055,29 +10095,31 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in JSC analysis for {norm_path}: {e}")
 
-        async def installshield_analysis():
+        def installshield_analysis():
             try:
                 if is_installshield_file_from_output(die_output):
                     logger.info(f"File {norm_path} is a valid Install Shield file.")
-                    extracted_installshield_files = await extract_installshield(norm_path)
+                    extracted_installshield_files = extract_installshield(norm_path)
                     for extracted_installshield_file in extracted_installshield_files:
-                        asyncio.create_task(scan_and_warn(extracted_installshield_file, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_installshield_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in InstallShield analysis for {norm_path}: {e}")
 
-        async def advanced_installer_analysis():
+        def advanced_installer_analysis():
             try:
                 if is_advanced_installer_file_from_output(die_output):
                     logger.info(f"File {norm_path} is a valid Advanced Installer file.")
-                    extracted_files = await advanced_installer_extractor(norm_path)
+                    extracted_files = advanced_installer_extractor(norm_path)
                     for extracted_file in extracted_files:
-                        asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
-        async def apk_analysis():
+        def apk_analysis():
             """
-            Analyze and decompile an APK, then scan decompiled files in tasks.
+            Analyze and decompile an APK, then scan decompiled files in threads.
             """
             try:
                 if not apk_result:
@@ -10085,7 +10127,8 @@ async def scan_and_warn(file_path,
 
                 logger.info(f"File {norm_path} is a valid APK file.")
 
-                decompiled_files = await decompile_apk_file(norm_path, main_file_path=main_file_path)
+                # MODIFIED: Pass main_file_path to the decompiler
+                decompiled_files = decompile_apk_file(norm_path, main_file_path=main_file_path)
 
                 if not decompiled_files:
                     logger.error(f"Failed to decompile {norm_path} (no files returned).")
@@ -10093,13 +10136,20 @@ async def scan_and_warn(file_path,
 
                 logger.debug(f"Decompiled {len(decompiled_files)} files from {norm_path}.")
 
+                threads = []
                 for f in decompiled_files:
-                    asyncio.create_task(scan_and_warn(f, main_file_path=main_file_path))
+                    t = threading.Thread(daemon=True,
+                        target=scan_and_warn,
+                        args=(f,),
+                        kwargs={"main_file_path": main_file_path}
+                    )
+                    t.start()
+                    threads.append(t)
 
             except Exception as e:
                 logger.exception(f"Error in APK analysis for {norm_path}: {e}")
 
-        async def dotnet_analysis():
+        def dotnet_analysis():
             try:
                 dotnet_result = is_dotnet_file_from_output(die_output)
                 if os.path.isfile(norm_path):
@@ -10108,46 +10158,58 @@ async def scan_and_warn(file_path,
                     input_dir = norm_path
 
                 if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
-                    asyncio.create_task(run_de4dot(input_dir))
+                    de4dot_thread = threading.Thread(daemon=True, target=run_de4dot, args=(input_dir,))
+                    de4dot_thread.start()
 
                     if "Probably No Protector" in dotnet_result or "Already Deobfuscated" in dotnet_result:
-                        asyncio.create_task(decompile_dotnet_file(input_dir, main_file_path=main_file_path))
+                        # MODIFIED: Pass main_file_path to decompile_dotnet_file thread
+                        dotnet_thread = threading.Thread(daemon=True, target=decompile_dotnet_file, args=(input_dir,), kwargs={"main_file_path": main_file_path})
+                        dotnet_thread.start()
 
-                async with scan_and_warn_lock:
-                    task_results['dotnet_result'] = dotnet_result
+                with thread_lock:
+                    thread_results['dotnet_result'] = dotnet_result
             except Exception as e:
                 logger.error(f"Error in .NET analysis for {norm_path}: {e}")
 
-        async def cx_freeze_task():
+        def cx_freeze_thread():
             try:
                 if is_cx_freeze_file_from_output(die_output):
                     logger.info(f"Invoking cx_Freeze decompiler on {norm_path}")
-                    cx_main_pyc = await decompile_cx_freeze(norm_path)
+                    cx_main_pyc = decompile_cx_freeze(norm_path)
                     if cx_main_pyc:
-                        asyncio.create_task(scan_and_warn(cx_main_pyc, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(cx_main_pyc,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
-        # Start all specialized analysis tasks
-        analysis_tasks = [
-            asyncio.create_task(vmprotect_detection()),
-            asyncio.create_task(themida_detection()),
-            asyncio.create_task(autoit_analysis()),
-            asyncio.create_task(asar_analysis()),
-            asyncio.create_task(npm_analysis()),
-            asyncio.create_task(jsc_analysis()),
-            asyncio.create_task(installshield_analysis()),
-            asyncio.create_task(advanced_installer_analysis()),
-            asyncio.create_task(apk_analysis()),
-            asyncio.create_task(dotnet_analysis()),
-            asyncio.create_task(cx_freeze_task()),
-            asyncio.create_task(nexe_task())
+        # Start all specialized analysis threads, including VMProtect detection
+        analysis_threads = [
+            threading.Thread(daemon=True, target=themida_detection),
+            threading.Thread(daemon=True, target=autoit_analysis),
+            threading.Thread(daemon=True, target=asar_analysis),
+            threading.Thread(daemon=True, target=npm_analysis),
+            threading.Thread(daemon=True, target=jsc_analysis),
+            threading.Thread(daemon=True, target=installshield_analysis),
+            threading.Thread(daemon=True, target=advanced_installer_analysis),
+            threading.Thread(daemon=True, target=apk_analysis),
+            threading.Thread(daemon=True, target=dotnet_analysis),
+            threading.Thread(daemon=True, target=cx_freeze_thread),
+            threading.Thread(daemon=True, target=nexe_thread),
+            threading.Thread(daemon=True,
+                target=lambda: globals().update({
+                    "already_vmprotect_unpacked": vmprotect_detection()
+                })
+            )
         ]
+
+        # Start all threads
+        for thread in analysis_threads:
+            thread.start()
 
         # Cache check - CRITICAL PATH
         if initial_md5_in_cache == md5:
             logger.info(f"Skipping scan for unchanged file: {norm_path}")
-            return False
+            return False  # EARLY EXIT
         else:
             file_md5_cache[norm_path] = md5
 
@@ -10156,33 +10218,39 @@ async def scan_and_warn(file_path,
         # ========== BINARY vs TEXT FILE PROCESSING ==========
 
         if not plain_text_flag:
-            # Binary file processing with async
+            # Binary file processing with threading
             logger.info(f"File {norm_path} contains valid non plain text data.")
 
-            async def extraction_task():
+            # Heavy extraction operations in threads
+            def extraction_thread():
                 try:
                     logger.info(f"Attempting to extract file {norm_path}...")
-                    extracted_files = await extract_all_files_with_7z(norm_path, nsis_flag)
+                    extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
                     if extracted_files:
                         logger.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
                         for extracted_file in extracted_files:
-                            asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error during extraction of {norm_path}: {e}")
 
-            async def upx_task():
+            def upx_thread():
                 try:
                     if is_packer_upx_output(die_output):
-                        upx_unpacked = await extract_upx(norm_path)
+                        upx_unpacked = extract_upx(norm_path)
                         if upx_unpacked:
-                            asyncio.create_task(scan_and_warn(upx_unpacked, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(upx_unpacked,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
-            async def protected_process_task():
+            def protected_process_thread(file_path: str, die_output: Optional[str], main_file_path: Optional[str] = None) -> bool:
                 """
-                Check if a process is running and is marked 'protected' according to die_output,
-                queue a scan via scan_and_warn instead of calling analyze_specific_process.
+                Thread helper: if a process is running and is marked 'protected' according to die_output,
+                queue a scan via scan_and_warn(file_path, main_file_path=...) instead of calling analyze_specific_process.
+
+                Returns:
+                    True if a scan was queued, False otherwise.
                 """
                 try:
                     if not die_output:
@@ -10199,6 +10267,7 @@ async def scan_and_warn(file_path,
                             if pname.lower() == target_basename:
                                 protector = is_protector_from_output(die_output)
                                 if protector:
+                                    # prefer the actual exe path for main_file_path if caller didn't provide one
                                     resolved_main = main_file_path or proc.info.get('exe') or file_path
 
                                     logger.info(
@@ -10206,90 +10275,112 @@ async def scan_and_warn(file_path,
                                         "Queuing scan via scan_and_warn."
                                     )
 
-                                    asyncio.create_task(scan_and_warn(file_path, main_file_path=resolved_main))
-                                    return True
+                                    t = threading.Thread(
+                                        target=scan_and_warn,
+                                        args=(file_path,),
+                                        kwargs={"main_file_path": resolved_main},
+                                        daemon=True
+                                    )
+                                    t.start()
+                                    return True  # end this helper thread after queuing the scan
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            # Process disappeared or we couldn't access it — skip
                             continue
                         except Exception as e:
                             logger.error(f"Unexpected error while checking process {proc}: {e}")
                             continue
 
+                    # no matching protected process found
                     return False
 
                 except Exception as e:
-                    logger.error(f"Error in protected_process_task for {file_path}: {e}")
+                    logger.error(f"Error in protected_process_thread for {file_path}: {e}")
                     return False
 
-            async def unipacker_task():
+            def unipacker_thread():
                 try:
                     if is_packed_from_output(die_output):
-                        unpacked_file = await extract_with_unipacker(norm_path)
+                        unpacked_file = extract_with_unipacker(norm_path)
                         if unpacked_file:
-                            asyncio.create_task(scan_and_warn(unpacked_file, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(unpacked_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Unipacker unpacking for {norm_path}: {e}")
 
-            async def inno_setup_task():
+            def inno_setup_thread():
                 try:
                     if is_inno_setup_file_from_output(die_output):
-                        extracted = await extract_inno_setup(norm_path)
+                        extracted = extract_inno_setup(norm_path)
                         if extracted is not None:
                             logger.info(f"Extracted {len(extracted)} files. Scanning...")
                             for inno_norm_path in extracted:
-                                asyncio.create_task(scan_and_warn(inno_norm_path, main_file_path=main_file_path))
+                                threading.Thread(daemon=True, target=scan_and_warn, args=(inno_norm_path,),
+                                               kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
-            async def go_garble_task():
+            def go_garble_thread():
                 try:
                     if is_go_garble_from_output(die_output):
                         output_path = os.path.join(ungarbler_dir, os.path.basename(norm_path))
                         string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(norm_path) + "_strings.txt")
-                        results = await process_file_go(norm_path, output_path, string_output_path)
+                        results = process_file_go(norm_path, output_path, string_output_path)
 
                         if results.get("patched_data"):
-                            asyncio.create_task(scan_and_warn(output_path, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(output_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                         if results.get("decrypt_func_list"):
-                            asyncio.create_task(scan_and_warn(string_output_path, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(string_output_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
-            async def pyc_task():
+            def pyc_thread():
                 """
                 Process a single .pyc file.
                 - If PyArmor-protected, extract and scan decrypted files.
                 - Always attempt Pylingual decompilation.
                 """
                 try:
+                    # Check if this is a .pyc file
                     if is_pyc_file_from_output(die_output):
                         logger.info(f"File {norm_path} is a .pyc file.")
 
+                        # Handle PyArmor-protected .pyc
                         if is_pyarmor_archive_from_output(die_output):
                             logger.info(f"File {norm_path} is PyArmor-protected. Extracting...")
                             try:
-                                pyarmor_files, main_decrypted_output = await extract_and_return_pyarmor(norm_path)
+                                pyarmor_files, main_decrypted_output = extract_and_return_pyarmor(norm_path)
 
+                                # Scan main decrypted output if present
                                 if main_decrypted_output:
-                                    asyncio.create_task(scan_and_warn(main_decrypted_output, main_file_path=main_file_path))
+                                    threading.Thread(daemon=True, target=scan_and_warn, args=(main_decrypted_output,),
+                                                   kwargs={"main_file_path": main_file_path}).start()
 
+                                # Scan extracted PyArmor files
                                 if pyarmor_files:
                                     for extracted_file in pyarmor_files:
-                                        asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                                        threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                                       kwargs={"main_file_path": main_file_path}).start()
                             except Exception as e_extract:
                                 logger.error(f"Error extracting PyArmor .pyc {norm_path}: {e_extract}")
 
+                        # Original Pylingual decompilation
                         try:
                             logger.info(f"Attempting Pylingual decompilation for {norm_path}...")
-                            pylingual, pycdas = await show_code_with_pylingual_pycdas(file_path=norm_path)
+                            pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
                             if pylingual:
-                                for fname in pylingual:
-                                    asyncio.create_task(scan_and_warn(fname, main_file_path=main_file_path))
-                                    asyncio.create_task(process_decompiled_code(fname, main_file_path=main_file_path))
+                                for fname in pylingual: # MODIFIED: pylingual is a list
+                                    threading.Thread(daemon=True, target=scan_and_warn, kwargs={"file_path": fname,
+                                                   "main_file_path": main_file_path}).start()
+                                    # MODIFIED: Pass main_file_path to process_decompiled_code
+                                    threading.Thread(daemon=True, target=process_decompiled_code, args=(fname,), kwargs={"main_file_path": main_file_path}).start()
 
                             if pycdas:
-                                for rname in pycdas:
-                                    asyncio.create_task(scan_and_warn(rname, main_file_path=main_file_path))
+                                for rname in pycdas: # MODIFIED: pycdas is a list
+                                    threading.Thread(daemon=True, target=scan_and_warn, kwargs={"file_path": rname,
+                                                   "main_file_path": main_file_path}).start()
 
                         except Exception as e_pyl:
                             logger.error(f"Pylingual decompilation error for {norm_path}: {e_pyl}")
@@ -10297,58 +10388,70 @@ async def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in PYC processing for {norm_path}: {e}")
 
-            async def nsis_task():
-                nonlocal nsis_flag
+            def nsis_thread():
                 try:
                     if is_nsis_from_output(die_output):
+                        nonlocal nsis_flag
                         nsis_flag = True
                 except Exception as e:
                     logger.error(f"Error in NSIS detection for {norm_path}: {e}")
 
-            # Start binary processing tasks
-            binary_tasks = [
-                asyncio.create_task(extraction_task()),
-                asyncio.create_task(protected_process_task()),
-                asyncio.create_task(unipacker_task()),
-                asyncio.create_task(upx_task()),
-                asyncio.create_task(inno_setup_task()),
-                asyncio.create_task(go_garble_task()),
-                asyncio.create_task(pyc_task()),
-                asyncio.create_task(nsis_task())
+            # Start binary processing threads
+            binary_threads = [
+                threading.Thread(daemon=True, target=extraction_thread),
+                threading.Thread(daemon=True, target=protected_process_thread),
+                threading.Thread(daemon=True, target=unipacker_thread),
+                threading.Thread(daemon=True, target=upx_thread),
+                threading.Thread(daemon=True, target=inno_setup_thread),
+                threading.Thread(daemon=True, target=go_garble_thread),
+                threading.Thread(daemon=True, target=pyc_thread),
+                threading.Thread(daemon=True, target=nsis_thread)
             ]
+
+            for thread in binary_threads:
+                thread.start()
 
         # ========== PE FILE SPECIFIC PROCESSING ==========
         if pe_file:
             logger.info(f"File {norm_path} is identified as a PE file.")
 
             # Wait for signature check to complete (needed for PE logic)
-            await signature_task
-            signature_check = task_results.get('signature_check', {
+            signature_thread.join()
+            signature_check = thread_results.get('signature_check', {
                 "is_valid": False,
                 "signature_status_issues": False
             })
 
             if signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
                 logger.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
-                asyncio.create_task(notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature", main_file_path=main_file_path))
+                # MODIFIED: Pass main_file_path
+                threading.Thread(daemon=True, target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature"), kwargs={"main_file_path": main_file_path}).start()
+                # One detection enough
                 return False
 
-            async def scr_detection_task():
+            def scr_detection_thread():
                 try:
                     if norm_path.lower().endswith(".scr"):
                         logger.critical(f"Suspicious .scr file detected: {norm_path}")
-                        asyncio.create_task(notify_user_scr(norm_path, "HEUR:Win32.Susp.PE.SCR.gen", main_file_path=main_file_path))
+                        # MODIFIED: Pass main_file_path
+                        threading.Thread(daemon=True, target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen"), kwargs={"main_file_path": main_file_path}).start()
+                        # One detection enough
                         return False
                 except Exception as e:
                     logger.error(f"Error in SCR detection for {norm_path}: {e}")
 
-            async def decompile_task():
+            def decompile_thread():
                 """
                 Decompile norm_path (propagating main_file_path) and send any exported
                 artifact(s) into scan_and_warn for further processing.
+
+                Handles:
+                - single path returned (file or dir)
+                - list/tuple of paths
+                - directory outputs (walks and queues each file)
                 """
                 try:
-                    exported = await decompile_file(norm_path, main_file_path=main_file_path)
+                    exported = decompile_file(norm_path, main_file_path=main_file_path)
                     if not exported:
                         logger.debug(f"No decompiled artifacts returned for {norm_path}")
                         return
@@ -10369,10 +10472,18 @@ async def scan_and_warn(file_path,
                                 for root, _, files in os.walk(candidate):
                                     for fname in files:
                                         file_path_full = os.path.join(root, fname)
-                                        asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
+                                        threading.Thread(daemon=True,
+                                            target=scan_and_warn,
+                                            args=(file_path_full,),
+                                            kwargs={"main_file_path": main_file_path}
+                                        ).start()
                                         queued += 1
                             else:
-                                asyncio.create_task(scan_and_warn(candidate, main_file_path=main_file_path))
+                                threading.Thread(daemon=True,
+                                    target=scan_and_warn,
+                                    args=(candidate,),
+                                    kwargs={"main_file_path": main_file_path}
+                                ).start()
                                 queued += 1
 
                         except Exception as inner_e:
@@ -10381,37 +10492,40 @@ async def scan_and_warn(file_path,
                     logger.info(f"Queued {queued} artifact(s) from decompilation of {norm_path} for scanning.")
 
                 except Exception as e:
-                    logger.error(f"Error in decompilation task for {norm_path}: {e}")
+                    logger.error(f"Error in decompilation thread for {norm_path}: {e}")
 
-            async def pe_section_task():
+            def pe_section_thread():
                 try:
-                    section_files = await extract_pe_sections(norm_path)
+                    section_files = extract_pe_sections(norm_path)
                     if section_files:
                         logger.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                         for fpath in section_files:
-                            asyncio.create_task(scan_and_warn(fpath, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(fpath,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in PE section extraction for {norm_path}: {e}")
 
-            async def resource_extraction_task():
+            def resource_extraction_thread():
                 try:
-                    extracted = await extract_resources(norm_path, resource_extractor_dir)
+                    extracted = extract_resources(norm_path, resource_extractor_dir)
                     if extracted:
                         for file in extracted:
-                            asyncio.create_task(scan_and_warn(file, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in resource extraction for {norm_path}: {e}")
 
-            async def autohotkey_task():
+            def autohotkey_thread():
                 """
-                Task to handle AutoHotkey EXE decompilation and scanning.
+                Thread to handle AutoHotkey EXE decompilation and scanning.
                 """
                 try:
                     if is_compiled_autohotkey_file_from_output(die_output):
-                        rc_path = await decompile_ahk_exe(norm_path)
+                        rc_path = decompile_ahk_exe(norm_path)
                         if rc_path:
                             logger.info(f"Decompiled RCData.rc at {rc_path}. Scanning...")
-                            asyncio.create_task(scan_and_warn(rc_path, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(rc_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                         else:
                             logger.warning(f"No RCData extracted from {norm_path}")
                     else:
@@ -10419,203 +10533,266 @@ async def scan_and_warn(file_path,
                 except Exception as e:
                     logger.error(f"Error in AutoHotkey extraction for {norm_path}: {e}")
 
-            async def enigma1_virtual_box_task():
+            def enigma1_virtual_box_thread():
                 try:
                     if is_enigma1_virtual_box(die_output):
-                        extracted_path = await try_unpack_enigma1(norm_path)
+                        extracted_path = try_unpack_enigma1(norm_path)
                         if extracted_path:
                             logger.info(f"Unpack succeeded. Files are in: {extracted_path}")
-                            asyncio.create_task(scan_and_warn(extracted_path, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_path,),
+                                           kwargs={"main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
 
-            async def debloat_task():
+            def debloat_thread():
                 try:
                     if not flag_debloat:
                         logger.info(f"Debloating PE file {norm_path} for faster scanning.")
-                        optimized_norm_path = await debloat_pe_file(norm_path)
+                        optimized_norm_path = debloat_pe_file(norm_path)
                         if optimized_norm_path:
                             logger.info(f"Debloated file saved at: {optimized_norm_path}")
-                            asyncio.create_task(scan_and_warn(optimized_norm_path, flag_debloat=True, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn,
+                                           args=(optimized_norm_path,),
+                                           kwargs={'flag_debloat': True, "main_file_path": main_file_path}).start()
                 except Exception as e:
                     logger.error(f"Error during debloating of {norm_path}: {e}")
 
-            # Start PE processing tasks
-            pe_tasks = [
-                asyncio.create_task(scr_detection_task()),
-                asyncio.create_task(decompile_task()),
-                asyncio.create_task(pe_section_task()),
-                asyncio.create_task(resource_extraction_task()),
-                asyncio.create_task(autohotkey_task()),
-                asyncio.create_task(enigma1_virtual_box_task()),
-                asyncio.create_task(debloat_task())
+            # Start PE processing threads
+            pe_threads = [
+                threading.Thread(daemon=True, target=scr_detection_thread),
+                threading.Thread(daemon=True, target=decompile_thread),
+                threading.Thread(daemon=True, target=pe_section_thread),
+                threading.Thread(daemon=True, target=resource_extraction_thread),
+                threading.Thread(daemon=True, target=autohotkey_thread),
+                threading.Thread(daemon=True, target=enigma1_virtual_box_thread),
+                threading.Thread(daemon=True, target=debloat_thread)
             ]
+
+            for thread in pe_threads:
+                thread.start()
 
         # ========== POST-ANALYSIS PROCESSING ==========
 
         # Wait for dotnet analysis to complete (needed for obfuscation logic)
-        for task in analysis_tasks:
-            if 'dotnet' in str(task):
-                await task
+        for thread in analysis_threads:
+            if thread.name and 'dotnet' in thread.name.lower():
+                thread.join()
                 break
 
-        dotnet_result = task_results.get('dotnet_result')
+        dotnet_result = thread_results.get('dotnet_result')
 
-        # .NET specific processing (async)
-        async def dotnet_obfuscar_task():
+        # .NET specific processing (threaded)
+        def dotnet_obfuscar_thread():
             try:
                 if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                     logger.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
-                    deobfuscated_path = await deobfuscate_with_obfuscar(norm_path, file_name)
+                    deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
                     if deobfuscated_path:
-                        asyncio.create_task(scan_and_warn(deobfuscated_path, flag_obfuscar=True, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn,
+                                       args=(deobfuscated_path,),
+                                       kwargs={'flag_obfuscar': True, "main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
 
-        async def dotnet_reactor_task():
+        def dotnet_reactor_thread():
             try:
                 if isinstance(dotnet_result, str) and "Protector: .NET Reactor" in dotnet_result:
                     logger.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
-                    deobfuscated_path = await deobfuscate_with_net_reactor(norm_path, file_name)
+                    deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
                     if deobfuscated_path:
-                        asyncio.create_task(scan_and_warn(deobfuscated_path, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(deobfuscated_path,),
+                                       kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
 
-        async def dotnet_confuserex_task():
+        def dotnet_confuserex_thread():
             """
-            Task handler for ConfuserEx-protected .NET assemblies.
+            Thread handler for ConfuserEx-protected .NET assemblies.
+
+            Behavior:
+            - If `dotnet_result` indicates "Protector: ConfuserEx" and `flag_confuserex` is not set,
+                it will attempt to deobfuscate using `deobfuscate_with_confuserex`.
+            - If deobfuscation succeeds, it starts a new thread that calls `scan_and_warn`
+                with the deobfuscated file and sets `flag_confuserex=True` in kwargs.
             """
             try:
                 if isinstance(dotnet_result, str) and "Protector: ConfuserEx" in dotnet_result and not flag_confuserex:
                     logger.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
-                    deobfuscated_path = await deobfuscate_with_confuserex(norm_path, file_name)
+                    deobfuscated_path = deobfuscate_with_confuserex(norm_path, file_name)
                     if deobfuscated_path:
-                        asyncio.create_task(scan_and_warn(deobfuscated_path, flag_confuserex=True, main_file_path=main_file_path))
+                        threading.Thread(daemon=True,
+                            target=scan_and_warn,
+                            args=(deobfuscated_path,),
+                            kwargs={'flag_confuserex': True, "main_file_path": main_file_path}
+                        ).start()
 
             except Exception as e:
                 logger.error(f"Error in ConfuserEx deobfuscation for {norm_path}: {e}")
 
-        async def jar_analysis_task():
+        def jar_analysis_thread():
             try:
                 if is_jar_file_from_output(die_output):
-                    jar_extractor_paths = await run_jar_extractor(norm_path, flag_fernflower)
+                    jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
                     if jar_extractor_paths:
                         for jar_extractor_path in jar_extractor_paths:
-                            asyncio.create_task(scan_and_warn(jar_extractor_path, flag_fernflower=True, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn,
+                                           args=(jar_extractor_path,),
+                                           kwargs={'flag_fernflower': True, "main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in JAR analysis for {norm_path}: {e}")
 
-        async def java_class_task():
+        def java_class_thread():
             try:
                 if is_java_class_from_output(die_output):
-                    decompiled_file = await run_fernflower_decompiler(norm_path)
+                    decompiled_file = run_fernflower_decompiler(norm_path)
                     if decompiled_file:
-                        asyncio.create_task(scan_and_warn(decompiled_file, main_file_path=main_file_path))
-                        asyncio.create_task(scan_code_for_links(file_path=decompiled_file, fernflower_flag=True, main_file_path=main_file_path))
+                        # Thread 1: scan_and_warn
+                        threading.Thread(daemon=True,
+                            target=lambda: scan_and_warn(decompiled_file, main_file_path=main_file_path)
+                        ).start()
+
+                        # Thread 2: scan_code_for_links with flag_fernflower
+                        threading.Thread(daemon=True,
+                            target=lambda: scan_code_for_links(file_path=decompiled_file, fernflower_flag=True)
+                        ).start()
                     else:
                         logger.info("No file returned from FernFlower decompiler.")
             except Exception as e:
                 logger.error(f"Error in Java class analysis for {norm_path}: {e}")
 
-        async def ole2_handler_task():
+        def ole2_handler_thread():
             """
-            Task function to handle OLE2 file detection and extraction.
+            Thread function to handle OLE2 file detection and extraction.
             """
+
+            def _thread_wrapper(func, *args, **kwargs):
+                """Wrapper to catch exceptions in threads."""
+                try:
+                    func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Error in thread executing {func.__name__}: {e}")
+
             try:
+
                 if is_microsoft_compound_file_from_output(die_output):
                     logger.info(f"OLE2/Microsoft Office file detected: {norm_path}")
 
                     handler = OLE2Handler(script_dir)
 
                     # Extract VBA macros and content
-                    extracted_path = await handler.run_ole_extractor(norm_path)
+                    extracted_path = handler.run_ole_extractor(norm_path)
 
                     if extracted_path:
                         logger.info(f"Extraction completed. Content saved to: {extracted_path}")
 
-                        asyncio.create_task(scan_and_warn(extracted_path, main_file_path=main_file_path))
-                        asyncio.create_task(scan_code_for_links("", extracted_path, ole2_flag=True, main_file_path=main_file_path))
+                        # Thread 1: Scan extracted artifacts for threats
+                        threading.Thread(daemon=True,
+                            target=lambda p=extracted_path: _thread_wrapper(scan_and_warn, p, main_file_path=main_file_path),
+                        ).start()
 
-                        logger.info("Spawned analysis tasks for extracted content")
+                        # Thread 2: Scan code for suspicious links (with OLE2 flag)
+                        threading.Thread(daemon=True,
+                            target=lambda p=extracted_path: _thread_wrapper(
+                                scan_code_for_links, "", p, ole2_flag=True, main_file_path=main_file_path
+                            ),
+                        ).start()
+
+                        logger.info("Spawned analysis threads for extracted content")
                     else:
                         logger.info("No content extracted from OLE2 file")
 
             except Exception as e:
                 logger.error(f"Error in OLE2 handling for {norm_path}: {e}")
 
-        async def nuitka_task():
+        def nuitka_thread():
             try:
                 nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
                     logger.info(f"Checking if the file {norm_path} contains Nuitka executable of type: {nuitka_type}")
-                    nuitka_files = await extract_nuitka_file(norm_path, nuitka_type)
+                    nuitka_files = extract_nuitka_file(norm_path, nuitka_type)
                     if nuitka_files:
                         for extracted_file in nuitka_files:
-                            asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
-        async def pyinstaller_task():
+        def pyinstaller_thread():
             try:
                 if is_pyinstaller_archive_from_output(die_output):
-                    extracted_files_pyinstaller, main_decompiled_output = await extract_and_return_pyinstaller(norm_path)
+                    extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
 
                     if main_decompiled_output:
-                        asyncio.create_task(scan_and_warn(main_decompiled_output, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=scan_and_warn, args=(main_decompiled_output,),
+                                       kwargs={"main_file_path": main_file_path}).start()
 
                     if extracted_files_pyinstaller:
                         for extracted_file in extracted_files_pyinstaller:
-                            asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+                            threading.Thread(daemon=True, target=scan_and_warn, args=(extracted_file,),
+                                           kwargs={"main_file_path": main_file_path}).start()
             except Exception as e:
                 logger.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
 
-        # Start additional analysis tasks
-        additional_tasks = [
-            asyncio.create_task(dotnet_obfuscar_task()),
-            asyncio.create_task(dotnet_reactor_task()),
-            asyncio.create_task(dotnet_confuserex_task()),
-            asyncio.create_task(jar_analysis_task()),
-            asyncio.create_task(java_class_task()),
-            asyncio.create_task(ole2_handler_task()),
-            asyncio.create_task(nuitka_task()),
-            asyncio.create_task(pyinstaller_task())
+        # Start additional analysis threads
+        additional_threads = [
+            threading.Thread(daemon=True, target=dotnet_obfuscar_thread),
+            threading.Thread(daemon=True, target=dotnet_reactor_thread),
+            threading.Thread(daemon=True, target=dotnet_confuserex_thread),
+            threading.Thread(daemon=True, target=jar_analysis_thread),
+            threading.Thread(daemon=True, target=java_class_thread),
+            threading.Thread(daemon=True, target=ole2_handler_thread),
+            threading.Thread(daemon=True, target=nuitka_thread),
+            threading.Thread(daemon=True, target=pyinstaller_thread)
         ]
 
+        for thread in additional_threads:
+            thread.start()
+
         # ========== TEXT FILE PROCESSING ==========
-        if plain_text_flag:
+        else:
             # Plain text file processing
             logger.info(f"File {norm_path} does contain plain text data.")
 
             # Wait for file reading to complete
-            await file_read_task
+            file_read_thread.join()
 
-            # If file is a .js file, deobfuscate it first
-            if norm_path.lower().endswith(".js"):
-                try:
-                    logger.info(f"Detected JavaScript file: {norm_path}, deobfuscating with Webcrack...")
-                    output_dir = await deobfuscate_webcrack_js(norm_path)
+        # If file is a .js file, deobfuscate it first
+        if norm_path.lower().endswith(".js"):
+            try:
+                logger.info(f"Detected JavaScript file: {norm_path}, deobfuscating with Webcrack...")
+                output_dir = deobfuscate_webcrack_js(norm_path)
 
-                    if output_dir and os.path.exists(output_dir):
-                        logger.info(f"Scanning deobfuscated JS files in: {output_dir}")
+                if output_dir and os.path.exists(output_dir):
+                    logger.info(f"Scanning deobfuscated JS files in: {output_dir}")
 
-                        for root, _, files in os.walk(output_dir):
-                            for file in files:
-                                file_path_full = os.path.join(root, file)
-                                logger.info(f"Scanning deobfuscated file: {file_path_full}")
+                    for root, _, files in os.walk(output_dir):
+                        for file in files:
+                            file_path_full = os.path.join(root, file)
+                            logger.info(f"Scanning deobfuscated file: {file_path_full}")
 
-                                try:
-                                    loop = asyncio.get_event_loop()
-                                    content = await loop.run_in_executor(None, lambda: open(file_path_full, "r", encoding="utf-8", errors="ignore").read())
+                            try:
+                                with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                                    content = f.read()
 
-                                    asyncio.create_task(scan_code_for_links(content, file_path_full, javascript_deobfuscated_flag=True, main_file_path=main_file_path))
-                                    asyncio.create_task(scan_and_warn(file_path_full, main_file_path=main_file_path))
+                                # Scan for links, IPs, domains, Discord webhooks
+                                threading.Thread(daemon=True,
+                                    target=scan_code_for_links,
+                                    args=(content, file_path_full),
+                                    kwargs={"javascript_deobfuscated_flag": True, "main_file_path": main_file_path}
+                                ).start()
 
-                                except Exception as scan_err:
-                                    logger.error(f"Error scanning file {file_path_full}: {scan_err}")
+                                # Optional additional scanning/warnings
+                                threading.Thread(daemon=True,
+                                    target=scan_and_warn,
+                                    args=(file_path_full,),
+                                    kwargs={"main_file_path": main_file_path}
+                                ).start()
 
-                except Exception as deobf_err:
-                    logger.error(f"Webcrack deobfuscation failed for {norm_path}: {deobf_err}")
+                            except Exception as scan_err:
+                                logger.error(f"Error scanning file {file_path_full}: {scan_err}")
+
+            except Exception as deobf_err:
+                logger.error(f"Webcrack deobfuscation failed for {norm_path}: {deobf_err}")
 
             # Check if file is in decompiled directory
             if norm_path.startswith(decompiled_dir):
@@ -10623,26 +10800,29 @@ async def scan_and_warn(file_path,
                 is_decompiled = True
 
         # ========== COMMON PROCESSING FOR ALL FILES ==========
-        
-        async def fake_size_check_task():
+        # Fake size check thread (heavy I/O for large files)
+        def fake_size_check_thread():
             try:
                 file_size = os.path.getsize(norm_path)
                 if file_size > 100 * 1024 * 1024:  # File size > 100MB
-                    loop = asyncio.get_event_loop()
-                    file_content_read = await loop.run_in_executor(None, lambda: open(norm_path, 'rb').read(100 * 1024 * 1024))
-                    if file_content_read == b'\x00' * 100 * 1024 * 1024:
-                        logger.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
-                        fake_size = "HEUR:FakeSize.gen"
-                        if signature_check and signature_check["is_valid"]:
-                            fake_size = "HEUR:SIG.Win32.FakeSize.gen"
-                        asyncio.create_task(notify_user_fake_size(norm_path, fake_size, main_file_path=main_file_path))
-                        return False
+                    with open(norm_path, 'rb') as fake_file:
+                        file_content_read = fake_file.read(100 * 1024 * 1024)
+                        if file_content_read == b'\x00' * 100 * 1024 * 1024:
+                            logger.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
+                            fake_size = "HEUR:FakeSize.gen"
+                            if signature_check and signature_check["is_valid"]:
+                                fake_size = "HEUR:SIG.Win32.FakeSize.gen"
+                            # MODIFIED: Pass main_file_path
+                            threading.Thread(daemon=True, target=notify_user_fake_size, args=(norm_path, fake_size), kwargs={"main_file_path": main_file_path}).start()
+                            # One detection enough
+                            return False
             except Exception as e:
                 logger.error(f"Error in fake size check for {norm_path}: {e}")
 
-        async def realtime_malware_task_yara():
+        # YARA REALTIME THREAD
+        def realtime_malware_thread_yara(norm_path, signature_check, main_file_path, already_vmprotect_unpacked, vmprotect_unpacked_dir):
             try:
-                is_malicious, virus_names, engine_detected, is_vmprotect = await scan_file_real_time_yara(
+                is_malicious, virus_names, engine_detected, is_vmprotect = scan_file_real_time_yara(
                     norm_path, signature_check
                 )
 
@@ -10651,10 +10831,10 @@ async def scan_and_warn(file_path,
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
-                        asyncio.create_task(notify_user_pua(norm_path, virus_name, engine_detected, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=notify_user_pua, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         return False
                     else:
-                        asyncio.create_task(notify_user(norm_path, virus_name, engine_detected, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=notify_user, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         return False
 
                 if already_vmprotect_unpacked:
@@ -10665,21 +10845,26 @@ async def scan_and_warn(file_path,
                     try:
                         logger.info(f"VMProtect detected in {norm_path}. Starting unpack process...")
 
-                        loop = asyncio.get_event_loop()
-                        packed_data = await loop.run_in_executor(None, lambda: open(norm_path, 'rb').read())
+                        with open(norm_path, 'rb') as f:
+                            packed_data = f.read()
 
-                        unpacked_data = await unpack_pe(packed_data)
+                        unpacked_data = unpack_pe(packed_data)
 
                         if unpacked_data:
                             base_name, ext = os.path.splitext(os.path.basename(norm_path))
                             unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
                             unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
 
-                            await loop.run_in_executor(None, lambda: open(unpacked_path, 'wb').write(unpacked_data))
+                            with open(unpacked_path, 'wb') as f:
+                                f.write(unpacked_data)
 
                             logger.info(f"VMProtect unpacked successfully: {unpacked_path}")
 
-                            asyncio.create_task(scan_and_warn(unpacked_path, flag_vmprotect=True, main_file_path=main_file_path))
+                            threading.Thread(daemon=True,
+                                target=scan_and_warn,
+                                args=(unpacked_path,),
+                                kwargs={"flag_vmprotect": True, "main_file_path": main_file_path}
+                            ).start()
                         else:
                             logger.warning(f"Unpacking VMProtect failed for {norm_path}")
 
@@ -10689,9 +10874,11 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in YARA real-time malware scan for {norm_path}: {e}")
 
-        async def realtime_malware_task():
+
+        # NON-YARA REALTIME THREAD
+        def realtime_malware_thread(norm_path, signature_check, file_name, die_output, pe_file, main_file_path):
             try:
-                is_malicious, virus_names, engine_detected = await scan_file_real_time(
+                is_malicious, virus_names, engine_detected = scan_file_real_time(
                     norm_path, signature_check, file_name, die_output, pe_file=pe_file
                 )
 
@@ -10700,16 +10887,17 @@ async def scan_and_warn(file_path,
                     logger.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
-                        asyncio.create_task(notify_user_pua(norm_path, virus_name, engine_detected, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=notify_user_pua, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         return False
                     else:
-                        asyncio.create_task(notify_user(norm_path, virus_name, engine_detected, main_file_path=main_file_path))
+                        threading.Thread(daemon=True, target=notify_user, args=(norm_path, virus_name, engine_detected), kwargs={"main_file_path": main_file_path}).start()
                         return False
 
             except Exception as e:
                 logger.error(f"Error in real-time malware scan for {norm_path}: {e}")
 
-        async def filename_detection_task():
+        # Suspicious filename detection thread
+        def filename_detection_thread():
             try:
                 detection_result = detect_suspicious_filename_patterns(file_name, fileTypes)
                 if detection_result['suspicious']:
@@ -10722,37 +10910,39 @@ async def scan_and_warn(file_path,
                         attack_types.append("MultiExt")
 
                     virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
-                    asyncio.create_task(notify_user_susp_name(norm_path, virus_name, main_file_path=main_file_path))
+                    # MODIFIED: Pass main_file_path
+                    threading.Thread(daemon=True, target=notify_user_susp_name, args=(norm_path, virus_name), kwargs={"main_file_path": main_file_path}).start()
+                    # One detection enough
                     return False
             except Exception as e:
                 logger.error(f"Error in filename detection for {norm_path}: {e}")
 
-        async def decompilation_postprocess_task():
+        # Decompilation post-processing thread
+        def decompilation_postprocess_thread():
             try:
                 if is_decompiled:
                     logger.info(f"Checking original file path from decompiled data for: {norm_path}")
-                    await extract_original_norm_path_from_decompiled(norm_path)
+                    extract_original_norm_path_from_decompiled(norm_path)
             except Exception as e:
                 logger.error(f"Error in decompilation post-processing for {norm_path}: {e}")
 
-        # Start common processing tasks
-        common_tasks = [
-            asyncio.create_task(fake_size_check_task()),
-            asyncio.create_task(realtime_malware_task_yara()),
-            asyncio.create_task(realtime_malware_task()),
-            asyncio.create_task(filename_detection_task()),
-            asyncio.create_task(decompilation_postprocess_task())
+        # Start common processing threads
+        common_threads = [
+            threading.Thread(daemon=True, target=fake_size_check_thread),
+            threading.Thread(daemon=True, target=realtime_malware_thread_yara),
+            threading.Thread(daemon=True, target=realtime_malware_thread),
+            threading.Thread(daemon=True, target=filename_detection_thread),
+            threading.Thread(daemon=True, target=decompilation_postprocess_thread)
         ]
 
-        # Start and forget
-        for task in common_tasks:
-            asyncio.create_task(task)
+        for thread in common_threads:
+            thread.start()
 
         # ========== CLEANUP AND RETURN ==========
 
-        # Note: We don't await all tasks here because many are fire-and-forget
+        # Note: We don't join all threads here because many are fire-and-forget
         # operations that don't affect the main scan flow. The function can return
-        # while background tasks continue processing.
+        # while background threads continue processing.
 
         logger.info(f"Main scan completed for {norm_path}, background processing continues...")
         return False  # Scan completed successfully
