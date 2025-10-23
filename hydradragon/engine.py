@@ -248,126 +248,136 @@ class ShieldWidget(QWidget):
             self.update() # Trigger repaint
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Guard against invalid dimensions
-        if self.width() <= 0 or self.height() <= 0:
-            return
+            # Guard against invalid dimensions
+            if self.width() <= 0 or self.height() <= 0:
+                return
 
-        side = min(self.width(), self.height())
-        if side <= 0:
-            return
+            side = min(self.width(), self.height())
+            if side <= 0:
+                return
 
-        center_x, center_y = self.width() / 2, self.height() / 2
-        
-        # Save initial painter state
-        painter.save()
-        try:
-            painter.translate(center_x, center_y)
-            painter.scale(self._scale_factor, self._scale_factor)
-            painter.rotate(self._rotation_angle)
-
-            base_scale = side / 240.0
-            painter.scale(base_scale, base_scale)
-
-            # Draw outer rings (affected by rotation)
+            center_x, center_y = self.width() / 2, self.height() / 2
+            
+            # Save initial painter state
             painter.save()
             try:
-                for i in range(3):
-                    radius = 120 + (i * 15)
-                    ring_color = QColor(136, 192, 208, int(30 - i * 10))
-                    painter.setPen(QPen(ring_color, 2))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawEllipse(QPoint(0, 0), radius, radius)
-            finally:
-                painter.restore()
-
-            # Draw elements not affected by rotation
-            painter.save()
-            try:
-                painter.resetTransform()
                 painter.translate(center_x, center_y)
                 painter.scale(self._scale_factor, self._scale_factor)
+                painter.rotate(self._rotation_angle)
+
+                base_scale = side / 240.0
                 painter.scale(base_scale, base_scale)
 
-                # Draw multi-layered glow
-                for layer in range(4):
-                    glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
-                    gradient = QRadialGradient(0, 0, 130 - layer * 20)
-                    opacity = self._glow_opacity * (0.4 - layer * 0.08) * self._pulse_intensity
-                    opacity = max(0.0, min(1.0, opacity))  # Clamp opacity
-                    glow_color.setAlphaF(opacity)
-                    gradient.setColorAt(0.6, glow_color)
-                    glow_color.setAlphaF(0)
-                    gradient.setColorAt(1.0, glow_color)
-                    painter.setBrush(QBrush(gradient))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(-130 + layer * 10, -130 + layer * 10,
-                                    (130 - layer * 10) * 2, (130 - layer * 10) * 2)
+                # Draw outer rings (affected by rotation)
+                painter.save()
+                try:
+                    for i in range(3):
+                        radius = 120 + (i * 15)
+                        ring_color = QColor(136, 192, 208, int(30 - i * 10))
+                        painter.setPen(QPen(ring_color, 2))
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawEllipse(QPoint(0, 0), radius, radius)
+                finally:
+                    painter.restore()
 
-                # Draw shield with enhanced gradient
-                path = QPainterPath()
-                path.moveTo(0, -95)
-                path.cubicTo(85, -85, 85, 0, 85, 0)
-                path.lineTo(85, 45)
-                path.quadTo(85, 100, 0, 110)
-                path.quadTo(-85, 100, -85, 45)
-                path.lineTo(-85, 0)
-                path.cubicTo(-85, -85, 0, -95, 0, -95)
+                # Draw elements not affected by rotation
+                painter.save()
+                try:
+                    painter.resetTransform()
+                    painter.translate(center_x, center_y)
+                    painter.scale(self._scale_factor, self._scale_factor)
+                    painter.scale(base_scale, base_scale)
 
-                shield_gradient = QLinearGradient(0, -95, 0, 110)
-                shield_gradient.setColorAt(0, QColor("#4C566A"))
-                shield_gradient.setColorAt(0.3, QColor("#434C5E"))
-                shield_gradient.setColorAt(0.7, QColor("#3B4252"))
-                shield_gradient.setColorAt(1, QColor("#2E3440"))
-                painter.fillPath(path, QBrush(shield_gradient))
+                    # Draw multi-layered glow
+                    for layer in range(4):
+                        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
+                        gradient = QRadialGradient(0, 0, 130 - layer * 20)
+                        opacity = self._glow_opacity * (0.4 - layer * 0.08) * self._pulse_intensity
+                        opacity = max(0.0, min(1.0, opacity))  # Clamp opacity
+                        glow_color.setAlphaF(opacity)
+                        gradient.setColorAt(0.6, glow_color)
+                        glow_color.setAlphaF(0)
+                        gradient.setColorAt(1.0, glow_color)
+                        painter.setBrush(QBrush(gradient))
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.drawEllipse(-130 + layer * 10, -130 + layer * 10,
+                                        (130 - layer * 10) * 2, (130 - layer * 10) * 2)
 
-                # Draw shield border with glow
-                border_color = QColor("#88C0D0")
-                border_alpha = max(0.0, min(1.0, 0.8 * self._pulse_intensity))
-                border_color.setAlphaF(border_alpha)
-                painter.setPen(QPen(border_color, 3))
-                painter.drawPath(path)
+                    # Draw shield with enhanced gradient
+                    path = QPainterPath()
+                    path.moveTo(0, -95)
+                    path.cubicTo(85, -85, 85, 0, 85, 0)
+                    path.lineTo(85, 45)
+                    path.quadTo(85, 100, 0, 110)
+                    path.quadTo(-85, 100, -85, 45)
+                    path.lineTo(-85, 0)
+                    path.cubicTo(-85, -85, 0, -95, 0, -95)
 
-                progress = self._check_progress
+                    shield_gradient = QLinearGradient(0, -95, 0, 110)
+                    shield_gradient.setColorAt(0, QColor("#4C566A"))
+                    shield_gradient.setColorAt(0.3, QColor("#434C5E"))
+                    shield_gradient.setColorAt(0.7, QColor("#3B4252"))
+                    shield_gradient.setColorAt(1, QColor("#2E3440"))
+                    painter.fillPath(path, QBrush(shield_gradient))
 
-                # Draw energy lines inside shield
-                if self.is_protected:
-                    painter.save()
-                    try:
-                        painter.setPen(QPen(QColor(136, 192, 208, int(100 * progress)), 2))
-                        for i in range(-60, 61, 20):
-                            painter.drawLine(i, -80, i, 90)
-                    finally:
-                        painter.restore()
+                    # Draw shield border with glow
+                    border_color = QColor("#88C0D0")
+                    border_alpha = max(0.0, min(1.0, 0.8 * self._pulse_intensity))
+                    border_color.setAlphaF(border_alpha)
+                    painter.setPen(QPen(border_color, 3))
+                    painter.drawPath(path)
 
-                # Draw icon or cross
-                if self.is_protected:
-                    if self.hydra_pixmap and not self.hydra_pixmap.isNull():
+                    progress = self._check_progress
+
+                    # Draw energy lines inside shield
+                    if self.is_protected:
                         painter.save()
                         try:
-                            painter.setOpacity(progress)
-                            pixmap_rect = QRect(-80, -90, 160, 160)
-                            painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
+                            # Clamp progress and ensure valid alpha
+                            progress_clamped = max(0.0, min(1.0, progress))
+                            alpha_value = int(100 * progress_clamped)
+                            alpha_value = max(0, min(255, alpha_value))  # Ensure valid alpha range
+                            
+                            pen_color = QColor(136, 192, 208)
+                            pen_color.setAlpha(alpha_value)
+                            painter.setPen(QPen(pen_color, 2))
+                            
+                            for i in range(-60, 61, 20):
+                                painter.drawLine(i, -80, i, 90)
+                        except Exception as e:
+                            logger.error(f"Error drawing energy lines: {e}")
                         finally:
                             painter.restore()
-                else:
-                    painter.save()
-                    try:
-                        painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine,
-                                        Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-                        painter.drawLine(int(-40 * progress), int(-40 * progress),
-                                    int(40 * progress), int(40 * progress))
-                        painter.drawLine(int(40 * progress), int(-40 * progress),
-                                    int(-40 * progress), int(40 * progress))
-                    finally:
-                        painter.restore()
 
+                    # Draw icon or cross
+                    if self.is_protected:
+                        if self.hydra_pixmap and not self.hydra_pixmap.isNull():
+                            painter.save()
+                            try:
+                                painter.setOpacity(progress)
+                                pixmap_rect = QRect(-80, -90, 160, 160)
+                                painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
+                            finally:
+                                painter.restore()
+                    else:
+                        painter.save()
+                        try:
+                            painter.setPen(QPen(QColor("white"), 16, Qt.PenStyle.SolidLine,
+                                            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                            painter.drawLine(int(-40 * progress), int(-40 * progress),
+                                        int(40 * progress), int(40 * progress))
+                            painter.drawLine(int(40 * progress), int(-40 * progress),
+                                        int(-40 * progress), int(40 * progress))
+                        finally:
+                            painter.restore()
+
+                finally:
+                    painter.restore()
             finally:
                 painter.restore()
-        finally:
-            painter.restore()
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
