@@ -2,6 +2,7 @@ import sys
 import threading
 import time
 import traceback
+import os
 from hydradragon.hydra_logger import logger
 
 _tracing_active = False
@@ -10,7 +11,23 @@ _original_threading_trace = None
 _start_time = None
 _log_counter = 0
 _MAX_LOG_LINES = 1_000_000
-_TARGET_MODULE = "antivirus.py"
+
+# Files from your directory listing (the "cd list")
+_TARGET_MODULES = {
+    "antivirus.py",
+    "clamav.py",
+    "detect_type.py",
+    "notify_user.py",
+    "path_and_variables.py",
+    "pattern.py",
+    "pe_feature_extractor.py",
+    "pipe_events.py",
+    "reference_registry.py",
+    "utils_and_helpers.py",
+    "engine.py",
+    "hydra_logger.py",
+    # add more names here if you want
+}
 
 def trace_calls(frame, event, arg):
     """Trace function for sys.settrace and threading.settrace."""
@@ -26,8 +43,11 @@ def trace_calls(frame, event, arg):
             return None
 
         filename = frame.f_code.co_filename
-        if not filename.endswith(_TARGET_MODULE):
-            return trace_calls  # Skip everything outside antivirus.py
+        base = os.path.basename(filename)
+
+        # match any target module by basename for robustness
+        if base not in _TARGET_MODULES:
+            return trace_calls  # skip everything else
 
         timestamp = time.time() - _start_time if _start_time else 0
         thread_id = threading.get_ident()
@@ -39,17 +59,21 @@ def trace_calls(frame, event, arg):
         # Log function arguments on call (optional)
         if event == "call":
             try:
-                args = {k: repr(v)[:50] for k,v in frame.f_locals.items()}
+                # Keep args small to avoid blowing up logs
+                args = {k: repr(v)[:50] for k, v in frame.f_locals.items()}
                 log_msg += f" | args={args}"
-            except:
+            except Exception:
                 pass
         elif event == "return":
-            log_msg += f" -> return={repr(arg)[:100]}"
+            try:
+                log_msg += f" -> return={repr(arg)[:100]}"
+            except Exception:
+                pass
         elif event == "exception":
             try:
                 exc_type, exc_value, _ = arg
                 log_msg += f" -> exception={exc_type.__name__}: {exc_value}"
-            except:
+            except Exception:
                 pass
 
         logger.debug(log_msg)
@@ -59,7 +83,7 @@ def trace_calls(frame, event, arg):
         try:
             print(f"[TRACE-ERROR] {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
-        except:
+        except Exception:
             pass
 
     return trace_calls
@@ -102,7 +126,7 @@ def start_global_tracing():
 
     logger.debug("Attaching trace to existing threads...")
     _attach_trace_to_existing_threads()
-    logger.info("Tracing attached to all existing threads (best-effort).")
+    logger.info(f"Tracing attached to all existing threads (targets: {', '.join(sorted(_TARGET_MODULES))})")
 
 
 def stop_global_tracing():
@@ -126,7 +150,7 @@ def stop_global_tracing():
                 sys._set_trace_for_tid(thread.ident, _original_sys_trace)
             elif hasattr(thread, "_set_trace"):
                 thread._set_trace(_original_sys_trace)
-        except:
+        except Exception:
             pass
 
     _original_sys_trace = None
