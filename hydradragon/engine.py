@@ -448,333 +448,241 @@ class ShieldWidget(QWidget):
             logger.exception("Exception in ShieldWidget.paintEvent")
             return
 
-# --- Main Application Window ---
 class AntivirusApp(QWidget):
-    # Signal to append log messages safely from any thread/task
+    # Signals for safe cross-thread UI marshalling
     log_signal = Signal(str)
+    status_signal = Signal(bool)   # True => protected, False => busy
+    progress_signal = Signal(float)  # progress 0.0..1.0, optional usage
 
     def __init__(self):
         super().__init__()
-        self.active_tasks = set() # Keep track of running asyncio tasks
-        self.log_outputs = [] # List to hold QTextEdit widgets for each page
-        self.animation_group = QParallelAnimationGroup()
-        self.defs_label = None # To update definition time
 
+        # state
+        self.active_tasks = set()
+        self.log_outputs = []  # list of QTextEdit widgets for each page
+        self.animation_group = QParallelAnimationGroup()
+        self.defs_label = None
+
+        # wire signals
+        self.log_signal.connect(self._append_log_output_slot)
+        self.status_signal.connect(self._on_status_signal)
+        self.progress_signal.connect(self._on_progress_signal)
+
+        # apply stylesheet and build UI
         self.apply_extreme_stylesheet()
         self.setup_ui()
 
-        # Connect the signal to the slot
-        self.log_signal.connect(self._append_log_output_slot)
-
-        # Run startup tasks after UI is shown
+        # Run startup tasks after UI shown
         QTimer.singleShot(0, self.run_startup_tasks)
 
-    def _append_log_output_slot(self, text):
-        """Safely append text to the log widget of the current page."""
+    # ---------------------------
+    # Signal handlers / UI marshalling
+    # ---------------------------
+    def _append_log_output_slot(self, text: str):
+        """Append log messages to the current log widget (runs on Qt thread)."""
         try:
             current_page_index = self.main_stack.currentIndex()
             if 0 <= current_page_index < len(self.log_outputs):
                 log_widget = self.log_outputs[current_page_index]
                 if log_widget and isinstance(log_widget, QTextEdit):
                     log_widget.append(text)
-                    # Scroll to bottom only if the scrollbar is already near the bottom
+                    # auto-scroll if near bottom
                     scrollbar = log_widget.verticalScrollBar()
-                    at_bottom = scrollbar.value() >= (scrollbar.maximum() - 20) # Threshold
+                    at_bottom = scrollbar.value() >= (scrollbar.maximum() - 20)
                     if at_bottom:
-                         scrollbar.setValue(scrollbar.maximum())
+                        scrollbar.setValue(scrollbar.maximum())
+        except Exception:
+            logger.exception("Error in _append_log_output_slot")
 
-        except Exception as e:
-            logger.error(f"Error appending log to UI: {e}")
+    def _on_status_signal(self, is_protected: bool):
+        """Slot to update shield & status text; always runs on the Qt thread."""
+        try:
+            if hasattr(self, 'shield_widget') and self.shield_widget:
+                # shield_widget.set_status is lightweight and debounced in ShieldWidget
+                self.shield_widget.set_status(bool(is_protected))
+            if hasattr(self, 'status_text'):
+                if is_protected:
+                    self.status_text.setText("System protected!")
+                    self.status_text.setObjectName("page_subtitle")
+                else:
+                    self.status_text.setText("System busy...")
+                    self.status_text.setObjectName("page_subtitle_busy")
+                # Force style refresh
+                self.status_text.setStyle(self.style())
+        except Exception:
+            logger.exception("Error in _on_status_signal")
 
-    def append_log_output(self, text):
-        """Emit signal to append log message from any thread/task."""
-        self.log_signal.emit(text)
+    def _on_progress_signal(self, value: float):
+        """Receive progress updates (0.0..1.0). We use it to update shield progress or other UI."""
+        try:
+            if hasattr(self, 'shield_widget') and self.shield_widget:
+                # ShieldWidget implements set_check_progress defensively
+                self.shield_widget.set_check_progress(float(value))
+            # Optionally show progress in a progress bar if you add one
+            if hasattr(self, 'defs_progress_bar') and isinstance(self.defs_progress_bar, QProgressBar):
+                v = int(max(0, min(100, value * 100)))
+                self.defs_progress_bar.setValue(v)
+        except Exception:
+            logger.exception("Error in _on_progress_signal")
 
+    # ---------------------------
+    # Logging wrapper
+    # ---------------------------
+    def append_log_output(self, text: str):
+        """Thread-safe/log-safe way to append logs to UI via signal."""
+        try:
+            # Format timestamped log optionally
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            formatted = f"{timestamp} {text}"
+            # Send to UI
+            self.log_signal.emit(formatted)
+            # Also mirror to logger
+            logger.info(text)
+        except Exception:
+            logger.exception("append_log_output failed")
+
+    # ---------------------------
+    # Stylesheet
+    # ---------------------------
     def apply_extreme_stylesheet(self):
-        # Stylesheet remains the same as provided previously
         stylesheet = """
-            QWidget {
-                background-color: #2E3440;
-                color: #D8DEE9;
-                font-family: 'Segoe UI', 'SF Pro Display', Arial, sans-serif;
-                font-size: 14px;
-            }
-
-            QTextEdit {
-                background-color: #3B4252;
-                border: 2px solid #4C566A;
-                border-radius: 10px;
-                padding: 12px;
-                color: #ECEFF4;
-                font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
-                font-size: 13px;
-            }
-
-            QTextEdit:focus {
-                border: 2px solid #88C0D0;
-            }
-
-            QLineEdit {
-                background-color: #3B4252;
-                border: 2px solid #4C566A;
-                border-radius: 8px;
-                padding: 10px 15px;
-                color: #ECEFF4;
-                font-size: 14px;
-            }
-
-            QLineEdit:focus {
-                border: 2px solid #88C0D0;
-                background-color: #434C5E;
-            }
-
-            #sidebar {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2E3440, stop:1 #232831);
-                max-width: 240px;
-                border-right: 1px solid #4C566A;
-            }
-
-            #logo {
-                color: #88C0D0;
-                font-size: 32px;
-                font-weight: bold;
-                letter-spacing: 2px;
-            }
-
-            #nav_button {
-                background-color: transparent;
-                border: none;
-                color: #D8DEE9;
-                padding: 14px 16px;
-                text-align: left;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 500;
-                margin: 2px 8px;
-            }
-
-            #nav_button:hover {
-                background-color: #434C5E;
-                color: #ECEFF4;
-            }
-
-            #nav_button:checked {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #88C0D0, stop:1 #81A1C1);
-                color: #2E3440;
-                font-weight: bold;
-            }
-
-            #page_title {
-                font-size: 32px;
-                font-weight: 300;
-                color: #ECEFF4;
-                padding-bottom: 20px;
-                letter-spacing: 1px;
-            }
-
-            #page_subtitle {
-                font-size: 18px;
-                color: #A3BE8C; /* Greenish for 'Ready' */
-                font-weight: 500;
-            }
-             #page_subtitle_busy { /* Add a style for busy */
-                font-size: 18px;
-                color: #EBCB8B; /* Yellowish for 'Busy' */
-                font-weight: 500;
-            }
-
-            #version_label {
-                font-size: 13px;
-                color: #81A1C1;
-                font-weight: 400;
-            }
-
-            #action_button {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5E81AC, stop:1 #5273A0);
-                color: #ECEFF4;
-                border-radius: 10px;
-                padding: 14px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-                min-width: 180px;
-            }
-
-            #action_button:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #81A1C1, stop:1 #6B8DB8);
-            }
-
-            #action_button:pressed {
-                background: #4C6A94;
-            }
-             #action_button:disabled { /* Style for disabled button */
-                background: #4C566A;
-                color: #8F9AA8;
-            }
-
-            #warning_text {
-                font-size: 13px;
-                line-height: 1.6;
-            }
-
-            #status_card {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3B4252, stop:1 #343D4C);
-                border: 2px solid #4C566A;
-                border-radius: 12px;
-                padding: 15px;
-            }
-
-            #status_card:hover {
-                border: 2px solid #88C0D0;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #434C5E, stop:1 #3B4554);
-            }
-
-            #card_title {
-                font-size: 13px;
-                color: #81A1C1;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-
-            #card_value {
-                font-size: 24px;
-                color: #ECEFF4;
-                font-weight: bold;
-            }
-
-            QProgressBar {
-                border: 2px solid #4C566A;
-                border-radius: 8px;
-                text-align: center;
-                background-color: #3B4252;
-                color: #ECEFF4;
-                font-weight: bold;
-                height: 10px; /* Make progress bar slimmer */
-            }
-
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #88C0D0, stop:0.5 #81A1C1, stop:1 #5E81AC);
-                border-radius: 6px;
-                 margin: 1px; /* Add margin for inset look */
-            }
-
-            QScrollBar:vertical {
-                border: none;
-                background-color: #3B4252;
-                width: 12px;
-                margin: 0px 0 0px 0; /* No margin */
-                border-radius: 6px;
-            }
-
-            QScrollBar::handle:vertical {
-                background-color: #5E81AC;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background-color: #81A1C1;
-            }
-
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: none;
-            }
-             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-
+            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial; font-size: 14px; }
+            QTextEdit { background-color: #3B4252; border: 2px solid #4C566A; border-radius: 10px; padding: 12px; color: #ECEFF4; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+            QTextEdit:focus { border: 2px solid #88C0D0; }
+            #sidebar { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2E3440, stop:1 #232831); max-width:240px; border-right:1px solid #4C566A; }
+            #logo { color: #88C0D0; font-size: 32px; font-weight: bold; letter-spacing:2px; }
+            #nav_button { background-color: transparent; border: none; color:#D8DEE9; padding:14px 16px; text-align:left; border-radius:8px; font-size:13px; font-weight:500; margin:2px 8px; }
+            #nav_button:hover { background-color: #434C5E; color: #ECEFF4; }
+            #nav_button:checked { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #88C0D0, stop:1 #81A1C1); color:#2E3440; font-weight:bold; }
+            #page_title { font-size: 32px; font-weight: 300; color: #ECEFF4; padding-bottom: 20px; letter-spacing:1px; }
+            #page_subtitle { font-size: 18px; color: #A3BE8C; font-weight: 500; }
+            #page_subtitle_busy { font-size: 18px; color: #EBCB8B; font-weight: 500; }
+            #version_label { font-size: 13px; color: #81A1C1; font-weight: 400; }
+            #action_button { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #5E81AC,stop:1 #5273A0); color:#ECEFF4; border-radius:10px; padding:14px 24px; font-size:14px; font-weight:bold; border:none; min-width:180px; }
+            #action_button:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #81A1C1,stop:1 #6B8DB8); }
+            #action_button:pressed { background: #4C6A94; }
+            #action_button:disabled { background: #4C566A; color: #8F9AA8; }
+            #status_card { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3B4252, stop:1 #343D4C); border:2px solid #4C566A; border-radius:12px; padding:15px; }
+            QProgressBar { border:2px solid #4C566A; border-radius:8px; text-align:center; background-color:#3B4252; color:#ECEFF4; height:10px; }
+            QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #88C0D0, stop:0.5 #81A1C1, stop:1 #5E81AC); border-radius:6px; margin:1px; }
         """
         self.setStyleSheet(stylesheet)
 
-    # --- Task Execution ---
+    # ---------------------------
+    # Task runner utilities
+    # ---------------------------
+    def _update_ui_for_task_start(self, task_name: str):
+        """Update UI when a task starts. This runs on the Qt thread (since run_task is scheduled from qasync)."""
+        try:
+            self.append_log_output(f"[*] Task '{task_name}' started.")
+            # Mark shield busy via signal to ensure main-thread execution
+            self.status_signal.emit(False)
 
-    def _update_ui_for_task_start(self, task_name):
-        """Update UI to indicate a task is running."""
-        self.append_log_output(f"[*] Task '{task_name}' started.")
-        if hasattr(self, 'shield_widget'):
-            self.shield_widget.set_status(False) # Show shield as busy/vulnerable
-        if hasattr(self, 'status_text'):
-            self.status_text.setText("System busy...")
-            self.status_text.setObjectName("page_subtitle_busy") # Use busy style
-            self.status_text.setStyle(self.style()) # Force style refresh
-        # Disable buttons associated with this task if needed
-        if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
-             self.task_buttons[task_name].setEnabled(False)
+            if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
+                try:
+                    self.task_buttons[task_name].setEnabled(False)
+                except Exception:
+                    logger.exception("Failed to disable task button")
+        except Exception:
+            logger.exception("_update_ui_for_task_start failed")
 
-    def _update_ui_for_task_end(self, task_name):
-        """Update UI when a task finishes."""
-        self.append_log_output(f"[+] Task '{task_name}' finished.")
-        # Only set shield to protected if *all* tasks are done
-        if not self.active_tasks and hasattr(self, 'shield_widget'):
-            self.shield_widget.set_status(True)
-        if not self.active_tasks and hasattr(self, 'status_text'):
-            self.status_text.setText("System protected!")
-            self.status_text.setObjectName("page_subtitle") # Use ready style
-            self.status_text.setStyle(self.style()) # Force style refresh
-         # Re-enable button
-        if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
-             self.task_buttons[task_name].setEnabled(True)
-        # Update defs time if applicable
-        if task_name == 'update_definitions' and self.defs_label:
-            self.defs_label.setText(get_latest_clamav_def_time())
+    def _update_ui_for_task_end(self, task_name: str):
+        """Update UI when a task ends."""
+        try:
+            self.append_log_output(f"[+] Task '{task_name}' finished.")
+            if task_name in self.active_tasks:
+                # removed elsewhere after run
+                pass
+            # Only set shield to protected if no active tasks remain
+            if not self.active_tasks:
+                self.status_signal.emit(True)
 
-    async def run_task(self, task_name, coro_or_func, *args, is_async=True):
-        """Runs an async coroutine or a blocking function via asyncio.to_thread."""
+            if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
+                try:
+                    self.task_buttons[task_name].setEnabled(True)
+                except Exception:
+                    logger.exception("Failed to enable task button")
+
+            if task_name == 'update_definitions' and self.defs_label:
+                try:
+                    self.defs_label.setText(get_latest_clamav_def_time())
+                except Exception:
+                    logger.exception("Failed to update defs_label text")
+        except Exception:
+            logger.exception("_update_ui_for_task_end failed")
+
+    async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
+        """Run an async coroutine or blocking function on a background thread, with UI updates marshalled through signals."""
         if task_name in self.active_tasks:
-            self.append_log_output(f"[*] Task '{task_name}' is already running.")
+            self.append_log_output(f"[*] Task '{task_name}' already running.")
             return
 
         self.active_tasks.add(task_name)
-        self._update_ui_for_task_start(task_name)
+        # UI update should be scheduled on Qt main thread
+        QTimer.singleShot(0, lambda: self._update_ui_for_task_start(task_name))
+
         try:
             if is_async:
-                # Directly await the coroutine
+                # Directly await coroutine
                 await coro_or_func(*args)
             else:
-                # Run blocking function in a thread
+                # Offload blocking function to a thread
                 await asyncio.to_thread(coro_or_func, *args)
         except asyncio.CancelledError:
-             self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
-             logger.info(f"Task {task_name} cancelled.")
-        except Exception as e:
+            self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
+            logger.info(f"Task {task_name} cancelled.")
+        except Exception:
             error_msg = f"[!] Error in task '{task_name}': {traceback.format_exc()}"
             self.append_log_output(error_msg)
             logger.exception(f"Exception in task {task_name}")
         finally:
             if task_name in self.active_tasks:
                 self.active_tasks.remove(task_name)
-            self._update_ui_for_task_end(task_name)
+            # Update UI end on Qt main thread
+            QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
 
-
-    # --- Specific Task Implementations ---
-
+    # ---------------------------
+    # Specific tasks (adapted from your original code)
+    # ---------------------------
     async def _run_real_time_protection_task(self):
-        """Async task for real-time protection monitoring."""
+        """Run the real-time protection async generator; append outputs to logs."""
         self.append_log_output("[*] Real-time protection monitoring starting...")
         try:
+            # It's expected to be an async generator
             async for output in run_real_time_protection_with_yield_async():
-                self.append_log_output(str(output))
+                try:
+                    # If the generator yields progress-like messages, you can parse and emit progress_signal
+                    # Example heuristic: if output includes 'progress:' extract float 0..1
+                    if isinstance(output, str) and "progress:" in output:
+                        try:
+                            # naive parse: "progress:0.42" or "progress: 42%"
+                            token = output.split("progress:")[-1].strip()
+                            if token.endswith('%'):
+                                val = float(token.rstrip('%')) / 100.0
+                            else:
+                                val = float(token)
+                            self.progress_signal.emit(max(0.0, min(1.0, val)))
+                        except Exception:
+                            # ignore parsing errors
+                            pass
+                    # Append full output to logs
+                    self.append_log_output(str(output))
+                except Exception:
+                    logger.exception("Error handling output from real-time protection generator")
             self.append_log_output("[+] Real-time protection monitoring finished.")
+        except asyncio.CancelledError:
+            self.append_log_output("[!] Real-time protection task cancelled.")
+            logger.info("Real-time protection task cancelled")
+            return
         except Exception:
-             error_msg = f"[!] Error during real-time protection: {traceback.format_exc()}"
-             logger.exception("Unhandled exception in real-time protection")
-             self.append_log_output(error_msg)
-
+            self.append_log_output(f"[!] Error during real-time protection: {traceback.format_exc()}")
+            logger.exception("Unhandled exception in real-time protection")
 
     async def _run_hayabusa_live_task(self):
-        """Async task for Hayabusa live analysis."""
+        """Async wrapper to run Hayabusa csv-timeline and tail the output for critical events."""
         self.append_log_output("[*] Starting Hayabusa live timeline analysis...")
-        process = None # Keep track of the process
-        csv_tail_task = None # Keep track of tailing task
+        process = None
+        csv_tail_task = None
         try:
             if not os.path.exists(hayabusa_path):
                 self.append_log_output(f"[!] Hayabusa executable not found at: {hayabusa_path}")
@@ -785,10 +693,7 @@ class AntivirusApp(QWidget):
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
 
-            cmd = [
-                hayabusa_path, "csv-timeline", "-l",
-                "-o", output_file, "--profile", "standard", "-m", "critical"
-            ]
+            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
             self.append_log_output(f"[*] Running command: {' '.join(cmd)}")
 
             process = await asyncio.create_subprocess_exec(
@@ -799,12 +704,14 @@ class AntivirusApp(QWidget):
             )
 
             async def stream_reader(pipe, label):
-                 if pipe is None: return
-                 while True:
-                     line_bytes = await pipe.readline()
-                     if not line_bytes: break
-                     line = line_bytes.decode('utf-8', errors='ignore').strip()
-                     self.append_log_output(f"[{label}] {line}")
+                if pipe is None:
+                    return
+                while True:
+                    line_bytes = await pipe.readline()
+                    if not line_bytes:
+                        break
+                    line = line_bytes.decode('utf-8', errors='ignore').strip()
+                    self.append_log_output(f"[{label}] {line}")
 
             stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
             stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
@@ -812,7 +719,7 @@ class AntivirusApp(QWidget):
             async def tail_csv_and_analyze(csv_file_path):
                 wait_start = asyncio.get_event_loop().time()
                 while not os.path.exists(csv_file_path):
-                    if asyncio.get_event_loop().time() - wait_start > 30: # 30 second timeout
+                    if asyncio.get_event_loop().time() - wait_start > 30:
                         self.append_log_output(f"[!] Timeout waiting for CSV file: {csv_file_path}")
                         return
                     await asyncio.sleep(0.1)
@@ -827,7 +734,6 @@ class AntivirusApp(QWidget):
                             last_read_pos = await f.tell()
 
                             if new_content:
-                                # Process only the new lines
                                 reader = csv.DictReader(new_content.splitlines())
                                 for row in reader:
                                     key_fields = (row.get('Timestamp'), row.get('EventID'), row.get('RuleTitle'), row.get('Details'))
@@ -842,42 +748,41 @@ class AntivirusApp(QWidget):
                                             details = row.get('Details', 'N/A')
                                             computer = row.get('Computer', 'N/A')
                                             timestamp = row.get('Timestamp', 'N/A')
-
-                                            # Call the notifier (ensure it's safe)
+                                            # Notify safely (not a UI call)
                                             try:
+                                                from hydradragon.antivirus_scripts.notify_user import notify_user_hayabusa_critical
                                                 notify_user_hayabusa_critical(
                                                     event_log=f"{channel} (EID: {event_id})",
                                                     rule_title=rule_title,
                                                     details=details,
                                                     computer=computer,
                                                 )
-                                            except Exception as notify_err:
-                                                 logger.error(f"Error calling Hayabusa notifier: {notify_err}")
+                                            except Exception:
+                                                logger.exception("Error calling Hayabusa notifier")
 
                                             self.append_log_output(
-                                                f"[!] LIVE CRITICAL [{timestamp}]: "
-                                                f"{rule_title} | {computer} "
-                                                f"| {channel} | {details[:100]}"
+                                                f"[!] LIVE CRITICAL [{timestamp}]: {rule_title} | {computer} | {channel} | {details[:100]}"
                                             )
                     except FileNotFoundError:
                         self.append_log_output(f"[!] CSV file disappeared: {csv_file_path}")
                         await asyncio.sleep(1)
-                    except Exception as e:
-                        self.append_log_output(f"[!] CSV tail error: {str(e)}")
-                        await asyncio.sleep(1) # Prevent tight loop on error
+                    except asyncio.CancelledError:
+                        self.append_log_output("[!] CSV tail task cancelled")
+                        return
+                    except Exception:
+                        self.append_log_output(f"[!] CSV tail error: {traceback.format_exc()}")
+                        await asyncio.sleep(1)
 
-                    # Check if Hayabusa process is still running
+                    # stop when hayabusa process ends
                     if process.returncode is not None:
                         self.append_log_output("[*] Hayabusa process finished. Stopping CSV tail.")
                         break
-                    await asyncio.sleep(1.0) # Check file every second
+                    await asyncio.sleep(1.0)
 
             csv_tail_task = asyncio.create_task(tail_csv_and_analyze(output_file))
             self.append_log_output("[*] Hayabusa live monitoring started.")
 
-            # Wait for the process itself to finish
             return_code = await process.wait()
-            # Wait for stream readers to finish processing any remaining output
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
             if return_code == 0:
@@ -887,37 +792,37 @@ class AntivirusApp(QWidget):
 
         except asyncio.CancelledError:
             self.append_log_output("[!] Hayabusa task cancelled.")
-        except Exception as e:
+            logger.info("Hayabusa live task cancelled")
+            return
+        except Exception:
             self.append_log_output(f"[!] Error running Hayabusa live timeline: {traceback.format_exc()}")
+            logger.exception("Hayabusa live task error")
         finally:
-             # Cleanup: Cancel tailer, terminate process if still running
-             if csv_tail_task and not csv_tail_task.done():
-                 csv_tail_task.cancel()
-                 try: await csv_tail_task
-                 except asyncio.CancelledError: pass
-             if process and process.returncode is None:
-                 try:
-                     process.terminate()
-                     await process.wait()
-                 except ProcessLookupError: pass # Already gone
-                 except Exception as term_ex:
-                     self.append_log_output(f"[!] Error terminating Hayabusa: {term_ex}")
-
+            if csv_tail_task and not csv_tail_task.done():
+                csv_tail_task.cancel()
+                try:
+                    await csv_tail_task
+                except asyncio.CancelledError:
+                    pass
+            if process and process.returncode is None:
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    logger.exception("Error terminating Hayabusa process")
 
     def _update_definitions_sync(self):
-        """Synchronous (blocking) function to update ClamAV definitions."""
+        """Blocking freshclam call executed in a thread via run_task(is_async=False)."""
         self.append_log_output("[*] Checking virus definitions...")
         try:
-            needs_update = False
-             # Check if freshclam exists
             if not os.path.exists(freshclam_path):
-                 self.append_log_output(f"[!] Error: freshclam not found at '{freshclam_path}'. Cannot update.")
-                 return False # Indicate failure
+                self.append_log_output(f"[!] Error: freshclam not found at '{freshclam_path}'. Cannot update.")
+                return False
 
-            # Check definition file dates
+            needs_update = False
             if not clamav_file_paths:
-                 logger.warning("ClamAV definition file paths are not configured.")
-                 needs_update = True # Assume update needed if paths missing
+                logger.warning("ClamAV definition file paths are not configured.")
+                needs_update = True
             else:
                 for file_path in clamav_file_paths:
                     if os.path.exists(file_path):
@@ -925,51 +830,49 @@ class AntivirusApp(QWidget):
                         if (datetime.now() - file_mod_time) > timedelta(hours=12):
                             needs_update = True
                             break
-                    else: # If a definition file doesn't exist, update needed.
+                    else:
                         needs_update = True
                         break
 
             if needs_update:
                 self.append_log_output("[*] Definitions are outdated or missing. Starting update...")
-                # Run freshclam - use Popen for better control/non-blocking read potentially
                 process = subprocess.Popen([freshclam_path],
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                            text=True, encoding="utf-8", errors="ignore")
-                stdout, stderr = process.communicate() # Wait for process to finish
+                stdout, stderr = process.communicate()
 
-                # Append stdout line by line
                 if stdout:
-                     self.append_log_output("--- Freshclam Output ---")
-                     for line in stdout.splitlines():
-                          self.append_log_output(line)
-                     self.append_log_output("------------------------")
-                # Append stderr line by line
+                    self.append_log_output("--- Freshclam Output ---")
+                    for line in stdout.splitlines():
+                        self.append_log_output(line)
+                    self.append_log_output("------------------------")
                 if stderr:
-                     self.append_log_output("--- Freshclam Errors ---")
-                     for line in stderr.splitlines():
-                          self.append_log_output(f"[!] {line}")
-                     self.append_log_output("------------------------")
-
+                    self.append_log_output("--- Freshclam Errors ---")
+                    for line in stderr.splitlines():
+                        self.append_log_output(f"[!] {line}")
+                    self.append_log_output("------------------------")
 
                 if process.returncode == 0:
                     self.append_log_output("[+] Reloading ClamAV database...")
-                    reload_clamav_database() # This is blocking, run via to_thread
-                    self.append_log_output("[+] Virus definitions updated successfully and ClamAV reloaded.")
-                    return True # Indicate success
+                    try:
+                        reload_clamav_database()
+                        self.append_log_output("[+] Virus definitions updated successfully and ClamAV reloaded.")
+                        return True
+                    except Exception:
+                        logger.exception("reload_clamav_database failed")
+                        return False
                 else:
                     self.append_log_output(f"[!] Failed to update ClamAV definitions (freshclam exit code: {process.returncode}).")
-                    return False # Indicate failure
+                    return False
             else:
                 self.append_log_output("[*] Definitions are already up-to-date.")
-                return True # Indicate success (no update needed)
-        except Exception as e:
-            self.append_log_output(f"[!] Error updating definitions: {str(e)}")
+                return True
+        except Exception:
+            self.append_log_output(f"[!] Error updating definitions: {traceback.format_exc()}")
             logger.exception("Exception during definition update")
-            return False # Indicate failure
-
+            return False
 
     def _update_hayabusa_rules_sync(self):
-        """Synchronous (blocking) function to update Hayabusa rules."""
         self.append_log_output("[*] Updating Hayabusa rules...")
         try:
             if not os.path.exists(hayabusa_path):
@@ -997,133 +900,61 @@ class AntivirusApp(QWidget):
             else:
                 self.append_log_output(f"[!] Hayabusa rules update failed (code {process.returncode})")
                 return False
-        except Exception as e:
-            self.append_log_output(f"[!] Error updating Hayabusa rules: {str(e)}")
+        except Exception:
+            self.append_log_output(f"[!] Error updating Hayabusa rules: {traceback.format_exc()}")
             logger.exception("Exception during Hayabusa rule update")
             return False
 
-    # --- Button Click Handlers ---
-
+    # ---------------------------
+    # Button handlers (asyncSlots)
+    # ---------------------------
     @asyncSlot()
     async def on_update_definitions_clicked(self):
-        """Handler for the 'Update Definitions' button click."""
-        await self.run_task(
-            'update_definitions',
-            self._update_definitions_sync,
-            is_async=False # This function is blocking
-        )
+        await self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
 
     @asyncSlot()
     async def on_update_hayabusa_rules_clicked(self):
-        """Handler for the 'Update Hayabusa Rules' button click."""
-        await self.run_task(
-            'update_hayabusa_rules',
-            self._update_hayabusa_rules_sync,
-            is_async=False # This function is blocking
-        )
+        await self.run_task('update_hayabusa_rules', self._update_hayabusa_rules_sync, is_async=False)
 
-
-    # --- Startup ---
-
+    # ---------------------------
+    # Startup
+    # ---------------------------
     @asyncSlot()
     async def run_startup_tasks(self):
-        """Runs initial startup tasks asynchronously."""
         self.append_log_output("[*] Initializing...")
-        # Start real-time protection task
-        asyncio.create_task(self.run_task(
-            'real_time_protection',
-            self._run_real_time_protection_task,
-            is_async=True
-        ))
-        # Start Hayabusa live monitoring task
-        asyncio.create_task(self.run_task(
-            'hayabusa_live',
-            self._run_hayabusa_live_task,
-            is_async=True
-        ))
+        # start real-time protection
+        asyncio.create_task(self.run_task('real_time_protection', self._run_real_time_protection_task, is_async=True))
+        # hayabusa live
+        asyncio.create_task(self.run_task('hayabusa_live', self._run_hayabusa_live_task, is_async=True))
         self.append_log_output("[*] Startup tasks launched.")
 
-
-    # --- UI Page Switching ---
-
-    @asyncSlot(int)
-    async def switch_page_with_animation(self, index):
-        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
-            self.main_stack.currentIndex() == index):
-            return
-
-        current_widget = self.main_stack.currentWidget()
-        next_widget = self.main_stack.widget(index)
-        current_index = self.main_stack.currentIndex()
-
-        # Simple Fade Animation (Slide can be complex with async)
-        current_opacity_anim = QPropertyAnimation(current_widget, b"windowOpacity")
-        current_opacity_anim.setDuration(250)
-        current_opacity_anim.setStartValue(1.0)
-        current_opacity_anim.setEndValue(0.0)
-        current_opacity_anim.finished.connect(current_widget.hide) # Hide after fade
-
-        next_opacity_anim = QPropertyAnimation(next_widget, b"windowOpacity")
-        next_opacity_anim.setDuration(250)
-        next_opacity_anim.setStartValue(0.0)
-        next_opacity_anim.setEndValue(1.0)
-
-        # Set widget index *before* starting fade-in
-        next_widget.setWindowOpacity(0.0) # Start transparent
-        self.main_stack.setCurrentIndex(index)
-        next_widget.show()
-        next_widget.raise_()
-
-        self.animation_group = QParallelAnimationGroup()
-        self.animation_group.addAnimation(current_opacity_anim)
-        self.animation_group.addAnimation(next_opacity_anim)
-
-        # Connect finished signal properly
-        self.animation_group.finished.connect(self._on_animation_finished)
-        self.animation_group.start()
-
-    def _on_animation_finished(self):
-         # Ensure final opacity is 1.0 for the current widget
-         current_widget = self.main_stack.currentWidget()
-         if current_widget:
-             current_widget.setWindowOpacity(1.0)
-         # Clean up animation group? Not strictly necessary unless reusing heavily.
-
-    # --- Window Event Handlers ---
-
-    def closeEvent(self, event):
-        # Prevent closing, just hide
-        event.ignore()
-        self.hide()
-        self.append_log_output("[*] Application minimized (window hidden)")
-
-    # --- UI Creation Methods ---
-
+    # ---------------------------
+    # UI Pages / layout creation (kept mostly as before)
+    # ---------------------------
     def create_status_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(30)
 
-        # Main status area
         main_area = QHBoxLayout()
         main_area.setSpacing(40)
 
         self.shield_widget = ShieldWidget()
-        main_area.addWidget(self.shield_widget, 2) # Give shield more space
+        main_area.addWidget(self.shield_widget, 2)
 
         status_vbox = QVBoxLayout()
         status_vbox.addStretch()
 
         title = QLabel("System Status")
         title.setObjectName("page_title")
-        self.status_text = QLabel("Initializing...") # Start with initializing text
-        self.status_text.setObjectName("page_subtitle_busy") # Use busy style initially
+        self.status_text = QLabel("Initializing...")
+        self.status_text.setObjectName("page_subtitle_busy")
 
         version_label = QLabel(WINDOW_TITLE)
         version_label.setObjectName("version_label")
-        # Store defs_label to update it later
-        self.defs_label = QLabel(get_latest_clamav_def_time()) # Get initial time
+
+        self.defs_label = QLabel(get_latest_clamav_def_time())
         self.defs_label.setObjectName("version_label")
 
         status_vbox.addWidget(title)
@@ -1133,12 +964,11 @@ class AntivirusApp(QWidget):
         status_vbox.addWidget(self.defs_label)
         status_vbox.addStretch()
 
-        main_area.addLayout(status_vbox, 3) # Give text more space
+        main_area.addLayout(status_vbox, 3)
         layout.addLayout(main_area)
-        layout.addStretch() # Add stretch at the bottom
+        layout.addStretch()
 
-
-        self.log_outputs.append(None) # No log widget on status page
+        self.log_outputs.append(None)
         return page
 
     def create_task_page(self, title_text, main_task_name, main_button_text, additional_tasks=None):
@@ -1147,7 +977,6 @@ class AntivirusApp(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
 
-        # Store buttons for enabling/disabling
         if not hasattr(self, 'task_buttons'):
             self.task_buttons = {}
 
@@ -1161,24 +990,19 @@ class AntivirusApp(QWidget):
         button_container = QHBoxLayout()
         button_container.setSpacing(15)
 
-        # Main button setup
         main_button = QPushButton(main_button_text)
         main_button.setObjectName("action_button")
-        self.task_buttons[main_task_name] = main_button # Store button reference
+        self.task_buttons[main_task_name] = main_button
 
-        # Determine if main task is sync or async and connect appropriately
         if main_task_name == 'update_definitions':
-             main_button.clicked.connect(self.on_update_definitions_clicked)
+            main_button.clicked.connect(self.on_update_definitions_clicked)
         elif main_task_name == 'update_hayabusa_rules':
-             main_button.clicked.connect(self.on_update_hayabusa_rules_clicked)
-        # Add other specific task connections here if needed
+            main_button.clicked.connect(self.on_update_hayabusa_rules_clicked)
         else:
-             logger.warning(f"No specific handler for main task: {main_task_name}")
-             main_button.setEnabled(False) # Disable if no handler
+            main_button.setEnabled(False)
 
         button_container.addWidget(main_button)
 
-        # Additional buttons
         if additional_tasks:
             for btn_text, task_info in additional_tasks.items():
                 task_name = task_info['name']
@@ -1187,15 +1011,13 @@ class AntivirusApp(QWidget):
 
                 extra_btn = QPushButton(btn_text)
                 extra_btn.setObjectName("action_button")
-                self.task_buttons[task_name] = extra_btn # Store button
+                self.task_buttons[task_name] = extra_btn
 
-                # Connect based on whether the target is sync or async
                 extra_btn.clicked.connect(
                     lambda checked=False, tn=task_name, f=func, ia=is_async:
                     asyncio.create_task(self.run_task(tn, f, is_async=ia))
                 )
                 button_container.addWidget(extra_btn)
-
 
         button_container.addStretch()
         layout.addLayout(button_container)
@@ -1203,11 +1025,10 @@ class AntivirusApp(QWidget):
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1) # Give log area expansion priority
+        layout.addWidget(log_output, 1)
 
         self.log_outputs.append(log_output)
         return page
-
 
     def create_about_page(self):
         page = QWidget()
@@ -1219,14 +1040,12 @@ class AntivirusApp(QWidget):
         title.setObjectName("page_title")
         layout.addWidget(title)
 
-        about_text = QLabel(
-             "HydraDragon Antivirus - Open Source Antvirus with Advanced Real-Time Protection."
-        )
+        about_text = QLabel("HydraDragon Antivirus - Open Source Antivirus with Advanced Real-Time Protection.")
         about_text.setWordWrap(True)
-        about_text.setStyleSheet("font-size: 15px; line-height: 1.6;") # Slightly larger text
+        about_text.setStyleSheet("font-size: 15px; line-height: 1.6;")
         layout.addWidget(about_text)
 
-        buttons_layout = QHBoxLayout() # Use QHBoxLayout for horizontal buttons
+        buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(15)
 
         github_button = QPushButton("View on GitHub")
@@ -1234,37 +1053,34 @@ class AntivirusApp(QWidget):
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         buttons_layout.addWidget(github_button)
 
-        buttons_layout.addStretch() # Push buttons to the left
-
+        buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
-        layout.addStretch() # Push content upwards
+        layout.addStretch()
 
-        self.log_outputs.append(None) # No log output on About page
+        self.log_outputs.append(None)
         return page
 
     def create_main_content(self):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
 
-        # Define additional tasks for the Update page
         update_additional_tasks = {
-             "Update Hayabusa Rules": {
-                 'name': 'update_hayabusa_rules',
-                 'is_async': False, # It's a blocking sync function
-                 'func': self._update_hayabusa_rules_sync
-             }
-         }
+            "Update Hayabusa Rules": {
+                'name': 'update_hayabusa_rules',
+                'is_async': False,
+                'func': self._update_hayabusa_rules_sync
+            }
+        }
 
         self.main_stack.addWidget(self.create_task_page(
             "Updates",
-            main_task_name='update_definitions', # Task name for the main button
+            main_task_name='update_definitions',
             main_button_text="Update ClamAV Definitions",
             additional_tasks=update_additional_tasks
         ))
 
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
-
 
     def create_sidebar(self):
         sidebar_frame = QFrame()
@@ -1276,8 +1092,12 @@ class AntivirusApp(QWidget):
         logo_area = QHBoxLayout()
         logo_area.setSpacing(12)
 
-        icon_widget = HydraIconWidget(sidebar_frame) # Pass parent
-        icon_widget.setFixedSize(40, 40) # Slightly larger icon
+        # HydraIconWidget should exist in your file
+        try:
+            icon_widget = HydraIconWidget(sidebar_frame)
+            icon_widget.setFixedSize(40, 40)
+        except Exception:
+            icon_widget = QLabel("H")  # fallback
 
         logo_label = QLabel("HYDRA")
         logo_label.setObjectName("logo")
@@ -1289,11 +1109,7 @@ class AntivirusApp(QWidget):
         sidebar_layout.addLayout(logo_area)
         sidebar_layout.addSpacing(30)
 
-        nav_buttons = [
-            ("🏠", "Status"),
-            ("🔄", "Updates"), # Changed name
-            ("ℹ️", "About") # Use a standard info icon
-        ]
+        nav_buttons = [("🏠", "Status"), ("🔄", "Updates"), ("ℹ️", "About")]
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -1302,35 +1118,34 @@ class AntivirusApp(QWidget):
             button = QPushButton(f"{icon}  {name}")
             button.setCheckable(True)
             button.setObjectName("nav_button")
-            # Connect using asyncSlot correctly
-            button.clicked.connect(lambda checked=False, index=i: asyncio.create_task(self.switch_page_with_animation(index)))
-
+            # Use lambda capturing index safely
+            button.clicked.connect(lambda checked=False, idx=i: asyncio.create_task(self.switch_page_with_animation(idx)))
             sidebar_layout.addWidget(button)
             self.nav_group.addButton(button, i)
 
-        # Check the first button initially
         first_button = self.nav_group.button(0)
         if first_button:
-             first_button.setChecked(True)
+            first_button.setChecked(True)
 
         sidebar_layout.addStretch()
 
-        # Add version/status at the bottom
         version_label_side = QLabel(f"Version: {WINDOW_TITLE.split('v')[-1] if 'v' in WINDOW_TITLE else 'N/A'}")
         version_label_side.setStyleSheet("color: #6A7384; font-size: 11px; padding: 0 10px;")
         sidebar_layout.addWidget(version_label_side)
 
-
         return sidebar_frame
 
     def setup_ui(self):
-        if os.path.exists(icon_path):
-             try:
-                 self.setWindowIcon(QIcon(icon_path))
-             except Exception as e:
-                  logger.error(f"Failed to set window icon from {icon_path}: {e}")
-        else:
-            logger.error(f"Icon file not found at: {icon_path}")
+        try:
+            if os.path.exists(icon_path):
+                try:
+                    self.setWindowIcon(QIcon(icon_path))
+                except Exception:
+                    logger.exception("Failed to set window icon")
+            else:
+                logger.debug(f"Icon file not found at: {icon_path}")
+        except Exception:
+            logger.exception("setup_ui: icon handling failed")
 
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1100, 800)
@@ -1341,7 +1156,54 @@ class AntivirusApp(QWidget):
         main_layout.setSpacing(0)
 
         main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1) # Main content takes more space
+        main_layout.addWidget(self.create_main_content(), 1)
+
+    # ---------------------------
+    # Page switching animations
+    # ---------------------------
+    @asyncSlot(int)
+    async def switch_page_with_animation(self, index: int):
+        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
+                self.main_stack.currentIndex() == index):
+            return
+
+        current_widget = self.main_stack.currentWidget()
+        next_widget = self.main_stack.widget(index)
+
+        current_opacity_anim = QPropertyAnimation(current_widget, b"windowOpacity")
+        current_opacity_anim.setDuration(250)
+        current_opacity_anim.setStartValue(1.0)
+        current_opacity_anim.setEndValue(0.0)
+        current_opacity_anim.finished.connect(current_widget.hide)
+
+        next_opacity_anim = QPropertyAnimation(next_widget, b"windowOpacity")
+        next_opacity_anim.setDuration(250)
+        next_opacity_anim.setStartValue(0.0)
+        next_opacity_anim.setEndValue(1.0)
+
+        next_widget.setWindowOpacity(0.0)
+        self.main_stack.setCurrentIndex(index)
+        next_widget.show()
+        next_widget.raise_()
+
+        self.animation_group = QParallelAnimationGroup()
+        self.animation_group.addAnimation(current_opacity_anim)
+        self.animation_group.addAnimation(next_opacity_anim)
+        self.animation_group.finished.connect(self._on_animation_finished)
+        self.animation_group.start()
+
+    def _on_animation_finished(self):
+        current_widget = self.main_stack.currentWidget()
+        if current_widget:
+            current_widget.setWindowOpacity(1.0)
+
+    # ---------------------------
+    # Window event handlers
+    # ---------------------------
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
+        self.append_log_output("[*] Application minimized (window hidden)")
 
 def main():
     try:
@@ -1369,10 +1231,22 @@ if __name__ == "__main__":
     try:
         os.makedirs(log_directory, exist_ok=True)
     except Exception as e:
+        # Fallback to stderr if logger isn't ready yet
         print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
 
-    logger.info(f"HydraDragon Engine starting up...")
-    logger.info(f"Log directory: {log_directory}")
-    logger.info(f"Working directory: {main_dir}")
+    # Top-level startup guarded so uncaught exceptions in main() are logged
+    try:
+        logger.info("HydraDragon Engine starting up...")
+        logger.info(f"Log directory: {log_directory}")
+        logger.info(f"Working directory: {main_dir}")
 
-    main()
+        main()
+    except Exception:
+        # Log full traceback and exit with non-zero code
+        try:
+            logger.critical("Unhandled exception in main():\n" + traceback.format_exc())
+        except Exception:
+            # If logger itself is broken, print to stderr as a last resort
+            print("Unhandled exception in main():", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+        sys.exit(1)
