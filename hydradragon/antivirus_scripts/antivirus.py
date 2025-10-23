@@ -10914,27 +10914,6 @@ def _send_scan_request_to_av(pipe_name: str = PIPE_EDR_TO_AV):
                 except Exception:
                     pass
 
-def windows_yield_cpu():
-    """Windows-specific CPU yielding using SwitchToThread()"""
-    ctypes.windll.kernel32.SwitchToThread()
-
-async def periodic_yield_worker():
-    """
-    Async background worker that periodically yields the CPU.
-    
-    :param interval: Time in seconds between yields.
-    """
-    try:
-        while True:
-            # Yield to other threads/processes immediately
-            windows_yield_cpu()
-            
-            # Async sleep to yield control to the event loop
-            await asyncio.sleep(0)
-    except asyncio.CancelledError:
-        # Handle cancellation gracefully
-        pass
-
 async def load_all_resources_async():
     """
     Asynchronously load all core HydraDragon resources concurrently.
@@ -11079,36 +11058,22 @@ async def run_real_time_protection_with_yield_async():
     Async generator that starts real-time protection and yields status messages.
     Periodically yields CPU to keep the loop responsive.
     """
-    # Start the yield worker in the background using asyncio.create_task
-    # No need for a separate thread if the main loop is async
-    yield_task = asyncio.create_task(periodic_yield_worker())
-
     try:
         logger.info("Starting real-time protection with periodic CPU yielding...")
 
         # Start real-time protection tasks (non-blocking)
         # This function now just schedules tasks and returns a string immediately.
         result_message = await start_real_time_protection_async()
-        yield result_message or "[+] Real-time protection scheduled successfully"
+        return result_message or "[+] Real-time protection scheduled successfully"
 
-        yield "[+] Real-time monitoring is now active in the background"
+        return "[+] Real-time monitoring is now active in the background"
 
     except asyncio.CancelledError:
          logger.info("Real-time protection yield generator cancelled.")
-         if yield_task and not yield_task.done():
-              yield_task.cancel() # Cancel the yield worker too
     except Exception as ex:
         error_message = f"An error occurred during real-time protection yield loop: {ex}"
         logger.error(error_message, exc_info=True)
-        yield f"[!] {error_message}"
-    finally:
-        # Ensure yield task is cancelled on exit
-        if 'yield_task' in locals() and yield_task and not yield_task.done():
-             yield_task.cancel()
-             try:
-                 await yield_task # Allow cancellation to propagate
-             except asyncio.CancelledError:
-                 pass # Expected
+        return f"[!] {error_message}"
 
 def run_de4dot(file_path):
     """
