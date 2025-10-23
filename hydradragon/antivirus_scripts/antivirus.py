@@ -2474,11 +2474,11 @@ class RealTimeWebProtectionHandler:
 
             # Heuristic Discord/Telegram checks (using patterns from file context)
             heuristic_patterns = {
-                'HEUR:Discord.Webhook': discord_webhook_pattern,
-                'HEUR:Discord.Attachment': discord_attachment_pattern,
-                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern,
-                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern,
-                'HEUR:Telegram.Token': telegram_token_pattern
+                'HEUR:Discord.Webhook': discord_webhook_pattern_standard,
+                'HEUR:Discord.Attachment': discord_attachment_pattern_standard,
+                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern_standard,
+                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern_standard,
+                'HEUR:Telegram.Token': telegram_token_pattern_standard
             }
             for label, pattern in heuristic_patterns.items():
                 if re.search(pattern, url):
