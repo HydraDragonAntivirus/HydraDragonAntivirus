@@ -136,6 +136,7 @@ from .path_and_variables import (
     binary_die_cache,
     malicious_hashes,
     malicious_hashes_lock,
+    scan_and_warn_lock,
     decompile_outputs,
     decompile_outputs_lock,
     uefi_100kb_paths,
@@ -586,8 +587,6 @@ def parse_suricata_alert(json_line):
         logger.debug(f"Error parsing JSON alert: {ex}")
         return None, None, None, None, None
     return None, None, None, None, None
-
-thread_lock = threading.Lock()
 
 drivers_path = os.path.join(system32_dir, "drivers")
 hosts_path = f'{drivers_path}\\hosts'

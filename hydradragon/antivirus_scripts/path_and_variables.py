@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import ctypes
+import asyncio
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
@@ -214,7 +215,8 @@ binary_die_cache: dict[str, str] = {}
 
 # global, near top-level of module
 malicious_hashes = set()
-malicious_hashes_lock = threading.Lock()
+malicious_hashes_lock = asyncio.Lock()
+scan_and_warn_lock = asyncio.Lock()
 
 # Thread-safe map of original input -> list of decompiled artifacts produced by Ghidra
 decompile_outputs = {}               # maps abs_input_path -> [artifact_path, ...]
