@@ -502,8 +502,9 @@ class AntivirusApp(QWidget):
                                         rule = row.get("RuleTitle", "N/A")
                                         details = row.get("Details", "N/A")
                                         self.append_log_output(f"[!] CRITICAL: {rule} | {details[:100]}")
+
                                         try:
-                                            notify_user_hayabusa_critical(
+                                            await notify_user_hayabusa_critical(
                                                 event_log=row.get("Channel", ""),
                                                 rule_title=rule,
                                                 details=details,

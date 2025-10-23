@@ -1518,20 +1518,26 @@
 .\antivirus.py:11006:80: E501 line too long (87 > 79 characters)
 .\antivirus.py:11012:80: E501 line too long (106 > 79 characters)
 .\antivirus.py:11043:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11061:80: E501 line too long (91 > 79 characters)
-.\antivirus.py:11078:5: F841 local variable 'tasks' is assigned to but never used
-.\antivirus.py:11080:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:11083:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11085:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:11088:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:11091:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:11097:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:11126:80: E501 line too long (89 > 79 characters)
-.\antivirus.py:11128:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:11131:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11132:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:11137:80: E501 line too long (184 > 79 characters)
-.\antivirus.py:11143:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:11046:80: E501 line too long (92 > 79 characters)
+.\antivirus.py:11051:80: E501 line too long (95 > 79 characters)
+.\antivirus.py:11057:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:11060:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:11063:80: E501 line too long (97 > 79 characters)
+.\antivirus.py:11087:80: E501 line too long (81 > 79 characters)
+.\antivirus.py:11089:80: E501 line too long (91 > 79 characters)
+.\antivirus.py:11092:80: E501 line too long (103 > 79 characters)
+.\antivirus.py:11093:80: E501 line too long (100 > 79 characters)
+.\antivirus.py:11095:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11097:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:11100:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:11103:80: E501 line too long (82 > 79 characters)
+.\antivirus.py:11109:80: E501 line too long (84 > 79 characters)
+.\antivirus.py:11138:80: E501 line too long (89 > 79 characters)
+.\antivirus.py:11140:80: E501 line too long (88 > 79 characters)
+.\antivirus.py:11143:1: E302 expected 2 blank lines, found 1
+.\antivirus.py:11144:80: E501 line too long (80 > 79 characters)
+.\antivirus.py:11149:80: E501 line too long (184 > 79 characters)
+.\antivirus.py:11155:80: E501 line too long (92 > 79 characters)
 .\clamav.py:26:1: E305 expected 2 blank lines after class or function definition, found 1
 .\clamav.py:30:1: E302 expected 2 blank lines, found 1
 .\clamav.py:40:1: E305 expected 2 blank lines after class or function definition, found 1
@@ -1973,7 +1979,6 @@
 .\pipe_events.py:395:80: E501 line too long (86 > 79 characters)
 .\pipe_events.py:396:80: E501 line too long (104 > 79 characters)
 .\pipe_events.py:398:80: E501 line too long (83 > 79 characters)
-.\pipe_events.py:404:5: F841 local variable 'tasks' is assigned to but never used
 .\reference_registry.py:9:1: E302 expected 2 blank lines, found 1
 .\utils_and_helpers.py:11:1: E302 expected 2 blank lines, found 1
 .\utils_and_helpers.py:26:20: E203 whitespace before ':'

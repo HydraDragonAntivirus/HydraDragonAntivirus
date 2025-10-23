@@ -11043,29 +11043,39 @@ async def load_all_resources_async():
 async def start_real_time_protection_async():
     """
     Start all real-time protection and resource-loading tasks concurrently.
-    Non-blocking: returns immediately after scheduling all tasks.
+    Non-blocking: schedules all tasks and returns immediately with a simple success message.
+    Tasks are NOT exposed to the caller (no cancel handle provided).
     """
-    async def run_task(name, func):
-        """Run a sync or async function safely as a task."""
+
+    def _task_done_cb(task: asyncio.Task, name: str) -> None:
+        """Log any exception from a finished task (binds name to avoid late-binding issues)."""
+        try:
+            exc = task.exception()
+            if exc:
+                logger.error(f"Task {name} raised an exception: {exc}")
+        except asyncio.CancelledError:
+            # we intentionally avoid cancelling, but log if it happens externally
+            logger.info(f"Task {name} was cancelled.")
+        except Exception as e:
+            logger.exception(f"Error retrieving exception for task {name}: {e}")
+
+    async def schedule_single(name: str, func):
+        """Schedule a single callable (sync or async) as a background Task and attach logging."""
         try:
             if inspect.iscoroutinefunction(func):
-                task = asyncio.create_task(func())
+                coro = func()
+                task = asyncio.create_task(coro, name=name)
                 logger.info(f"{name} task scheduled (coroutine)")
             else:
-                # Wrap sync functions in asyncio.to_thread
-                task = asyncio.create_task(asyncio.to_thread(func))
+                task = asyncio.create_task(asyncio.to_thread(func), name=name)
                 logger.info(f"{name} task scheduled (thread)")
 
-            # Add error logging for exceptions
-            task.add_done_callback(
-                lambda t: logger.error(f"Task {name} raised an exception: {t.exception()}")
-                if t.exception() else None
-            )
-            return task
+            # bind name to avoid late-binding in lambda
+            task.add_done_callback(lambda t, n=name: _task_done_cb(t, n))
         except Exception as e:
-            logger.exception(f"Error starting {name}: {e}")
+            logger.exception(f"Error scheduling {name}: {e}")
 
-    # List of protection and resource tasks
+    # List of protection and resource tasks (callables)
     protection_tasks = [
         ("EDRMonitor", _send_scan_request_to_av),
         ("SuricataMonitor", monitor_suricata_log),
@@ -11074,11 +11084,13 @@ async def start_real_time_protection_async():
         ("ResourceLoader", load_all_resources_async),
     ]
 
-    # Schedule all tasks concurrently
-    tasks = [await run_task(name, func) for name, func in protection_tasks]
+    # Schedule them without retaining task objects (no cancel capability exposed)
+    for name, func in protection_tasks:
+        # schedule each but do not await the scheduling coroutine — that would be immediate
+        asyncio.create_task(schedule_single(name, func))
 
-    logger.info("All protection and resource tasks launched concurrently (non-blocking)")
-    return "[+] Real-time protection and resources scheduled concurrently"
+    logger.info("All protection and resource tasks launched (non-blocking, no cancel handle exposed).")
+    return "[+] Real-time protection and resources scheduled (tasks are private; no cancel exposed)"
 
 async def run_real_time_protection_async():
     """
