@@ -315,10 +315,6 @@ from pathlib import Path, WindowsPath
 logger.debug(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from accelerate import Accelerator
-logger.debug(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import inspect
 logger.debug(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -541,10 +537,6 @@ logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
 user_startup, common_startup = get_startup_paths()
 
 startup_dirs = [user_startup, common_startup]
-
-# Initialize the accelerator and device
-accelerator = Accelerator()
-device = accelerator.device
 
 def service_exists(service_name):
    """Check if a Windows service exists."""
