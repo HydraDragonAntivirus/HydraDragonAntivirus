@@ -85,55 +85,36 @@ class HydraIconWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Guard against invalid dimensions
-        if self.width() <= 0 or self.height() <= 0:
-            return
-        
-        if self.pixmap and not self.pixmap.isNull():
-            scaled_pixmap = self.pixmap.scaled(
-                self.size(), 
-                Qt.AspectRatioMode.KeepAspectRatio, 
-                Qt.TransformationMode.SmoothTransformation
-            )
-            x = int((self.width() - scaled_pixmap.width()) / 2)
-            y = int((self.height() - scaled_pixmap.height()) / 2)
-            painter.drawPixmap(x, y, scaled_pixmap)
-        else:
-            # Fallback drawing
-            painter.save()
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            if self.width() <= 0 or self.height() <= 0:
+                return
+
+            if self.pixmap and not self.pixmap.isNull():
+                scaled_pixmap = self.pixmap.scaled(
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                x = int((self.width() - scaled_pixmap.width()) / 2)
+                y = int((self.height() - scaled_pixmap.height()) / 2)
+                painter.drawPixmap(x, y, scaled_pixmap)
+            else:
+                painter.save()
+                try:
+                    painter.translate(self.width() / 2 - 15, self.height() / 2 - 10)
+                    # ... fallback drawing here ...
+                finally:
+                    painter.restore()
+        except Exception:
+            logger.exception("Exception in HydraIconWidget.paintEvent")
+        finally:
+            # ensure QPainter is properly ended to avoid QBackingStore::endPaint() error
             try:
-                painter.translate(self.width() / 2 - 15, self.height() / 2 - 10)
-                
-                primary_color = QColor("#88C0D0")
-                shadow_color = QColor("#4C566A")
-                path = QPainterPath()
-                
-                # Main body
-                path.moveTo(0, 20)
-                path.quadTo(15, 0, 30, 20)
-                path.quadTo(15, 10, 0, 20)
-                
-                # Left head
-                path.moveTo(5, 15)
-                path.cubicTo(-20, 0, -10, -25, 0, -20)
-                path.quadTo(-5, -18, 5, 15)
-                
-                # Right head
-                path.moveTo(25, 15)
-                path.cubicTo(50, 0, 40, -25, 30, -20)
-                path.quadTo(35, -18, 25, 15)
-                
-                # Center head
-                path.moveTo(15, 10)
-                path.cubicTo(10, -20, 20, -20, 15, 10)
-                
-                painter.setPen(QPen(primary_color, 3))
-                painter.setBrush(shadow_color)
-                painter.drawPath(path)
-            finally:
-                painter.restore()
+                if painter.isActive():
+                    painter.end()
+            except Exception:
+                logger.exception("Error ending painter in HydraIconWidget.paintEvent")
 
 # --- Advanced Shield Widget with Particle Effects ---
 class ShieldWidget(QWidget):
@@ -286,8 +267,8 @@ class ShieldWidget(QWidget):
     # Main paint
     # -------------------------
     def paintEvent(self, event):
+        painter = QPainter(self)
         try:
-            painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
             w, h = self.width(), self.height()
@@ -444,10 +425,14 @@ class ShieldWidget(QWidget):
                 painter.restore()
 
         except Exception:
-            # Top-level paint exception: log and return to avoid crashing the UI thread.
             logger.exception("Exception in ShieldWidget.paintEvent")
-            return
-
+        finally:
+            try:
+                if painter.isActive():
+                    painter.end()
+            except Exception:
+                logger.exception("Error ending painter in ShieldWidget.paintEvent")
+        
 class AntivirusApp(QWidget):
     # Signals for safe cross-thread UI marshalling
     log_signal = Signal(str)
