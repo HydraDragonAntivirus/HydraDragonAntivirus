@@ -10696,7 +10696,7 @@ async def scan_and_warn(file_path,
         await asyncio.gather(*additional_tasks)
 
         # ========== TEXT FILE PROCESSING ==========
-        else:
+        if plain_text_flag:
             # Plain text file processing
             logger.info(f"File {norm_path} does contain plain text data.")
 
