@@ -6,7 +6,7 @@ import os
 import time
 from base64 import b85decode
 from base64 import a85decode
-from hydra_logger import logger
+from hydradragon.antivirus_scripts.hydra_logger import logger
 
 import hashlib
 import zlib

@@ -6,7 +6,7 @@ import lzma
 import pefile
 from dataclasses import dataclass
 from typing import Optional
-from hydra_logger import logger
+from hydradragon.antivirus_scripts.hydra_logger import logger
 
 # PE file format constants
 IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080
