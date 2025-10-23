@@ -71,7 +71,6 @@ hydradragon/yara/yarac64.exe
 # Detect-It-Easy
 hydradragon/detectiteasy
 # Code checker
-hydradragon/antivirus_scripts/async_sync_analyzer.py
 hydradragon/antivirus_scripts/functionordercheck.py
 hydradragon/antivirus_scripts/w291emptycheck.py
 hydradragon/antivirus_scripts/w293emptycheck.py
