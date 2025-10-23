@@ -256,46 +256,46 @@ class AntivirusApp(QWidget):
             current_page_index = self.main_stack.currentIndex()
             if 0 <= current_page_index < len(self.log_outputs):
                 log_widget = self.log_outputs[current_page_index]
-                if log_widget and isinstance(log_widget, QTextEdit):
-                    log_widget.append(text)
-                    # auto-scroll if near bottom
-                    scrollbar = log_widget.verticalScrollBar()
-                    at_bottom = scrollbar.value() >= (scrollbar.maximum() - 20)
-                    if at_bottom:
-                        scrollbar.setValue(scrollbar.maximum())
+                if log_widget is None or not isinstance(log_widget, QTextEdit):
+                    return
+                log_widget.append(text)
+                # auto-scroll if near bottom
+                scrollbar = log_widget.verticalScrollBar()
+                at_bottom = scrollbar.value() >= (scrollbar.maximum() - 20)
+                if at_bottom:
+                    scrollbar.setValue(scrollbar.maximum())
         except Exception:
             logger.exception("Error in _append_log_output_slot")
+
 
     def _on_status_signal(self, is_protected: bool):
         """Slot to update shield & status text; always runs on the Qt thread."""
         try:
             if hasattr(self, 'shield_widget') and self.shield_widget:
-                # shield_widget.set_status is lightweight and debounced in ShieldWidget
                 self.shield_widget.set_status(bool(is_protected))
-            if hasattr(self, 'status_text'):
-                if is_protected:
-                    self.status_text.setText("System protected!")
-                    self.status_text.setObjectName("page_subtitle")
-                else:
-                    self.status_text.setText("System busy...")
-                    self.status_text.setObjectName("page_subtitle_busy")
-                # Force style refresh
+            if hasattr(self, 'status_text') and self.status_text:
+                self.status_text.setText(
+                    "System protected!" if is_protected else "System busy..."
+                )
+                self.status_text.setObjectName(
+                    "page_subtitle" if is_protected else "page_subtitle_busy"
+                )
                 self.status_text.setStyle(self.style())
         except Exception:
             logger.exception("Error in _on_status_signal")
 
+
     def _on_progress_signal(self, value: float):
-        """Receive progress updates (0.0..1.0). We use it to update shield progress or other UI."""
+        """Receive progress updates (0.0..1.0) and update shield / progress bar."""
         try:
             if hasattr(self, 'shield_widget') and self.shield_widget:
-                # ShieldWidget implements set_check_progress defensively
                 self.shield_widget.set_check_progress(float(value))
-            # Optionally show progress in a progress bar if you add one
             if hasattr(self, 'defs_progress_bar') and isinstance(self.defs_progress_bar, QProgressBar):
                 v = int(max(0, min(100, value * 100)))
                 self.defs_progress_bar.setValue(v)
         except Exception:
             logger.exception("Error in _on_progress_signal")
+
 
     # ---------------------------
     # Logging wrapper
@@ -303,12 +303,9 @@ class AntivirusApp(QWidget):
     def append_log_output(self, text: str):
         """Thread-safe/log-safe way to append logs to UI via signal."""
         try:
-            # Format timestamped log optionally
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             formatted = f"{timestamp} {text}"
-            # Send to UI
             self.log_signal.emit(formatted)
-            # Also mirror to logger
             logger.info(text)
         except Exception:
             logger.exception("append_log_output failed")
@@ -344,12 +341,10 @@ class AntivirusApp(QWidget):
     # Task runner utilities
     # ---------------------------
     def _update_ui_for_task_start(self, task_name: str):
-        """Update UI when a task starts. This runs on the Qt thread (since run_task is scheduled from qasync)."""
+        """Update UI when a task starts."""
         try:
             self.append_log_output(f"[*] Task '{task_name}' started.")
-            # Mark shield busy via signal to ensure main-thread execution
             self.status_signal.emit(False)
-
             if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
                 try:
                     self.task_buttons[task_name].setEnabled(False)
@@ -358,13 +353,11 @@ class AntivirusApp(QWidget):
         except Exception:
             logger.exception("_update_ui_for_task_start failed")
 
+
     def _update_ui_for_task_end(self, task_name: str):
         """Update UI when a task ends."""
         try:
             self.append_log_output(f"[+] Task '{task_name}' finished.")
-            if task_name in self.active_tasks:
-                # removed elsewhere after run
-                pass
             # Only set shield to protected if no active tasks remain
             if not self.active_tasks:
                 self.status_signal.emit(True)
@@ -382,6 +375,7 @@ class AntivirusApp(QWidget):
                     logger.exception("Failed to update defs_label text")
         except Exception:
             logger.exception("_update_ui_for_task_end failed")
+
 
     async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
         """
@@ -403,12 +397,10 @@ class AntivirusApp(QWidget):
                         if item:
                             self.append_log_output(str(item))
                 else:
-                    # Regular async coroutine
                     msg = await result
                     if msg:
                         self.append_log_output(str(msg))
             else:
-                # Run sync function in a thread
                 await asyncio.to_thread(coro_or_func, *args)
         except asyncio.CancelledError:
             self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
