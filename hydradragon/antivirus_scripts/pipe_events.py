@@ -8,7 +8,6 @@ import win32pipe
 import pywintypes
 import ctypes
 import asyncio
-from pathlib import Path
 from hydra_logger import logger
 
 # Import notification functions (now assumed async)

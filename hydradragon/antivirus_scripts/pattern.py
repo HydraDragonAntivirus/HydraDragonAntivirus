@@ -86,7 +86,7 @@ cdn_attachment_pattern_standard = re.compile(
 )
 
 # Telegram bot (standard)
-telegram_pattern_standard = (
+telegram_token_pattern_standard = (
     r'https?://api\.telegram\.org/bot\d{9,10}:[A-Za-z0-9_-]{35}'
     r'|\b\d{9,10}:[A-Za-z0-9_-]{35}\b'
 )

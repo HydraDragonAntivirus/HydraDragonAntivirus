@@ -423,7 +423,6 @@ from .utils_and_helpers import (
     get_signature,
     compute_md5_via_text,
     compute_md5,
-    run_in_thread,
     _norm
 )
 logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
@@ -512,7 +511,7 @@ from .pattern import (
     discord_attachment_pattern_standard,
     discord_canary_webhook_pattern_standard,
     cdn_attachment_pattern_standard,
-    telegram_pattern_standard,
+    telegram_token_pattern_standard,
     UBLOCK_REGEX,
     ZIP_JOIN,
     CHAINED_JOIN,
@@ -2478,7 +2477,7 @@ class RealTimeWebProtectionHandler:
                 'HEUR:Discord.Attachment': discord_attachment_pattern_standard,
                 'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern_standard,
                 'HEUR:Discord.CDNAttachment': cdn_attachment_pattern_standard,
-                'HEUR:Telegram.Token': telegram_token_pattern_standard
+                'HEUR:Telegram.Token': telegram_token_pattern_standard,
             }
             for label, pattern in heuristic_patterns.items():
                 if re.search(pattern, url):
@@ -9841,12 +9840,12 @@ def scan_and_warn(file_path,
             """Thread for digital signature verification - can be slow"""
             try:
                 sig_check = check_signature(norm_path)
-                with thread_lock:
+                with scan_and_warn_lock:
                     thread_results['signature_check'] = sig_check
                 logger.debug(f"Signature check completed for {norm_path}")
             except Exception as e:
                 logger.error(f"Error in signature check thread for {norm_path}: {e}")
-                with thread_lock:
+                with scan_and_warn_lock:
                     thread_results['signature_check'] = {
                         "has_microsoft_signature": False,
                         "is_valid": False,
@@ -9866,7 +9865,7 @@ def scan_and_warn(file_path,
                 lines = []
                 with open(norm_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                with thread_lock:
+                with scan_and_warn_lock:
                     thread_results['file_lines'] = lines
             except Exception as e:
                 logger.error(f"Failed to read text lines from {norm_path}: {e}")
@@ -10165,7 +10164,7 @@ def scan_and_warn(file_path,
                         dotnet_thread = threading.Thread(daemon=True, target=decompile_dotnet_file, args=(input_dir,), kwargs={"main_file_path": main_file_path})
                         dotnet_thread.start()
 
-                with thread_lock:
+                with scan_and_warn_lock:
                     thread_results['dotnet_result'] = dotnet_result
             except Exception as e:
                 logger.error(f"Error in .NET analysis for {norm_path}: {e}")
