@@ -476,7 +476,7 @@ from .notify_user import (
     notify_user_pua,
     notify_user_for_malicious_source_code,
     notify_user_size_warning,
-    notify_susp_archive_file_name_warning,
+    notify_user_susp_archive_file_name_warning,
     notify_user_susp_name,
     notify_user_scr,
     notify_user_for_detected_fake_system_file,
@@ -752,7 +752,7 @@ def sanitize_filename(filename: str) -> str:
 
     return filename
 
-def ublock_detect(url):
+async def ublock_detect(url):
     """
     Check if the given URL should be detected by the uBlock-style rule.
 
@@ -1177,7 +1177,7 @@ def get_reference_strings(ref_ids):
 
 # --------------------------------------------------------------------------
 # Check for Discord and Telegram indicators in code
-def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
+async def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs,
     or Telegram bot links. Stop immediately after the first valid detection.
@@ -1203,9 +1203,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     # Stop after first detection
     for matches, description, signature_base in detections:
         if matches:
-            signature = get_signature(signature_base, **flags)
+            signature = await get_signature(signature_base, **flags)
             logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
-            notify_user_for_web_source(
+            await notify_user_for_web_source(
                 file_path=file_path,
                 detection_type=signature,
                 main_file_path=flags.get('main_file_path')
@@ -1216,7 +1216,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
-def scan_domain_general(url, file_path, **flags):
+async def scan_domain_general(url, file_path, **flags):
     try:
         # Normalize and parse URL
         if not url.startswith(('http://', 'https://')):
@@ -1291,10 +1291,10 @@ def scan_domain_general(url, file_path, **flags):
                 if is_threat:
                     ref_strings = get_reference_strings(ref_ids)
                     logger.critical(f"{threat_name} subdomain detected: {full_domain} (References: {ref_strings})")
-                    notify_user_for_web_source(domain=full_domain,
-                                               detection_type=signature_suffix,
-                                               file_path=file_path,
-                                               main_file_path=flags.get('main_file_path'))
+                    await notify_user_for_web_source(domain=full_domain,
+                                                     detection_type=signature_suffix,
+                                                     file_path=file_path,
+                                                     main_file_path=flags.get('main_file_path'))
                     return True
 
         # Check main domain threats (full domain and main domain)
@@ -1307,10 +1307,10 @@ def scan_domain_general(url, file_path, **flags):
                 ref_strings = get_reference_strings(ref_ids)
                 domain_to_report = full_domain if is_full_threat else main_domain
                 logger.critical(f"{threat_name} domain detected: {domain_to_report} (References: {ref_strings})")
-                notify_user_for_web_source(domain=domain_to_report,
-                                           detection_type=signature_suffix,
-                                           file_path=file_path,
-                                           main_file_path=flags.get('main_file_path'))
+                await notify_user_for_web_source(domain=domain_to_report,
+                                                 detection_type=signature_suffix,
+                                                 file_path=file_path,
+                                                 main_file_path=flags.get('main_file_path'))
                 return True
 
         logger.info(f"Domain {full_domain} passed all checks.")
@@ -1322,7 +1322,7 @@ def scan_domain_general(url, file_path, **flags):
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
-def scan_ip_address_general(ip_address, file_path, **flags):
+async def scan_ip_address_general(ip_address, file_path, **flags):
     try:
         # Skip invalid IPs
         if not is_valid_ip(ip_address):
@@ -1363,10 +1363,10 @@ def scan_ip_address_general(ip_address, file_path, **flags):
                 if is_threat:
                     ref_strings = get_reference_strings(ref_ids)
                     logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (References: {ref_strings})")
-                    notify_user_for_web_source(ipv6_address=ip_address,
-                                               detection_type=signature_suffix,
-                                               file_path=file_path,
-                                               main_file_path=flags.get('main_file_path'))
+                    await notify_user_for_web_source(ipv6_address=ip_address,
+                                                     detection_type=signature_suffix,
+                                                     file_path=file_path,
+                                                     main_file_path=flags.get('main_file_path'))
                     return True
 
             logger.info(f"Unknown IPv6 address scanned (no matches): {ip_address}")
@@ -1399,10 +1399,10 @@ def scan_ip_address_general(ip_address, file_path, **flags):
                 if is_threat:
                     ref_strings = get_reference_strings(ref_ids)
                     logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (References: {ref_strings})")
-                    notify_user_for_web_source(ipv4_address=ip_address,
-                                               detection_type=signature_suffix,
-                                               file_path=file_path,
-                                               main_file_path=flags.get('main_file_path'))
+                    await notify_user_for_web_source(ipv4_address=ip_address,
+                                                     detection_type=signature_suffix,
+                                                     file_path=file_path,
+                                                     main_file_path=flags.get('main_file_path'))
                     return True
 
             logger.info(f"Unknown IPv4 address scanned (no matches): {ip_address}")
@@ -1416,7 +1416,7 @@ def scan_ip_address_general(ip_address, file_path, **flags):
         logger.error(f"Error scanning IP address {ip_address}: {ex}")
         return False
 
-def _extract_and_verify_emails(text: str) -> tuple[List[str], List[str]]:
+async def _extract_and_verify_emails(text: str) -> tuple[List[str], List[str]]:
     """
     Returns (valid_emails, invalid_emails) found in text.
     Strips surrounding punctuation commonly attached to emails in plain text.
@@ -1434,7 +1434,7 @@ def _extract_and_verify_emails(text: str) -> tuple[List[str], List[str]]:
 
 # --------------------------------------------------------------------------
 # Spam Email 365 Scanner (updated)
-def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email_as_spam=True, **flags):
+async def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email_as_spam=True, **flags):
     """
     Scans email content for spam keywords from StopForum Spam Database and
     verifies extracted email addresses with EMAIL_RE.
@@ -1451,7 +1451,7 @@ def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email
         detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
 
         # extract & verify emails
-        valid_emails, invalid_emails = _extract_and_verify_emails(email_content)
+        valid_emails, invalid_emails = await _extract_and_verify_emails(email_content)
 
         # Log email verification result (useful for debugging/analysis)
         if valid_emails:
@@ -1479,7 +1479,7 @@ def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email
             if invalid_emails:
                 details.append(f"invalid_emails: {', '.join(invalid_emails[:5])}")
             logger.critical(f"Spam email detected! Reasons: {', '.join(reasons)}. Details: {' | '.join(details)}")
-            notify_user_for_web_source(
+            await notify_user_for_web_source(
                 domain="EmailContent",
                 detection_type="Spam.Email365d",
                 file_path=file_path,
@@ -1496,7 +1496,7 @@ def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, file_path, **flags):
+async def scan_url_general(url, file_path, **flags):
     try:
         if url in scanned_urls_general:
             logger.info(f"URL {url} has already been scanned.")
@@ -1511,24 +1511,24 @@ def scan_url_general(url, file_path, **flags):
             entry_url = entry.get('url', '')
             if entry_url and entry_url in url:
                 message = (f"URL {url} matches the URLhaus signatures.\n"
-                          f"ID: {entry.get('id')}, Date Added: {entry.get('dateadded')}\n"
-                          f"URL Status: {entry.get('url_status')}, Last Online: {entry.get('last_online')}\n"
-                          f"Threat: {entry.get('threat')}, Tags: {entry.get('tags')}\n"
-                          f"URLhaus Link: {entry.get('urlhaus_link')}, Reporter: {entry.get('reporter')}")
+                           f"ID: {entry.get('id')}, Date Added: {entry.get('dateadded')}\n"
+                           f"URL Status: {entry.get('url_status')}, Last Online: {entry.get('last_online')}\n"
+                           f"Threat: {entry.get('threat')}, Tags: {entry.get('tags')}\n"
+                           f"URLhaus Link: {entry.get('urlhaus_link')}, Reporter: {entry.get('reporter')}")
                 logger.critical(message)
-                notify_user_for_web_source(url=url,
-                                           detection_type="URLhaus.Match",
-                                           file_path=file_path,
-                                           main_file_path=flags.get('main_file_path'))
+                await notify_user_for_web_source(url=url,
+                                                 detection_type="URLhaus.Match",
+                                                 file_path=file_path,
+                                                 main_file_path=flags.get('main_file_path'))
                 return True
 
         # Heuristic check using uBlock Origin style detection
         try:
-            if ublock_detect(url):
-                notify_user_for_web_source(url=url,
-                                           detection_type='HEUR:Phish.Steam.Community.gen',
-                                           file_path=file_path,
-                                           main_file_path=flags.get('main_file_path'))
+            if await ublock_detect(url):
+                await notify_user_for_web_source(url=url,
+                                                 detection_type='HEUR:Phish.Steam.Community.gen',
+                                                 file_path=file_path,
+                                                 main_file_path=flags.get('main_file_path'))
                 logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
                 return True
         except Exception as e:
@@ -2154,7 +2154,9 @@ def restart_service(service_name, stop_only=False):
         logger.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
+# --------------------------------------------------------------------------
 # --- The RealTimeWebProtectionHandler Class ---
+# --------------------------------------------------------------------------
 
 class RealTimeWebProtectionHandler:
 
@@ -2164,11 +2166,16 @@ class RealTimeWebProtectionHandler:
         self.scanned_ipv6_addresses = []
         self.scanned_urls = []
         self.domain_ip_to_file_map = {}
+        self.loop = None
+
+    def set_event_loop(self, loop):
+        """Assign the main asyncio event loop."""
+        self.loop = loop
 
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
 
-    def handle_detection(self, entity_type, entity_value, detection_type=None):
+    async def handle_detection(self, entity_type, entity_value, detection_type=None):
         """
         Handle a detection event for a given entity (domain, IP, URL).
         Looks up references from global data automatically.
@@ -2178,11 +2185,12 @@ class RealTimeWebProtectionHandler:
 
         # Look up ref_ids from global data based on entity_type and entity_value
         ref_ids = []
+        reference = ""
         
         if entity_type == 'domain':
             # Check all domain datasets
             for data_list in [malware_domains_data, malware_domains_mail_data, phishing_domains_data,
-                            abuse_domains_data, mining_domains_data, spam_domains_data]:
+                              abuse_domains_data, mining_domains_data, spam_domains_data]:
                 for entry in data_list:
                     if entry.get('address') == entity_value:
                         ref_ids = entry.get('ref_ids', [])
@@ -2193,7 +2201,7 @@ class RealTimeWebProtectionHandler:
         elif entity_type == 'subdomain':
             # Check all subdomain datasets
             for data_list in [malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data,
-                            abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data]:
+                              abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data]:
                 for entry in data_list:
                     if entry.get('address') == entity_value:
                         ref_ids = entry.get('ref_ids', [])
@@ -2204,8 +2212,8 @@ class RealTimeWebProtectionHandler:
         elif entity_type == 'ipv4_address':
             # Check all IPv4 datasets
             for data_list in [ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data,
-                            ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data,
-                            ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data]:
+                              ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data,
+                              ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data]:
                 for entry in data_list:
                     if entry.get('address') == entity_value:
                         ref_ids = entry.get('ref_ids', [])
@@ -2216,14 +2224,14 @@ class RealTimeWebProtectionHandler:
         elif entity_type == 'ipv6_address':
             # Check all IPv6 datasets
             for data_list in [ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data,
-                            ipv6_addresses_ddos_signatures_data]:
+                              ipv6_addresses_ddos_signatures_data]:
                 for entry in data_list:
                     if entry.get('address') == entity_value:
                         ref_ids = entry.get('ref_ids', [])
                         break
                 if ref_ids:
                     break
-                    
+                        
         elif entity_type == 'url':
             # Check URLhaus
             for entry in urlhaus_data:
@@ -2275,7 +2283,7 @@ class RealTimeWebProtectionHandler:
                 notify_info[field] for field in ['domain', 'ipv4_address', 'ipv6_address', 'url', 'file_path']
             )
             if has_data:
-                notify_user_for_web(**notify_info)
+                await notify_user_for_web(**notify_info)
 
         except Exception as ex:
             logger.error(f"Error in handle_detection: {ex}")
@@ -2296,7 +2304,7 @@ class RealTimeWebProtectionHandler:
         domain_regex = r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'
         return re.findall(domain_regex, text)
 
-    def scan(self, entity_type, entity_value, detection_type=None):
+    async def scan(self, entity_type, entity_value, detection_type=None):
         """
         Unified scan entry-point.
         Dedupe, detect, fetch, extract, and recurse via this one method.
@@ -2384,18 +2392,18 @@ class RealTimeWebProtectionHandler:
             for data_list, etype, d_type in threat_checks:
                 is_threat, ref_ids = lookup_domain(main_domain, data_list)
                 if is_threat:
-                    self.handle_detection(etype, main_domain, d_type)
+                    await self.handle_detection(etype, main_domain, d_type)
                     return
 
             # Fetch HTML and recurse
-            html_content = fetch_html(f"http://{domain}")
+            html_content = await fetch_html(f"http://{domain}")
             if html_content:
                 for ip in self.extract_ip_addresses(html_content):
-                    self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
+                    await self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
                 for url in self.extract_urls(html_content):
-                    self.scan('url', url)
+                    await self.scan('url', url)
                 for dom in self.extract_domains(html_content):
-                    self.scan('domain', dom)
+                    await self.scan('domain', dom)
 
         # 5) detection for IP addresses
         elif kind in ('ipv4', 'ipv6'):
@@ -2421,7 +2429,7 @@ class RealTimeWebProtectionHandler:
                 for data_list, d_type in ipv6_threats:
                     is_threat, ref_ids = lookup_ip(ip_address, data_list)
                     if is_threat:
-                        self.handle_detection('ipv6_address', ip_address, d_type)
+                        await self.handle_detection('ipv6_address', ip_address, d_type)
                         return
                 logger.info(f"Unknown IPv6 address detected: {ip_address}")
             else:
@@ -2441,136 +2449,154 @@ class RealTimeWebProtectionHandler:
                 for data_list, d_type in ipv4_threats:
                     is_threat, ref_ids = lookup_ip(ip_address, data_list)
                     if is_threat:
-                        self.handle_detection('ipv4_address', ip_address, d_type)
+                        await self.handle_detection('ipv4_address', ip_address, d_type)
                         return
                 logger.info(f"Unknown IPv4 address detected: {ip_address}")
 
             # Fetch HTML and recurse
-            html_content = fetch_html(f"http://{ip_address}")
+            html_content = await fetch_html(f"http://{ip_address}")
             if html_content:
                 for dom in self.extract_domains(html_content):
-                    self.scan('domain', dom)
+                    await self.scan('domain', dom)
                 for url in self.extract_urls(html_content):
-                    self.scan('url', url)
+                    await self.scan('url', url)
 
         # 6) detection for URLs
         elif kind == 'url':
             url = entity_value
-            html_content = fetch_html(url)
+            html_content = await fetch_html(url)
             if html_content:
                 for ip in self.extract_ip_addresses(html_content):
-                    self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
+                    await self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
                 for dom in self.extract_domains(html_content):
-                    self.scan('domain', dom)
+                    await self.scan('domain', dom)
                 for u in self.extract_urls(html_content):
-                    self.scan('url', u)
+                    await self.scan('url', u)
 
-            # Heuristic Discord/Telegram checks
+            # Heuristic Discord/Telegram checks (using patterns from file context)
             heuristic_patterns = {
-                'HEUR:Discord.Webhook': discord_webhook_pattern_standard,
-                'HEUR:Discord.Attachment': discord_attachment_pattern_standard,
-                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern_standard,
-                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern_standard,
-                'HEUR:Telegram.Token': telegram_pattern_standard
+                'HEUR:Discord.Webhook': discord_webhook_pattern,
+                'HEUR:Discord.Attachment': discord_attachment_pattern,
+                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern,
+                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern,
+                'HEUR:Telegram.Token': telegram_token_pattern
             }
             for label, pattern in heuristic_patterns.items():
                 if re.search(pattern, url):
-                    self.handle_detection('url', url, label)
+                    await self.handle_detection('url', url, label)
                     return
 
             # URLhaus
             for entry in urlhaus_data:
-                if entry['url'] in url:
-                    self.handle_detection('url', url, 'URLhaus Match')
+                if entry.get('url', '') in url:
+                    await self.handle_detection('url', url, 'URLhaus Match')
                     return
 
             # uBlock heuristic
-            if ublock_detect(url):
-                self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
+            if await ublock_detect(url):
+                await self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
                 return
 
             logger.info(f"No match found for URL: {url}")
 
-    def scan_domain(self, domain):
-        self.scan('domain', domain)
+    async def scan_domain(self, domain):
+        await self.scan('domain', domain)
 
-    def scan_ipv4_address(self, ip_address):
-        self.scan('ipv4_address', ip_address)
+    async def scan_ipv4_address(self, ip_address):
+        await self.scan('ipv4_address', ip_address)
 
-    def scan_ipv6_address(self, ip_address):
-        self.scan('ipv6_address', ip_address)
+    async def scan_ipv6_address(self, ip_address):
+        await self.scan('ipv6_address', ip_address)
 
-    def scan_url(self, url):
-        self.scan('url', url)
+    async def scan_url(self, url):
+        await self.scan('url', url)
 
-    def handle_ipv4(self, packet):
+    async def handle_ipv4(self, packet):
         try:
-            if IP in packet and DNS in packet:
-                if packet[DNS].qd:
-                    for i in range(packet[DNS].qdcount):
-                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(qn)
-                        logger.info(f"DNS Query (IPv4): {qn}")
-                if packet[DNS].an:
-                    for i in range(packet[DNS].ancount):
-                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(an)
-                        logger.info(f"DNS Answer (IPv4): {an}")
-
-                self.scan_ipv4_address(packet[IP].src)
-                self.scan_ipv4_address(packet[IP].dst)
+            if IP in packet:
+                if DNS in packet:
+                    if packet[DNS].qd:
+                        for i in range(packet[DNS].qdcount):
+                            qn = packet[DNSQR][i].qname.decode().rstrip('.')
+                            await self.scan_domain(qn)
+                            logger.info(f"DNS Query (IPv4): {qn}")
+                    if packet[DNS].an:
+                        for i in range(packet[DNS].ancount):
+                            an = packet[DNSRR][i].rrname.decode().rstrip('.')
+                            await self.scan_domain(an)
+                            logger.info(f"DNS Answer (IPv4): {an}")
+            
+                await self.scan_ipv4_address(packet[IP].src)
+                await self.scan_ipv4_address(packet[IP].dst)
         except Exception as ex:
             logger.error(f"Error handling IPv4 packet: {ex}")
 
-    def handle_ipv6(self, packet):
+    async def handle_ipv6(self, packet):
         try:
-            if IPv6 in packet and DNS in packet:
-                if packet[DNS].qd:
-                    for i in range(packet[DNS].qdcount):
-                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(qn)
-                        logger.info(f"DNS Query (IPv6): {qn}")
-                if packet[DNS].an:
-                    for i in range(packet[DNS].ancount):
-                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(an)
-                        logger.info(f"DNS Answer (IPv6): {an}")
+            if IPv6 in packet:
+                if DNS in packet:
+                    if packet[DNS].qd:
+                        for i in range(packet[DNS].qdcount):
+                            qn = packet[DNSQR][i].qname.decode().rstrip('.')
+                            await self.scan_domain(qn)
+                            logger.info(f"DNS Query (IPv6): {qn}")
+                    if packet[DNS].an:
+                        for i in range(packet[DNS].ancount):
+                            an = packet[DNSRR][i].rrname.decode().rstrip('.')
+                            await self.scan_domain(an)
+                            logger.info(f"DNS Answer (IPv6): {an}")
 
-                self.scan_ipv6_address(packet[IPv6].src)
-                self.scan_ipv6_address(packet[IPv6].dst)
+                await self.scan_ipv6_address(packet[IPv6].src)
+                await self.scan_ipv6_address(packet[IPv6].dst)
             else:
-                logger.debug("IPv6 layer or DNS layer not found in the packet.")
+                logger.debug("IPv6 layer not found in the packet.")
         except Exception as ex:
             logger.error(f"Error handling IPv6 packet: {ex}")
 
-    def on_packet_received(self, packet):
+    def sync_packet_handler(self, packet):
+        """
+        Synchronous bridge function to schedule the async handler
+        on the main event loop from scapy's thread.
+        """
+        if self.loop and self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.on_packet_received(packet), self.loop)
+        else:
+            logger.warning("Event loop not available for packet handler.")
+
+    async def on_packet_received(self, packet):
+        """Async packet processing logic."""
         try:
             if IP in packet:
-                self.handle_ipv4(packet)
+                await self.handle_ipv4(packet)
                 if TCP in packet or UDP in packet:
-                    url = f"{packet[IP].src}:{packet[IP].dport}"
-                    self.scan_url(url)
+                    layer = packet.getlayer(TCP) or packet.getlayer(UDP)
+                    if layer and hasattr(layer, 'dport'):
+                        # Note: This URL logic is simplistic, real HTTP URL extraction is more complex
+                        url = f"{packet[IP].src}:{layer.dport}"
+                        await self.scan_url(url)
 
             if IPv6 in packet:
-                self.handle_ipv6(packet)
+                await self.handle_ipv6(packet)
 
+            # This DNS check might be redundant if already handled in handle_ipv4/ipv6
+            # But we keep it as a fallback
             if DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
                         qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(qn)
+                        await self.scan_domain(qn)
                         logger.info(f"DNS Query: {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(an)
+                        await self.scan_domain(an)
                         logger.info(f"DNS Answer: {an}")
                 if IP in packet:
-                    self.scan_ipv4_address(packet[IP].src)
-                    self.scan_ipv4_address(packet[IP].dst)
+                    await self.scan_ipv4_address(packet[IP].src)
+                    await self.scan_ipv4_address(packet[IP].dst)
                 if IPv6 in packet:
-                    self.scan_ipv6_address(packet[IPv6].src)
-                    self.scan_ipv6_address(packet[IPv6].dst)
+                    await self.scan_ipv6_address(packet[IPv6].src)
+                    await self.scan_ipv6_address(packet[IPv6].dst)
         except Exception as ex:
             logger.error(f"Error processing packet: {ex}")
 
@@ -2579,10 +2605,20 @@ class RealTimeWebProtectionObserver:
         self.handler = RealTimeWebProtectionHandler()
         self.is_started = False
         self.thread = None
+        self.loop = None
 
     def begin_observing(self):
         if not self.is_started:
-            self.thread = threading.Thread(target=self.start_sniffing)
+            try:
+                self.loop = asyncio.get_event_loop()
+                self.handler.set_event_loop(self.loop)
+            except RuntimeError:
+                logger.error("Could not get asyncio event loop. Packet handler will fail.")
+                # You might want to create a new loop if one isn't running
+                # but typically this class should be started from an async context
+                return 
+
+            self.thread = threading.Thread(target=self.start_sniffing, daemon=True)
             self.thread.start()
             self.is_started = True
             message = "Real-time web protection observer started"
@@ -2591,9 +2627,14 @@ class RealTimeWebProtectionObserver:
     def start_sniffing(self):
         filter_expression = "(tcp or udp)"
         try:
-            sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
+            # Pass the synchronous wrapper to scapy's `prn`
+            sniff(filter=filter_expression, prn=self.handler.sync_packet_handler, store=0)
         except Exception as ex:
-            logger.error(f"An error occurred while sniffing packets: {ex}")
+            # Handle cases where sniffing might fail (e.g., permissions)
+            if "Operation not permitted" in str(ex) or "Socket error" in str(ex):
+                logger.error("Sniffing failed: Must be run as root or with network permissions.")
+            else:
+                logger.error(f"An error occurred while sniffing packets: {ex}")
 
 
 web_protection_observer = RealTimeWebProtectionObserver()
@@ -3645,7 +3686,11 @@ class NuitkaExtractor:
             logger.error(f"[!] Unexpected error: {str(ex)}")
 
 
-def scan_zip_file(file_path):
+# --------------------------------------------------------------------------
+# --- NEWLY ADDED ASYNC ARCHIVE/ML FUNCTIONS ---
+# --------------------------------------------------------------------------
+
+async def scan_zip_file(file_path):
     """
     Scan a ZIP archive for:
       - RLO in filename warnings (encrypted vs non-encrypted)
@@ -3658,6 +3703,10 @@ def scan_zip_file(file_path):
       - Returns (True, "virus_name") when malware detected
       - Returns (True, entries) when suspicious patterns found (for heuristic processing)
     """
+    if not pyzipper:
+        logger.warning("pyzipper is not installed. Skipping ZIP scan.")
+        return False, "Clean"
+        
     try:
         zip_size = os.path.getsize(file_path)
         entries = []
@@ -3681,7 +3730,7 @@ def scan_zip_file(file_path):
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
                     virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.ZIP.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.ZIP.gen"
 
-                    notify_susp_archive_file_name_warning(file_path, "ZIP", virus)
+                    await notify_user_susp_archive_file_name_warning(file_path, "ZIP", virus)
                     malware_detected = True
 
                 # Record metadata
@@ -3690,7 +3739,7 @@ def scan_zip_file(file_path):
                 # Size-bomb check
                 if zip_size < 20 * 1024 * 1024 and info.file_size > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.ZIP" if encrypted else "HEUR:Win32.Susp.Size.ZIP"
-                    notify_user_size_warning(file_path, "ZIP", virus)
+                    await notify_user_size_warning(file_path, "ZIP", virus)
                     malware_detected = True
 
         # Single-entry password logic
@@ -3701,7 +3750,7 @@ def scan_zip_file(file_path):
                     snippet = zf.open(fname).read(4096)
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
-                    notify_user_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
+                    await notify_user_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
                     malware_detected = True
 
         # Return based on detection status
@@ -3718,7 +3767,7 @@ def scan_zip_file(file_path):
         return False, "Clean"
 
 
-def scan_7z_file(file_path):
+async def scan_7z_file(file_path):
     """
     Scan a 7z archive for:
       - RLO in filename warnings (encrypted vs non-encrypted)
@@ -3731,6 +3780,10 @@ def scan_7z_file(file_path):
       - Returns (True, "virus_name") when malware detected
       - Returns (True, entries) when suspicious patterns found (for heuristic processing)
     """
+    if not py7zr:
+        logger.warning("py7zr is not installed. Skipping 7z scan.")
+        return False, "Clean"
+
     try:
         archive_size = os.path.getsize(file_path)
         entries = []
@@ -3755,7 +3808,7 @@ def scan_7z_file(file_path):
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
                     virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.7z.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.7z.gen"
 
-                    notify_susp_archive_file_name_warning(file_path, "7z", virus)
+                    await notify_user_susp_archive_file_name_warning(file_path, "7z", virus)
                     malware_detected = True
 
                 # Record metadata
@@ -3764,18 +3817,19 @@ def scan_7z_file(file_path):
                 # Size-bomb check
                 if archive_size < 20 * 1024 * 1024 and entry.uncompressed > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.7z" if encrypted else "HEUR:Win32.Susp.Size.7z"
-                    notify_user_size_warning(file_path, "7z", virus)
+                    await notify_user_size_warning(file_path, "7z", virus)
                     malware_detected = True
 
         # Single-entry password logic
         if len(entries) == 1:
             fname, _, encrypted = entries[0]
             if not encrypted:
-                data_map = archive.read([fname])
-                snippet = data_map.get(fname, b'')[:4096]
+                with py7zr.SevenZipFile(file_path, mode='r') as archive:
+                    data_map = archive.read([fname])
+                    snippet = data_map.get(fname, b'')[:4096]
                 decoded = snippet.decode("utf-8", errors="ignore").lower()
                 if is_plain_text_file_from_output(snippet) and "pass" in decoded:
-                    notify_user_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
+                    await notify_user_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
                     malware_detected = True
 
         # Return based on detection status
@@ -3791,7 +3845,7 @@ def scan_7z_file(file_path):
         logger.error(f"Error scanning 7z file: {file_path} {ex}")
         return False, "Clean"
 
-def scan_tar_file(file_path):
+async def scan_tar_file(file_path):
     """Scan files within a tar archive."""
     try:
         tar_size = os.path.getsize(file_path)
@@ -3816,7 +3870,7 @@ def scan_tar_file(file_path):
                         f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - "
                         f"flagged as {virus_name}"
                     )
-                    notify_susp_archive_file_name_warning(file_path, "TAR", virus_name)
+                    await notify_user_susp_archive_file_name_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
                     extracted_file_path = os.path.join(tar_extracted_dir, member.name)
@@ -3838,14 +3892,14 @@ def scan_tar_file(file_path):
                             f"({extracted_file_size / (1024 * 1024):.2f} MB) - flagged as {virus_name}. "
                             "Potential TARbomb or Fake Size detected to avoid VirusTotal detections."
                         )
-                        notify_user_size_warning(file_path, "TAR", virus_name)
+                        await notify_user_size_warning(file_path, "TAR", virus_name)
 
         return True, []
     except Exception as ex:
         logger.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
-def check_pe_file(file_path, signature_check, file_name):
+async def check_pe_file(file_path, signature_check, file_name):
     """
     Check a PE file for fake system file indicators after signature validation.
 
@@ -3864,7 +3918,7 @@ def check_pe_file(file_path, signature_check, file_name):
             # If signature is not valid, consider it a fake system file
             if not is_valid_sig:
                 logger.critical(f"Detected fake system file: {file_path}")
-                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
+                await notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
                 return True
 
         # No detection
@@ -3878,6 +3932,9 @@ def is_zip_file(file_path):
     """
     Return True if file_path is a valid ZIP (AES or standard), False otherwise.
     """
+    if not pyzipper:
+        return False
+        
     try:
         # Try standard ZIP
         with pyzipper.ZipFile(file_path, 'r'):
@@ -3893,7 +3950,7 @@ def is_zip_file(file_path):
         logger.error(f"Unexpected error checking ZIP: {e}")
         return False
 
-def scan_file_ml(
+async def scan_file_ml(
     file_path: str,
     *,
     pe_file: bool = False,
@@ -3910,7 +3967,7 @@ def scan_file_ml(
             return False, "Clean", 0.0
 
         # Unpack only the first 3 values
-        is_malicious_ml, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+        is_malicious_ml, malware_definition, benign_score = await scan_file_with_machine_learning_ai(file_path)
 
         sig_valid = bool(signature_check and signature_check.get("is_valid", False))
 
@@ -3944,7 +4001,7 @@ def scan_file_ml(
         logger.error(err_msg)
         return False, "Clean", 0.0
 
-def ml_fastpath_should_continue(
+async def ml_fastpath_should_continue(
     norm_path,
     signature_check,
     pe_file,
@@ -3959,7 +4016,7 @@ def ml_fastpath_should_continue(
         return True
 
     try:
-        malware_found, virus_name, benign_score = scan_file_ml(
+        malware_found, virus_name, benign_score = await scan_file_ml(
             norm_path,
             pe_file=True,
             signature_check=signature_check,
@@ -3984,9 +4041,9 @@ def ml_fastpath_should_continue(
         # Spawn notification and stop further scanning for this .
         # False return value to actually stop the other scanning threads for this file.
         if virus_name.startswith("PUA."):
-            threading.Thread(daemon=True, target=notify_user_pua, args=(norm_path, virus_name, "ML"),).start()
+            asyncio.create_task(notify_user_pua(norm_path, virus_name, "ML"))
         else:
-            threading.Thread(daemon=True, target=notify_user, args=(norm_path, virus_name, "ML"),).start()
+            asyncio.create_task(notify_user(norm_path, virus_name, "ML"))
 
         # Tell the caller to stop scanning this file.
         return False
@@ -3998,34 +4055,74 @@ def ml_fastpath_should_continue(
 with open(system_file_names_path, "r") as f:
     fake_system_files = [line.strip() for line in f if line.strip()]
 
-def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
+# --- Synchronous helper to run in a thread ---
+
+def _sync_find_files_for_ips(src_ip, dst_ip):
     """
-    Convert IP addresses to associated file paths.
-    This function will log the status and simulate the detection of files.
+    Synchronous helper to run in a thread.
+    Iterates over processes and connections to find associated files.
     """
+    if not psutil:
+        logger.warning("psutil is not loaded, cannot find files for IPs.")
+        return []
+        
+    found_files = []
+    # Iterate over all running processes
     for proc in psutil.process_iter(['pid', 'name', 'exe']):
         try:
+            # Get network connections for the process
             connections = proc.net_connections()
             if connections:
                 for conn in connections:
+                    # Check if the remote address matches src_ip or dst_ip
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
-                        file_path = proc.info['exe']
+                        file_path = proc.info.get('exe')
                         if file_path:
-                            logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            if not status == "Info":
-                                logger.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. Alert Line: {alert_line}")
-                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
-
+                            found_files.append(file_path)
+                            # We found a match for this process, break inner loop
+                            break
         except psutil.ZombieProcess:
-            logger.error(f"Zombie process encountered: {proc.info.get('pid')}")
+            logger.debug(f"Zombie process encountered: {proc.info.get('pid')}")
         except psutil.NoSuchProcess:
-            logger.error(f"Process no longer exists: {proc.info.get('pid')}")
+            logger.debug(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
-            logger.error(f"Access denied to process: {proc.info.get('pid')}")
+            logger.debug(f"Access denied to process: {proc.info.get('pid')}")
         except Exception as ex:
-            logger.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
+            # Log other potential errors during connection checking
+            logger.error(f"Error processing process {proc.info.get('pid')}: {ex}")
+            
+    # Return a list of unique file paths
+    return list(set(found_files))
 
-def process_alert_data(priority, src_ip, dest_ip):
+
+# --- Asynchronous Public Functions ---
+
+async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
+    """
+    Convert IP addresses to associated file paths asynchronously.
+    This function will log the status and trigger notifications for detected files.
+    """
+    try:
+        # Run the blocking psutil scan in a separate thread
+        # asyncio.to_thread is the modern way (Python 3.9+)
+        file_paths = await asyncio.to_thread(_sync_find_files_for_ips, src_ip, dst_ip)
+        
+        # Iterate over the results and notify
+        for file_path in file_paths:
+            logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
+            # Only send critical alerts for non-info statuses
+            if not status.startswith("Info"):
+                logger.critical(
+                    f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}. "
+                    f"Alert Line: {alert_line}"
+                )
+                # Await the asynchronous notification
+                await notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
+
+    except Exception as ex:
+        logger.error(f"Unexpected error in convert_ip_to_file: {ex}")
+
+async def process_alert_data(priority, src_ip, dest_ip):
     """Process parsed alert data from EVE JSON format using reference registry"""
     try:
         # Check if the source IP is in the IPv4 or IPv6 whitelist
@@ -4037,7 +4134,7 @@ def process_alert_data(priority, src_ip, dest_ip):
         threat_type = "Unknown Threat Detected"
         ref_ids = []
 
-        # Check IPv4 signature lists
+        # Check IPv4 and IPv6 signature lists
         for dataset, label in [
             (ipv4_addresses_signatures_data, "General Threat (IPv4)"),
             (ipv4_addresses_spam_signatures_data, "Spam"),
@@ -4065,15 +4162,15 @@ def process_alert_data(priority, src_ip, dest_ip):
         # Handle actions based on priority
         if priority == 1:
             logger.critical(f"Malicious activity detected: {formatted_line}")
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
+            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
             return True
         elif priority == 2:
             logger.warning(f"Suspicious activity detected: {formatted_line}")
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Suspicious - {threat_type}")
+            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Suspicious - {threat_type}")
             return True
         elif priority == 3:
             logger.info(f"Info alert: {formatted_line}")
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Info - {threat_type}")
+            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Info - {threat_type}")
             return True
 
         # No match or ignored
@@ -5729,18 +5826,21 @@ def extract_line(content, prefix):
     lines = [line for line in content.splitlines() if line.startswith(prefix)]
     return lines[0] if lines else None
 
-def process_exela_v2_payload(output_file, main_file_path: Optional[str] = None):
+# Async Exela v2 processor — notifier awaited directly (async)
+async def process_exela_v2_payload(output_file: str, main_file_path: Optional[str] = None) -> bool:
     """
-    Processes a decompiled Exela v2 payload:
-    - Performs two-stage AES decryption.
-    - Extracts and saves the final stage.
-    - Searches for webhook URLs and triggers alert.
+    Async version of process_exela_v2_payload that awaits notifier(s) directly
+    (notify_user_exela_stealer_v2 MUST be async).
     """
     try:
-        with open(output_file, 'r', encoding='utf-8') as file:
-            content = file.read()
+        # Blocking file read -> thread
+        def _read_file(path: str) -> str:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
 
-        # First layer decryption
+        content = await asyncio.to_thread(_read_file, output_file)
+
+        # First layer decryption inputs (helpers assumed sync)
         key_line = extract_line(content, "key = ")
         tag_line = extract_line(content, "tag = ")
         nonce_line = extract_line(content, "nonce = ")
@@ -5751,31 +5851,34 @@ def process_exela_v2_payload(output_file, main_file_path: Optional[str] = None):
         nonce = decode_base64_from_line(nonce_line)
         encrypted_data = decode_base64_from_line(encrypted_data_line)
 
-        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-        temp_file = 'intermediate_data.py'
-        saved_temp_file = save_to_file(temp_file, intermediate_data)
+        # Decrypt first stage (CPU/blocking) in thread
+        intermediate_data = await asyncio.to_thread(DecryptString, key, tag, nonce, encrypted_data)
 
+        saved_temp_file = await asyncio.to_thread(save_to_file, 'intermediate_data.py', intermediate_data)
         if not saved_temp_file:
             logger.error("Failed to save intermediate data.")
-            return
+            return False
 
-        with open(saved_temp_file, 'r', encoding='utf-8') as temp:
-            intermediate_content = temp.read()
+        intermediate_content = await asyncio.to_thread(_read_file, saved_temp_file)
 
-        # Second layer decryption
+        # Second layer decryption inputs
         key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
         tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
         nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
         encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
 
-        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
-        source_code_file = 'exela_stealer_last_stage.py'
-        source_code_path = save_to_file(source_code_file, final_decrypted_data)
+        # Decrypt second stage
+        final_decrypted_data = await asyncio.to_thread(DecryptString, key_2, tag_2, nonce_2, encrypted_data_2)
 
-        # If final source saved, record it in global deobfuscated_saved_paths
+        # Save final source
+        source_code_path = await asyncio.to_thread(save_to_file, 'exela_stealer_last_stage.py', final_decrypted_data)
+
         if source_code_path:
-            with deobfuscated_paths_lock:
-                deobfuscated_saved_paths.append(source_code_path)
+            # Append to global list under lock (blocking) in thread
+            def _append_deobfuscated(path: str):
+                with deobfuscated_paths_lock:
+                    deobfuscated_saved_paths.append(path)
+            await asyncio.to_thread(_append_deobfuscated, source_code_path)
             logger.info(f"Saved final Exela v2 source to {source_code_path} and appended to deobfuscated_saved_paths.")
         else:
             logger.error("Failed to save the final decrypted source code.")
@@ -5788,14 +5891,20 @@ def process_exela_v2_payload(output_file, main_file_path: Optional[str] = None):
         if webhooks:
             logger.critical(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                # MODIFIED: Pass main_file_path to the notifier
-                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen', main_file_path=main_file_path)
+                # NOTIFIER IS ASYNC — await it directly
+                await notify_user_exela_stealer_v2(
+                    source_code_path,
+                    'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen',
+                    main_file_path=main_file_path
+                )
                 return True
             else:
                 logger.error("Failed to save the final decrypted source code.")
+                return False
         else:
             logger.info("[!] No webhook URLs found in Exela v2 payload.")
-        return False
+            return False
+
     except Exception as ex:
         logger.error(f"Error during Exela v2 payload processing: {ex}")
         return False
@@ -6832,37 +6941,35 @@ def process_sourcedefender_payload(output_file):
         logger.error(f"[!] Error processing SourceDefender payload: {ex}")
         return None
 
-def process_decompiled_code(output_file, main_file_path: Optional[str] = None):
+# Async dispatch/driver — notifier awaited directly (async)
+async def process_decompiled_code(output_file: str, main_file_path: Optional[str] = None) -> bool:
     """
-    Dispatches payload processing based on type.
-    Detects whether the payload is pyarmor7, Exela v2, SourceDefender, or generic.
-    Returns
-    -------
-    bool
-        True if the file (or any recursively processed extracted file) was identified as malware,
-        False otherwise.
+    Async version of process_decompiled_code.
+    Dispatches payload processing (PyArmor v7, Exela v2, SourceDefender, generic).
+    NOTIFIERS MUST BE async (awaited directly).
     """
     try:
-        # Check for PyArmor v7 protected files
-        is_pa, pa_reason = is_pyarmor_file(output_file)
+        # Check for PyArmor v7 protected files (blocking) in a thread
+        is_pa_result = await asyncio.to_thread(is_pyarmor_file, output_file)
+        is_pa, pa_reason = is_pa_result if isinstance(is_pa_result, tuple) else (bool(is_pa_result), None)
+
         if is_pa:
             logger.info(f"[*] Detected PyArmor-protected file ({pa_reason}). Treating as PyArmor v7.")
-
-            # Run sandbox unpacking and get list of unpacked files
-            unpacked_files = process_pyarmor7(output_file)
+            unpacked_files = await asyncio.to_thread(process_pyarmor7, output_file)
 
             if unpacked_files:
                 malware_found = False
                 for extracted_file in unpacked_files:
-                    # Append extracted file to global deobfuscated_saved_paths (thread-safe)
-                    with deobfuscated_paths_lock:
-                        deobfuscated_saved_paths.append(extracted_file)
+                    # Append extracted file to global deobfuscated_saved_paths under lock (thread)
+                    def _append_path(p: str):
+                        with deobfuscated_paths_lock:
+                            deobfuscated_saved_paths.append(p)
+                    await asyncio.to_thread(_append_path, extracted_file)
                     logger.info(f"Appended unpacked file to deobfuscated_saved_paths: {extracted_file}")
 
-                    # Process each extracted file synchronously and propagate detection
+                    # Recursively process each extracted file
                     try:
-                        # MODIFIED: Pass main_file_path recursively
-                        if process_decompiled_code(extracted_file, main_file_path=main_file_path):
+                        if await process_decompiled_code(extracted_file, main_file_path=main_file_path):
                             malware_found = True
                     except Exception as ex:
                         logger.error(f"Error while processing extracted file {extracted_file}: {ex}")
@@ -6872,60 +6979,68 @@ def process_decompiled_code(output_file, main_file_path: Optional[str] = None):
                 logger.warning(f"[*] No files extracted from PyArmor v7 file: {output_file}")
                 return False
 
-        # First check if it's a SourceDefender protected file
-        if is_sourcedefender_file(output_file):
+        # SourceDefender detection (run in thread)
+        is_sd = await asyncio.to_thread(is_sourcedefender_file, output_file)
+        if is_sd:
             logger.info("[*] Detected SourceDefender protected file.")
-            # Expect process_sourcedefender_payload to return True if malicious, False otherwise
             try:
-                # MODIFIED: Pass main_file_path (although process_sourcedefender_payload doesn't use it yet, good practice)
-                return bool(process_sourcedefender_payload(output_file, main_file_path=main_file_path))
+                # process_sourcedefender_payload may be sync or async in your codebase; handle both
+                if inspect.iscoroutinefunction(process_sourcedefender_payload):
+                    return bool(await process_sourcedefender_payload(output_file, main_file_path=main_file_path))
+                else:
+                    return bool(await asyncio.to_thread(process_sourcedefender_payload, output_file, main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing SourceDefender payload: {ex}")
                 return False
 
-        # If not SourceDefender, read content for other checks
-        with open(output_file, 'r', encoding='utf-8', errors='ignore') as file:
-            content = file.read()
+        # Read content (blocking) in thread
+        def _read_file(path: str) -> str:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
 
-        # Exela v2 detection and handling
-        if is_exela_v2_payload(content):
+        content = await asyncio.to_thread(_read_file, output_file)
+
+        # Exela v2 detection
+        if await asyncio.to_thread(is_exela_v2_payload, content):
             logger.info("[*] Detected Exela Stealer v2 payload.")
             try:
-                # MODIFIED: Pass main_file_path to the handler
-                return bool(process_exela_v2_payload(output_file, main_file_path=main_file_path))
+                # process_exela_v2_payload is async (per earlier change) — await it directly
+                return bool(await process_exela_v2_payload(output_file, main_file_path=main_file_path))
             except Exception as ex:
                 logger.error(f"Error processing Exela v2 payload: {ex}")
                 return False
 
         # Quick heuristic: if there's no exec() it's likely not obfuscated
-        elif 'exec(' not in content:
+        if 'exec(' not in content:
             logger.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
             return False
 
-        else:
-            logger.info("[*] Detected non-Exela payload. Using generic processing.")
-            deobfuscated = deobfuscate_until_clean(Path(output_file))
-            if deobfuscated:
+        # Generic processing
+        logger.info("[*] Detected non-Exela payload. Using generic processing.")
+        deobfuscated = await asyncio.to_thread(deobfuscate_until_clean, Path(output_file))
+        if deobfuscated:
+            # Append deobfuscated path under lock in a thread
+            def _append_deob(p: str):
                 with deobfuscated_paths_lock:
-                    deobfuscated_saved_paths.append(str(deobfuscated))
-                logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
+                    deobfuscated_saved_paths.append(p)
+            await asyncio.to_thread(_append_deob, str(deobfuscated))
+            logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
 
-                # Notify user / telemetry about malicious source code. Assume this indicates malware.
-                try:
-                    # MODIFIED: Pass main_file_path to the notifier
-                    notify_user_for_malicious_source_code(
-                        str(deobfuscated),
-                        "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen",
-                        main_file_path=main_file_path
-                    )
-                    return True
-                except Exception as ex:
-                    logger.error(f"Error while notifying user about malicious source: {ex}")
-                    # Even if notification failed, treat the deobfuscated result as a detection
-                    return True
-            else:
-                logger.error("[!] Generic deobfuscation failed; skipping scan and notification.")
-                return False
+            # NOTIFIER IS ASYNC — await it directly
+            try:
+                await notify_user_for_malicious_source_code(
+                    str(deobfuscated),
+                    "HEUR:Win32.Susp.Src.PYC.Python.Obfuscated.exec.gen",
+                    main_file_path=main_file_path
+                )
+                return True
+            except Exception as ex:
+                logger.error(f"Error while notifying user about malicious source: {ex}")
+                # Even if notification failed, treat the deobfuscated result as a detection
+                return True
+        else:
+            logger.error("[!] Generic deobfuscation failed; skipping scan and notification.")
+            return False
 
     except Exception as ex:
         logger.error(f"[!] Error during payload dispatch: {ex}")
@@ -9336,87 +9451,88 @@ def nexe_unpacker(file_path) -> list:
         logger.error(f"Error processing nexe file {file_path}: {ex}")
         return []
 
-def check_hosts_file_for_blocked_antivirus():
+async def check_hosts_file_for_blocked_antivirus() -> bool:
     """
-    Scan hosts_path for any entries that match one of your lists:
-      - IPv4 whitelist
-      - IPv6 whitelist
-      - Exact domain whitelist
-      - Mail-domain whitelist
-      - Subdomain whitelist
-      - Mail-subdomain whitelist
-      - Antivirus domain list (NO REFERENCES)
-
-    For each category that triggers, we call notify_user_hosts() with its
-    specific HEUR signature. Returns True if anything was flagged.
+    Async version:
+    - Offloads blocking file I/O and parsing to a thread.
+    - Awaits notify_user_hosts(...) directly (notifier MUST be async).
+    - Returns True if any hosts entries were flagged and notifications sent (or attempted).
     """
     try:
-        if not os.path.exists(hosts_path):
+        # check existence in a thread to avoid blocking the event loop
+        if not await asyncio.to_thread(os.path.exists, hosts_path):
             return False
 
-        # Pre-build sets for fast lookups
-        ipv4_set = set(entry['address'] for entry in ipv4_whitelist_data)
-        ipv6_set = set(entry['address'] for entry in ipv6_whitelist_data)
-        domain_set = set(entry['address'] for entry in whitelist_domains_data)
-        mail_domain_set = set(entry['address'] for entry in whitelist_domains_mail_data)
-        subdomain_list = [entry['address'] for entry in whitelist_sub_domains_data]
-        mail_subdomain_list = [entry['address'] for entry in whitelist_mail_sub_domains_data]
-        
-        # Antivirus domains have NO references - they're just plain addresses
-        antivirus_list = [entry['address'] for entry in antivirus_domains_data]
+        # Perform parsing and flagging inside a thread (keeps CPU + I/O off the event loop)
+        def _parse_hosts_and_flag() -> dict:
+            # Build fast lookup sets/lists
+            ipv4_set = set(entry['address'] for entry in ipv4_whitelist_data)
+            ipv6_set = set(entry['address'] for entry in ipv6_whitelist_data)
+            domain_set = set(entry['address'] for entry in whitelist_domains_data)
+            mail_domain_set = set(entry['address'] for entry in whitelist_domains_mail_data)
+            subdomain_list = [entry['address'] for entry in whitelist_sub_domains_data]
+            mail_subdomain_list = [entry['address'] for entry in whitelist_mail_sub_domains_data]
+            antivirus_list = [entry['address'] for entry in antivirus_domains_data]
 
-        # Precompile antivirus regex
-        if antivirus_list:
-            ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$' for d in antivirus_list]
-            antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
-        else:
-            antivirus_re = None
+            # Precompile antivirus regex if present
+            if antivirus_list:
+                ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$' for d in antivirus_list]
+                antivirus_re_local = re.compile('|'.join(ant_patterns), re.IGNORECASE)
+            else:
+                antivirus_re_local = None
 
-        # Buckets for each reason
-        flagged = {
-            'ipv4': set(),
-            'ipv6': set(),
-            'domain': set(),
-            'mail_domain': set(),
-            'sub_domain': set(),
-            'mail_sub_domain': set(),
-            'antivirus': set(),
-        }
+            flagged_local = {
+                'ipv4': set(),
+                'ipv6': set(),
+                'domain': set(),
+                'mail_domain': set(),
+                'sub_domain': set(),
+                'mail_sub_domain': set(),
+                'antivirus': set(),
+            }
 
-        with open(hosts_path, 'r', encoding='utf-8') as hf:
-            for raw in hf:
-                line = raw.strip()
-                if not line or line.startswith('#'):
-                    continue
-
-                parts = re.split(r'\s+', line)
-                ip = parts[0]
-                hosts = parts[1:]
-
-                # IP-based buckets
-                if ip in ipv4_set:
-                    flagged['ipv4'].update(hosts)
-                if ip in ipv6_set:
-                    flagged['ipv6'].update(hosts)
-
-                # Host/domain checks
-                for host in hosts:
-                    if host in domain_set:
-                        flagged['domain'].add(host)
+            with open(hosts_path, 'r', encoding='utf-8') as hf:
+                for raw in hf:
+                    line = raw.strip()
+                    if not line or line.startswith('#'):
                         continue
-                    if host in mail_domain_set:
-                        flagged['mail_domain'].add(host)
-                        continue
-                    if any(host.endswith('.' + d) for d in subdomain_list):
-                        flagged['sub_domain'].add(host)
-                        continue
-                    if any(host.endswith('.' + d) for d in mail_subdomain_list):
-                        flagged['mail_sub_domain'].add(host)
-                        continue
-                    if antivirus_re and antivirus_re.search(host):
-                        flagged['antivirus'].add(host)
 
-        # Emit notifications
+                    parts = re.split(r'\s+', line)
+                    if len(parts) < 2:
+                        continue
+
+                    ip = parts[0]
+                    hosts = parts[1:]
+
+                    # IP-based buckets
+                    if ip in ipv4_set:
+                        flagged_local['ipv4'].update(hosts)
+                    if ip in ipv6_set:
+                        flagged_local['ipv6'].update(hosts)
+
+                    # Host/domain checks
+                    for host in hosts:
+                        if host in domain_set:
+                            flagged_local['domain'].add(host)
+                            continue
+                        if host in mail_domain_set:
+                            flagged_local['mail_domain'].add(host)
+                            continue
+                        # subdomain checks
+                        if any(host.endswith('.' + d) for d in subdomain_list):
+                            flagged_local['sub_domain'].add(host)
+                            continue
+                        if any(host.endswith('.' + d) for d in mail_subdomain_list):
+                            flagged_local['mail_sub_domain'].add(host)
+                            continue
+                        if antivirus_re_local and antivirus_re_local.search(host):
+                            flagged_local['antivirus'].add(host)
+
+            return flagged_local
+
+        flagged = await asyncio.to_thread(_parse_hosts_and_flag)
+
+        # Emit async notifications for each bucket that triggered
         any_flagged = False
         heur_mapping = {
             'ipv4': "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
@@ -9429,9 +9545,15 @@ def check_hosts_file_for_blocked_antivirus():
         }
 
         for key, heuristic in heur_mapping.items():
-            if flagged[key]:
+            if flagged.get(key):
                 any_flagged = True
-                notify_user_hosts(hosts_path, heuristic, details=list(flagged[key]))
+                details = list(flagged[key])
+                try:
+                    # notifier is async — await it directly
+                    await notify_user_hosts(hosts_path, heuristic, details=details)
+                except Exception as ex:
+                    # log and continue notifying other buckets
+                    logger.error(f"Error notifying for hosts ({key}): {ex}")
 
         return any_flagged
 

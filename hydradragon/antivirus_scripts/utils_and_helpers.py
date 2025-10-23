@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # --------------------------------------------------------------------------
 # Helper function to generate platform-specific signatures
-def get_signature(base_signature, **flags):
+async def get_signature(base_signature, **flags):
     """Generate platform-specific signature based on flags."""
     platform_map = {
         'dotnet_flag': 'DotNET',

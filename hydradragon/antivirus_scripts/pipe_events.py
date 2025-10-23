@@ -62,17 +62,6 @@ def _sync_path_is_under(prefix: str, candidate: str) -> bool:
     return candidate_n.startswith(prefix_n + os.sep)
 
 
-def _sync_contains_hydradragon_ancestor(path: str) -> bool:
-    try:
-        parts = Path(path).parts
-    except Exception:
-        parts = _sync_normalize_path_for_compare(path).split(os.sep)
-    for part in parts:
-        if part.lower() == "hydradragonantivirus":
-            return True
-    return False
-
-
 def _sync_is_protected_path(candidate_path: str) -> bool:
     candidate = _sync_normalize_path_for_compare(candidate_path)
 
@@ -95,9 +84,6 @@ def _sync_is_protected_path(candidate_path: str) -> bool:
         desktop_sanctum = os.path.join(desktop, "Sanctum")
         if _sync_path_is_under(desktop_sanctum, candidate):
             return True
-
-    if _sync_contains_hydradragon_ancestor(candidate):
-        return True
 
     return False
 

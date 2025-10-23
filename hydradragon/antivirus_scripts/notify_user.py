@@ -241,7 +241,7 @@ async def notify_user_size_warning(file_path, archive_type, virus_name, main_fil
         logger.exception(f"notify_user_size_warning failed: {e}")
 
 
-async def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
+async def notify_user_susp_archive_file_name_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
         notification = Notify()
         notification.title = "Suspicious Filename In Archive Warning"
@@ -254,7 +254,7 @@ async def notify_susp_archive_file_name_warning(file_path, archive_type, virus_n
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(file_path, virus_name, action="monitor", main_file_path=main_file_path)
     except Exception as e:
-        logger.exception(f"notify_susp_archive_file_name_warning failed: {e}")
+        logger.exception(f"notify_user_susp_archive_file_name_warning failed: {e}")
 
 
 async def notify_user_susp_name(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
