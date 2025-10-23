@@ -14,7 +14,7 @@ import pywintypes
 import asyncio
 from datetime import datetime
 from typing import Optional
-from hydra_logger import logger
+from .hydra_logger import logger
 from notifypy import Notify
 from .path_and_variables import (
     malicious_hashes,

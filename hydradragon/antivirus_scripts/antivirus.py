@@ -5,9 +5,7 @@ import os
 import sys
 import time
 from datetime import datetime
-
-# Now you can import your logger safely
-from hydra_logger import (
+from .hydra_logger import (
     logger,
     log_directory,
 )
@@ -2184,7 +2182,7 @@ class RealTimeWebProtectionHandler:
         # Look up ref_ids from global data based on entity_type and entity_value
         ref_ids = []
         reference = ""
-        
+
         if entity_type == 'domain':
             # Check all domain datasets
             for data_list in [malware_domains_data, malware_domains_mail_data, phishing_domains_data,
@@ -2195,7 +2193,7 @@ class RealTimeWebProtectionHandler:
                         break
                 if ref_ids:
                     break
-                    
+
         elif entity_type == 'subdomain':
             # Check all subdomain datasets
             for data_list in [malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data,
@@ -2206,7 +2204,7 @@ class RealTimeWebProtectionHandler:
                         break
                 if ref_ids:
                     break
-                    
+
         elif entity_type == 'ipv4_address':
             # Check all IPv4 datasets
             for data_list in [ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data,
@@ -2218,7 +2216,7 @@ class RealTimeWebProtectionHandler:
                         break
                 if ref_ids:
                     break
-                    
+
         elif entity_type == 'ipv6_address':
             # Check all IPv6 datasets
             for data_list in [ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data,
@@ -2229,7 +2227,7 @@ class RealTimeWebProtectionHandler:
                         break
                 if ref_ids:
                     break
-                        
+
         elif entity_type == 'url':
             # Check URLhaus
             for entry in urlhaus_data:
@@ -2239,11 +2237,11 @@ class RealTimeWebProtectionHandler:
                     break
             else:
                 reference = ""
-        
+
         # Convert ref_ids to reference strings (except for URLhaus which has direct reference)
         if entity_type != 'url':
             reference = get_reference_strings(ref_ids)
-        
+
         file_path = self.map_domain_ip_to_file(entity_value)
         notify_info = {
             'domain': None,
@@ -2523,7 +2521,7 @@ class RealTimeWebProtectionHandler:
                             an = packet[DNSRR][i].rrname.decode().rstrip('.')
                             await self.scan_domain(an)
                             logger.info(f"DNS Answer (IPv4): {an}")
-            
+
                 await self.scan_ipv4_address(packet[IP].src)
                 await self.scan_ipv4_address(packet[IP].dst)
         except Exception as ex:
@@ -2614,7 +2612,7 @@ class RealTimeWebProtectionObserver:
                 logger.error("Could not get asyncio event loop. Packet handler will fail.")
                 # You might want to create a new loop if one isn't running
                 # but typically this class should be started from an async context
-                return 
+                return
 
             self.thread = threading.Thread(target=self.start_sniffing, daemon=True)
             self.thread.start()
@@ -3704,7 +3702,7 @@ async def scan_zip_file(file_path):
     if not pyzipper:
         logger.warning("pyzipper is not installed. Skipping ZIP scan.")
         return False, "Clean"
-        
+
     try:
         zip_size = os.path.getsize(file_path)
         entries = []
@@ -3932,7 +3930,7 @@ def is_zip_file(file_path):
     """
     if not pyzipper:
         return False
-        
+
     try:
         # Try standard ZIP
         with pyzipper.ZipFile(file_path, 'r'):
@@ -4063,7 +4061,7 @@ def _sync_find_files_for_ips(src_ip, dst_ip):
     if not psutil:
         logger.warning("psutil is not loaded, cannot find files for IPs.")
         return []
-        
+
     found_files = []
     # Iterate over all running processes
     for proc in psutil.process_iter(['pid', 'name', 'exe']):
@@ -4088,7 +4086,7 @@ def _sync_find_files_for_ips(src_ip, dst_ip):
         except Exception as ex:
             # Log other potential errors during connection checking
             logger.error(f"Error processing process {proc.info.get('pid')}: {ex}")
-            
+
     # Return a list of unique file paths
     return list(set(found_files))
 
@@ -4104,7 +4102,7 @@ async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
         # Run the blocking psutil scan in a separate thread
         # asyncio.to_thread is the modern way (Python 3.9+)
         file_paths = await asyncio.to_thread(_sync_find_files_for_ips, src_ip, dst_ip)
-        
+
         # Iterate over the results and notify
         for file_path in file_paths:
             logger.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
@@ -10171,7 +10169,7 @@ async def scan_and_warn(file_path,
         # Start all specialized analysis tasks, including VMProtect detection
         # These are fire-and-forget, except dotnet_task which we await later
         dotnet_task = asyncio.create_task(dotnet_analysis(), name="dotnet_analysis_task")
-        
+
         analysis_tasks = [
             asyncio.create_task(themida_detection()),
             asyncio.create_task(autoit_analysis()),
@@ -10186,10 +10184,10 @@ async def scan_and_warn(file_path,
             asyncio.create_task(nexe_thread()),
             asyncio.create_task(vmprotect_detection()) # vmprotect_detection now handles its own logic
         ]
-        
+
         # FIXED: Wait for tasks to complete to fix flake8 error and address user feedback
         await asyncio.gather(*analysis_tasks)
-        
+
         # We don't await all tasks, just the ones we depend on (dotnet_task) - This was already awaited via gather
 
         # Cache check - CRITICAL PATH
@@ -10243,7 +10241,7 @@ async def scan_and_warn(file_path,
                         return False
 
                     target_basename = os.path.basename(file_path).lower()
-                    
+
                     # Run blocking psutil iterator in a thread
                     proc_list = await asyncio.to_thread(list, psutil.process_iter(['pid', 'name', 'exe']))
 

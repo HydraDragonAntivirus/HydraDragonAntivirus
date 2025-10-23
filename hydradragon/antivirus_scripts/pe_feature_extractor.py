@@ -3,7 +3,7 @@ import capstone
 import pefile
 import numpy as np
 from typing import Optional, Dict, Any, List
-from hydra_logger import logger
+from .hydra_logger import logger
 
 class PEFeatureExtractor:
     def __init__(self):

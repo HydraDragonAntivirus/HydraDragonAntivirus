@@ -20,15 +20,15 @@ if main_dir not in sys.path:
     sys.path.insert(0, main_dir)
 
 from datetime import datetime, timedelta
-from hydra_logger import (
+from hydradragon.antivirus_scripts.antivirus import (
     logger,
     log_directory,
 )
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
-                               QPushButton, QLabel, QTextEdit, QGraphicsDropShadowEffect,
+                               QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QApplication, QButtonGroup)
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
+                            Signal, QParallelAnimationGroup, Property, QRect, QTimer)
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 

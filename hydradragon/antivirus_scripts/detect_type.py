@@ -1,4 +1,4 @@
-from hydra_logger import logger
+from .hydra_logger import logger
 
 import string
 import re

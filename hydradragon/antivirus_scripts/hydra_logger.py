@@ -4,7 +4,7 @@
 import os
 import sys
 from logly import logger
-from hydradragon.antivirus_scripts.path_and_variables import script_dir
+from .path_and_variables import script_dir
 
 log_directory = os.path.join(script_dir, "log")
 os.makedirs(log_directory, exist_ok=True)
