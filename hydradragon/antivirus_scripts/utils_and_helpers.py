@@ -45,12 +45,3 @@ def compute_md5(path: str) -> str:
 num_cores = os.cpu_count()  # returns the number of logical CPUs
 max_workers=num_cores * 2
 executor = ThreadPoolExecutor(max_workers=max_workers)
-
-def run_in_thread(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        return executor.submit(fn, *args, **kwargs)
-    return wrapper
-
-def _norm(p: str) -> str:
-    return os.path.normpath(p).replace("\\", "/").lower()
