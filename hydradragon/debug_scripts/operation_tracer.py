@@ -3,7 +3,7 @@ import threading
 import time
 import traceback
 import os
-from hydradragon.hydra_logger import logger
+from hydradragon.antivirus_scripts.hydra_logger import logger
 
 _tracing_active = False
 _original_sys_trace = None
