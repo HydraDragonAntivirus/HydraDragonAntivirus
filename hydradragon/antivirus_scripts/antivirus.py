@@ -795,7 +795,7 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
     Args:
         output_dir: Directory where the file will be created
-        g: Base filename (can be string or Path)
+        base_name: Base filename (can be string or Path)
 
     Returns:
         Path: Unique file path that doesn't exist yet
@@ -1726,7 +1726,9 @@ def detect_obfuscated_urls(text):
         })
 
     # Find bracket-obfuscated domains without protocol
-    domain_pattern = re.compile(r'[a-zA-Z0-9-]+(?:\[[.\]dot\]|\(\.\)|\{[\.\]dot\})[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?')
+    domain_pattern = re.compile(
+        r'[a-zA-Z0-9-]+(?:\.|\[\.\]|\(\.\)|\{dot\})[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?'
+    )
 
     for match in domain_pattern.finditer(text):
         original = match.group(0)
