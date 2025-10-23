@@ -4132,14 +4132,14 @@ def monitor_interfaces():
 
 async def suricata_callback():
     """
-    Asynchronously start Suricata on all interfaces and monitor for new ones.
-    Runs the monitor loop in a background daemon thread (non-blocking).
-    Immediately returns after starting.
+    Asynchronously start Suricata interface monitoring.
+    Runs monitor_interfaces() in a daemon thread (non-blocking).
+    Returns immediately.
     """
     loop = asyncio.get_event_loop()
 
     try:
-        # Validate paths in thread pool (non-blocking)
+        # Validate paths (CPU-bound, run in thread to avoid blocking)
         valid = await loop.run_in_executor(None, validate_paths)
         if not valid:
             logger.error("Suricata paths are invalid. Cannot start.")
@@ -4147,25 +4147,26 @@ async def suricata_callback():
 
         logger.info("Starting Suricata interface monitor (async-thread)...")
 
-        # Thread target
-        def run_monitor():
+        # Target for background thread
+        def monitor_thread_target():
             try:
-                monitor_interfaces()
+                monitor_interfaces()  # This is the blocking monitoring function
             except Exception as e:
                 logger.error("Suricata monitor thread crashed: %s", e, exc_info=True)
 
-        # Fire and forget
-        threading.Thread(
-            target=run_monitor,
+        # Start the monitoring in a daemon thread (fire-and-forget)
+        thread = threading.Thread(
+            target=monitor_thread_target,
             daemon=True,
             name="SuricataMonitorThread"
-        ).start()
+        )
+        thread.start()
 
     except Exception as ex:
         logger.error("Unexpected error starting Suricata: %s", ex, exc_info=True)
         return False
 
-    # Return immediately — no blocking, no waiting
+    # Immediately return — main thread is not blocked
     return True
 
 def monitor_suricata_log():

@@ -7,7 +7,6 @@ import win32file
 import win32pipe
 import pywintypes
 import threading
-import time
 import ctypes
 from pathlib import Path
 from hydra_logger import logger
@@ -241,10 +240,8 @@ def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
                 logger.warning("Pipe not found, retrying in 1 second...")
             else:
                 logger.error(f"Pipe error: {e}")
-            time.sleep(1)
         except Exception as e:
             logger.exception(f"Unexpected error: {e}")
-            time.sleep(1)
         finally:
             try:
                 pipe.close()
@@ -310,10 +307,8 @@ def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                 logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
             else:
                 logger.error(f"Windows API Error in MBR listener: {e.strerror} (Code: {e.winerror})")
-            time.sleep(1)
         except Exception as e:
             logger.exception(f"Unexpected error in MBR alert listener: {e}")
-            time.sleep(5)
         finally:
             if pipe:
                 win32pipe.DisconnectNamedPipe(pipe)
@@ -449,10 +444,8 @@ def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_A
                 logger.debug("Self-defense driver disconnected from alert pipe.")
             else:
                 logger.error(f"Windows API Error in self-defense listener: {e.strerror} (Code: {e.winerror})")
-            time.sleep(1)
         except Exception as e:
             logger.exception(f"Unexpected error in self-defense alert listener: {e}")
-            time.sleep(5)
         finally:
             if pipe:
                 win32pipe.DisconnectNamedPipe(pipe)
