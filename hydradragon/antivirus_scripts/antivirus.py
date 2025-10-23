@@ -11053,27 +11053,24 @@ async def start_real_time_protection_async():
     logger.info("All protection and resource tasks launched concurrently (non-blocking)")
     return "[+] Real-time protection and resources scheduled concurrently"
 
-async def run_real_time_protection_with_yield_async():
+async def run_real_time_protection_async():
     """
-    Async generator that starts real-time protection and yields status messages.
-    Periodically yields CPU to keep the loop responsive.
+    Async coroutine that starts real-time protection and returns a status message.
     """
     try:
         logger.info("Starting real-time protection with periodic CPU yielding...")
 
-        # Start real-time protection tasks (non-blocking)
-        # This function now just schedules tasks and returns a string immediately.
         result_message = await start_real_time_protection_async()
         return result_message or "[+] Real-time protection scheduled successfully"
 
-        return "[+] Real-time monitoring is now active in the background"
-
     except asyncio.CancelledError:
-         logger.info("Real-time protection yield generator cancelled.")
+        logger.info("Real-time protection yield coroutine cancelled.")
+        return "[!] Real-time protection cancelled."
     except Exception as ex:
-        error_message = f"An error occurred during real-time protection yield loop: {ex}"
+        error_message = f"An error occurred during real-time protection yield: {ex}"
         logger.error(error_message, exc_info=True)
         return f"[!] {error_message}"
+
 
 def run_de4dot(file_path):
     """
