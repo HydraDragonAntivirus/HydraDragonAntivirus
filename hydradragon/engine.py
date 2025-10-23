@@ -399,57 +399,65 @@ class AntivirusApp(QWidget):
             logger.exception("_update_ui_for_task_end failed")
 
     async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
-        """Run an async coroutine or blocking function on a background thread, with UI updates marshalled through signals."""
+        """
+        Run an async coroutine, async generator, or blocking function on a background thread.
+        Handles UI updates safely via Qt signals and QTimer.
+        """
         if task_name in self.active_tasks:
             self.append_log_output(f"[*] Task '{task_name}' already running.")
             return
 
         self.active_tasks.add(task_name)
-        # UI update should be scheduled on Qt main thread
         QTimer.singleShot(0, lambda: self._update_ui_for_task_start(task_name))
 
         try:
             if is_async:
-                # Directly await coroutine
-                await coro_or_func(*args)
+                result = coro_or_func(*args)
+                if hasattr(result, "__anext__"):  # Async generator
+                    async for item in result:
+                        if item:
+                            self.append_log_output(str(item))
+                else:
+                    # Regular async coroutine
+                    msg = await result
+                    if msg:
+                        self.append_log_output(str(msg))
             else:
-                # Offload blocking function to a thread
+                # Run sync function in a thread
                 await asyncio.to_thread(coro_or_func, *args)
         except asyncio.CancelledError:
             self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
             logger.info(f"Task {task_name} cancelled.")
         except Exception:
-            error_msg = f"[!] Error in task '{task_name}': {traceback.format_exc()}"
-            self.append_log_output(error_msg)
+            self.append_log_output(f"[!] Error in task '{task_name}': {traceback.format_exc()}")
             logger.exception(f"Exception in task {task_name}")
         finally:
             if task_name in self.active_tasks:
                 self.active_tasks.remove(task_name)
-            # Update UI end on Qt main thread
             QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
 
-    # ---------------------------
-    # Specific tasks (adapted from your original code)
-    # ---------------------------
     async def _run_real_time_protection_task(self):
-        """Run the real-time protection coroutine; append output to logs."""
+        """Run the real-time protection async generator; stream logs incrementally."""
         self.append_log_output("[*] Real-time protection monitoring starting...")
         try:
-            result_message = await run_real_time_protection_async()
-            if result_message:
-                self.append_log_output(str(result_message))
+            gen = run_real_time_protection_async()
+            if hasattr(gen, "__anext__"):
+                async for msg in gen:
+                    if msg:
+                        self.append_log_output(str(msg))
+                self.append_log_output("[+] Real-time protection monitoring completed.")
             else:
-                self.append_log_output("[+] Real-time protection completed successfully.")
+                result = await gen
+                self.append_log_output(str(result) if result else "[+] Real-time protection completed.")
         except asyncio.CancelledError:
             self.append_log_output("[!] Real-time protection task cancelled.")
-            logger.info("Real-time protection task cancelled")
+            logger.info("Real-time protection task cancelled.")
         except Exception:
             self.append_log_output(f"[!] Error during real-time protection: {traceback.format_exc()}")
             logger.exception("Unhandled exception in real-time protection")
 
-
     async def _run_hayabusa_live_task(self):
-        """Async wrapper to run Hayabusa csv-timeline and tail the output for critical events."""
+        """Async wrapper to run Hayabusa csv-timeline and monitor for critical events."""
         self.append_log_output("[*] Starting Hayabusa live timeline analysis...")
         process = None
         csv_tail_task = None
@@ -477,96 +485,67 @@ class AntivirusApp(QWidget):
                 if pipe is None:
                     return
                 while True:
-                    line_bytes = await pipe.readline()
-                    if not line_bytes:
+                    line = await pipe.readline()
+                    if not line:
                         break
-                    line = line_bytes.decode('utf-8', errors='ignore').strip()
-                    self.append_log_output(f"[{label}] {line}")
+                    decoded = line.decode("utf-8", errors="ignore").strip()
+                    self.append_log_output(f"[{label}] {decoded}")
 
             stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
             stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
 
-            async def tail_csv_and_analyze(csv_file_path):
+            async def tail_csv(csv_path):
                 wait_start = asyncio.get_event_loop().time()
-                while not os.path.exists(csv_file_path):
+                while not os.path.exists(csv_path):
                     if asyncio.get_event_loop().time() - wait_start > 30:
-                        self.append_log_output(f"[!] Timeout waiting for CSV file: {csv_file_path}")
+                        self.append_log_output(f"[!] Timeout waiting for CSV file: {csv_path}")
                         return
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.2)
 
                 seen = set()
-                last_read_pos = 0
+                last_pos = 0
                 while True:
-                    try:
-                        async with aiofiles.open(csv_file_path, mode='r', encoding='utf-8', errors='ignore') as f:
-                            await f.seek(last_read_pos)
-                            new_content = await f.read()
-                            last_read_pos = await f.tell()
-
-                            if new_content:
-                                reader = csv.DictReader(new_content.splitlines())
-                                for row in reader:
-                                    key_fields = (row.get('Timestamp'), row.get('EventID'), row.get('RuleTitle'), row.get('Details'))
-                                    row_key = hash(key_fields)
-                                    if row_key not in seen:
-                                        seen.add(row_key)
-                                        level = row.get('Level', '').lower()
-                                        if level in ('critical', 'crit'):
-                                            channel = row.get('Channel', 'N/A')
-                                            event_id = row.get('EventID', 'N/A')
-                                            rule_title = row.get('RuleTitle', 'N/A')
-                                            details = row.get('Details', 'N/A')
-                                            computer = row.get('Computer', 'N/A')
-                                            timestamp = row.get('Timestamp', 'N/A')
-                                            # Notify safely (not a UI call)
-                                            try:
-                                                from hydradragon.antivirus_scripts.notify_user import notify_user_hayabusa_critical
-                                                notify_user_hayabusa_critical(
-                                                    event_log=f"{channel} (EID: {event_id})",
-                                                    rule_title=rule_title,
-                                                    details=details,
-                                                    computer=computer,
-                                                )
-                                            except Exception:
-                                                logger.exception("Error calling Hayabusa notifier")
-
-                                            self.append_log_output(
-                                                f"[!] LIVE CRITICAL [{timestamp}]: {rule_title} | {computer} | {channel} | {details[:100]}"
-                                            )
-                    except FileNotFoundError:
-                        self.append_log_output(f"[!] CSV file disappeared: {csv_file_path}")
-                        await asyncio.sleep(1)
-                    except asyncio.CancelledError:
-                        self.append_log_output("[!] CSV tail task cancelled")
-                        return
-                    except Exception:
-                        self.append_log_output(f"[!] CSV tail error: {traceback.format_exc()}")
-                        await asyncio.sleep(1)
-
-                    # stop when hayabusa process ends
                     if process.returncode is not None:
-                        self.append_log_output("[*] Hayabusa process finished. Stopping CSV tail.")
                         break
+                    try:
+                        async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                            await f.seek(last_pos)
+                            content = await f.read()
+                            last_pos = await f.tell()
+
+                            if content:
+                                reader = csv.DictReader(content.splitlines())
+                                for row in reader:
+                                    key = (row.get("Timestamp"), row.get("EventID"), row.get("RuleTitle"))
+                                    if key in seen:
+                                        continue
+                                    seen.add(key)
+                                    level = (row.get("Level") or "").lower()
+                                    if level in ("critical", "crit"):
+                                        rule = row.get("RuleTitle", "N/A")
+                                        details = row.get("Details", "N/A")
+                                        self.append_log_output(f"[!] CRITICAL: {rule} | {details[:100]}")
+                                        try:
+                                            notify_user_hayabusa_critical(
+                                                event_log=row.get("Channel", ""),
+                                                rule_title=rule,
+                                                details=details,
+                                                computer=row.get("Computer", "")
+                                            )
+                                        except Exception:
+                                            logger.exception("notify_user_hayabusa_critical failed")
+                    except Exception:
+                        await asyncio.sleep(1.0)
                     await asyncio.sleep(1.0)
 
-            csv_tail_task = asyncio.create_task(tail_csv_and_analyze(output_file))
-            self.append_log_output("[*] Hayabusa live monitoring started.")
-
+            csv_tail_task = asyncio.create_task(tail_csv(output_file))
             return_code = await process.wait()
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-
-            if return_code == 0:
-                self.append_log_output("[+] Hayabusa process completed successfully.")
-            else:
-                self.append_log_output(f"[!] Hayabusa process failed (code {return_code})")
-
+            self.append_log_output(f"[+] Hayabusa exited with code {return_code}")
         except asyncio.CancelledError:
             self.append_log_output("[!] Hayabusa task cancelled.")
-            logger.info("Hayabusa live task cancelled")
-            return
         except Exception:
-            self.append_log_output(f"[!] Error running Hayabusa live timeline: {traceback.format_exc()}")
-            logger.exception("Hayabusa live task error")
+            self.append_log_output(f"[!] Hayabusa error: {traceback.format_exc()}")
         finally:
             if csv_tail_task and not csv_tail_task.done():
                 csv_tail_task.cancel()
@@ -575,71 +554,48 @@ class AntivirusApp(QWidget):
                 except asyncio.CancelledError:
                     pass
             if process and process.returncode is None:
-                try:
-                    process.terminate()
-                    await process.wait()
-                except Exception:
-                    logger.exception("Error terminating Hayabusa process")
+                process.terminate()
+                await process.wait()
 
     def _update_definitions_sync(self):
-        """Blocking freshclam call executed in a thread via run_task(is_async=False)."""
+        """Blocking freshclam update, run inside a thread."""
         self.append_log_output("[*] Checking virus definitions...")
         try:
             if not os.path.exists(freshclam_path):
-                self.append_log_output(f"[!] Error: freshclam not found at '{freshclam_path}'. Cannot update.")
+                self.append_log_output(f"[!] freshclam not found at '{freshclam_path}'")
                 return False
 
-            needs_update = False
-            if not clamav_file_paths:
-                logger.warning("ClamAV definition file paths are not configured.")
-                needs_update = True
-            else:
-                for file_path in clamav_file_paths:
-                    if os.path.exists(file_path):
-                        file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                        if (datetime.now() - file_mod_time) > timedelta(hours=12):
-                            needs_update = True
-                            break
-                    else:
-                        needs_update = True
-                        break
+            needs_update = any(
+                not os.path.exists(fp) or
+                (datetime.now() - datetime.fromtimestamp(os.path.getmtime(fp))) > timedelta(hours=12)
+                for fp in clamav_file_paths
+            )
 
             if needs_update:
-                self.append_log_output("[*] Definitions are outdated or missing. Starting update...")
-                process = subprocess.Popen([freshclam_path],
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                           text=True, encoding="utf-8", errors="ignore")
-                stdout, stderr = process.communicate()
+                self.append_log_output("[*] Running freshclam update...")
+                proc = subprocess.Popen([freshclam_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdout, stderr = proc.communicate()
 
                 if stdout:
-                    self.append_log_output("--- Freshclam Output ---")
                     for line in stdout.splitlines():
                         self.append_log_output(line)
-                    self.append_log_output("------------------------")
                 if stderr:
-                    self.append_log_output("--- Freshclam Errors ---")
                     for line in stderr.splitlines():
                         self.append_log_output(f"[!] {line}")
-                    self.append_log_output("------------------------")
 
-                if process.returncode == 0:
-                    self.append_log_output("[+] Reloading ClamAV database...")
-                    try:
-                        reload_clamav_database()
-                        self.append_log_output("[+] Virus definitions updated successfully and ClamAV reloaded.")
-                        return True
-                    except Exception:
-                        logger.exception("reload_clamav_database failed")
-                        return False
+                if proc.returncode == 0:
+                    reload_clamav_database()
+                    self.append_log_output("[+] Virus definitions updated successfully.")
+                    return True
                 else:
-                    self.append_log_output(f"[!] Failed to update ClamAV definitions (freshclam exit code: {process.returncode}).")
+                    self.append_log_output(f"[!] freshclam failed with exit code {proc.returncode}")
                     return False
             else:
-                self.append_log_output("[*] Definitions are already up-to-date.")
+                self.append_log_output("[*] Definitions are already up to date.")
                 return True
         except Exception:
-            self.append_log_output(f"[!] Error updating definitions: {traceback.format_exc()}")
-            logger.exception("Exception during definition update")
+            self.append_log_output(f"[!] Definition update error: {traceback.format_exc()}")
+            logger.exception("Definition update failed")
             return False
 
     def _update_hayabusa_rules_sync(self):
