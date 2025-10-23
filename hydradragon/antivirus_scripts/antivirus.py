@@ -9659,7 +9659,6 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
         return None
 
 # --- Updated scan_and_warn with main_file_path propagation ---
-@run_in_thread
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
                   flag_debloat=False,
