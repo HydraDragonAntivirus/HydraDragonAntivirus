@@ -707,10 +707,6 @@ class AntivirusApp(QWidget):
 
         sidebar_layout.addStretch()
 
-        version_label_side = QLabel(f"Version: {WINDOW_TITLE.split('v')[-1] if 'v' in WINDOW_TITLE else 'N/A'}")
-        version_label_side.setStyleSheet("color: #6A7384; font-size: 11px; padding: 0 10px;")
-        sidebar_layout.addWidget(version_label_side)
-
         return sidebar_frame
 
     def setup_ui_fast(self):
@@ -839,11 +835,11 @@ async def main():
     window.status_signal.emit(True)
     logger.info("Main window shown, event loop running...")
 
-    # Start background tasks (fire-and-forget)
+    # --- Start background real-time protection ---
     asyncio.create_task(start_real_time_protection_async())
 
-    # Connect GUI close to exit
+    # Connect GUI close to exit immediately
     app.aboutToQuit.connect(lambda: sys.exit(0))
 
-    # Run Qt event loop integrated with asyncio
-    await qasync.run(app.exec())  # <-- NO loop.run_forever()
+    # --- Run Qt + asyncio event loop concurrently ---
+    await qasync.run(app.exec())  # <-- fully integrates asyncio tasks
