@@ -4263,35 +4263,39 @@ async def suricata_callback():
     # Immediately return — main thread is not blocked
     return True
 
-def monitor_suricata_log():
-    """Monitor Suricata EVE JSON log file"""
-    log_path = eve_log_path  # Use EVE JSON by default
+# ========== ASYNC SURICATA MONITORING ==========
 
-    # Wait for the file to exist instead of creating it
-    while not os.path.exists(log_path):
+async def monitor_suricata_log_async():
+    """Async monitor for Suricata EVE JSON log file"""
+    log_path = eve_log_path
+
+    # Wait for the file to exist
+    while not await asyncio.to_thread(os.path.exists, log_path):
         logger.info(f"Waiting for log file to be created: {log_path}")
+        await asyncio.sleep(1)
 
     logger.info(f"Log file found: {log_path}")
 
-    with open(log_path, 'r') as log_file:
-        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
+    async with aiofiles.open(log_path, 'r') as log_file:
+        await log_file.seek(0, os.SEEK_END)  # Move to end
+        
         while True:
             try:
-                line = log_file.readline()
+                line = await log_file.readline()
                 if not line:
+                    await asyncio.sleep(0.1)
                     continue
 
-                # Process EVE JSON format
                 if line.strip():
                     priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
                     if priority is not None:
-                        # Enhanced logging with signature and category info
                         full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
                         logger.debug(full_line)
-                        process_alert_data(priority, src_ip, dest_ip)
+                        await process_alert_data(priority, src_ip, dest_ip)
 
             except Exception as ex:
                 logger.info(f"Error processing line: {ex}")
+                await asyncio.sleep(0.1)
 
 # ---------------------------
 # Helper functions
@@ -11208,15 +11212,6 @@ async def start_real_time_protection_async():
         except Exception as e:
             logger.exception(f"Error retrieving exception for task {name}: {e}")
 
-    async def wrap_sync_function(name: str, func):
-        """Wrap a synchronous function to run in a thread."""
-        try:
-            logger.info(f"{name} starting in thread...")
-            await asyncio.to_thread(func)
-            logger.info(f"{name} completed.")
-        except Exception as e:
-            logger.exception(f"Error in {name}: {e}")
-
     async def wrap_async_function(name: str, coro_func):
         """Wrap an async function with error handling."""
         try:
@@ -11242,21 +11237,21 @@ async def start_real_time_protection_async():
         name="EDRMonitor"
     ))
 
-    # --- Suricata Monitor (sync) ---
+    # --- Suricata Monitor (NOW ASYNC) ---
     tasks.append(asyncio.create_task(
-        wrap_sync_function("SuricataMonitor", monitor_suricata_log),
+        wrap_async_function("SuricataMonitor", monitor_suricata_log_async),
         name="SuricataMonitor"
     ))
 
-    # --- Web Protection (sync) ---
+    # --- Web Protection (NOW ASYNC) ---
     tasks.append(asyncio.create_task(
-        wrap_sync_function("WebProtection", web_protection_observer.begin_observing),
+        wrap_async_function("WebProtection", web_protection_observer.begin_observing_async),
         name="WebProtection"
     ))
 
-    # --- Pipe Listeners (sync) ---
+    # --- Pipe Listeners (ALREADY ASYNC - start_all_pipe_listeners) ---
     tasks.append(asyncio.create_task(
-        wrap_sync_function("PipeListeners", start_all_pipe_listeners),
+        wrap_async_function("PipeListeners", start_all_pipe_listeners),
         name="PipeListeners"
     ))
 
@@ -11276,7 +11271,7 @@ async def start_real_time_protection_async():
     for task in tasks:
         task.add_done_callback(lambda t, n=task.get_name(): _task_done_cb(t, n))
 
-    logger.info("All protection, resource, and Hayabusa tasks launched.")
+    logger.info("All protection, resource, and Hayabusa tasks launched (all async).")
 
     # Return tasks so caller can keep references
     return tasks

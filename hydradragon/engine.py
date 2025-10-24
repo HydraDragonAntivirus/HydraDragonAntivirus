@@ -716,7 +716,7 @@ class AntivirusApp(QWidget):
     def setup_ui_fast(self):
         """Create widgets and layout — no heavy I/O or icon loads."""
         self.setWindowTitle(WINDOW_TITLE)
-        self.setMinimumSize(1100, 800)
+        self.setMinimumSize(550, 400)
         self.resize(1400, 900)
 
         main_layout = QHBoxLayout(self)
