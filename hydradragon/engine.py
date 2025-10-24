@@ -728,20 +728,27 @@ class AntivirusApp(QWidget):
 
     def finish_ui_setup(self):
         """Perform heavy UI initialization after the window shows (non-async, Qt-thread safe)."""
-        # --- Window icon loading in background ---
         if os.path.exists(icon_path):
             self.icon_thread = QThread()
             self.icon_worker = IconLoaderWorker(icon_path)
             self.icon_worker.moveToThread(self.icon_thread)
 
+            # Run worker when thread starts
             self.icon_thread.started.connect(self.icon_worker.run)
+
+            # Worker signals
             self.icon_worker.finished.connect(self._on_icon_loaded)
             self.icon_worker.error.connect(self._on_icon_error)
 
-            # Clean up thread after work is done
-            self.icon_worker.finished.connect(self.icon_thread.quit)
-            self.icon_worker.finished.connect(self.icon_worker.deleteLater)
-            self.icon_thread.finished.connect(self.icon_thread.deleteLater)
+            # Cleanup: do not delete worker until after finished signal is fully processed
+            def cleanup():
+                # Schedule deletion in Qt event loop to avoid race conditions
+                self.icon_worker.deleteLater()
+                self.icon_thread.quit()
+                self.icon_thread.deleteLater()
+
+            self.icon_worker.finished.connect(cleanup)
+            self.icon_worker.error.connect(cleanup)
 
             self.icon_thread.start()
         else:
