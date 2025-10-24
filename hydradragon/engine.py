@@ -413,53 +413,61 @@ class AntivirusApp(QWidget):
                 self.active_tasks.remove(task_name)
             QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
 
+    # ---------------------------
+    # Real-Time Protection (Async)
+    # ---------------------------
     async def _run_real_time_protection_task(self):
-        """Run the real-time protection async generator; stream logs incrementally."""
-        self.append_log_output("[*] Real-time protection monitoring starting...")
+        """Async wrapper for real-time protection generator."""
+        self.append_log_output("[*] Real-time protection starting...")
         try:
             gen = run_real_time_protection_async()
-            if hasattr(gen, "__anext__"):
+            if hasattr(gen, "__anext__"):  # Async generator
                 async for msg in gen:
                     if msg:
                         self.append_log_output(str(msg))
-                self.append_log_output("[+] Real-time protection monitoring completed.")
-            else:
+            else:  # fallback if normal coroutine
                 result = await gen
-                self.append_log_output(str(result) if result else "[+] Real-time protection completed.")
+                if result:
+                    self.append_log_output(str(result))
+            self.append_log_output("[+] Real-time protection completed.")
         except asyncio.CancelledError:
             self.append_log_output("[!] Real-time protection task cancelled.")
-            logger.info("Real-time protection task cancelled.")
         except Exception:
-            self.append_log_output(f"[!] Error during real-time protection: {traceback.format_exc()}")
+            self.append_log_output(f"[!] Real-time protection error: {traceback.format_exc()}")
             logger.exception("Unhandled exception in real-time protection")
 
+    # ---------------------------
+    # Hayabusa Live Monitoring (Async)
+    # ---------------------------
     async def _run_hayabusa_live_task(self):
-        """Async wrapper to run Hayabusa csv-timeline and monitor for critical events."""
-        self.append_log_output("[*] Starting Hayabusa live timeline analysis...")
+        """Run Hayabusa CSV timeline safely in background."""
+        self.append_log_output("[*] Starting Hayabusa live monitoring...")
         process = None
         csv_tail_task = None
+
         try:
             if not os.path.exists(hayabusa_path):
-                self.append_log_output(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                self.append_log_output(f"[!] Hayabusa not found at {hayabusa_path}")
                 return
 
+            # Prepare output CSV path
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
 
             cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
-            self.append_log_output(f"[*] Running command: {' '.join(cmd)}")
+            self.append_log_output(f"[*] Running: {' '.join(cmd)}")
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=os.path.dirname(hayabusa_path),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
 
             async def stream_reader(pipe, label):
-                if pipe is None:
+                if not pipe:
                     return
                 while True:
                     line = await pipe.readline()
@@ -471,25 +479,18 @@ class AntivirusApp(QWidget):
             stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
             stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
 
+            # CSV tailing task
             async def tail_csv(csv_path):
-                wait_start = asyncio.get_event_loop().time()
-                while not os.path.exists(csv_path):
-                    if asyncio.get_event_loop().time() - wait_start > 30:
-                        self.append_log_output(f"[!] Timeout waiting for CSV file: {csv_path}")
-                        return
-                    await asyncio.sleep(0.2)
-
                 seen = set()
-                last_pos = 0
-                while True:
-                    if process.returncode is not None:
-                        break
+                while process.returncode is None:
+                    if not os.path.exists(csv_path):
+                        await asyncio.sleep(0.2)
+                        continue
+
                     try:
                         async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                            await f.seek(last_pos)
+                            await f.seek(0)
                             content = await f.read()
-                            last_pos = await f.tell()
-
                             if content:
                                 reader = csv.DictReader(content.splitlines())
                                 for row in reader:
@@ -503,6 +504,7 @@ class AntivirusApp(QWidget):
                                         details = row.get("Details", "N/A")
                                         self.append_log_output(f"[!] CRITICAL: {rule} | {details[:100]}")
 
+                                        # Notify user safely
                                         try:
                                             await notify_user_hayabusa_critical(
                                                 event_log=row.get("Channel", ""),
@@ -517,13 +519,16 @@ class AntivirusApp(QWidget):
                     await asyncio.sleep(1.0)
 
             csv_tail_task = asyncio.create_task(tail_csv(output_file))
-            return_code = await process.wait()
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            self.append_log_output(f"[+] Hayabusa exited with code {return_code}")
+
+            await process.wait()
+            await asyncio.gather(stdout_task, stderr_task, csv_tail_task, return_exceptions=True)
+            self.append_log_output(f"[+] Hayabusa process exited with {process.returncode}")
+
         except asyncio.CancelledError:
             self.append_log_output("[!] Hayabusa task cancelled.")
         except Exception:
             self.append_log_output(f"[!] Hayabusa error: {traceback.format_exc()}")
+            logger.exception("Unhandled exception in Hayabusa task")
         finally:
             if csv_tail_task and not csv_tail_task.done():
                 csv_tail_task.cancel()
@@ -620,16 +625,26 @@ class AntivirusApp(QWidget):
     async def on_update_hayabusa_rules_clicked(self):
         await self.run_task('update_hayabusa_rules', self._update_hayabusa_rules_sync, is_async=False)
 
+
     # ---------------------------
-    # Startup
+    # Startup Tasks (Non-blocking)
     # ---------------------------
-    @asyncSlot()
     async def run_startup_tasks(self):
-        self.append_log_output("[*] Initializing...")
-        # start real-time protection
-        asyncio.create_task(self.run_task('real_time_protection', self._run_real_time_protection_task, is_async=True))
-        # hayabusa live
-        asyncio.create_task(self.run_task('hayabusa_live', self._run_hayabusa_live_task, is_async=True))
+        """Launch startup tasks safely after UI is shown."""
+        self.append_log_output("[*] Initializing startup tasks...")
+
+        # Schedule real-time protection safely
+        asyncio.create_task(self.run_task(
+            'real_time_protection',
+            self._run_real_time_protection_task,
+        ))
+
+        # Schedule Hayabusa live monitoring safely
+        asyncio.create_task(self.run_task(
+            'hayabusa_live',
+            self._run_hayabusa_live_task,
+        ))
+
         self.append_log_output("[*] Startup tasks launched.")
 
     # ---------------------------
