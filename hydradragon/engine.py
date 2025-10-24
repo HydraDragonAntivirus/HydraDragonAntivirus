@@ -841,62 +841,60 @@ class AntivirusApp(QWidget):
 async def main():
     """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
     app = None
+    loop = None
     exit_code = 0
 
     try:
-        # Ensure log directory exists
-        try:
-            os.makedirs(log_directory, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
+        os.makedirs(log_directory, exist_ok=True)
+    except Exception as e:
+        print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
 
-        logger.info("HydraDragon Engine starting up...")
-        logger.info(f"Log directory: {log_directory}")
-        logger.info(f"Working directory: {main_dir}")
-
-        # Create QApplication first
-        logger.info("Creating QApplication...")
+    try:
+        # QApplication first
         app = QApplication(sys.argv)
 
-        # Create qasync event loop after QApplication
-        logger.info("Creating qasync event loop...")
+        # qasync event loop
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
 
-        # Create and show main window
-        logger.info("Creating main application window...")
+        # Main window
         window = AntivirusApp()
-        window.setup_ui_fast()  # build UI immediately
+        window.setup_ui_fast()
         window.show()
-
-        # Run heavy UI setup asynchronously
         asyncio.create_task(window.finish_ui_setup())
 
-        logger.info("Main window shown, event loop running...")
-
-        # Handle OS signals
+        # OS signals
         def signal_handler(signum, frame):
-            logger.info(f"Signal {signum} received, initiating shutdown...")
+            logger.info(f"Signal {signum} received, shutting down...")
+            if loop and loop.is_running():
+                loop.stop()
 
         signal.signal(signal.SIGINT, signal_handler)
         try:
             signal.signal(signal.SIGTERM, signal_handler)
         except AttributeError:
-            pass  # Windows may not have SIGTERM
+            pass
 
-        # Keep event loop running until shutdown
-        logger.info("Shutdown triggered, cleaning up...")
+        logger.info("Main window shown, event loop running...")
+        await asyncio.Event().wait()  # Wait forever until signal/loop stop
 
-    except Exception as e:
-        logger.critical(f"Critical error in main(): {e}", exc_info=True)
+    except Exception:
+        logger.exception("Critical error in main()")
         exit_code = 1
     finally:
-        logger.info("Main coroutine exiting")
+        logger.info("Cleaning up application...")
+
+        # Proper shutdown sequence
         if app:
             try:
-                app.quit()
+                app.quit()  # Quit Qt application
+            except Exception:
+                pass
+        if loop:
+            try:
+                loop.close()  # Close qasync loop explicitly
             except Exception:
                 pass
 
-    logger.info(f"Application exiting with code {exit_code}")
+    logger.info(f"Application exited with code {exit_code}")
     return exit_code
