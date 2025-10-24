@@ -605,7 +605,7 @@ class AntivirusApp(customtkinter.CTk):
             text_color=COLOR_TEXT_EMPHASIS,
             corner_radius=10,
         )
-        log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1, rely2=-30)
+        log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1)
         log_output.insert("1.0", f"{title_text} logs will appear here...")
         log_output.configure(state="disabled") # Make read-only
 
