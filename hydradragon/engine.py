@@ -650,8 +650,8 @@ class AntivirusApp(QWidget):
     # helper factory so handler does not return a Task (prevents double-scheduling)
     def _make_nav_handler(self, idx: int):
         def _handler(checked=False):
-            # schedule the coroutine but DO NOT return the created Task object
-            asyncio.create_task(self.switch_page_with_animation(idx))
+            coro = self.switch_page_with_animation(idx)  # THIS IS A COROUTINE OBJECT
+            asyncio.create_task(coro)  # now it's safe
             return None
         return _handler
 
@@ -773,7 +773,6 @@ class AntivirusApp(QWidget):
     # ---------------------------
     # Page switching animations
     # ---------------------------
-    @asyncSlot(int)
     async def switch_page_with_animation(self, index: int):
         if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
                 self.main_stack.currentIndex() == index):
