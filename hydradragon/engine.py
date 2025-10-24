@@ -22,10 +22,7 @@ os.chdir(main_dir)
 if main_dir not in sys.path:
     sys.path.insert(0, main_dir)
 
-from hydradragon.antivirus_scripts.antivirus import (
-    logger,
-    log_directory,
-)
+from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
@@ -40,6 +37,8 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     hayabusa_path,
     WINDOW_TITLE,
     clamav_file_paths,
+    icon_animated_protected_path,
+    icon_animated_unprotected_path
 )
 
 # --- CTk Styling Constants (from original stylesheet) ---
@@ -57,12 +56,6 @@ COLOR_SUCCESS = (163, 190, 140) # RGB for interpolation/glow
 COLOR_WARNING = (235, 203, 139) # RGB for interpolation/glow
 COLOR_SHIELD_BG = "#3B4252"
 COLOR_BG_RGB = (46, 52, 64) # RGB for interpolation
-
-# --- NEW: Paths for animated GIFs ---
-# You MUST create these two GIF files and place them next to your icon.png
-icon_animated_protected_path = os.path.join(os.path.dirname(icon_path), "hydra_protected.gif")
-icon_animated_unprotected_path = os.path.join(os.path.dirname(icon_path), "hydra_unprotected.gif")
-
 
 # Set CTk appearance
 customtkinter.set_appearance_mode("Dark")
@@ -612,7 +605,7 @@ class AntivirusApp(customtkinter.CTk):
             text_color=COLOR_TEXT_EMPHASIS,
             corner_radius=10,
         )
-        log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1, relx2=-30, rely2=-30)
+        log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1, rely2=-30)
         log_output.insert("1.0", f"{title_text} logs will appear here...")
         log_output.configure(state="disabled") # Make read-only
 
