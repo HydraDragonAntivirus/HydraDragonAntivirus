@@ -819,39 +819,29 @@ class AntivirusApp(QWidget):
         self.append_log_output("[*] Application minimized (window hidden)")
 
 async def main():
-    """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
-    # Ensure log directory exists
-    os.makedirs(log_directory, exist_ok=True)
-    logger.info("HydraDragon Engine starting up...")
-
-    # --- Create QApplication first ---
+    # --- QApplication + qasync event loop ---
     app = QApplication(sys.argv)
-
-    # --- Integrate asyncio with Qt event loop ---
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    # --- Create and show main window ---
+    # --- Create main window ---
     window = AntivirusApp()
     window.setup_ui_fast()
     window.show()
     window.finish_ui_setup()
-    window.status_signal.emit(True)  # mark system protected
-    logger.info("Main window shown, event loop running...")
+    window.status_signal.emit(True)
 
-    # --- Start background real-time protection WITHOUT blocking ---
-    try:
-        # Fire-and-forget so GUI never blocks
-        asyncio.create_task(start_real_time_protection_async())
-        logger.info("Background protection tasks launched.")
-    except Exception:
-        logger.exception("Failed to start background protection tasks")
+    # --- Start background protection safely ---
+    async def launch_protection():
+        try:
+            # Use asyncio.create_task for each component
+            await start_real_time_protection_async()
+        except Exception:
+            logger.exception("Real-time protection failed")
 
-    # --- Ensure app exits cleanly when GUI closes ---
-    app.aboutToQuit.connect(lambda: logger.info("GUI closed, exiting..."))
+    asyncio.create_task(launch_protection())
 
-    # --- Run Qt event loop integrated with asyncio ---
-    await app.exec()
+    # --- Start Qt event loop integrated with asyncio ---
+    exit_code = await app.exec()
+    sys.exit(exit_code)
 
-    logger.info("Application exited normally.")
-    sys.exit(0)
