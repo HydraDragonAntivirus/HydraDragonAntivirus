@@ -847,7 +847,7 @@ async def main():
         window.show()
         window.finish_ui_setup()
 
-        # --- Immediately mark system as protected (UI reflects current state) ---
+        # --- Immediately mark system as protected ---
         window.status_signal.emit(True)
 
         logger.info("Main window shown, event loop running...")
@@ -860,41 +860,25 @@ async def main():
             logger.exception("Failed to start background protection tasks")
 
         # --- Make shutdown synchronized ---
-        async def shutdown():
+        async def shutdown_and_exit():
+            nonlocal exit_code
             logger.info("Shutting down real-time protection...")
             for task in protection_tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*protection_tasks, return_exceptions=True)
             logger.info("All background tasks stopped.")
+            exit_code = 0
             loop.stop()
+            sys.exit(exit_code)
 
-        # Connect GUI quit to synchronized shutdown
-        app.aboutToQuit.connect(lambda: asyncio.create_task(shutdown()))
+        # Connect GUI quit to immediate shutdown + exit
+        app.aboutToQuit.connect(lambda: asyncio.create_task(shutdown_and_exit()))
 
-        # --- Run event loop forever (GUI stays alive) ---
+        # --- Run event loop forever ---
         loop.run_forever()
 
     except Exception:
         logger.critical("Critical error in main()", exc_info=True)
         exit_code = 1
-
-    finally:
-        logger.info("Cleaning up application...")
-
-        # Ensure app quits
-        if app:
-            try:
-                app.quit()
-            except Exception:
-                pass
-
-        # Ensure loop closes
-        try:
-            if loop and not loop.is_closed():
-                loop.close()
-        except Exception:
-            logger.warning("Error closing event loop", exc_info=True)
-
-    logger.info(f"Application exited with code {exit_code}")
-    return exit_code
+        sys.exit(exit_code)
