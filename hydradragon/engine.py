@@ -7,7 +7,7 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-import tkinter
+import threading
 from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
@@ -26,7 +26,7 @@ from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async,  # Async function (not generator)
+    start_real_time_protection_async,
     reload_clamav_database,
     get_latest_clamav_def_time
 )
@@ -41,7 +41,7 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     icon_animated_unprotected_path
 )
 
-# --- CTk Styling Constants (from original stylesheet) ---
+# --- CTk Styling Constants ---
 COLOR_BG = "#2E3440"
 COLOR_BG_LIGHT = "#3B4252"
 COLOR_BG_DARK = "#232831"
@@ -69,10 +69,7 @@ def _rgb_to_hex(rgb):
 
 # --- Animated Shield Widget (Replaces Canvas version) ---
 class AnimatedShieldWidget(customtkinter.CTkFrame):
-    """
-    Displays an animated GIF for the system status.
-    Uses CTkImage for each frame so images scale correctly on HighDPI displays.
-    """
+    """Displays an animated GIF for the system status."""
     def __init__(self, parent, size=250):
         super().__init__(parent, fg_color="transparent")
         
@@ -193,21 +190,19 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         self.stop_animation()
         super().destroy()
 
+
 class AntivirusApp(customtkinter.CTk):
 
-    def __init__(self):
+    def __init__(self, async_loop):
         super().__init__(fg_color=COLOR_BG)
         
-        # state
+        self.async_loop = async_loop  # Store reference to async event loop
         self.active_tasks = set()
         self.log_outputs = []  # list of CTkTextbox widgets for each page
         self.task_buttons = {}
         self.nav_buttons = []
         self.pages = []
-        self.is_running = True # Flag for the async mainloop
-        self.loop_time = 0.0 # Time for animations
         self.current_page_index = 0
-        self.is_page_animating = False
 
         # --- Configure main window ---
         self.title(WINDOW_TITLE)
@@ -244,38 +239,17 @@ class AntivirusApp(customtkinter.CTk):
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    # ---------------------------
-    # Async main loop driver
-    # ---------------------------
-    async def mainloop_async(self):
-        """Drives both the asyncio event loop and the Tkinter UI."""
-        self.loop_time = asyncio.get_event_loop().time()
-        while self.is_running:
-            try:
-                # Update loop time for animations
-                self.loop_time = asyncio.get_event_loop().time()
-                
-                # Update Tkinter UI
-                self.update_idletasks()
-                self.update()
-            except tkinter.TclError as e:
-                logger.warning(f"Tkinter error in mainloop: {e}. Stopping loop.")
-                self.is_running = False
-            
-            # Yield control to asyncio
-            await asyncio.sleep(0.01) # ~60 FPS update rate
-
     def on_closing(self):
         """Handle the window close event."""
         self.append_log_output("[*] Closing application...")
-        self.is_running = False
         
         # Stop animations in shield widget
         if hasattr(self, 'shield_widget') and self.shield_widget:
             self.shield_widget.stop_animation()
-            
-        self.after(50, self.destroy)
-
+        
+        # Stop the async loop
+        self.async_loop.call_soon_threadsafe(self.async_loop.stop)
+        self.destroy()
 
     # ---------------------------
     # Signal/Slot replacements (now using self.after)
@@ -360,13 +334,15 @@ class AntivirusApp(customtkinter.CTk):
         except Exception:
             logger.exception("_update_ui_for_task_end failed")
 
+    def run_task_in_async_loop(self, task_name: str, coro_or_func, *args, is_async: bool = True):
+        """Schedule a task to run in the async event loop from GUI thread."""
+        asyncio.run_coroutine_threadsafe(
+            self._run_task_async(task_name, coro_or_func, *args, is_async),
+            self.async_loop
+        )
 
-    async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
-        """
-        Run an async coroutine or blocking function.
-        REMOVED: async generator handling (no more yield support).
-        Handles UI updates safely via self.after().
-        """
+    async def _run_task_async(self, task_name: str, coro_or_func, *args, is_async: bool = True):
+        """Run task in async loop - NO YIELD SUPPORT."""
         if task_name in self.active_tasks:
             self.append_log_output(f"[*] Task '{task_name}' already running.")
             return
@@ -485,10 +461,7 @@ class AntivirusApp(customtkinter.CTk):
     def on_update_definitions_clicked(self):
         # Reset progress bar
         self.after(0, self._on_progress_signal, 0.0)
-        # Run the task
-        asyncio.create_task(
-            self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
-        )
+        self.run_task_in_async_loop('update_definitions', self._update_definitions_sync, is_async=False)
 
     # ---------------------------
     # UI Pages / layout creation (Using .place() for animations)
@@ -608,7 +581,7 @@ class AntivirusApp(customtkinter.CTk):
         )
         log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1)
         log_output.insert("1.0", f"{title_text} logs will appear here...")
-        log_output.configure(state="disabled") # Make read-only
+        log_output.configure(state="disabled")
 
         self.log_outputs.append(log_output)
         return page
@@ -670,59 +643,13 @@ class AntivirusApp(customtkinter.CTk):
         for page in self.pages:
             page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
 
-    # ---------------------------
-    # Page switching animations
-    # ---------------------------
-    async def switch_page_with_animation(self, index: int):
-        if self.current_page_index == index or self.is_page_animating:
-            return
-            
-        self.is_page_animating = True
-        
-        current_page = self.pages[self.current_page_index]
-        next_page = self.pages[index]
-        
-        self.current_page_index = index
-        next_page.tkraise()
-        
-        # Place next page to the right, current page at 0
-        current_page.place(relx=0.0, rely=0, relwidth=1.0, relheight=1.0)
-        next_page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
-
-        start_time = self.loop_time
-        duration = 0.3 # 300ms slide animation
-        
-        while True:
-            await asyncio.sleep(0.01)
-            
-            elapsed = self.loop_time - start_time
-            t = min(elapsed / duration, 1.0)
-            
-            # Ease out quad
-            t = 1.0 - (1.0 - t) * (1.0 - t)
-            
-            current_page.place(relx=-t, rely=0, relwidth=1.0, relheight=1.0)
-            next_page.place(relx=1.0 - t, rely=0, relwidth=1.0, relheight=1.0)
-            
-            if elapsed >= duration:
-                break
-                
-        current_page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
-        next_page.place(relx=0.0, rely=0, relwidth=1.0, relheight=1.0)
-        self.is_page_animating = False
-
     def _make_nav_handler(self, idx: int):
-        """Factory to create a navigation button handler."""
-        def _handler(animate=True):
-            if animate:
-                asyncio.create_task(self.switch_page_with_animation(idx))
-            else:
-                # No animation, just snap to page
-                if self.pages:
-                    page_to_show = self.pages[idx]
-                    page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
-                    page_to_show.tkraise()
-                    self.current_page_index = idx
+        def _handler(animate=False):
+            if self.pages:
+                page_to_show = self.pages[idx]
+                page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
+                page_to_show.tkraise()
+                self.current_page_index = idx
             
             # Update button visual state
             for i, btn in enumerate(self.nav_buttons):
@@ -799,23 +726,32 @@ class AntivirusApp(customtkinter.CTk):
         
         return sidebar_frame
 
+
 # ---------------------------
-# Main execution - MODIFIED to remove yield handling
+# Main execution - ASYNC MAIN THREAD, GUI IN SEPARATE THREAD
 # ---------------------------
+def run_gui_thread(loop):
+    """Run GUI in its own thread."""
+    window = AntivirusApp(loop)
+    window.mainloop()
+
+
 async def main():
-    # --- Create main window ---
-    window = AntivirusApp()
-
-    # --- Start background protection (NO LONGER uses async generator) ---
-    async def launch_protection():
-        try:
-            # Simply await the async function without iterating over yields
-            await start_real_time_protection_async()
-        except Exception:
-            logger.exception("Real-time protection failed")
-
-    asyncio.create_task(launch_protection())
-
-    # --- Start main async loop ---
-    await window.mainloop_async()
-
+    # Get the running event loop (main thread)
+    loop = asyncio.get_running_loop()
+    
+    # Start GUI in a separate thread
+    gui_thread = threading.Thread(target=run_gui_thread, args=(loop,), daemon=True)
+    gui_thread.start()
+    
+    # Run async tasks in main thread
+    try:
+        # Start background protection in async loop (main thread)
+        await start_real_time_protection_async()
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+    except Exception:
+        logger.exception("Real-time protection failed")
+    
+    # Wait for GUI thread to finish
+    await asyncio.to_thread(gui_thread.join)
