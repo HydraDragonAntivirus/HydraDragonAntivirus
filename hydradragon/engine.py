@@ -545,7 +545,7 @@ class AntivirusApp(customtkinter.CTk):
         self.log_outputs.append(None)
         return page
 
-    def create_task_page(self, parent, title_text, main_task_name, main_button_text):
+    def create_task_page(self, parent, title_text, main_task_name, main_button_text, on_click_handler=None):
         page = customtkinter.CTkFrame(parent, fg_color="transparent")
         
         title = customtkinter.CTkLabel(
@@ -573,7 +573,10 @@ class AntivirusApp(customtkinter.CTk):
         
         self.task_buttons[main_task_name] = main_button
 
-        if main_task_name == 'update_definitions':
+        # Set up command handler
+        if on_click_handler:
+            main_button.configure(command=on_click_handler)
+        elif main_task_name == 'update_definitions':
             main_button.configure(command=self.on_update_definitions_clicked)
             
             # Progress bar for updates
@@ -587,9 +590,11 @@ class AntivirusApp(customtkinter.CTk):
             )
             self.defs_progress_bar.pack(side="left", fill="x", expand=True, padx=20, pady=5)
             self.defs_progress_bar.set(0)
-            
         else:
-            main_button.configure(state="disabled")
+            # If no handler provided, keep button enabled but show a message
+            main_button.configure(
+                command=lambda: self.append_log_output(f"[*] {main_button_text} feature coming soon!")
+            )
 
         # Log Output
         log_output = customtkinter.CTkTextbox(
@@ -813,3 +818,4 @@ async def main():
 
     # --- Start main async loop ---
     await window.mainloop_async()
+
