@@ -2597,42 +2597,43 @@ class RealTimeWebProtectionHandler:
         except Exception as ex:
             logger.error(f"Error processing packet: {ex}")
 
+# ========== ASYNC WEB PROTECTION OBSERVER ==========
+
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
         self.is_started = False
-        self.thread = None
-        self.loop = None
+        self.sniff_task = None
 
-    def begin_observing(self):
+    async def begin_observing_async(self):
+        """Async version of begin_observing"""
         if not self.is_started:
             try:
-                self.loop = asyncio.get_event_loop()
-                self.handler.set_event_loop(self.loop)
+                self.handler.set_event_loop(asyncio.get_event_loop())
             except RuntimeError:
                 logger.error("Could not get asyncio event loop. Packet handler will fail.")
-                # You might want to create a new loop if one isn't running
-                # but typically this class should be started from an async context
                 return
 
-            self.thread = threading.Thread(target=self.start_sniffing, daemon=True)
-            self.thread.start()
+            self.sniff_task = asyncio.create_task(self._start_sniffing_async())
             self.is_started = True
-            message = "Real-time web protection observer started"
-            logger.info(message)
+            logger.info("Real-time web protection observer started (async)")
 
-    def start_sniffing(self):
+    async def _start_sniffing_async(self):
+        """Async sniffing wrapper"""
         filter_expression = "(tcp or udp)"
         try:
-            # Pass the synchronous wrapper to scapy's `prn`
-            sniff(filter=filter_expression, prn=self.handler.sync_packet_handler, store=0)
+            # Run scapy's blocking sniff in a thread
+            await asyncio.to_thread(
+                sniff,
+                filter=filter_expression,
+                prn=self.handler.sync_packet_handler,
+                store=0
+            )
         except Exception as ex:
-            # Handle cases where sniffing might fail (e.g., permissions)
             if "Operation not permitted" in str(ex) or "Socket error" in str(ex):
                 logger.error("Sniffing failed: Must be run as root or with network permissions.")
             else:
                 logger.error(f"An error occurred while sniffing packets: {ex}")
-
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
