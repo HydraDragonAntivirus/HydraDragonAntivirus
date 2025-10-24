@@ -11139,20 +11139,31 @@ async def load_all_resources_async():
 
 async def run_hayabusa_live_async():
     """
-    Continuous Hayabusa live monitoring loop with no sleeps.
+    Continuous Hayabusa live monitoring loop (resilient, with sleeps to avoid tight loops).
     """
     while True:
         try:
             if not os.path.exists(hayabusa_path):
                 logger.warning(f"Hayabusa executable not found at: {hayabusa_path}")
-                continue  # immediately retry
+                # sleep to avoid busy retrying when binary is missing
+                await asyncio.sleep(5)
+                continue
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
 
-            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
+            # Use explicit long-form args so hayabusa doesn't complain
+            cmd = [
+                hayabusa_path,
+                "csv-timeline",
+                "--no-wizard",
+                "--output", output_file,
+                "--profile", "standard",
+                "--min-level", "critical",
+                "--live-analysis"
+            ]
             logger.info(f"Launching Hayabusa: {' '.join(cmd)}")
 
             process = await asyncio.create_subprocess_exec(
@@ -11163,26 +11174,53 @@ async def run_hayabusa_live_async():
             )
 
             async def stream_reader(pipe, label):
-                while True:
-                    line = await pipe.readline()
-                    if not line:
-                        break
-                    decoded = line.decode("utf-8", errors="ignore").strip()
-                    logger.info(f"[{label}] {decoded}")
+                try:
+                    while True:
+                        line = await pipe.readline()
+                        if not line:
+                            break
+                        decoded = line.decode("utf-8", errors="ignore").strip()
+                        logger.info(f"[{label}] {decoded}")
+                except asyncio.CancelledError:
+                    # Task cancelled during shutdown
+                    return
+                except Exception:
+                    logger.exception(f"Exception in stream_reader ({label})")
 
             stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
             stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
+
+            # background waiter to detect process exit and ensure tasks are cancelled
+            async def process_waiter():
+                try:
+                    rc = await process.wait()
+                    logger.info(f"Hayabusa exited with returncode {rc}")
+                except asyncio.CancelledError:
+                    # if we cancel waiter, try to terminate process
+                    try:
+                        process.terminate()
+                    except Exception:
+                        pass
+                    raise
+
+            waiter_task = asyncio.create_task(process_waiter())
 
             async def tail_csv(csv_path):
                 seen = set()
                 last_pos = 0
                 while True:
-                    if process.returncode is not None:
+                    # if process finished and file processing done, break
+                    if waiter_task.done() and not os.path.exists(csv_path):
                         break
+
                     if not os.path.exists(csv_path):
-                        continue  # immediately check again
+                        # wait a bit instead of tight-looping
+                        await asyncio.sleep(0.5)
+                        continue
+
                     try:
                         async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                            # move to last read position
                             await f.seek(last_pos)
                             content = await f.read()
                             last_pos = await f.tell()
@@ -11207,14 +11245,46 @@ async def run_hayabusa_live_async():
                                             )
                                         except Exception:
                                             logger.exception("notify_user_hayabusa_critical failed")
+                    except asyncio.CancelledError:
+                        return
                     except Exception:
-                        continue  # immediately retry
+                        # log exception and continue; small sleep to avoid busy looping on repeated errors
+                        logger.exception("Error while tailing hayabusa csv")
+                        await asyncio.sleep(0.5)
+
+                    # small yield to allow graceful cancellation & avoid hot loop
+                    await asyncio.sleep(0.1)
 
             csv_tail_task = asyncio.create_task(tail_csv(output_file))
-            await asyncio.gather(stdout_task, stderr_task, csv_tail_task, return_exceptions=True)
 
+            # Wait for process to exit or for any task to raise — gather ensures we capture exceptions
+            done, pending = await asyncio.wait(
+                [stdout_task, stderr_task, csv_tail_task, waiter_task],
+                return_when=asyncio.FIRST_EXCEPTION
+            )
+
+            # If any task raised, log them
+            for d in done:
+                if d.cancelled():
+                    continue
+                exc = d.exception()
+                if exc:
+                    logger.exception("Task in hayabusa group raised", exc_info=exc)
+
+            # Cancel any remaining tasks and await them
+            for p in pending:
+                p.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+            # short pause before restarting hayabusa loop (if you want continuous monitoring)
+            await asyncio.sleep(1)
+
+        except asyncio.CancelledError:
+            # propagate cancellation so outer event loop can shut down
+            raise
         except Exception:
-            logger.exception("Unhandled exception in Hayabusa live loop, restarting immediately...")
+            logger.exception("Unhandled exception in Hayabusa live loop, restarting after short delay...")
+            await asyncio.sleep(2)
             continue
 
 # --- start_real_time_protection_async ---
