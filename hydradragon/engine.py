@@ -407,8 +407,13 @@ class AntivirusApp(QWidget):
             QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
 
     def _update_definitions_sync(self):
+        """Update both ClamAV and Hayabusa rules, blocking (thread-safe)."""
+        self._update_definitions_clamav_sync()
+        self._update_definitions_hayabusa_sync()
+
+    def _update_definitions_clamav_sync(self):
         """Blocking freshclam update, run inside a thread."""
-        self.append_log_output("[*] Checking virus definitions...")
+        self.append_log_output("[*] Checking virus definitions (ClamAV)...")
         try:
             if not os.path.exists(freshclam_path):
                 self.append_log_output(f"[!] freshclam not found at '{freshclam_path}'")
@@ -422,7 +427,12 @@ class AntivirusApp(QWidget):
 
             if needs_update:
                 self.append_log_output("[*] Running freshclam update...")
-                proc = subprocess.Popen([freshclam_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                proc = subprocess.Popen(
+                    [freshclam_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="ignore"
+                )
                 stdout, stderr = proc.communicate()
 
                 if stdout:
@@ -440,14 +450,16 @@ class AntivirusApp(QWidget):
                     self.append_log_output(f"[!] freshclam failed with exit code {proc.returncode}")
                     return False
             else:
-                self.append_log_output("[*] Definitions are already up to date.")
+                self.append_log_output("[*] ClamAV definitions are already up to date.")
                 return True
+
         except Exception:
-            self.append_log_output(f"[!] Definition update error: {traceback.format_exc()}")
-            logger.exception("Definition update failed")
+            self.append_log_output(f"[!] ClamAV update error: {traceback.format_exc()}")
+            logger.exception("ClamAV update failed")
             return False
 
-    def _update_hayabusa_rules_sync(self):
+    def _update_definitions_hayabusa_sync(self):
+        """Blocking Hayabusa rules update, run inside a thread."""
         self.append_log_output("[*] Updating Hayabusa rules...")
         try:
             if not os.path.exists(hayabusa_path):
@@ -466,8 +478,12 @@ class AntivirusApp(QWidget):
             )
 
             stdout, stderr = process.communicate()
-            if stdout: self.append_log_output(f"[Hayabusa Update] {stdout.strip()}")
-            if stderr: self.append_log_output(f"[Hayabusa Update ERR] {stderr.strip()}")
+            if stdout:
+                for line in stdout.splitlines():
+                    self.append_log_output(f"[Hayabusa Update] {line}")
+            if stderr:
+                for line in stderr.splitlines():
+                    self.append_log_output(f"[Hayabusa Update ERR] {line}")
 
             if process.returncode == 0:
                 self.append_log_output("[+] Hayabusa rules update completed successfully!")
@@ -475,6 +491,7 @@ class AntivirusApp(QWidget):
             else:
                 self.append_log_output(f"[!] Hayabusa rules update failed (code {process.returncode})")
                 return False
+
         except Exception:
             self.append_log_output(f"[!] Error updating Hayabusa rules: {traceback.format_exc()}")
             logger.exception("Exception during Hayabusa rule update")
@@ -486,10 +503,6 @@ class AntivirusApp(QWidget):
     @asyncSlot()
     async def on_update_definitions_clicked(self):
         await self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
-
-    @asyncSlot()
-    async def on_update_hayabusa_rules_clicked(self):
-        await self.run_task('update_hayabusa_rules', self._update_hayabusa_rules_sync, is_async=False)
 
     # ---------------------------
     # UI Pages / layout creation (kept mostly as before)
@@ -559,8 +572,6 @@ class AntivirusApp(QWidget):
 
         if main_task_name == 'update_definitions':
             main_button.clicked.connect(self.on_update_definitions_clicked)
-        elif main_task_name == 'update_hayabusa_rules':
-            main_button.clicked.connect(self.on_update_hayabusa_rules_clicked)
         else:
             main_button.setEnabled(False)
 
@@ -627,19 +638,10 @@ class AntivirusApp(QWidget):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
 
-        update_additional_tasks = {
-            "Update Hayabusa Rules": {
-                'name': 'update_hayabusa_rules',
-                'is_async': False,
-                'func': self._update_hayabusa_rules_sync
-            }
-        }
-
         self.main_stack.addWidget(self.create_task_page(
             "Updates",
             main_task_name='update_definitions',
-            main_button_text="Update ClamAV Definitions",
-            additional_tasks=update_additional_tasks
+            main_button_text="Update Definitions",
         ))
 
         self.main_stack.addWidget(self.create_about_page())
