@@ -26,7 +26,7 @@ from hydradragon.antivirus_scripts.antivirus import (
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QLabel, QTextEdit,
                                QFrame, QStackedWidget, QApplication, QButtonGroup)
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve,
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QObject, QThread,
                             Signal, QParallelAnimationGroup, Property, QRect, QTimer)
 from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
@@ -45,6 +45,21 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     WINDOW_TITLE,
     clamav_file_paths,
 )
+
+class IconLoaderWorker(QObject):
+    finished = Signal(QIcon)
+    error = Signal(str)
+
+    def __init__(self, icon_path):
+        super().__init__()
+        self.icon_path = icon_path
+
+    def run(self):
+        try:
+            icon = QIcon(self.icon_path)
+            self.finished.emit(icon)
+        except Exception as e:
+            self.error.emit(str(e))
 
 # --- Custom Hydra Icon Widget ---
 class HydraIconWidget(QWidget):
@@ -752,44 +767,49 @@ class AntivirusApp(QWidget):
         main_layout.addWidget(self.create_sidebar())
         main_layout.addWidget(self.create_main_content(), 1)
 
-    async def finish_ui_setup(self):
-        """Perform heavy UI initialization safely after the event loop starts."""
+    def finish_ui_setup(self):
+        """Perform heavy UI initialization after the window shows (non-async, Qt-thread safe)."""
+        # --- Window icon loading in background ---
+        if os.path.exists(icon_path):
+            self.icon_thread = QThread()
+            self.icon_worker = IconLoaderWorker(icon_path)
+            self.icon_worker.moveToThread(self.icon_thread)
+
+            self.icon_thread.started.connect(self.icon_worker.run)
+            self.icon_worker.finished.connect(self._on_icon_loaded)
+            self.icon_worker.error.connect(self._on_icon_error)
+
+            # Clean up thread after work is done
+            self.icon_worker.finished.connect(self.icon_thread.quit)
+            self.icon_worker.finished.connect(self.icon_worker.deleteLater)
+            self.icon_thread.finished.connect(self.icon_thread.deleteLater)
+
+            self.icon_thread.start()
+        else:
+            logger.debug(f"Icon file not found at: {icon_path}")
+
+        # --- Optional: load HydraIconWidget resources ---
         try:
-            # Let the window render first
-            await asyncio.sleep(0)
-
-            # --- Load window icon in background ---
-            if os.path.exists(icon_path):
-                try:
-                    # Load QIcon in a thread (disk I/O)
-                    icon = await asyncio.to_thread(QIcon, icon_path)
-                except Exception:
-                    logger.exception("Failed to load window icon in background")
-                    icon = None
-
-                if icon:
-                    # Apply icon on main thread
-                    try:
-                        self.setWindowIcon(icon)
-                        logger.debug(f"Window icon applied from: {icon_path}")
-                    except Exception:
-                        logger.exception("Failed to apply window icon on main thread")
-            else:
-                logger.debug(f"Icon file not found at: {icon_path}")
-
-            # --- Load HydraIconWidget resources in background ---
-            try:
-                icon_widget = getattr(self, "icon_widget", None)
-                if icon_widget and hasattr(icon_widget, "load_resources"):
-                    await asyncio.to_thread(icon_widget.load_resources)
-                    logger.debug("HydraIconWidget resources loaded")
-            except Exception:
-                logger.exception("Error loading HydraIconWidget resources")
-
-            logger.info("UI setup finalized (icons, resources, etc.)")
-
+            if hasattr(self, "icon_widget") and hasattr(self.icon_widget, "load_resources"):
+                QTimer.singleShot(0, self.icon_widget.load_resources)
         except Exception:
-            logger.exception("Unhandled exception in finish_ui_setup")
+            logger.exception("Error finishing HydraIconWidget setup")
+
+        logger.info("UI setup finalized (icons, resources, etc.)")
+
+
+    def _on_icon_loaded(self, icon: QIcon):
+        """Called when icon successfully loaded in background thread."""
+        try:
+            self.setWindowIcon(icon)
+            logger.debug(f"Window icon applied from: {icon_path}")
+        except Exception:
+            logger.exception("Failed to apply window icon")
+
+
+    def _on_icon_error(self, err: str):
+        """Called if icon loading failed."""
+        logger.error(f"Error loading window icon: {err}")
 
     # ---------------------------
     # Page switching animations
@@ -845,56 +865,59 @@ async def main():
     exit_code = 0
 
     try:
+        # Ensure log directory exists
         os.makedirs(log_directory, exist_ok=True)
-    except Exception as e:
-        print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
 
-    try:
-        # QApplication first
+        logger.info("HydraDragon Engine starting up...")
+        logger.info(f"Log directory: {log_directory}")
+        logger.info(f"Working directory: {main_dir}")
+
+        # --- Create QApplication FIRST ---
         app = QApplication(sys.argv)
 
-        # qasync event loop
+        # --- Create qasync event loop ---
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
 
-        # Main window
+        # --- Initialize and show main window ---
         window = AntivirusApp()
         window.setup_ui_fast()
         window.show()
-        asyncio.create_task(window.finish_ui_setup())
-
-        # OS signals
-        def signal_handler(signum, frame):
-            logger.info(f"Signal {signum} received, shutting down...")
-            if loop and loop.is_running():
-                loop.stop()
-
-        signal.signal(signal.SIGINT, signal_handler)
-        try:
-            signal.signal(signal.SIGTERM, signal_handler)
-        except AttributeError:
-            pass
+        window.finish_ui_setup()
 
         logger.info("Main window shown, event loop running...")
-        await asyncio.Event().wait()  # Wait forever until signal/loop stop
+
+        # --- Graceful shutdown handling via Qt ---
+        stop_event = asyncio.Event()
+
+        # Trigger cleanup when Qt is closing
+        app.aboutToQuit.connect(lambda: stop_event.set())
+
+        # --- Keep running until Qt signals exit ---
+        await stop_event.wait()
 
     except Exception:
-        logger.exception("Critical error in main()")
+        logger.critical("Critical error in main()", exc_info=True)
         exit_code = 1
+
     finally:
         logger.info("Cleaning up application...")
 
-        # Proper shutdown sequence
+        # Quit Qt cleanly
         if app:
             try:
-                app.quit()  # Quit Qt application
+                app.quit()
             except Exception:
-                pass
-        if loop:
-            try:
-                loop.close()  # Close qasync loop explicitly
-            except Exception:
-                pass
+                logger.warning("Error quitting QApplication", exc_info=True)
+
+        # Avoid double-closing qasync loop
+        try:
+            if loop and not loop.is_closed():
+                loop.call_soon(loop.stop)
+                await asyncio.sleep(0.05)
+                loop.close()
+        except Exception:
+            logger.warning("Error closing qasync loop", exc_info=True)
 
     logger.info(f"Application exited with code {exit_code}")
     return exit_code
