@@ -7,8 +7,8 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-import signal
-from qasync import QEventLoop, asyncSlot
+import qasync
+from qasync import asyncSlot
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -824,37 +824,26 @@ class AntivirusApp(QWidget):
         self.append_log_output("[*] Application minimized (window hidden)")
 
 async def main():
-    """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
-    app = None
-    loop = None
+    os.makedirs(log_directory, exist_ok=True)
+    logger.info("HydraDragon Engine starting up...")
 
-    try:
-        os.makedirs(log_directory, exist_ok=True)
-        logger.info("HydraDragon Engine starting up...")
+    app = QApplication(sys.argv)
 
-        # --- Create QApplication first ---
-        app = QApplication(sys.argv)
+    # --- Create and show main window ---
+    window = AntivirusApp()
+    window.setup_ui_fast()
+    window.show()
+    window.finish_ui_setup()
 
-        # --- Create qasync event loop ---
-        loop = QEventLoop(app)
-        asyncio.set_event_loop(loop)
+    # Mark system as protected
+    window.status_signal.emit(True)
+    logger.info("Main window shown, event loop running...")
 
-        # --- Create and show main window ---
-        window = AntivirusApp()
-        window.setup_ui_fast()
-        window.show()
-        window.finish_ui_setup()
+    # Start background tasks (fire-and-forget)
+    asyncio.create_task(start_real_time_protection_async())
 
-        # --- Immediately mark system as protected ---
-        window.status_signal.emit(True)
-        logger.info("Main window shown, event loop running...")
+    # Connect GUI close to exit
+    app.aboutToQuit.connect(lambda: sys.exit(0))
 
-        # --- Start background real-time protection ---
-        try:
-            await start_real_time_protection_async()
-        except Exception:
-            logger.exception("Failed to start background protection tasks")
-
-    except Exception:
-        logger.critical("Critical error in main()", exc_info=True)
-        sys.exit(1)
+    # Run Qt event loop integrated with asyncio
+    await qasync.run(app.exec())  # <-- NO loop.run_forever()
