@@ -7,9 +7,7 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-import csv
 import signal
-import aiofiles
 from qasync import QEventLoop, asyncSlot
 
 # Ensure the script's directory is the working directory
