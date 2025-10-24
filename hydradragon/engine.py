@@ -866,31 +866,43 @@ class AntivirusApp(QWidget):
         main_layout.addWidget(self.create_main_content(), 1)
 
     async def finish_ui_setup(self):
-        """Perform heavy UI initialization after the event loop starts."""
-        await asyncio.sleep(0)  # Let the window render first
-
-        # --- Load and apply window icon safely ---
-        if os.path.exists(icon_path):
-            try:
-                # 1️Load the icon in background (disk I/O)
-                icon = await asyncio.to_thread(QIcon, icon_path)
-
-                # Apply it on the main GUI thread (safe)
-                self.setWindowIcon(icon)
-                logger.debug(f"Window icon loaded from: {icon_path}")
-            except Exception:
-                logger.exception("Failed to set window icon")
-        else:
-            logger.debug(f"Icon file not found at: {icon_path}")
-
-        # --- Load HydraIconWidget resources in background ---
+        """Perform heavy UI initialization safely after the event loop starts."""
         try:
-            if hasattr(self, "icon_widget") and hasattr(self.icon_widget, "load_resources"):
-                await asyncio.to_thread(self.icon_widget.load_resources)
-        except Exception:
-            logger.exception("Error finishing HydraIconWidget setup")
+            # Let the window render first
+            await asyncio.sleep(0)
 
-        logger.info("UI setup finalized (icons, resources, etc.)")
+            # --- Load window icon in background ---
+            if os.path.exists(icon_path):
+                try:
+                    # Load QIcon in a thread (disk I/O)
+                    icon = await asyncio.to_thread(QIcon, icon_path)
+                except Exception:
+                    logger.exception("Failed to load window icon in background")
+                    icon = None
+
+                if icon:
+                    # Apply icon on main thread
+                    try:
+                        self.setWindowIcon(icon)
+                        logger.debug(f"Window icon applied from: {icon_path}")
+                    except Exception:
+                        logger.exception("Failed to apply window icon on main thread")
+            else:
+                logger.debug(f"Icon file not found at: {icon_path}")
+
+            # --- Load HydraIconWidget resources in background ---
+            try:
+                icon_widget = getattr(self, "icon_widget", None)
+                if icon_widget and hasattr(icon_widget, "load_resources"):
+                    await asyncio.to_thread(icon_widget.load_resources)
+                    logger.debug("HydraIconWidget resources loaded")
+            except Exception:
+                logger.exception("Error loading HydraIconWidget resources")
+
+            logger.info("UI setup finalized (icons, resources, etc.)")
+
+        except Exception:
+            logger.exception("Unhandled exception in finish_ui_setup")
 
     # ---------------------------
     # Page switching animations
