@@ -381,9 +381,8 @@ class AntivirusApp(customtkinter.CTk):
                 if msg:
                     self.append_log_output(str(msg))
             else:
-                # Run blocking function WITHOUT asyncio.to_thread
-                # Just call it directly - it will block but that's okay for short operations
-                coro_or_func(*args)
+                # Run blocking function in a separate thread
+                await asyncio.to_thread(coro_or_func, *args)
         except asyncio.CancelledError:
             self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
             logger.info(f"Task {task_name} cancelled.")
