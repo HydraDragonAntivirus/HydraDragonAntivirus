@@ -243,7 +243,6 @@ class AntivirusApp(QWidget):
 
         # apply stylesheet and build UI
         self.apply_extreme_stylesheet()
-        self.setup_ui()
 
         # Run startup tasks after UI shown
         QTimer.singleShot(0, self.run_startup_tasks)
@@ -853,18 +852,8 @@ class AntivirusApp(QWidget):
 
         return sidebar_frame
 
-    def setup_ui(self):
-        try:
-            if os.path.exists(icon_path):
-                try:
-                    self.setWindowIcon(QIcon(icon_path))
-                except Exception:
-                    logger.exception("Failed to set window icon")
-            else:
-                logger.debug(f"Icon file not found at: {icon_path}")
-        except Exception:
-            logger.exception("setup_ui: icon handling failed")
-
+    def setup_ui_fast(self):
+        """Create widgets and layout — no heavy I/O or icon loads."""
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1100, 800)
         self.resize(1400, 900)
@@ -875,6 +864,35 @@ class AntivirusApp(QWidget):
 
         main_layout.addWidget(self.create_sidebar())
         main_layout.addWidget(self.create_main_content(), 1)
+
+
+    async def finish_ui_setup(self):
+        """Perform heavy UI initialization after the event loop starts."""
+        await asyncio.sleep(0)  # Let the window render first
+
+        # Load and apply window icon safely in background
+        if os.path.exists(icon_path):
+            await asyncio.to_thread(self._apply_window_icon)
+        else:
+            logger.debug(f"Icon file not found at: {icon_path}")
+
+        # If HydraIconWidget needs resources, load them now
+        try:
+            if hasattr(self, "icon_widget") and hasattr(self.icon_widget, "load_resources"):
+                await asyncio.to_thread(self.icon_widget.load_resources)
+        except Exception:
+            logger.exception("Error finishing HydraIconWidget setup")
+
+        logger.info("UI setup finalized (icons, resources, etc.)")
+
+
+    def _apply_window_icon(self):
+        """Blocking part moved into a background thread."""
+        try:
+            self.setWindowIcon(QIcon(icon_path))
+            logger.debug(f"Window icon loaded from: {icon_path}")
+        except Exception:
+            logger.exception("Failed to set window icon")
 
     # ---------------------------
     # Page switching animations
@@ -951,7 +969,9 @@ async def main():
         # Create and show main window
         logger.info("Creating main application window...")
         window = AntivirusApp()
+        window.setup_ui_fast()  # build UI immediately
         window.show()
+        asyncio.create_task(window.finish_ui_setup())  # load icons/resources later
 
         logger.info("Main window shown, event loop running...")
 
