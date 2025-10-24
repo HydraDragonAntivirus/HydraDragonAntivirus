@@ -4184,6 +4184,8 @@ CHECK_INTERVAL = 1
 # Dictionary to track running Suricata processes per interface
 running_processes = {}
 
+started_interfaces = []  # using list instead of set
+
 def validate_paths():
     for path, desc in [(suricata_exe_path, "Suricata executable"),
                        (suricata_config_path, "Suricata config")]:
@@ -4213,16 +4215,36 @@ def start_suricata_on_interface(iface):
     logger.info(f"Suricata PID {process.pid} started for {iface}")
 
 def monitor_interfaces():
+    global running_processes, started_interfaces
     while True:
         interfaces = get_active_interfaces()
+
+        # Start Suricata for new interfaces
         for iface in interfaces:
-            if iface not in running_processes:
-                start_suricata_on_interface(iface)
-        # Remove stopped processes
+            if iface not in started_interfaces:
+                proc = start_suricata_on_interface(iface)
+                running_processes[iface] = proc
+                started_interfaces.append(iface)
+                logger.info(f"Started monitoring on {iface}")
+
+        # Check for stopped processes
         stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
         for iface in stopped:
             logger.warning(f"Suricata process for {iface} stopped unexpectedly")
             del running_processes[iface]
+            if iface in started_interfaces:
+                started_interfaces.remove(iface)
+
+        # Remove interfaces that are no longer active
+        inactive = [iface for iface in started_interfaces if iface not in interfaces]
+        for iface in inactive:
+            logger.info(f"Interface {iface} no longer active, stopping Suricata")
+            if iface in running_processes:
+                running_processes[iface].terminate()
+                del running_processes[iface]
+            if iface in started_interfaces:
+                started_interfaces.remove(iface)
+
         time.sleep(CHECK_INTERVAL)
 
 async def suricata_callback():
