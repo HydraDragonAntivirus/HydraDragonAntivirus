@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
 import customtkinter
-from PIL import Image, ImageTk
+from PIL import Image
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -71,7 +71,7 @@ def _rgb_to_hex(rgb):
 class AnimatedShieldWidget(customtkinter.CTkFrame):
     """
     Displays an animated GIF for the system status.
-    This replaces the complex and slow Canvas-based ShieldWidget.
+    Uses CTkImage for each frame so images scale correctly on HighDPI displays.
     """
     def __init__(self, parent, size=250):
         super().__init__(parent, fg_color="transparent")
@@ -79,11 +79,11 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         self.size = size
         self.is_protected = True
         
-        # This label will hold the background "glow" color
+        # This label will hold the background "glow" color and the CTkImage
         self.icon_label = customtkinter.CTkLabel(self, text="", fg_color=COLOR_BG_LIGHT)
         self.icon_label.pack(expand=True, fill="both", padx=10, pady=10)
 
-        # Load GIF frames
+        # Load GIF frames as CTkImage objects
         self.protected_frames, self.protected_delay = self.load_gif_frames(icon_animated_protected_path)
         self.unprotected_frames, self.unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
         
@@ -101,7 +101,7 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         self.is_animating = False
 
     def load_gif_frames(self, path):
-        """Loads all frames from a GIF and returns a list of PhotoImage objects and the delay."""
+        """Loads all frames from a GIF and returns a list of customtkinter.CTkImage objects and the delay."""
         if not os.path.exists(path):
             logger.error(f"GIF not found at {path}")
             return [], 100
@@ -112,24 +112,25 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         try:
             with Image.open(path) as img:
                 delay = img.info.get('duration', 100)
-                for i in range(img.n_frames):
+                for i in range(getattr(img, "n_frames", 1)):
                     img.seek(i)
-                    # Create a new image for each frame
+                    # Create a PIL copy for this frame and resize it
                     frame_pil = img.copy().convert("RGBA")
                     frame_pil = frame_pil.resize((self.size, self.size), Image.Resampling.LANCZOS)
-                    # Must store PhotoImage objects, CTkImage is static
-                    frames.append(ImageTk.PhotoImage(frame_pil))
+                    # Wrap PIL image in CTkImage so CTkLabel can scale it on HighDPI displays
+                    ctki = customtkinter.CTkImage(light_image=frame_pil, size=(self.size, self.size))
+                    frames.append(ctki)
         except Exception as e:
             logger.exception(f"Failed to load GIF {path}: {e}")
             return [], 100
         return frames, delay
 
     def create_fallback_image(self, color_hex):
-        """Creates a single static, transparent image as a fallback."""
+        """Creates a single static CTkImage as a fallback (transparent PNG)."""
         try:
-            # Create a fully transparent image. The "glow" will come from the label's bg.
             pil_img = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
-            return [ImageTk.PhotoImage(pil_img)] # Return a list with one frame
+            ctki = customtkinter.CTkImage(light_image=pil_img, size=(self.size, self.size))
+            return [ctki]
         except Exception as e:
             logger.error(f"Failed to create fallback image: {e}")
             return []
@@ -163,9 +164,9 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
             return
         
         try:
-            # Get the next frame
+            # Get the next CTkImage frame
             frame = self.current_frames[self.current_frame_index]
-            # Update the label's image
+            # Update the label's image (CTkImage is accepted)
             self.icon_label.configure(image=frame)
             
             # Advance to the next frame index, looping back to 0
@@ -191,7 +192,6 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
     def destroy(self):
         self.stop_animation()
         super().destroy()
-
 
 class AntivirusApp(customtkinter.CTk):
 
