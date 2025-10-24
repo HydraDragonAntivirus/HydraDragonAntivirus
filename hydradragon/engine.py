@@ -840,6 +840,9 @@ async def main():
         window.show()
         window.finish_ui_setup()
 
+        # --- Immediately mark system as protected (UI reflects current state) ---
+        window.status_signal.emit(True)
+
         logger.info("Main window shown, event loop running...")
 
         # --- Start background real-time protection ---
