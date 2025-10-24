@@ -8,12 +8,11 @@ import traceback
 import webbrowser
 import subprocess
 import tkinter
-import math # Needed for animations
 from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
 import customtkinter
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageTk
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,230 +53,150 @@ COLOR_ACCENT = "#88C0D0"
 COLOR_ACCENT_ALT = "#81A1C1"
 COLOR_ACTION = "#5E81AC"
 COLOR_ACTION_HOVER = "#81A1C1"
-COLOR_SUCCESS = (163, 190, 140) # RGB for interpolation
-COLOR_WARNING = (235, 203, 139) # RGB for interpolation
+COLOR_SUCCESS = (163, 190, 140) # RGB for interpolation/glow
+COLOR_WARNING = (235, 203, 139) # RGB for interpolation/glow
 COLOR_SHIELD_BG = "#3B4252"
 COLOR_BG_RGB = (46, 52, 64) # RGB for interpolation
+
+# --- NEW: Paths for animated GIFs ---
+# You MUST create these two GIF files and place them next to your icon.png
+icon_animated_protected_path = os.path.join(os.path.dirname(icon_path), "hydra_protected.gif")
+icon_animated_unprotected_path = os.path.join(os.path.dirname(icon_path), "hydra_unprotected.gif")
+
 
 # Set CTk appearance
 customtkinter.set_appearance_mode("Dark")
 customtkinter.set_default_color_theme("blue")
 
-# --- Helper to interpolate colors ---
-def _interpolate_color(c1, c2, t):
-    """Interpolate between two RGB tuples."""
-    return (
-        int(c1[0] + (c2[0] - c1[0]) * t),
-        int(c1[1] + (c2[1] - c1[1]) * t),
-        int(c1[2] + (c2[2] - c1[2]) * t)
-    )
-
+# --- Helper to convert RGB to Hex ---
 def _rgb_to_hex(rgb):
     """Convert an RGB tuple to a hex string."""
     return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
 
-# --- Animated Shield Widget (Replaces static version) ---
-class ShieldWidget(customtkinter.CTkFrame):
+# --- Animated Shield Widget (Replaces Canvas version) ---
+class AnimatedShieldWidget(customtkinter.CTkFrame):
     """
-    A custom widget to draw an animated status shield with a glowing effect,
-    using a tkinter.Canvas.
+    Displays an animated GIF for the system status.
+    This replaces the complex and slow Canvas-based ShieldWidget.
     """
     def __init__(self, parent, size=250):
         super().__init__(parent, fg_color="transparent")
         
         self.size = size
         self.is_protected = True
-        self.is_animating = True
         
-        # Animation properties
-        self._glow_opacity = 0.0
-        self._check_progress = 1.0
-        self._scale_factor = 1.0
-        self._animation_time = 0.0
-        self._check_anim_time = 0.0
-        self._is_check_animating = False
+        # This label will hold the background "glow" color
+        self.icon_label = customtkinter.CTkLabel(self, text="", fg_color=COLOR_BG_LIGHT)
+        self.icon_label.pack(expand=True, fill="both", padx=10, pady=10)
 
-        self.canvas = tkinter.Canvas(
-            self,
-            width=self.size,
-            height=self.size,
-            bg=COLOR_BG,
-            highlightthickness=0
-        )
-        self.canvas.pack(expand=True, fill="both")
+        # Load GIF frames
+        self.protected_frames, self.protected_delay = self.load_gif_frames(icon_animated_protected_path)
+        self.unprotected_frames, self.unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
         
-        # --- Load PIL image for scaling ---
-        self.hydra_pil_image = None
-        self.hydra_tk_image = None
-        if os.path.exists(icon_path):
-            try:
-                self.hydra_pil_image = Image.open(icon_path).convert("RGBA")
-            except Exception as e:
-                logger.error(f"Failed to load shield icon: {e}")
-        
-        if not self.hydra_pil_image:
-            logger.error(f"Shield icon not found at {icon_path}.")
+        # Fallback if GIFs are missing
+        if not self.protected_frames:
+            logger.warning("Missing 'hydra_protected.gif'. Using static fallback.")
+            self.protected_frames = self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
+        if not self.unprotected_frames:
+            logger.warning("Missing 'hydra_unprotected.gif'. Using static fallback.")
+            self.unprotected_frames = self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
 
-        # --- Create canvas items ---
-        self.glow_items = []
-        num_glow_steps = 10
-        for i in range(num_glow_steps):
-            # We draw from largest (back) to smallest (front)
-            radius = (self.size / 2) * ((num_glow_steps - i) / num_glow_steps)
-            item = self.canvas.create_oval(
-                -radius, -radius, radius, radius,
-                fill=COLOR_BG,
-                outline=""
-            )
-            self.glow_items.append(item)
+        self.current_frames = []
+        self.current_frame_index = 0
+        self.current_delay = 100
+        self.is_animating = False
 
-        # Simplified shield path from original
-        self.base_shield_points = [
-            (0, -90), (80, -80), (80, 0), (80, 40), 
-            (0, 100), 
-            (-80, 40), (-80, 0), (-80, -80)
-        ]
-        self.shield_item = self.canvas.create_polygon(
-            self.base_shield_points,
-            fill=COLOR_SHIELD_BG,
-            outline="",
-            smooth=True
-        )
+    def load_gif_frames(self, path):
+        """Loads all frames from a GIF and returns a list of PhotoImage objects and the delay."""
+        if not os.path.exists(path):
+            logger.error(f"GIF not found at {path}")
+            return [], 100
         
-        # Icon item
-        self.icon_item = self.canvas.create_image(0, 0, image=None, state='hidden')
-        
-        # 'X' lines
-        self.x_line1 = self.canvas.create_line(0, 0, 0, 0, fill="white", width=14, state='hidden', capstyle='round')
-        self.x_line2 = self.canvas.create_line(0, 0, 0, 0, fill="white", width=14, state='hidden', capstyle='round')
+        logger.info(f"Loading GIF: {path}")
+        frames = []
+        delay = 100
+        try:
+            with Image.open(path) as img:
+                delay = img.info.get('duration', 100)
+                for i in range(img.n_frames):
+                    img.seek(i)
+                    # Create a new image for each frame
+                    frame_pil = img.copy().convert("RGBA")
+                    frame_pil = frame_pil.resize((self.size, self.size), Image.Resampling.LANCZOS)
+                    # Must store PhotoImage objects, CTkImage is static
+                    frames.append(ImageTk.PhotoImage(frame_pil))
+        except Exception as e:
+            logger.exception(f"Failed to load GIF {path}: {e}")
+            return [], 100
+        return frames, delay
 
-        # Set initial status and start animations
-        self.set_status(True)
-        self.after(50, self._animation_loop)
+    def create_fallback_image(self, color_hex):
+        """Creates a single static, transparent image as a fallback."""
+        try:
+            # Create a fully transparent image. The "glow" will come from the label's bg.
+            pil_img = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
+            return [ImageTk.PhotoImage(pil_img)] # Return a list with one frame
+        except Exception as e:
+            logger.error(f"Failed to create fallback image: {e}")
+            return []
 
     def set_status(self, is_protected):
-        if self.is_protected != is_protected:
-            self.is_protected = is_protected
-            self._is_check_animating = True
-            self._check_anim_time = 0.0
-
-    def _animation_loop(self):
-        if not self.is_animating:
+        # Only update if status changed
+        if self.is_protected == is_protected and self.is_animating and self.current_frames:
             return
 
-        # --- Calculate animation values ---
+        self.is_protected = is_protected
         
-        # Time delta for frame-rate independent animation
+        if is_protected:
+            self.current_frames = self.protected_frames
+            self.current_delay = self.protected_delay
+            glow_color = _rgb_to_hex(COLOR_SUCCESS)
+        else:
+            self.current_frames = self.unprotected_frames
+            self.current_delay = self.unprotected_delay
+            glow_color = _rgb_to_hex(COLOR_WARNING)
+
+        self.current_frame_index = 0
+        
+        # Update bg color (the "glow")
+        self.icon_label.configure(fg_color=glow_color)
+
+        if not self.is_animating:
+            self.start_animation()
+
+    def _animate_loop(self):
+        if not self.is_animating or not self.current_frames:
+            return
+        
         try:
-            current_time = self.winfo_parent().master.master.loop_time
-            dt = current_time - self._animation_time
-            self._animation_time = current_time
-        except Exception:
-            dt = 0.016 # fallback to ~60fps
-            self._animation_time += dt
-
-        # Glow animation (Sine wave 0.2 -> 0.7)
-        glow_duration = 2.5
-        self._glow_opacity = 0.45 + 0.25 * math.sin(self._animation_time * (2 * math.pi / glow_duration))
-        
-        # Breathe animation (Sine wave 1.0 -> 1.05)
-        breathe_duration = 5.0
-        self._scale_factor = 1.025 + 0.025 * math.sin(self._animation_time * (2 * math.pi / breathe_duration))
-
-        # Checkmark animation
-        if self._is_check_animating:
-            check_anim_duration = 0.5 # 500ms
-            self._check_anim_time += dt
-            t = min(self._check_anim_time / check_anim_duration, 1.0)
-            # Ease in/out cubic
-            t = t * t * (3.0 - 2.0 * t)
+            # Get the next frame
+            frame = self.current_frames[self.current_frame_index]
+            # Update the label's image
+            self.icon_label.configure(image=frame)
             
-            self._check_progress = t
-            if self._check_anim_time >= check_anim_duration:
-                self._is_check_animating = False
-        else:
-            self._check_progress = 1.0
-
-        # --- Apply animations to canvas items ---
-        self._update_canvas()
-        
-        self.after(20, self._animation_loop) # ~50fps
-
-    def _update_canvas(self):
-        """Redraws all canvas items based on current animation properties."""
-        
-        cx, cy = self.size / 2, self.size / 2
-        
-        # --- Update Glow ---
-        glow_color = COLOR_SUCCESS if self.is_protected else COLOR_WARNING
-        
-        for i, item in enumerate(self.glow_items):
-            # Interpolate from BG to Glow color
-            t = (i + 1) / len(self.glow_items) # 0.1 to 1.0
-            t = 1.0 - t # 0.9 to 0.0 (inner is brighter)
+            # Advance to the next frame index, looping back to 0
+            self.current_frame_index = (self.current_frame_index + 1) % len(self.current_frames)
             
-            # Use glow_opacity to control "strength"
-            interp_t = t * self._glow_opacity
-            
-            color = _interpolate_color(COLOR_BG_RGB, glow_color, interp_t)
-            hex_color = _rgb_to_hex(color)
-            
-            # Scale the radius
-            base_radius = (self.size / 2.2) * (i + 1) / len(self.glow_items)
-            radius = base_radius * self._scale_factor
-            
-            self.canvas.coords(item, cx - radius, cy - radius, cx + radius, cy + radius)
-            self.canvas.itemconfig(item, fill=hex_color, outline=hex_color)
+            # Schedule the next frame update
+            self.after(self.current_delay, self._animate_loop)
+        except Exception as e:
+            logger.error(f"Error in animation loop: {e}")
+            self.is_animating = False # Stop on error
 
-        # --- Update Shield ---
-        scaled_points = []
-        for x, y in self.base_shield_points:
-            scaled_points.append(cx + x * self._scale_factor)
-            scaled_points.append(cy + y * self._scale_factor)
-        self.canvas.coords(self.shield_item, *scaled_points)
+    def start_animation(self):
+        """Starts the animation loop."""
+        if self.is_animating:
+            return
+        self.is_animating = True
+        self._animate_loop()
 
-        # --- Update Icon / 'X' ---
-        
-        # Calculate progress for current state
-        # If we are protected, we animate *in*. If not, we animate *out*.
-        progress = self._check_progress if self.is_protected else (1.0 - self._check_progress)
-        
-        if self.hydra_pil_image:
-            # This is VERY slow: create new PhotoImage every frame
-            try:
-                base_w, base_h = self.hydra_pil_image.size
-                scale = (self.size * 0.7) / max(base_w, base_h)
-                
-                w = int(base_w * scale * self._scale_factor * progress)
-                h = int(base_h * scale * self._scale_factor * progress)
-
-                if w > 1 and h > 1:
-                    resized_pil = self.hydra_pil_image.resize((w, h), Image.Resampling.LANCZOS)
-                    self.hydra_tk_image = ImageTk.PhotoImage(resized_pil)
-                    self.canvas.itemconfig(self.icon_item, image=self.hydra_tk_image, state='normal')
-                    self.canvas.coords(self.icon_item, cx, cy - (10 * self._scale_factor))
-                else:
-                    self.canvas.itemconfig(self.icon_item, state='hidden')
-            except Exception as e:
-                logger.error(f"Error resizing icon: {e}")
-                self.canvas.itemconfig(self.icon_item, state='hidden')
-        
-        # Calculate progress for the 'X'
-        progress = self._check_progress if not self.is_protected else (1.0 - self._check_progress)
-        
-        if progress > 0.01:
-            size = 35 * self._scale_factor * progress
-            self.canvas.coords(self.x_line1, cx - size, cy - size, cx + size, cy + size)
-            self.canvas.coords(self.x_line2, cx + size, cy - size, cx - size, cy + size)
-            self.canvas.itemconfig(self.x_line1, state='normal')
-            self.canvas.itemconfig(self.x_line2, state='normal')
-        else:
-            self.canvas.itemconfig(self.x_line1, state='hidden')
-            self.canvas.itemconfig(self.x_line2, state='hidden')
+    def stop_animation(self):
+        """Stops the animation loop."""
+        self.is_animating = False
 
     def destroy(self):
-        self.is_animating = False
+        self.stop_animation()
         super().destroy()
 
 
@@ -360,7 +279,7 @@ class AntivirusApp(customtkinter.CTk):
         
         # Stop animations in shield widget
         if hasattr(self, 'shield_widget') and self.shield_widget:
-            self.shield_widget.is_animating = False
+            self.shield_widget.stop_animation()
             
         self.after(50, self.destroy)
 
@@ -386,6 +305,7 @@ class AntivirusApp(customtkinter.CTk):
         """Slot to update shield & status text; always runs on the Tk thread."""
         try:
             if hasattr(self, 'shield_widget') and self.shield_widget:
+                # This now calls the AnimatedShieldWidget's set_status
                 self.shield_widget.set_status(bool(is_protected))
             if hasattr(self, 'status_text') and self.status_text:
                 text = "System protected!" if is_protected else "System unprotected!..."
@@ -491,7 +411,9 @@ class AntivirusApp(customtkinter.CTk):
     
     def _update_definitions_sync(self):
         self._update_definitions_clamav_sync()
+        self.after(0, self._on_progress_signal, 0.5) # Update progress bar
         self._update_definitions_hayabusa_sync()
+        self.after(0, self._on_progress_signal, 1.0)
 
     def _update_definitions_clamav_sync(self):
         self.append_log_output("[*] Checking virus definitions (ClamAV)...")
@@ -572,23 +494,25 @@ class AntivirusApp(customtkinter.CTk):
     # Button handlers
     # ---------------------------
     def on_update_definitions_clicked(self):
+        # Reset progress bar
+        self.after(0, self._on_progress_signal, 0.0)
+        # Run the task
         asyncio.create_task(
             self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
         )
 
     # ---------------------------
-    # UI Pages / layout creation (Rewritten for CTk + .place())
+    # UI Pages / layout creation (Using .place() for animations)
     # ---------------------------
     def create_status_page(self, parent):
         page = customtkinter.CTkFrame(parent, fg_color="transparent")
-        
-        # Use .place() for layout to allow animation
         
         # Shield Widget Area
         shield_frame = customtkinter.CTkFrame(page, fg_color="transparent")
         shield_frame.place(relx=0, rely=0.5, relwidth=0.4, relheight=1.0, anchor="w")
         
-        self.shield_widget = ShieldWidget(shield_frame, size=250)
+        # --- MODIFIED: Use new AnimatedShieldWidget ---
+        self.shield_widget = AnimatedShieldWidget(shield_frame, size=250)
         self.shield_widget.pack(expand=True, anchor="center", padx=40, pady=40)
 
         # Status Text Area
@@ -635,9 +559,6 @@ class AntivirusApp(customtkinter.CTk):
     def create_task_page(self, parent, title_text, main_task_name, main_button_text):
         page = customtkinter.CTkFrame(parent, fg_color="transparent")
         
-        # Use .place()
-        
-        # Header
         title = customtkinter.CTkLabel(
             page,
             text=title_text,
@@ -646,7 +567,6 @@ class AntivirusApp(customtkinter.CTk):
         )
         title.place(relx=0, rely=0, x=30, y=30)
 
-        # Button container
         button_container = customtkinter.CTkFrame(page, fg_color="transparent")
         button_container.place(relx=0, rely=0, x=30, y=90, relwidth=1)
         
@@ -666,6 +586,19 @@ class AntivirusApp(customtkinter.CTk):
 
         if main_task_name == 'update_definitions':
             main_button.configure(command=self.on_update_definitions_clicked)
+            
+            # --- ADDED: Progress bar for updates ---
+            self.defs_progress_bar = customtkinter.CTkProgressBar(
+                button_container,
+                orientation="horizontal",
+                progress_color=COLOR_ACCENT,
+                fg_color=COLOR_BG_LIGHT,
+                border_color=COLOR_BORDER,
+                border_width=2
+            )
+            self.defs_progress_bar.pack(side="left", fill="x", expand=True, padx=20, pady=5)
+            self.defs_progress_bar.set(0)
+            
         else:
             main_button.configure(state="disabled")
 
@@ -744,7 +677,7 @@ class AntivirusApp(customtkinter.CTk):
             page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
 
     # ---------------------------
-    # Page switching animations
+    # Page switching animations (Unchanged)
     # ---------------------------
     async def switch_page_with_animation(self, index: int):
         if self.current_page_index == index or self.is_page_animating:
@@ -813,7 +746,9 @@ class AntivirusApp(customtkinter.CTk):
                     )
         return _handler
 
-
+    # ---------------------------
+    # Sidebar (Unchanged)
+    # ---------------------------
     def create_sidebar(self):
         sidebar_frame = customtkinter.CTkFrame(
             self, 
@@ -870,7 +805,9 @@ class AntivirusApp(customtkinter.CTk):
         
         return sidebar_frame
 
-
+# ---------------------------
+# Main execution (Unchanged)
+# ---------------------------
 async def main():
     # --- Create main window ---
     window = AntivirusApp()
@@ -886,13 +823,3 @@ async def main():
 
     # --- Start main async loop ---
     await window.mainloop_async()
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Application shut down by user.")
-    except Exception as e:
-        logger.critical(f"Unhandled exception in main: {e}", exc_info=True)
-        sys.exit(1)
