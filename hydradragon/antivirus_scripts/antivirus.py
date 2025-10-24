@@ -11184,7 +11184,6 @@ async def run_hayabusa_live_async():
                         continue  # immediately retry
 
             csv_tail_task = asyncio.create_task(tail_csv(output_file))
-            await process.wait()
             await asyncio.gather(stdout_task, stderr_task, csv_tail_task, return_exceptions=True)
 
         except Exception:
@@ -11296,7 +11295,7 @@ async def run_real_time_protection_async():
         # Keep the event loop alive by waiting forever
         # Tasks will continue running in the background
         try:
-            await asyncio.Event().wait()  # Wait forever
+            await asyncio.Event()
         except asyncio.CancelledError:
             logger.info("Real-time protection cancelled, cleaning up...")
             # Cancel all tasks

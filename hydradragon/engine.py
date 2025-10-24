@@ -842,7 +842,6 @@ async def main():
     """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
     app = None
     exit_code = 0
-    shutdown_event = asyncio.Event()
 
     try:
         # Ensure log directory exists
@@ -870,15 +869,6 @@ async def main():
         window.setup_ui_fast()  # build UI immediately
         window.show()
 
-        # Hook close event to shutdown_event
-        original_close_event = window.closeEvent
-        def close_event_handler(event):
-            logger.info("Window close requested, triggering shutdown...")
-            shutdown_event.set()
-            if original_close_event:
-                original_close_event(event)
-        window.closeEvent = close_event_handler
-
         # Run heavy UI setup asynchronously
         asyncio.create_task(window.finish_ui_setup())
 
@@ -887,7 +877,6 @@ async def main():
         # Handle OS signals
         def signal_handler(signum, frame):
             logger.info(f"Signal {signum} received, initiating shutdown...")
-            shutdown_event.set()
 
         signal.signal(signal.SIGINT, signal_handler)
         try:
@@ -896,7 +885,6 @@ async def main():
             pass  # Windows may not have SIGTERM
 
         # Keep event loop running until shutdown
-        await shutdown_event.wait()
         logger.info("Shutdown triggered, cleaning up...")
 
     except Exception as e:
