@@ -72,7 +72,7 @@ class HydraIconWidget(QWidget):
         else:
             logger.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
 
-    def paintEvent(self, event):
+    def paintEvent(self):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.pixmap and not self.pixmap.isNull():
@@ -81,7 +81,6 @@ class HydraIconWidget(QWidget):
             primary_color = QColor("#88C0D0")
             shadow_color = QColor("#4C566A")
             path = QPainterPath()
-            # your path drawing...
             painter.setPen(QPen(primary_color, 3))
             painter.setBrush(shadow_color)
             painter.drawPath(path)
@@ -170,7 +169,7 @@ class ShieldWidget(QWidget):
             self.check_animation.start()
             self.update()
 
-    def paintEvent(self, event):
+    def paintEvent(self):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
