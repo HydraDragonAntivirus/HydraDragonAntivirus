@@ -13,6 +13,7 @@ from .hydra_logger import (
 from .path_and_variables import (
     script_dir,
     PIPE_EDR_TO_AV,
+    hayabusa_path,
     python_path,
     jadx_decompiled_dir,
     nexe_javascript_unpacked_dir,
@@ -184,6 +185,10 @@ total_start_time = time.time()
 start_time = time.time()
 import asyncio
 logger.debug(f"asyncio module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import aiofiles
+logger.debug(f"aiofiles module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import io
@@ -484,7 +489,8 @@ from .notify_user import (
     notify_user_for_web_source,
     notify_user_for_detected_hips_file,
     notify_user_duplicate,
-    notify_user_for_uefi
+    notify_user_for_uefi,
+    notify_user_hayabusa_critical
 )
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -11104,9 +11110,91 @@ async def load_all_resources_async():
 
     return results
 
+async def run_hayabusa_live_async():
+    """
+    Continuous Hayabusa live monitoring loop with no sleeps.
+    """
+    while True:
+        try:
+            if not os.path.exists(hayabusa_path):
+                logger.warning(f"Hayabusa executable not found at: {hayabusa_path}")
+                continue  # immediately retry
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
+
+            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
+            logger.info(f"Launching Hayabusa: {' '.join(cmd)}")
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=os.path.dirname(hayabusa_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            async def stream_reader(pipe, label):
+                while True:
+                    line = await pipe.readline()
+                    if not line:
+                        break
+                    decoded = line.decode("utf-8", errors="ignore").strip()
+                    logger.info(f"[{label}] {decoded}")
+
+            stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
+            stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
+
+            async def tail_csv(csv_path):
+                seen = set()
+                last_pos = 0
+                while True:
+                    if process.returncode is not None:
+                        break
+                    if not os.path.exists(csv_path):
+                        continue  # immediately check again
+                    try:
+                        async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                            await f.seek(last_pos)
+                            content = await f.read()
+                            last_pos = await f.tell()
+                            if content:
+                                reader = csv.DictReader(content.splitlines())
+                                for row in reader:
+                                    key = (row.get("Timestamp"), row.get("EventID"), row.get("RuleTitle"))
+                                    if key in seen:
+                                        continue
+                                    seen.add(key)
+                                    level = (row.get("Level") or "").lower()
+                                    if level in ("critical", "crit"):
+                                        rule = row.get("RuleTitle", "N/A")
+                                        details = row.get("Details", "N/A")
+                                        logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
+                                        try:
+                                            await notify_user_hayabusa_critical(
+                                                event_log=row.get("Channel", ""),
+                                                rule_title=rule,
+                                                details=details,
+                                                computer=row.get("Computer", "")
+                                            )
+                                        except Exception:
+                                            logger.exception("notify_user_hayabusa_critical failed")
+                    except Exception:
+                        continue  # immediately retry
+
+            csv_tail_task = asyncio.create_task(tail_csv(output_file))
+            await process.wait()
+            await asyncio.gather(stdout_task, stderr_task, csv_tail_task, return_exceptions=True)
+
+        except Exception:
+            logger.exception("Unhandled exception in Hayabusa live loop, restarting immediately...")
+            continue
+
 async def start_real_time_protection_async():
     """
-    Start all real-time protection and resource-loading tasks concurrently.
+    Start all real-time protection and resource-loading tasks concurrently,
+    including Hayabusa live monitoring.
     Returns immediately after scheduling all tasks.
     """
 
@@ -11130,62 +11218,69 @@ async def start_real_time_protection_async():
         except Exception as e:
             logger.exception(f"Error in {name}: {e}")
 
-    async def wrap_async_function(name: str, coro):
+    async def wrap_async_function(name: str, coro_func):
         """Wrap an async function with error handling."""
         try:
             logger.info(f"{name} starting...")
-            await coro
+            await coro_func()
             logger.info(f"{name} completed.")
         except Exception as e:
             logger.exception(f"Error in {name}: {e}")
 
+    # --- Helper for Hayabusa live monitoring ---
+    async def run_hayabusa_live_task():
+        try:
+            await run_hayabusa_live_async()
+        except Exception:
+            logger.exception("Hayabusa live task failed.")
+
     # Create tasks for all protection components
     tasks = []
-    
-    # EDR Monitor (async function)
-    task = asyncio.create_task(
-        wrap_async_function("EDRMonitor", _send_scan_request_to_av()),
+
+    # --- EDR Monitor (async) ---
+    tasks.append(asyncio.create_task(
+        wrap_async_function("EDRMonitor", _send_scan_request_to_av),
         name="EDRMonitor"
-    )
-    tasks.append(task)
-    
-    # Suricata Monitor (sync function)
-    task = asyncio.create_task(
+    ))
+
+    # --- Suricata Monitor (sync) ---
+    tasks.append(asyncio.create_task(
         wrap_sync_function("SuricataMonitor", monitor_suricata_log),
         name="SuricataMonitor"
-    )
-    tasks.append(task)
-    
-    # Web Protection (sync function)
-    task = asyncio.create_task(
+    ))
+
+    # --- Web Protection (sync) ---
+    tasks.append(asyncio.create_task(
         wrap_sync_function("WebProtection", web_protection_observer.begin_observing),
         name="WebProtection"
-    )
-    tasks.append(task)
-    
-    # Pipe Listeners (sync function)
-    task = asyncio.create_task(
+    ))
+
+    # --- Pipe Listeners (sync) ---
+    tasks.append(asyncio.create_task(
         wrap_sync_function("PipeListeners", start_all_pipe_listeners),
         name="PipeListeners"
-    )
-    tasks.append(task)
-    
-    # Resource Loader (async function)
-    task = asyncio.create_task(
-        wrap_async_function("ResourceLoader", load_all_resources_async()),
-        name="ResourceLoader"
-    )
-    tasks.append(task)
+    ))
 
-    # Add done callbacks
+    # --- Resource Loader (async) ---
+    tasks.append(asyncio.create_task(
+        wrap_async_function("ResourceLoader", load_all_resources_async),
+        name="ResourceLoader"
+    ))
+
+    # --- Hayabusa Live Monitoring (async) ---
+    tasks.append(asyncio.create_task(
+        wrap_async_function("HayabusaLive", run_hayabusa_live_task),
+        name="HayabusaLive"
+    ))
+
+    # Add done callbacks for logging
     for task in tasks:
         task.add_done_callback(lambda t, n=task.get_name(): _task_done_cb(t, n))
 
-    logger.info("All protection and resource tasks launched.")
-    
-    # Don't await tasks - let them run in background
-    return tasks
+    logger.info("All protection, resource, and Hayabusa tasks launched.")
 
+    # Return tasks so caller can keep references
+    return tasks
 
 async def run_real_time_protection_async():
     """

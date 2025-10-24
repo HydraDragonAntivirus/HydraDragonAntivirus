@@ -40,29 +40,13 @@ from hydradragon.antivirus_scripts.antivirus import (
     get_latest_clamav_def_time
 )
 # --- Import paths ---
-try:
-    from hydradragon.antivirus_scripts.path_and_variables import (
-        freshclam_path,
-        icon_path,
-        hayabusa_path,
-        WINDOW_TITLE,
-        clamav_file_paths,
-    )
-except ImportError as e:
-    logger.critical(f"Failed to import paths: {e}")
-    # Define dummy paths
-    freshclam_path = "freshclam"
-    icon_path = "icon.png"
-    hayabusa_path = "hayabusa"
-    WINDOW_TITLE = "HydraDragon (Import Failed)"
-    clamav_file_paths = []
-
-# --- Import notifier ---
-try:
-    from hydradragon.antivirus_scripts.notify_user import notify_user_hayabusa_critical
-except ImportError as e:
-    logger.critical(f"Failed to import notifier: {e}")
-    def notify_user_hayabusa_critical(*args, **kwargs): logger.error("Notifier import failed!")
+from hydradragon.antivirus_scripts.path_and_variables import (
+     freshclam_path,
+    icon_path,
+    hayabusa_path,
+    WINDOW_TITLE,
+    clamav_file_paths,
+)
 
 # --- Custom Hydra Icon Widget ---
 class HydraIconWidget(QWidget):
@@ -436,110 +420,6 @@ class AntivirusApp(QWidget):
             self.append_log_output(f"[!] Real-time protection error: {traceback.format_exc()}")
             logger.exception("Unhandled exception in real-time protection")
 
-    # ---------------------------
-    # Hayabusa Live Monitoring (Async)
-    # ---------------------------
-    async def _run_hayabusa_live_task(self):
-        """Run Hayabusa CSV timeline safely in background."""
-        self.append_log_output("[*] Starting Hayabusa live monitoring...")
-        process = None
-        csv_tail_task = None
-
-        try:
-            if not os.path.exists(hayabusa_path):
-                self.append_log_output(f"[!] Hayabusa not found at {hayabusa_path}")
-                return
-
-            # Prepare output CSV path
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
-            os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
-
-            cmd = [hayabusa_path, "csv-timeline", "-l", "-o", output_file, "--profile", "standard", "-m", "critical"]
-            self.append_log_output(f"[*] Running: {' '.join(cmd)}")
-
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            async def stream_reader(pipe, label):
-                if not pipe:
-                    return
-                while True:
-                    line = await pipe.readline()
-                    if not line:
-                        break
-                    decoded = line.decode("utf-8", errors="ignore").strip()
-                    self.append_log_output(f"[{label}] {decoded}")
-
-            stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
-            stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
-
-            # CSV tailing task
-            async def tail_csv(csv_path):
-                seen = set()
-                while process.returncode is None:
-                    if not os.path.exists(csv_path):
-                        await asyncio.sleep(0.2)
-                        continue
-
-                    try:
-                        async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                            await f.seek(0)
-                            content = await f.read()
-                            if content:
-                                reader = csv.DictReader(content.splitlines())
-                                for row in reader:
-                                    key = (row.get("Timestamp"), row.get("EventID"), row.get("RuleTitle"))
-                                    if key in seen:
-                                        continue
-                                    seen.add(key)
-                                    level = (row.get("Level") or "").lower()
-                                    if level in ("critical", "crit"):
-                                        rule = row.get("RuleTitle", "N/A")
-                                        details = row.get("Details", "N/A")
-                                        self.append_log_output(f"[!] CRITICAL: {rule} | {details[:100]}")
-
-                                        # Notify user safely
-                                        try:
-                                            await notify_user_hayabusa_critical(
-                                                event_log=row.get("Channel", ""),
-                                                rule_title=rule,
-                                                details=details,
-                                                computer=row.get("Computer", "")
-                                            )
-                                        except Exception:
-                                            logger.exception("notify_user_hayabusa_critical failed")
-                    except Exception:
-                        await asyncio.sleep(1.0)
-                    await asyncio.sleep(1.0)
-
-            csv_tail_task = asyncio.create_task(tail_csv(output_file))
-
-            await process.wait()
-            await asyncio.gather(stdout_task, stderr_task, csv_tail_task, return_exceptions=True)
-            self.append_log_output(f"[+] Hayabusa process exited with {process.returncode}")
-
-        except asyncio.CancelledError:
-            self.append_log_output("[!] Hayabusa task cancelled.")
-        except Exception:
-            self.append_log_output(f"[!] Hayabusa error: {traceback.format_exc()}")
-            logger.exception("Unhandled exception in Hayabusa task")
-        finally:
-            if csv_tail_task and not csv_tail_task.done():
-                csv_tail_task.cancel()
-                try:
-                    await csv_tail_task
-                except asyncio.CancelledError:
-                    pass
-            if process and process.returncode is None:
-                process.terminate()
-                await process.wait()
-
     def _update_definitions_sync(self):
         """Blocking freshclam update, run inside a thread."""
         self.append_log_output("[*] Checking virus definitions...")
@@ -637,12 +517,6 @@ class AntivirusApp(QWidget):
         asyncio.create_task(self.run_task(
             'real_time_protection',
             self._run_real_time_protection_task,
-        ))
-
-        # Schedule Hayabusa live monitoring safely
-        asyncio.create_task(self.run_task(
-            'hayabusa_live',
-            self._run_hayabusa_live_task,
         ))
 
         self.append_log_output("[*] Startup tasks launched.")
