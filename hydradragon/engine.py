@@ -26,7 +26,7 @@ from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async,  # This MUST be an async generator
+    start_real_time_protection_async,  # Async function (not generator)
     reload_clamav_database,
     get_latest_clamav_def_time
 )
@@ -332,7 +332,7 @@ class AntivirusApp(customtkinter.CTk):
             logger.exception("append_log_output failed")
 
     # ---------------------------
-    # Task runner utilities
+    # Task runner utilities - MODIFIED to remove yield handling
     # ---------------------------
     def _update_ui_for_task_start(self, task_name: str):
         """Update UI when a task starts (runs on Tk thread)."""
@@ -363,7 +363,8 @@ class AntivirusApp(customtkinter.CTk):
 
     async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
         """
-        Run an async coroutine, async generator, or blocking function.
+        Run an async coroutine or blocking function.
+        REMOVED: async generator handling (no more yield support).
         Handles UI updates safely via self.after().
         """
         if task_name in self.active_tasks:
@@ -375,15 +376,10 @@ class AntivirusApp(customtkinter.CTk):
 
         try:
             if is_async:
-                result = coro_or_func(*args)
-                if hasattr(result, "__anext__"):  # Async generator
-                    async for item in result:
-                        if item:
-                            self.append_log_output(str(item))
-                else:
-                    msg = await result
-                    if msg:
-                        self.append_log_output(str(msg))
+                # Simply await the coroutine (no generator support)
+                msg = await coro_or_func(*args)
+                if msg:
+                    self.append_log_output(str(msg))
             else:
                 # Run blocking function in a separate thread
                 await asyncio.to_thread(coro_or_func, *args)
@@ -399,7 +395,7 @@ class AntivirusApp(customtkinter.CTk):
             self.after(0, self._update_ui_for_task_end, task_name)
 
     # ---------------------------
-    # Sync (blocking) tasks - (No changes needed)
+    # Sync (blocking) tasks
     # ---------------------------
     
     def _update_definitions_sync(self):
@@ -504,7 +500,7 @@ class AntivirusApp(customtkinter.CTk):
         shield_frame = customtkinter.CTkFrame(page, fg_color="transparent")
         shield_frame.place(relx=0, rely=0.5, relwidth=0.4, relheight=1.0, anchor="w")
         
-        # --- MODIFIED: Use new AnimatedShieldWidget ---
+        # --- Use AnimatedShieldWidget ---
         self.shield_widget = AnimatedShieldWidget(shield_frame, size=250)
         self.shield_widget.pack(expand=True, anchor="center", padx=40, pady=40)
 
@@ -580,7 +576,7 @@ class AntivirusApp(customtkinter.CTk):
         if main_task_name == 'update_definitions':
             main_button.configure(command=self.on_update_definitions_clicked)
             
-            # --- ADDED: Progress bar for updates ---
+            # Progress bar for updates
             self.defs_progress_bar = customtkinter.CTkProgressBar(
                 button_container,
                 orientation="horizontal",
@@ -670,7 +666,7 @@ class AntivirusApp(customtkinter.CTk):
             page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
 
     # ---------------------------
-    # Page switching animations (Unchanged)
+    # Page switching animations
     # ---------------------------
     async def switch_page_with_animation(self, index: int):
         if self.current_page_index == index or self.is_page_animating:
@@ -740,7 +736,7 @@ class AntivirusApp(customtkinter.CTk):
         return _handler
 
     # ---------------------------
-    # Sidebar (Unchanged)
+    # Sidebar
     # ---------------------------
     def create_sidebar(self):
         sidebar_frame = customtkinter.CTkFrame(
@@ -799,15 +795,16 @@ class AntivirusApp(customtkinter.CTk):
         return sidebar_frame
 
 # ---------------------------
-# Main execution (Unchanged)
+# Main execution - MODIFIED to remove yield handling
 # ---------------------------
 async def main():
     # --- Create main window ---
     window = AntivirusApp()
 
-    # --- Start background protection safely ---
+    # --- Start background protection (NO LONGER uses async generator) ---
     async def launch_protection():
         try:
+            # Simply await the async function without iterating over yields
             await start_real_time_protection_async()
         except Exception:
             logger.exception("Real-time protection failed")
