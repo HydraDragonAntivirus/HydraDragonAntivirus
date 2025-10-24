@@ -822,12 +822,16 @@ async def main():
     app = None
     loop = None
     exit_code = 0
+    protection_tasks = []
 
     try:
         os.makedirs(log_directory, exist_ok=True)
         logger.info("HydraDragon Engine starting up...")
 
+        # --- Create QApplication FIRST ---
         app = QApplication(sys.argv)
+
+        # --- Create qasync event loop ---
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
 
@@ -839,15 +843,25 @@ async def main():
 
         logger.info("Main window shown, event loop running...")
 
-        # --- Start background services after UI setup ---
+        # --- Start background real-time protection ---
         try:
-            asyncio.create_task(start_real_time_protection_async())
+            protection_tasks = await start_real_time_protection_async()
             logger.info("Background protection tasks started.")
         except Exception:
             logger.exception("Failed to start background protection tasks")
 
-        # --- Exit cleanly when app quits ---
-        app.aboutToQuit.connect(loop.stop)
+        # --- Make shutdown synchronized ---
+        async def shutdown():
+            logger.info("Shutting down real-time protection...")
+            for task in protection_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*protection_tasks, return_exceptions=True)
+            logger.info("All background tasks stopped.")
+            loop.stop()
+
+        # Connect GUI quit to synchronized shutdown
+        app.aboutToQuit.connect(lambda: asyncio.create_task(shutdown()))
 
         # --- Run event loop forever (GUI stays alive) ---
         loop.run_forever()
@@ -859,12 +873,14 @@ async def main():
     finally:
         logger.info("Cleaning up application...")
 
+        # Ensure app quits
         if app:
             try:
                 app.quit()
             except Exception:
                 pass
 
+        # Ensure loop closes
         try:
             if loop and not loop.is_closed():
                 loop.close()
