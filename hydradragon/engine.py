@@ -7,8 +7,7 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-import qasync
-from qasync import asyncSlot
+from qasync import asyncSlot, QEventLoop
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -820,26 +819,39 @@ class AntivirusApp(QWidget):
         self.append_log_output("[*] Application minimized (window hidden)")
 
 async def main():
+    """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
+    # Ensure log directory exists
     os.makedirs(log_directory, exist_ok=True)
     logger.info("HydraDragon Engine starting up...")
 
+    # --- Create QApplication first ---
     app = QApplication(sys.argv)
+
+    # --- Integrate asyncio with Qt event loop ---
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
 
     # --- Create and show main window ---
     window = AntivirusApp()
     window.setup_ui_fast()
     window.show()
     window.finish_ui_setup()
-
-    # Mark system as protected
-    window.status_signal.emit(True)
+    window.status_signal.emit(True)  # mark system protected
     logger.info("Main window shown, event loop running...")
 
-    # --- Start background real-time protection ---
-    asyncio.create_task(start_real_time_protection_async())
+    # --- Start background real-time protection WITHOUT blocking ---
+    try:
+        # Fire-and-forget so GUI never blocks
+        asyncio.create_task(start_real_time_protection_async())
+        logger.info("Background protection tasks launched.")
+    except Exception:
+        logger.exception("Failed to start background protection tasks")
 
-    # Connect GUI close to exit immediately
-    app.aboutToQuit.connect(lambda: sys.exit(0))
+    # --- Ensure app exits cleanly when GUI closes ---
+    app.aboutToQuit.connect(lambda: logger.info("GUI closed, exiting..."))
 
-    # --- Run Qt + asyncio event loop concurrently ---
-    await qasync.run(app.exec())  # <-- fully integrates asyncio tasks
+    # --- Run Qt event loop integrated with asyncio ---
+    await app.exec()
+
+    logger.info("Application exited normally.")
+    sys.exit(0)
