@@ -11195,26 +11195,14 @@ async def run_hayabusa_live_async():
             logger.exception("Unhandled exception in Hayabusa live loop, restarting immediately...")
             continue
 
+# --- start_real_time_protection_async ---
 async def start_real_time_protection_async():
     """
-    Start all real-time protection and resource-loading tasks concurrently,
-    including Hayabusa live monitoring.
-    Returns immediately after scheduling all tasks.
+    Start all real-time protection and resource-loading tasks concurrently.
+    Fully async; does not return tasks, runs in background.
     """
 
-    def _task_done_cb(task: asyncio.Task, name: str) -> None:
-        """Log any exception from a finished task."""
-        try:
-            exc = task.exception()
-            if exc:
-                logger.error(f"Task {name} raised an exception: {exc}")
-        except asyncio.CancelledError:
-            logger.info(f"Task {name} was cancelled.")
-        except Exception as e:
-            logger.exception(f"Error retrieving exception for task {name}: {e}")
-
     async def wrap_async_function(name: str, coro_func):
-        """Wrap an async function with error handling."""
         try:
             logger.info(f"{name} starting...")
             await coro_func()
@@ -11222,60 +11210,21 @@ async def start_real_time_protection_async():
         except Exception as e:
             logger.exception(f"Error in {name}: {e}")
 
-    # --- Helper for Hayabusa live monitoring ---
     async def run_hayabusa_live_task():
         try:
             await run_hayabusa_live_async()
         except Exception:
             logger.exception("Hayabusa live task failed.")
 
-    # Create tasks for all protection components
-    tasks = []
+    # Fire-and-forget tasks
+    asyncio.create_task(wrap_async_function("EDRMonitor", _send_scan_request_to_av))
+    asyncio.create_task(wrap_async_function("SuricataMonitor", monitor_suricata_log_async))
+    asyncio.create_task(wrap_async_function("WebProtection", web_protection_observer.begin_observing_async))
+    asyncio.create_task(wrap_async_function("PipeListeners", start_all_pipe_listeners))
+    asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
+    asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
 
-    # --- EDR Monitor (async) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("EDRMonitor", _send_scan_request_to_av),
-        name="EDRMonitor"
-    ))
-
-    # --- Suricata Monitor (NOW ASYNC) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("SuricataMonitor", monitor_suricata_log_async),
-        name="SuricataMonitor"
-    ))
-
-    # --- Web Protection (NOW ASYNC) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("WebProtection", web_protection_observer.begin_observing_async),
-        name="WebProtection"
-    ))
-
-    # --- Pipe Listeners (ALREADY ASYNC - start_all_pipe_listeners) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("PipeListeners", start_all_pipe_listeners),
-        name="PipeListeners"
-    ))
-
-    # --- Resource Loader (async) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("ResourceLoader", load_all_resources_async),
-        name="ResourceLoader"
-    ))
-
-    # --- Hayabusa Live Monitoring (async) ---
-    tasks.append(asyncio.create_task(
-        wrap_async_function("HayabusaLive", run_hayabusa_live_task),
-        name="HayabusaLive"
-    ))
-
-    # Add done callbacks for logging
-    for task in tasks:
-        task.add_done_callback(lambda t, n=task.get_name(): _task_done_cb(t, n))
-
-    logger.info("All protection, resource, and Hayabusa tasks launched (all async).")
-
-    # Return tasks so caller can keep references
-    return tasks
+    logger.info("All protection, resource, and Hayabusa tasks launched (fire-and-forget).")
 
 def run_de4dot(file_path):
     """

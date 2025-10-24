@@ -827,8 +827,6 @@ async def main():
     """Unified async main entry point for HydraDragon Engine (PySide6 + qasync)."""
     app = None
     loop = None
-    exit_code = 0
-    protection_tasks = []
 
     try:
         os.makedirs(log_directory, exist_ok=True)
@@ -847,53 +845,22 @@ async def main():
         window.show()
         window.finish_ui_setup()
 
-        # --- Immediately mark system as protected (UI reflects current state) ---
+        # --- Immediately mark system as protected ---
         window.status_signal.emit(True)
         logger.info("Main window shown, event loop running...")
 
         # --- Start background real-time protection ---
         try:
-            protection_tasks = await start_real_time_protection_async()
-            logger.info("Background protection tasks started.")
+            await start_real_time_protection_async()
         except Exception:
             logger.exception("Failed to start background protection tasks")
 
-        # --- Immediate shutdown on GUI close ---
-        def on_quit():
-            logger.info("GUI closed, cancelling background tasks and exiting...")
-            for task in protection_tasks:
-                if not task.done():
-                    task.cancel()
-            # Stop the loop and exit immediately
-            if loop.is_running():
-                loop.stop()
-            sys.exit(0)
-
-        app.aboutToQuit.connect(on_quit)
+        # --- Exit immediately when GUI closes ---
+        app.aboutToQuit.connect(lambda: sys.exit(0))
 
         # --- Run event loop forever (GUI stays alive) ---
         loop.run_forever()
 
     except Exception:
         logger.critical("Critical error in main()", exc_info=True)
-        exit_code = 1
-
-    finally:
-        logger.info("Cleaning up application...")
-
-        # Ensure app quits
-        if app:
-            try:
-                app.quit()
-            except Exception:
-                pass
-
-        # Ensure loop closes
-        try:
-            if loop and not loop.is_closed():
-                loop.close()
-        except Exception:
-            logger.warning("Error closing event loop", exc_info=True)
-
-    logger.info(f"Application exited with code {exit_code}")
-    sys.exit(exit_code)
+        sys.exit(1)
