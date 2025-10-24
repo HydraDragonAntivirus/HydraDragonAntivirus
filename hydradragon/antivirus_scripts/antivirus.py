@@ -11281,39 +11281,6 @@ async def start_real_time_protection_async():
     # Return tasks so caller can keep references
     return tasks
 
-async def run_real_time_protection_async():
-    """
-    Async coroutine that starts real-time protection and keeps running.
-    """
-    try:
-        logger.info("Starting real-time protection...")
-
-        tasks = await start_real_time_protection_async()
-        
-        logger.info("[+] Real-time protection scheduled successfully")
-        
-        # Keep the event loop alive by waiting forever
-        # Tasks will continue running in the background
-        try:
-            await asyncio.Event()
-        except asyncio.CancelledError:
-            logger.info("Real-time protection cancelled, cleaning up...")
-            # Cancel all tasks
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            # Wait for all tasks to finish cancelling
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
-        
-    except asyncio.CancelledError:
-        logger.info("Real-time protection cancelled.")
-        raise
-    except Exception as ex:
-        error_message = f"An error occurred during real-time protection: {ex}"
-        logger.error(error_message, exc_info=True)
-        raise
-
 def run_de4dot(file_path):
     """
     Runs de4dot inside host.

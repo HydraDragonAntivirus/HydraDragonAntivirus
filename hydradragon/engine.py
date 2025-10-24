@@ -33,7 +33,7 @@ from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
-    run_real_time_protection_async, # This MUST be an async generator
+    start_real_time_protection_async, # This MUST be an async generator
     reload_clamav_database,
     get_latest_clamav_def_time
 )
@@ -241,9 +241,6 @@ class AntivirusApp(QWidget):
         # apply stylesheet and build UI
         self.apply_extreme_stylesheet()
 
-        # Run startup tasks after UI shown
-        QTimer.singleShot(0, self.run_startup_tasks)
-
     # ---------------------------
     # Signal handlers / UI marshalling
     # ---------------------------
@@ -272,7 +269,7 @@ class AntivirusApp(QWidget):
                 self.shield_widget.set_status(bool(is_protected))
             if hasattr(self, 'status_text') and self.status_text:
                 self.status_text.setText(
-                    "System protected!" if is_protected else "System busy..."
+                    "System protected!" if is_protected else "System unprotected!..."
                 )
                 self.status_text.setObjectName(
                     "page_subtitle" if is_protected else "page_subtitle_busy"
@@ -410,29 +407,6 @@ class AntivirusApp(QWidget):
                 self.active_tasks.remove(task_name)
             QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
 
-    # ---------------------------
-    # Real-Time Protection (Async)
-    # ---------------------------
-    async def _run_real_time_protection_task(self):
-        """Async wrapper for real-time protection generator."""
-        self.append_log_output("[*] Real-time protection starting...")
-        try:
-            gen = run_real_time_protection_async()
-            if hasattr(gen, "__anext__"):  # Async generator
-                async for msg in gen:
-                    if msg:
-                        self.append_log_output(str(msg))
-            else:  # fallback if normal coroutine
-                result = await gen
-                if result:
-                    self.append_log_output(str(result))
-            self.append_log_output("[+] Real-time protection completed.")
-        except asyncio.CancelledError:
-            self.append_log_output("[!] Real-time protection task cancelled.")
-        except Exception:
-            self.append_log_output(f"[!] Real-time protection error: {traceback.format_exc()}")
-            logger.exception("Unhandled exception in real-time protection")
-
     def _update_definitions_sync(self):
         """Blocking freshclam update, run inside a thread."""
         self.append_log_output("[*] Checking virus definitions...")
@@ -517,22 +491,6 @@ class AntivirusApp(QWidget):
     @asyncSlot()
     async def on_update_hayabusa_rules_clicked(self):
         await self.run_task('update_hayabusa_rules', self._update_hayabusa_rules_sync, is_async=False)
-
-
-    # ---------------------------
-    # Startup Tasks (Non-blocking)
-    # ---------------------------
-    async def run_startup_tasks(self):
-        """Launch startup tasks safely after UI is shown."""
-        self.append_log_output("[*] Initializing startup tasks...")
-
-        # Schedule real-time protection safely
-        asyncio.create_task(self.run_task(
-            'real_time_protection',
-            self._run_real_time_protection_task,
-        ))
-
-        self.append_log_output("[*] Startup tasks launched.")
 
     # ---------------------------
     # UI Pages / layout creation (kept mostly as before)
@@ -865,21 +823,14 @@ async def main():
     exit_code = 0
 
     try:
-        # Ensure log directory exists
         os.makedirs(log_directory, exist_ok=True)
-
         logger.info("HydraDragon Engine starting up...")
-        logger.info(f"Log directory: {log_directory}")
-        logger.info(f"Working directory: {main_dir}")
 
-        # --- Create QApplication FIRST ---
         app = QApplication(sys.argv)
-
-        # --- Create qasync event loop ---
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
 
-        # --- Initialize and show main window ---
+        # --- Create and show main window ---
         window = AntivirusApp()
         window.setup_ui_fast()
         window.show()
@@ -887,14 +838,18 @@ async def main():
 
         logger.info("Main window shown, event loop running...")
 
-        # --- Graceful shutdown handling via Qt ---
-        stop_event = asyncio.Event()
+        # --- Start background services after UI setup ---
+        try:
+            asyncio.create_task(start_real_time_protection_async())
+            logger.info("Background protection tasks started.")
+        except Exception:
+            logger.exception("Failed to start background protection tasks")
 
-        # Trigger cleanup when Qt is closing
-        app.aboutToQuit.connect(lambda: stop_event.set())
+        # --- Exit cleanly when app quits ---
+        app.aboutToQuit.connect(loop.stop)
 
-        # --- Keep running until Qt signals exit ---
-        await stop_event.wait()
+        # --- Run event loop forever (GUI stays alive) ---
+        loop.run_forever()
 
     except Exception:
         logger.critical("Critical error in main()", exc_info=True)
@@ -903,21 +858,17 @@ async def main():
     finally:
         logger.info("Cleaning up application...")
 
-        # Quit Qt cleanly
         if app:
             try:
                 app.quit()
             except Exception:
-                logger.warning("Error quitting QApplication", exc_info=True)
+                pass
 
-        # Avoid double-closing qasync loop
         try:
             if loop and not loop.is_closed():
-                loop.call_soon(loop.stop)
-                await asyncio.sleep(0.05)
                 loop.close()
         except Exception:
-            logger.warning("Error closing qasync loop", exc_info=True)
+            logger.warning("Error closing event loop", exc_info=True)
 
     logger.info(f"Application exited with code {exit_code}")
     return exit_code
