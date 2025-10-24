@@ -72,7 +72,7 @@ class HydraIconWidget(QWidget):
         else:
             logger.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
 
-    def paintEvent(self):
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.pixmap and not self.pixmap.isNull():
@@ -169,7 +169,7 @@ class ShieldWidget(QWidget):
             self.check_animation.start()
             self.update()
 
-    def paintEvent(self):
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
