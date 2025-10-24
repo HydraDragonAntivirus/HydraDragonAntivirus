@@ -855,12 +855,6 @@ async def main():
         except Exception:
             logger.exception("Failed to start background protection tasks")
 
-        # --- Exit immediately when GUI closes ---
-        app.aboutToQuit.connect(lambda: sys.exit(0))
-
-        # --- Run event loop forever (GUI stays alive) ---
-        loop.run_forever()
-
     except Exception:
         logger.critical("Critical error in main()", exc_info=True)
         sys.exit(1)
