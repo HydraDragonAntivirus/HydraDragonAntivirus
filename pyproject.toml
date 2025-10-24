@@ -47,6 +47,7 @@ dependencies = [
     "androguard",
     "oletools",
     "customtkinter",
+    "pillow",
     "aiofiles",
     "unipacker",
    

@@ -7,7 +7,13 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-from qasync import asyncSlot, QEventLoop
+import tkinter
+import math # Needed for animations
+from datetime import datetime, timedelta
+
+# --- New Imports for CustomTkinter ---
+import customtkinter
+from PIL import Image, ImageDraw, ImageTk
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,274 +23,383 @@ os.chdir(main_dir)
 if main_dir not in sys.path:
     sys.path.insert(0, main_dir)
 
-from datetime import datetime, timedelta
 from hydradragon.antivirus_scripts.antivirus import (
     logger,
     log_directory,
 )
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QProgressBar,
-                               QPushButton, QLabel, QTextEdit,
-                               QFrame, QStackedWidget, QApplication, QButtonGroup)
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QObject, QThread,
-                            Signal, QParallelAnimationGroup, Property, QRect, QTimer)
-from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
-                           QPainterPath, QRadialGradient, QIcon, QPixmap)
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async, # This MUST be an async generator
+    start_real_time_protection_async,  # This MUST be an async generator
     reload_clamav_database,
     get_latest_clamav_def_time
 )
 # --- Import paths ---
 from hydradragon.antivirus_scripts.path_and_variables import (
-     freshclam_path,
+    freshclam_path,
     icon_path,
     hayabusa_path,
     WINDOW_TITLE,
     clamav_file_paths,
 )
 
-class IconLoaderWorker(QObject):
-    finished = Signal(QIcon)
-    error = Signal(str)
+# --- CTk Styling Constants (from original stylesheet) ---
+COLOR_BG = "#2E3440"
+COLOR_BG_LIGHT = "#3B4252"
+COLOR_BG_DARK = "#232831"
+COLOR_BORDER = "#4C566A"
+COLOR_TEXT = "#D8DEE9"
+COLOR_TEXT_EMPHASIS = "#ECEFF4"
+COLOR_ACCENT = "#88C0D0"
+COLOR_ACCENT_ALT = "#81A1C1"
+COLOR_ACTION = "#5E81AC"
+COLOR_ACTION_HOVER = "#81A1C1"
+COLOR_SUCCESS = (163, 190, 140) # RGB for interpolation
+COLOR_WARNING = (235, 203, 139) # RGB for interpolation
+COLOR_SHIELD_BG = "#3B4252"
+COLOR_BG_RGB = (46, 52, 64) # RGB for interpolation
 
-    def __init__(self, icon_path):
-        super().__init__()
-        self.icon_path = icon_path
+# Set CTk appearance
+customtkinter.set_appearance_mode("Dark")
+customtkinter.set_default_color_theme("blue")
 
-    def run(self):
-        try:
-            icon = QIcon(self.icon_path)
-            self.finished.emit(icon)
-        except Exception as e:
-            self.error.emit(str(e))
+# --- Helper to interpolate colors ---
+def _interpolate_color(c1, c2, t):
+    """Interpolate between two RGB tuples."""
+    return (
+        int(c1[0] + (c2[0] - c1[0]) * t),
+        int(c1[1] + (c2[1] - c1[1]) * t),
+        int(c1[2] + (c2[2] - c1[2]) * t)
+    )
 
-# --- Custom Hydra Icon Widget ---
-class HydraIconWidget(QWidget):
-    """A custom widget to draw the Hydra Dragon icon."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.pixmap = None
-        if os.path.exists(icon_path):
-            self.pixmap = QPixmap(icon_path)
-        else:
-            logger.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
+def _rgb_to_hex(rgb):
+    """Convert an RGB tuple to a hex string."""
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self.pixmap and not self.pixmap.isNull():
-            painter.drawPixmap(self.rect(), self.pixmap)
-        else:
-            primary_color = QColor("#88C0D0")
-            shadow_color = QColor("#4C566A")
-            path = QPainterPath()
-            painter.setPen(QPen(primary_color, 3))
-            painter.setBrush(shadow_color)
-            painter.drawPath(path)
 
-        painter.end()
-
-# --- Custom Shield Widget for Status ---
-class ShieldWidget(QWidget):
-    """A custom widget to draw an animated status shield with a glowing effect."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAutoFillBackground(True)
+# --- Animated Shield Widget (Replaces static version) ---
+class ShieldWidget(customtkinter.CTkFrame):
+    """
+    A custom widget to draw an animated status shield with a glowing effect,
+    using a tkinter.Canvas.
+    """
+    def __init__(self, parent, size=250):
+        super().__init__(parent, fg_color="transparent")
+        
+        self.size = size
         self.is_protected = True
+        self.is_animating = True
+        
+        # Animation properties
         self._glow_opacity = 0.0
         self._check_progress = 1.0
         self._scale_factor = 1.0
-        self.setMinimumSize(250, 250)
+        self._animation_time = 0.0
+        self._check_anim_time = 0.0
+        self._is_check_animating = False
 
-        # Load the hydra image for the protected state
-        self.hydra_pixmap = None
+        self.canvas = tkinter.Canvas(
+            self,
+            width=self.size,
+            height=self.size,
+            bg=COLOR_BG,
+            highlightthickness=0
+        )
+        self.canvas.pack(expand=True, fill="both")
+        
+        # --- Load PIL image for scaling ---
+        self.hydra_pil_image = None
+        self.hydra_tk_image = None
         if os.path.exists(icon_path):
-            self.hydra_pixmap = QPixmap(icon_path)
-        else:
-            logger.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
+            try:
+                self.hydra_pil_image = Image.open(icon_path).convert("RGBA")
+            except Exception as e:
+                logger.error(f"Failed to load shield icon: {e}")
+        
+        if not self.hydra_pil_image:
+            logger.error(f"Shield icon not found at {icon_path}.")
 
+        # --- Create canvas items ---
+        self.glow_items = []
+        num_glow_steps = 10
+        for i in range(num_glow_steps):
+            # We draw from largest (back) to smallest (front)
+            radius = (self.size / 2) * ((num_glow_steps - i) / num_glow_steps)
+            item = self.canvas.create_oval(
+                -radius, -radius, radius, radius,
+                fill=COLOR_BG,
+                outline=""
+            )
+            self.glow_items.append(item)
 
-        # Animation for the icon appearing/disappearing
-        self.check_animation = QPropertyAnimation(self, b"check_progress")
-        self.check_animation.setDuration(500)
-        self.check_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        # Simplified shield path from original
+        self.base_shield_points = [
+            (0, -90), (80, -80), (80, 0), (80, 40), 
+            (0, 100), 
+            (-80, 40), (-80, 0), (-80, -80)
+        ]
+        self.shield_item = self.canvas.create_polygon(
+            self.base_shield_points,
+            fill=COLOR_SHIELD_BG,
+            outline="",
+            smooth=True
+        )
+        
+        # Icon item
+        self.icon_item = self.canvas.create_image(0, 0, image=None, state='hidden')
+        
+        # 'X' lines
+        self.x_line1 = self.canvas.create_line(0, 0, 0, 0, fill="white", width=14, state='hidden', capstyle='round')
+        self.x_line2 = self.canvas.create_line(0, 0, 0, 0, fill="white", width=14, state='hidden', capstyle='round')
 
-        # Animation for the background glow
-        self.glow_animation = QPropertyAnimation(self, b"glow_opacity")
-        self.glow_animation.setDuration(2500)
-        self.glow_animation.setLoopCount(-1)
-        self.glow_animation.setStartValue(0.2)
-        self.glow_animation.setKeyValueAt(0.5, 0.7)
-        self.glow_animation.setEndValue(0.2)
-        self.glow_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self.glow_animation.start()
-
-        # Breathing animation for the shield
-        self.breathe_animation = QPropertyAnimation(self, b"scale_factor")
-        self.breathe_animation.setDuration(5000)
-        self.breathe_animation.setLoopCount(-1)
-        self.breathe_animation.setStartValue(1.0)
-        self.breathe_animation.setKeyValueAt(0.5, 1.05)
-        self.breathe_animation.setEndValue(1.0)
-        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self.breathe_animation.start()
-
-    # --- Getter/Setter for check_progress ---
-    def get_check_progress(self):
-        return self._check_progress
-
-    def set_check_progress(self, value):
-        self._check_progress = value
-        self.update()
-
-    # --- Getter/Setter for glow_opacity ---
-    def get_glow_opacity(self):
-        return self._glow_opacity
-
-    def set_glow_opacity(self, value):
-        self._glow_opacity = value
-        self.update()
-
-    # --- Getter/Setter for scale_factor ---
-    def get_scale_factor(self):
-        return self._scale_factor
-
-    def set_scale_factor(self, value):
-        self._scale_factor = value
-        self.update()
-
-    # --- Qt Properties for Animation ---
-    check_progress = Property(float, get_check_progress, set_check_progress)
-    glow_opacity = Property(float, get_glow_opacity, set_glow_opacity)
-    scale_factor = Property(float, get_scale_factor, set_scale_factor)
+        # Set initial status and start animations
+        self.set_status(True)
+        self.after(50, self._animation_loop)
 
     def set_status(self, is_protected):
         if self.is_protected != is_protected:
             self.is_protected = is_protected
-            self.check_animation.setStartValue(0.0)
-            self.check_animation.setEndValue(1.0)
-            self.check_animation.start()
-            self.update()
+            self._is_check_animating = True
+            self._check_anim_time = 0.0
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    def _animation_loop(self):
+        if not self.is_animating:
+            return
 
-        side = min(self.width(), self.height())
-        painter.translate(self.width() / 2, self.height() / 2)
-        painter.scale(self._scale_factor, self._scale_factor)
-        painter.scale(side / 220.0, side / 220.0)
+        # --- Calculate animation values ---
+        
+        # Time delta for frame-rate independent animation
+        try:
+            current_time = self.winfo_parent().master.master.loop_time
+            dt = current_time - self._animation_time
+            self._animation_time = current_time
+        except Exception:
+            dt = 0.016 # fallback to ~60fps
+            self._animation_time += dt
 
-        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
-        gradient = QRadialGradient(0, 0, 110)
-        glow_color.setAlphaF(self._glow_opacity)
-        gradient.setColorAt(0.5, glow_color)
-        glow_color.setAlphaF(0)
-        gradient.setColorAt(1.0, glow_color)
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(-110, -110, 220, 220)
+        # Glow animation (Sine wave 0.2 -> 0.7)
+        glow_duration = 2.5
+        self._glow_opacity = 0.45 + 0.25 * math.sin(self._animation_time * (2 * math.pi / glow_duration))
+        
+        # Breathe animation (Sine wave 1.0 -> 1.05)
+        breathe_duration = 5.0
+        self._scale_factor = 1.025 + 0.025 * math.sin(self._animation_time * (2 * math.pi / breathe_duration))
 
-        path = QPainterPath()
-        path.moveTo(0, -90)
-        path.cubicTo(80, -80, 80, 0, 80, 0)
-        path.lineTo(80, 40)
-        path.quadTo(80, 90, 0, 100)
-        path.quadTo(-80, 90, -80, 40)
-        path.lineTo(-80, 0)
-        path.cubicTo(-80, -80, 0, -90, 0, -90)
-
-        shield_gradient = QLinearGradient(0, -90, 0, 100)
-        shield_gradient.setColorAt(0, QColor("#434C5E"))
-        shield_gradient.setColorAt(1, QColor("#3B4252"))
-        painter.fillPath(path, QBrush(shield_gradient))
-
-        progress = self._check_progress
-        if self.is_protected:
-            if self.hydra_pixmap and not self.hydra_pixmap.isNull():
-                painter.setOpacity(progress)
-                pixmap_rect = QRect(-75, -85, 150, 150)
-                painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
-                painter.setOpacity(1.0)
+        # Checkmark animation
+        if self._is_check_animating:
+            check_anim_duration = 0.5 # 500ms
+            self._check_anim_time += dt
+            t = min(self._check_anim_time / check_anim_duration, 1.0)
+            # Ease in/out cubic
+            t = t * t * (3.0 - 2.0 * t)
+            
+            self._check_progress = t
+            if self._check_anim_time >= check_anim_duration:
+                self._is_check_animating = False
         else:
-            painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine,
-                                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(int(-35 * progress), int(-35 * progress), int(35 * progress), int(35 * progress))
-            painter.drawLine(int(35 * progress), int(-35 * progress), int(-35 * progress), int(35 * progress))
+            self._check_progress = 1.0
 
-        painter.end()
+        # --- Apply animations to canvas items ---
+        self._update_canvas()
+        
+        self.after(20, self._animation_loop) # ~50fps
 
-class AntivirusApp(QWidget):
-    # Signals for safe cross-thread UI marshalling
-    log_signal = Signal(str)
-    status_signal = Signal(bool)   # True => protected, False => busy
-    progress_signal = Signal(float)  # progress 0.0..1.0, optional usage
+    def _update_canvas(self):
+        """Redraws all canvas items based on current animation properties."""
+        
+        cx, cy = self.size / 2, self.size / 2
+        
+        # --- Update Glow ---
+        glow_color = COLOR_SUCCESS if self.is_protected else COLOR_WARNING
+        
+        for i, item in enumerate(self.glow_items):
+            # Interpolate from BG to Glow color
+            t = (i + 1) / len(self.glow_items) # 0.1 to 1.0
+            t = 1.0 - t # 0.9 to 0.0 (inner is brighter)
+            
+            # Use glow_opacity to control "strength"
+            interp_t = t * self._glow_opacity
+            
+            color = _interpolate_color(COLOR_BG_RGB, glow_color, interp_t)
+            hex_color = _rgb_to_hex(color)
+            
+            # Scale the radius
+            base_radius = (self.size / 2.2) * (i + 1) / len(self.glow_items)
+            radius = base_radius * self._scale_factor
+            
+            self.canvas.coords(item, cx - radius, cy - radius, cx + radius, cy + radius)
+            self.canvas.itemconfig(item, fill=hex_color, outline=hex_color)
+
+        # --- Update Shield ---
+        scaled_points = []
+        for x, y in self.base_shield_points:
+            scaled_points.append(cx + x * self._scale_factor)
+            scaled_points.append(cy + y * self._scale_factor)
+        self.canvas.coords(self.shield_item, *scaled_points)
+
+        # --- Update Icon / 'X' ---
+        
+        # Calculate progress for current state
+        # If we are protected, we animate *in*. If not, we animate *out*.
+        progress = self._check_progress if self.is_protected else (1.0 - self._check_progress)
+        
+        if self.hydra_pil_image:
+            # This is VERY slow: create new PhotoImage every frame
+            try:
+                base_w, base_h = self.hydra_pil_image.size
+                scale = (self.size * 0.7) / max(base_w, base_h)
+                
+                w = int(base_w * scale * self._scale_factor * progress)
+                h = int(base_h * scale * self._scale_factor * progress)
+
+                if w > 1 and h > 1:
+                    resized_pil = self.hydra_pil_image.resize((w, h), Image.Resampling.LANCZOS)
+                    self.hydra_tk_image = ImageTk.PhotoImage(resized_pil)
+                    self.canvas.itemconfig(self.icon_item, image=self.hydra_tk_image, state='normal')
+                    self.canvas.coords(self.icon_item, cx, cy - (10 * self._scale_factor))
+                else:
+                    self.canvas.itemconfig(self.icon_item, state='hidden')
+            except Exception as e:
+                logger.error(f"Error resizing icon: {e}")
+                self.canvas.itemconfig(self.icon_item, state='hidden')
+        
+        # Calculate progress for the 'X'
+        progress = self._check_progress if not self.is_protected else (1.0 - self._check_progress)
+        
+        if progress > 0.01:
+            size = 35 * self._scale_factor * progress
+            self.canvas.coords(self.x_line1, cx - size, cy - size, cx + size, cy + size)
+            self.canvas.coords(self.x_line2, cx + size, cy - size, cx - size, cy + size)
+            self.canvas.itemconfig(self.x_line1, state='normal')
+            self.canvas.itemconfig(self.x_line2, state='normal')
+        else:
+            self.canvas.itemconfig(self.x_line1, state='hidden')
+            self.canvas.itemconfig(self.x_line2, state='hidden')
+
+    def destroy(self):
+        self.is_animating = False
+        super().destroy()
+
+
+class AntivirusApp(customtkinter.CTk):
 
     def __init__(self):
-        super().__init__()
-
+        super().__init__(fg_color=COLOR_BG)
+        
         # state
         self.active_tasks = set()
-        self.log_outputs = []  # list of QTextEdit widgets for each page
-        self.animation_group = QParallelAnimationGroup()
-        self.defs_label = None
+        self.log_outputs = []  # list of CTkTextbox widgets for each page
+        self.task_buttons = {}
+        self.nav_buttons = []
+        self.pages = []
+        self.is_running = True # Flag for the async mainloop
+        self.loop_time = 0.0 # Time for animations
+        self.current_page_index = 0
+        self.is_page_animating = False
 
-        # wire signals
-        self.log_signal.connect(self._append_log_output_slot)
-        self.status_signal.connect(self._on_status_signal)
-        self.progress_signal.connect(self._on_progress_signal)
+        # --- Configure main window ---
+        self.title(WINDOW_TITLE)
+        self.geometry("1400x900")
+        self.minsize(550, 400)
+        
+        # Set window icon
+        if os.path.exists(icon_path):
+            try:
+                if sys.platform == "win32" and icon_path.endswith(".png"):
+                    pil_icon = Image.open(icon_path)
+                    self.iconphoto(True, ImageTk.PhotoImage(pil_icon))
+                elif os.path.exists(icon_path.replace(".png", ".ico")):
+                     self.iconbitmap(icon_path.replace(".png", ".ico"))
+                else:
+                    logger.warning(f"Could not set window icon from {icon_path}. Platform: {sys.platform}")
+            except Exception as e:
+                logger.error(f"Error setting window icon: {e}")
 
-        # apply stylesheet and build UI
-        self.apply_extreme_stylesheet()
+        # Configure root grid
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1) # Main content column expands
+
+        # Build UI
+        self.create_sidebar()
+        self.create_main_content()
+        
+        # Select first page (no animation)
+        self._make_nav_handler(0)(animate=False)
+        
+        # Set initial status
+        self.after(100, lambda: self.set_status(True))
+        
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     # ---------------------------
-    # Signal handlers / UI marshalling
+    # Async main loop driver
+    # ---------------------------
+    async def mainloop_async(self):
+        """Drives both the asyncio event loop and the Tkinter UI."""
+        self.loop_time = asyncio.get_event_loop().time()
+        while self.is_running:
+            try:
+                # Update loop time for animations
+                self.loop_time = asyncio.get_event_loop().time()
+                
+                # Update Tkinter UI
+                self.update_idletasks()
+                self.update()
+            except tkinter.TclError as e:
+                logger.warning(f"Tkinter error in mainloop: {e}. Stopping loop.")
+                self.is_running = False
+            
+            # Yield control to asyncio
+            await asyncio.sleep(0.01) # ~60 FPS update rate
+
+    def on_closing(self):
+        """Handle the window close event."""
+        self.append_log_output("[*] Closing application...")
+        self.is_running = False
+        
+        # Stop animations in shield widget
+        if hasattr(self, 'shield_widget') and self.shield_widget:
+            self.shield_widget.is_animating = False
+            
+        self.after(50, self.destroy)
+
+
+    # ---------------------------
+    # Signal/Slot replacements (now using self.after)
     # ---------------------------
     def _append_log_output_slot(self, text: str):
-        """Append log messages to the current log widget (runs on Qt thread)."""
+        """Append log messages to the current log widget (runs on Tk thread)."""
         try:
-            current_page_index = self.main_stack.currentIndex()
-            if 0 <= current_page_index < len(self.log_outputs):
-                log_widget = self.log_outputs[current_page_index]
-                if log_widget is None or not isinstance(log_widget, QTextEdit):
-                    return
-                log_widget.append(text)
-                # auto-scroll if near bottom
-                scrollbar = log_widget.verticalScrollBar()
-                at_bottom = scrollbar.value() >= (scrollbar.maximum() - 20)
-                if at_bottom:
-                    scrollbar.setValue(scrollbar.maximum())
+            if 0 <= self.current_page_index < len(self.log_outputs):
+                log_widget = self.log_outputs[self.current_page_index]
+                if log_widget and isinstance(log_widget, customtkinter.CTkTextbox):
+                    log_widget.configure(state="normal")
+                    log_widget.insert("end", f"{text}\n")
+                    log_widget.see("end") # Autoscroll
+                    log_widget.configure(state="disabled")
         except Exception:
             logger.exception("Error in _append_log_output_slot")
 
 
-    def _on_status_signal(self, is_protected: bool):
-        """Slot to update shield & status text; always runs on the Qt thread."""
+    def set_status(self, is_protected: bool):
+        """Slot to update shield & status text; always runs on the Tk thread."""
         try:
             if hasattr(self, 'shield_widget') and self.shield_widget:
                 self.shield_widget.set_status(bool(is_protected))
             if hasattr(self, 'status_text') and self.status_text:
-                self.status_text.setText(
-                    "System protected!" if is_protected else "System unprotected!..."
-                )
-                self.status_text.setObjectName(
-                    "page_subtitle" if is_protected else "page_subtitle_busy"
-                )
-                self.status_text.setStyle(self.style())
+                text = "System protected!" if is_protected else "System unprotected!..."
+                color = _rgb_to_hex(COLOR_SUCCESS) if is_protected else _rgb_to_hex(COLOR_WARNING)
+                self.status_text.configure(text=text, text_color=color)
         except Exception:
-            logger.exception("Error in _on_status_signal")
+            logger.exception("Error in set_status")
 
 
     def _on_progress_signal(self, value: float):
-        """Receive progress updates (0.0..1.0) and update shield / progress bar."""
+        """Receive progress updates (0.0..1.0) and update progress bar."""
         try:
-            if hasattr(self, 'shield_widget') and self.shield_widget:
-                self.shield_widget.set_check_progress(float(value))
-            if hasattr(self, 'defs_progress_bar') and isinstance(self.defs_progress_bar, QProgressBar):
-                v = int(max(0, min(100, value * 100)))
-                self.defs_progress_bar.setValue(v)
+            if hasattr(self, 'defs_progress_bar') and isinstance(self.defs_progress_bar, customtkinter.CTkProgressBar):
+                self.defs_progress_bar.set(float(value))
         except Exception:
             logger.exception("Error in _on_progress_signal")
 
@@ -293,93 +408,57 @@ class AntivirusApp(QWidget):
     # Logging wrapper
     # ---------------------------
     def append_log_output(self, text: str):
-        """Thread-safe/log-safe way to append logs to UI via signal."""
+        """Thread-safe/log-safe way to append logs to UI via self.after."""
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             formatted = f"{timestamp} {text}"
-            self.log_signal.emit(formatted)
+            # self.after schedules the callback on the main Tkinter thread
+            self.after(0, self._append_log_output_slot, formatted)
             logger.info(text)
         except Exception:
             logger.exception("append_log_output failed")
 
     # ---------------------------
-    # Stylesheet
-    # ---------------------------
-    def apply_extreme_stylesheet(self):
-        stylesheet = """
-            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial; font-size: 14px; }
-            QTextEdit { background-color: #3B4252; border: 2px solid #4C566A; border-radius: 10px; padding: 12px; color: #ECEFF4; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
-            QTextEdit:focus { border: 2px solid #88C0D0; }
-            #sidebar { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2E3440, stop:1 #232831); max-width:240px; border-right:1px solid #4C566A; }
-            #logo { color: #88C0D0; font-size: 32px; font-weight: bold; letter-spacing:2px; }
-            #nav_button { background-color: transparent; border: none; color:#D8DEE9; padding:14px 16px; text-align:left; border-radius:8px; font-size:13px; font-weight:500; margin:2px 8px; }
-            #nav_button:hover { background-color: #434C5E; color: #ECEFF4; }
-            #nav_button:checked { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #88C0D0, stop:1 #81A1C1); color:#2E3440; font-weight:bold; }
-            #page_title { font-size: 32px; font-weight: 300; color: #ECEFF4; padding-bottom: 20px; letter-spacing:1px; }
-            #page_subtitle { font-size: 18px; color: #A3BE8C; font-weight: 500; }
-            #page_subtitle_busy { font-size: 18px; color: #EBCB8B; font-weight: 500; }
-            #version_label { font-size: 13px; color: #81A1C1; font-weight: 400; }
-            #action_button { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #5E81AC,stop:1 #5273A0); color:#ECEFF4; border-radius:10px; padding:14px 24px; font-size:14px; font-weight:bold; border:none; min-width:180px; }
-            #action_button:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #81A1C1,stop:1 #6B8DB8); }
-            #action_button:pressed { background: #4C6A94; }
-            #action_button:disabled { background: #4C566A; color: #8F9AA8; }
-            #status_card { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3B4252, stop:1 #343D4C); border:2px solid #4C566A; border-radius:12px; padding:15px; }
-            QProgressBar { border:2px solid #4C566A; border-radius:8px; text-align:center; background-color:#3B4252; color:#ECEFF4; height:10px; }
-            QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #88C0D0, stop:0.5 #81A1C1, stop:1 #5E81AC); border-radius:6px; margin:1px; }
-        """
-        self.setStyleSheet(stylesheet)
-
-    # ---------------------------
     # Task runner utilities
     # ---------------------------
     def _update_ui_for_task_start(self, task_name: str):
-        """Update UI when a task starts."""
+        """Update UI when a task starts (runs on Tk thread)."""
         try:
             self.append_log_output(f"[*] Task '{task_name}' started.")
-            self.status_signal.emit(False)
+            self.set_status(False)
             if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
-                try:
-                    self.task_buttons[task_name].setEnabled(False)
-                except Exception:
-                    logger.exception("Failed to disable task button")
+                self.task_buttons[task_name].configure(state="disabled")
         except Exception:
             logger.exception("_update_ui_for_task_start failed")
 
 
     def _update_ui_for_task_end(self, task_name: str):
-        """Update UI when a task ends."""
+        """Update UI when a task ends (runs on Tk thread)."""
         try:
             self.append_log_output(f"[+] Task '{task_name}' finished.")
-            # Only set shield to protected if no active tasks remain
             if not self.active_tasks:
-                self.status_signal.emit(True)
+                self.set_status(True)
 
             if hasattr(self, 'task_buttons') and task_name in self.task_buttons:
-                try:
-                    self.task_buttons[task_name].setEnabled(True)
-                except Exception:
-                    logger.exception("Failed to enable task button")
+                self.task_buttons[task_name].configure(state="normal")
 
             if task_name == 'update_definitions' and self.defs_label:
-                try:
-                    self.defs_label.setText(get_latest_clamav_def_time())
-                except Exception:
-                    logger.exception("Failed to update defs_label text")
+                self.defs_label.configure(text=get_latest_clamav_def_time())
         except Exception:
             logger.exception("_update_ui_for_task_end failed")
 
 
     async def run_task(self, task_name: str, coro_or_func, *args, is_async: bool = True):
         """
-        Run an async coroutine, async generator, or blocking function on a background thread.
-        Handles UI updates safely via Qt signals and QTimer.
+        Run an async coroutine, async generator, or blocking function.
+        Handles UI updates safely via self.after().
         """
         if task_name in self.active_tasks:
             self.append_log_output(f"[*] Task '{task_name}' already running.")
             return
 
         self.active_tasks.add(task_name)
-        QTimer.singleShot(0, lambda: self._update_ui_for_task_start(task_name))
+        self.after(0, self._update_ui_for_task_start, task_name)
 
         try:
             if is_async:
@@ -393,6 +472,7 @@ class AntivirusApp(QWidget):
                     if msg:
                         self.append_log_output(str(msg))
             else:
+                # Run blocking function in a separate thread
                 await asyncio.to_thread(coro_or_func, *args)
         except asyncio.CancelledError:
             self.append_log_output(f"[!] Task '{task_name}' was cancelled.")
@@ -403,27 +483,27 @@ class AntivirusApp(QWidget):
         finally:
             if task_name in self.active_tasks:
                 self.active_tasks.remove(task_name)
-            QTimer.singleShot(0, lambda: self._update_ui_for_task_end(task_name))
+            self.after(0, self._update_ui_for_task_end, task_name)
 
+    # ---------------------------
+    # Sync (blocking) tasks - (No changes needed)
+    # ---------------------------
+    
     def _update_definitions_sync(self):
-        """Update both ClamAV and Hayabusa rules, blocking (thread-safe)."""
         self._update_definitions_clamav_sync()
         self._update_definitions_hayabusa_sync()
 
     def _update_definitions_clamav_sync(self):
-        """Blocking freshclam update, run inside a thread."""
         self.append_log_output("[*] Checking virus definitions (ClamAV)...")
         try:
             if not os.path.exists(freshclam_path):
                 self.append_log_output(f"[!] freshclam not found at '{freshclam_path}'")
                 return False
-
             needs_update = any(
                 not os.path.exists(fp) or
                 (datetime.now() - datetime.fromtimestamp(os.path.getmtime(fp))) > timedelta(hours=12)
                 for fp in clamav_file_paths
             )
-
             if needs_update:
                 self.append_log_output("[*] Running freshclam update...")
                 proc = subprocess.Popen(
@@ -433,14 +513,12 @@ class AntivirusApp(QWidget):
                     text=True, encoding="utf-8", errors="ignore"
                 )
                 stdout, stderr = proc.communicate()
-
                 if stdout:
                     for line in stdout.splitlines():
                         self.append_log_output(line)
                 if stderr:
                     for line in stderr.splitlines():
                         self.append_log_output(f"[!] {line}")
-
                 if proc.returncode == 0:
                     reload_clamav_database()
                     self.append_log_output("[+] Virus definitions updated successfully.")
@@ -451,23 +529,19 @@ class AntivirusApp(QWidget):
             else:
                 self.append_log_output("[*] ClamAV definitions are already up to date.")
                 return True
-
         except Exception:
             self.append_log_output(f"[!] ClamAV update error: {traceback.format_exc()}")
             logger.exception("ClamAV update failed")
             return False
 
     def _update_definitions_hayabusa_sync(self):
-        """Blocking Hayabusa rules update, run inside a thread."""
         self.append_log_output("[*] Updating Hayabusa rules...")
         try:
             if not os.path.exists(hayabusa_path):
                 self.append_log_output(f"[!] Hayabusa executable not found at: {hayabusa_path}")
                 return False
-
             cmd = [hayabusa_path, "update-rules"]
             self.append_log_output(f"[*] Running command: {' '.join(cmd)}")
-
             process = subprocess.Popen(
                 cmd,
                 cwd=os.path.dirname(hayabusa_path),
@@ -475,7 +549,6 @@ class AntivirusApp(QWidget):
                 stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="ignore"
             )
-
             stdout, stderr = process.communicate()
             if stdout:
                 for line in stdout.splitlines():
@@ -483,365 +556,343 @@ class AntivirusApp(QWidget):
             if stderr:
                 for line in stderr.splitlines():
                     self.append_log_output(f"[Hayabusa Update ERR] {line}")
-
             if process.returncode == 0:
                 self.append_log_output("[+] Hayabusa rules update completed successfully!")
                 return True
             else:
                 self.append_log_output(f"[!] Hayabusa rules update failed (code {process.returncode})")
                 return False
-
         except Exception:
             self.append_log_output(f"[!] Error updating Hayabusa rules: {traceback.format_exc()}")
             logger.exception("Exception during Hayabusa rule update")
             return False
 
-    # ---------------------------
-    # Button handlers (asyncSlots)
-    # ---------------------------
-    @asyncSlot()
-    async def on_update_definitions_clicked(self):
-        await self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
 
     # ---------------------------
-    # UI Pages / layout creation (kept mostly as before)
+    # Button handlers
     # ---------------------------
-    def create_status_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(30)
+    def on_update_definitions_clicked(self):
+        asyncio.create_task(
+            self.run_task('update_definitions', self._update_definitions_sync, is_async=False)
+        )
 
-        main_area = QHBoxLayout()
-        main_area.setSpacing(40)
+    # ---------------------------
+    # UI Pages / layout creation (Rewritten for CTk + .place())
+    # ---------------------------
+    def create_status_page(self, parent):
+        page = customtkinter.CTkFrame(parent, fg_color="transparent")
+        
+        # Use .place() for layout to allow animation
+        
+        # Shield Widget Area
+        shield_frame = customtkinter.CTkFrame(page, fg_color="transparent")
+        shield_frame.place(relx=0, rely=0.5, relwidth=0.4, relheight=1.0, anchor="w")
+        
+        self.shield_widget = ShieldWidget(shield_frame, size=250)
+        self.shield_widget.pack(expand=True, anchor="center", padx=40, pady=40)
 
-        self.shield_widget = ShieldWidget()
-        main_area.addWidget(self.shield_widget, 2)
+        # Status Text Area
+        status_vbox = customtkinter.CTkFrame(page, fg_color="transparent")
+        status_vbox.place(relx=0.45, rely=0.5, relwidth=0.55, relheight=1.0, anchor="w")
+        
+        title = customtkinter.CTkLabel(
+            status_vbox,
+            text="System Status",
+            font=("Segoe UI", 32, "normal"),
+            text_color=COLOR_TEXT_EMPHASIS
+        )
+        title.pack(anchor="w", pady=(0, 20))
 
-        status_vbox = QVBoxLayout()
-        status_vbox.addStretch()
+        self.status_text = customtkinter.CTkLabel(
+            status_vbox,
+            text="Initializing...",
+            font=("Segoe UI", 18, "bold"),
+            text_color=_rgb_to_hex(COLOR_WARNING)
+        )
+        self.status_text.pack(anchor="w")
 
-        title = QLabel("System Status")
-        title.setObjectName("page_title")
-        self.status_text = QLabel("Initializing...")
-        self.status_text.setObjectName("page_subtitle_busy")
+        customtkinter.CTkFrame(status_vbox, height=30, fg_color="transparent").pack()
 
-        version_label = QLabel(WINDOW_TITLE)
-        version_label.setObjectName("version_label")
+        version_label = customtkinter.CTkLabel(
+            status_vbox,
+            text=WINDOW_TITLE,
+            font=("Segoe UI", 13),
+            text_color=COLOR_ACCENT_ALT
+        )
+        version_label.pack(anchor="w")
 
-        self.defs_label = QLabel(get_latest_clamav_def_time())
-        self.defs_label.setObjectName("version_label")
-
-        status_vbox.addWidget(title)
-        status_vbox.addWidget(self.status_text)
-        status_vbox.addSpacing(30)
-        status_vbox.addWidget(version_label)
-        status_vbox.addWidget(self.defs_label)
-        status_vbox.addStretch()
-
-        main_area.addLayout(status_vbox, 3)
-        layout.addLayout(main_area)
-        layout.addStretch()
-
+        self.defs_label = customtkinter.CTkLabel(
+            status_vbox,
+            text=get_latest_clamav_def_time(),
+            font=("Segoe UI", 13),
+            text_color=COLOR_ACCENT_ALT
+        )
+        self.defs_label.pack(anchor="w")
+        
         self.log_outputs.append(None)
         return page
 
-    def create_task_page(self, title_text, main_task_name, main_button_text, additional_tasks=None):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+    def create_task_page(self, parent, title_text, main_task_name, main_button_text):
+        page = customtkinter.CTkFrame(parent, fg_color="transparent")
+        
+        # Use .place()
+        
+        # Header
+        title = customtkinter.CTkLabel(
+            page,
+            text=title_text,
+            font=("Segoe UI", 32, "normal"),
+            text_color=COLOR_TEXT_EMPHASIS
+        )
+        title.place(relx=0, rely=0, x=30, y=30)
 
-        if not hasattr(self, 'task_buttons'):
-            self.task_buttons = {}
-
-        header_layout = QHBoxLayout()
-        title = QLabel(title_text)
-        title.setObjectName("page_title")
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
-
-        button_container = QHBoxLayout()
-        button_container.setSpacing(15)
-
-        main_button = QPushButton(main_button_text)
-        main_button.setObjectName("action_button")
+        # Button container
+        button_container = customtkinter.CTkFrame(page, fg_color="transparent")
+        button_container.place(relx=0, rely=0, x=30, y=90, relwidth=1)
+        
+        main_button = customtkinter.CTkButton(
+            button_container,
+            text=main_button_text,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=COLOR_ACTION,
+            hover_color=COLOR_ACTION_HOVER,
+            text_color=COLOR_TEXT_EMPHASIS,
+            corner_radius=10,
+            height=40,
+        )
+        main_button.pack(side="left", padx=(0, 15))
+        
         self.task_buttons[main_task_name] = main_button
 
         if main_task_name == 'update_definitions':
-            main_button.clicked.connect(self.on_update_definitions_clicked)
+            main_button.configure(command=self.on_update_definitions_clicked)
         else:
-            main_button.setEnabled(False)
+            main_button.configure(state="disabled")
 
-        button_container.addWidget(main_button)
-
-        if additional_tasks:
-            for btn_text, task_info in additional_tasks.items():
-                task_name = task_info['name']
-                is_async = task_info['is_async']
-                func = task_info['func']
-
-                extra_btn = QPushButton(btn_text)
-                extra_btn.setObjectName("action_button")
-                self.task_buttons[task_name] = extra_btn
-
-                extra_btn.clicked.connect(
-                    lambda checked=False, tn=task_name, f=func, ia=is_async:
-                    asyncio.create_task(self.run_task(tn, f, is_async=ia))
-                )
-                button_container.addWidget(extra_btn)
-
-        button_container.addStretch()
-        layout.addLayout(button_container)
-
-        log_output = QTextEdit(f"{title_text} logs will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
+        # Log Output
+        log_output = customtkinter.CTkTextbox(
+            page,
+            font=("JetBrains Mono", 13),
+            border_width=2,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_BG_LIGHT,
+            text_color=COLOR_TEXT_EMPHASIS,
+            corner_radius=10,
+        )
+        log_output.place(relx=0, rely=0, x=30, y=150, relwidth=1, relheight=1, relx2=-30, rely2=-30)
+        log_output.insert("1.0", f"{title_text} logs will appear here...")
+        log_output.configure(state="disabled") # Make read-only
 
         self.log_outputs.append(log_output)
         return page
 
-    def create_about_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(25)
+    def create_about_page(self, parent):
+        page = customtkinter.CTkFrame(parent, fg_color="transparent")
 
-        title = QLabel("About HydraDragon")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
+        title = customtkinter.CTkLabel(
+            page,
+            text="About HydraDragon",
+            font=("Segoe UI", 32, "normal"),
+            text_color=COLOR_TEXT_EMPHASIS
+        )
+        title.place(relx=0, rely=0, x=40, y=40)
+        
+        about_text = customtkinter.CTkLabel(
+            page,
+            text="HydraDragon Antivirus - Open Source Antivirus with Advanced Real-Time Protection.",
+            font=("Segoe UI", 15),
+            wraplength=800,
+            justify="left"
+        )
+        about_text.place(relx=0, rely=0, x=40, y=110)
 
-        about_text = QLabel("HydraDragon Antivirus - Open Source Antivirus with Advanced Real-Time Protection.")
-        about_text.setWordWrap(True)
-        about_text.setStyleSheet("font-size: 15px; line-height: 1.6;")
-        layout.addWidget(about_text)
-
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(15)
-
-        github_button = QPushButton("View on GitHub")
-        github_button.setObjectName("action_button")
-        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
-        buttons_layout.addWidget(github_button)
-
-        buttons_layout.addStretch()
-        layout.addLayout(buttons_layout)
-        layout.addStretch()
-
+        github_button = customtkinter.CTkButton(
+            page,
+            text="View on GitHub",
+            font=("Segoe UI", 14, "bold"),
+            fg_color=COLOR_ACTION,
+            hover_color=COLOR_ACTION_HOVER,
+            text_color=COLOR_TEXT_EMPHASIS,
+            corner_radius=10,
+            height=40,
+            command=lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus")
+        )
+        github_button.place(relx=0, rely=0, x=40, y=170)
+        
         self.log_outputs.append(None)
         return page
 
     def create_main_content(self):
-        self.main_stack = QStackedWidget()
-        self.main_stack.addWidget(self.create_status_page())
+        """Creates the frame to hold all pages (replaces QStackedWidget)."""
+        self.main_stack_frame = customtkinter.CTkFrame(self, fg_color=COLOR_BG, corner_radius=0)
+        self.main_stack_frame.grid(row=0, column=1, sticky="nsew")
 
-        self.main_stack.addWidget(self.create_task_page(
-            "Updates",
-            main_task_name='update_definitions',
-            main_button_text="Update Definitions",
-        ))
-
-        self.main_stack.addWidget(self.create_about_page())
-        return self.main_stack
-
-    # helper factory so handler does not return a Task (prevents double-scheduling)
-    def _make_nav_handler(self, idx: int):
-        def _handler(checked=False):
-            coro = self.switch_page_with_animation(idx)  # THIS IS A COROUTINE OBJECT
-            asyncio.create_task(coro)  # now it's safe
-            return None
-        return _handler
-
-
-    def create_sidebar(self):
-        sidebar_frame = QFrame()
-        sidebar_frame.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(15, 25, 15, 25)
-        sidebar_layout.setSpacing(8)
-
-        logo_area = QHBoxLayout()
-        logo_area.setSpacing(12)
-
-        # HydraIconWidget should exist in your file
-        try:
-            icon_widget = HydraIconWidget(sidebar_frame)
-            icon_widget.setFixedSize(40, 40)
-        except Exception:
-            icon_widget = QLabel("H")  # fallback
-
-        logo_label = QLabel("HYDRA")
-        logo_label.setObjectName("logo")
-
-        logo_area.addWidget(icon_widget)
-        logo_area.addWidget(logo_label)
-        logo_area.addStretch()
-
-        sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(30)
-
-        # Use Unicode escape sequences instead of literal emoji characters
-        house = '\U0001F3E0'   # 🏠
-        sync = '\u21BB'        # ↻ (clockwise open circle arrow)
-        info = '\u2139'        # ℹ (information source)
-        nav_buttons = [(house, "Status"), (sync, "Updates"), (info, "About")]
-
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
-
-        for i, (icon, name) in enumerate(nav_buttons):
-            button = QPushButton(f"{icon}  {name}")
-            button.setCheckable(True)
-            button.setObjectName("nav_button")
-            # use handler factory so slot does not return a Task
-            button.clicked.connect(self._make_nav_handler(i))
-            sidebar_layout.addWidget(button)
-            self.nav_group.addButton(button, i)
-
-        first_button = self.nav_group.button(0)
-        if first_button:
-            first_button.setChecked(True)
-
-        sidebar_layout.addStretch()
-
-        return sidebar_frame
-
-    def setup_ui_fast(self):
-        """Create widgets and layout — no heavy I/O or icon loads."""
-        self.setWindowTitle(WINDOW_TITLE)
-        self.setMinimumSize(550, 400)
-        self.resize(1400, 900)
-
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1)
-
-    def finish_ui_setup(self):
-        """Perform heavy UI initialization after the window shows (non-async, Qt-thread safe)."""
-        if os.path.exists(icon_path):
-            self.icon_thread = QThread()
-            self.icon_worker = IconLoaderWorker(icon_path)
-            self.icon_worker.moveToThread(self.icon_thread)
-
-            # Run worker when thread starts
-            self.icon_thread.started.connect(self.icon_worker.run)
-
-            # Worker signals
-            self.icon_worker.finished.connect(self._on_icon_loaded)
-            self.icon_worker.error.connect(self._on_icon_error)
-
-            # Cleanup: do not delete worker until after finished signal is fully processed
-            def cleanup():
-                # Schedule deletion in Qt event loop to avoid race conditions
-                self.icon_worker.deleteLater()
-                self.icon_thread.quit()
-                self.icon_thread.deleteLater()
-
-            self.icon_worker.finished.connect(cleanup)
-            self.icon_worker.error.connect(cleanup)
-
-            self.icon_thread.start()
-        else:
-            logger.debug(f"Icon file not found at: {icon_path}")
-
-        # --- Optional: load HydraIconWidget resources ---
-        try:
-            if hasattr(self, "icon_widget") and hasattr(self.icon_widget, "load_resources"):
-                QTimer.singleShot(0, self.icon_widget.load_resources)
-        except Exception:
-            logger.exception("Error finishing HydraIconWidget setup")
-
-        logger.info("UI setup finalized (icons, resources, etc.)")
-
-
-    def _on_icon_loaded(self, icon: QIcon):
-        """Called when icon successfully loaded in background thread."""
-        try:
-            self.setWindowIcon(icon)
-            logger.debug(f"Window icon applied from: {icon_path}")
-        except Exception:
-            logger.exception("Failed to apply window icon")
-
-
-    def _on_icon_error(self, err: str):
-        """Called if icon loading failed."""
-        logger.error(f"Error loading window icon: {err}")
+        # Create pages
+        self.pages = [
+            self.create_status_page(self.main_stack_frame),
+            self.create_task_page(
+                self.main_stack_frame,
+                "Updates",
+                main_task_name='update_definitions',
+                main_button_text="Update Definitions",
+            ),
+            self.create_about_page(self.main_stack_frame)
+        ]
+        
+        # Place all pages; we'll use .place() to animate
+        for page in self.pages:
+            page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
 
     # ---------------------------
     # Page switching animations
     # ---------------------------
     async def switch_page_with_animation(self, index: int):
-        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
-                self.main_stack.currentIndex() == index):
+        if self.current_page_index == index or self.is_page_animating:
             return
+            
+        self.is_page_animating = True
+        
+        current_page = self.pages[self.current_page_index]
+        next_page = self.pages[index]
+        
+        self.current_page_index = index
+        next_page.tkraise()
+        
+        # Place next page to the right, current page at 0
+        current_page.place(relx=0.0, rely=0, relwidth=1.0, relheight=1.0)
+        next_page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
 
-        current_widget = self.main_stack.currentWidget()
-        next_widget = self.main_stack.widget(index)
+        start_time = self.loop_time
+        duration = 0.3 # 300ms slide animation
+        
+        while True:
+            await asyncio.sleep(0.01)
+            
+            elapsed = self.loop_time - start_time
+            t = min(elapsed / duration, 1.0)
+            
+            # Ease out quad
+            t = 1.0 - (1.0 - t) * (1.0 - t)
+            
+            current_page.place(relx=-t, rely=0, relwidth=1.0, relheight=1.0)
+            next_page.place(relx=1.0 - t, rely=0, relwidth=1.0, relheight=1.0)
+            
+            if elapsed >= duration:
+                break
+                
+        current_page.place(relx=1.0, rely=0, relwidth=1.0, relheight=1.0)
+        next_page.place(relx=0.0, rely=0, relwidth=1.0, relheight=1.0)
+        self.is_page_animating = False
 
-        current_opacity_anim = QPropertyAnimation(current_widget, b"windowOpacity")
-        current_opacity_anim.setDuration(250)
-        current_opacity_anim.setStartValue(1.0)
-        current_opacity_anim.setEndValue(0.0)
-        current_opacity_anim.finished.connect(current_widget.hide)
+    def _make_nav_handler(self, idx: int):
+        """Factory to create a navigation button handler."""
+        def _handler(animate=True):
+            if animate:
+                asyncio.create_task(self.switch_page_with_animation(idx))
+            else:
+                # No animation, just snap to page
+                if self.pages:
+                    page_to_show = self.pages[idx]
+                    page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
+                    page_to_show.tkraise()
+                    self.current_page_index = idx
+            
+            # Update button visual state
+            for i, btn in enumerate(self.nav_buttons):
+                if i == idx:
+                    btn.configure(
+                        fg_color=COLOR_ACCENT, 
+                        text_color=COLOR_BG_DARK,
+                        font=("Segoe UI", 13, "bold")
+                    )
+                else:
+                    btn.configure(
+                        fg_color="transparent", 
+                        text_color=COLOR_TEXT,
+                        font=("Segoe UI", 13, "normal")
+                    )
+        return _handler
 
-        next_opacity_anim = QPropertyAnimation(next_widget, b"windowOpacity")
-        next_opacity_anim.setDuration(250)
-        next_opacity_anim.setStartValue(0.0)
-        next_opacity_anim.setEndValue(1.0)
 
-        next_widget.setWindowOpacity(0.0)
-        self.main_stack.setCurrentIndex(index)
-        next_widget.show()
-        next_widget.raise_()
+    def create_sidebar(self):
+        sidebar_frame = customtkinter.CTkFrame(
+            self, 
+            width=240, 
+            fg_color=COLOR_BG_DARK, 
+            border_width=1, 
+            border_color=COLOR_BORDER,
+            corner_radius=0
+        )
+        sidebar_frame.grid(row=0, column=0, sticky="nsw")
+        sidebar_frame.grid_propagate(False)
+        sidebar_frame.grid_rowconfigure(4, weight=1)
 
-        self.animation_group = QParallelAnimationGroup()
-        self.animation_group.addAnimation(current_opacity_anim)
-        self.animation_group.addAnimation(next_opacity_anim)
-        self.animation_group.finished.connect(self._on_animation_finished)
-        self.animation_group.start()
+        logo_frame = customtkinter.CTkFrame(sidebar_frame, fg_color="transparent")
+        logo_frame.grid(row=0, column=0, padx=15, pady=25, sticky="ew")
 
-    def _on_animation_finished(self):
-        current_widget = self.main_stack.currentWidget()
-        if current_widget:
-            current_widget.setWindowOpacity(1.0)
+        if os.path.exists(icon_path):
+            try:
+                icon_image = customtkinter.CTkImage(Image.open(icon_path), size=(40, 40))
+                icon_label = customtkinter.CTkLabel(logo_frame, image=icon_image, text="")
+                icon_label.pack(side="left", padx=(0, 12))
+            except Exception as e:
+                logger.error(f"Failed to load sidebar icon: {e}")
+        
+        logo_label = customtkinter.CTkLabel(
+            logo_frame, 
+            text="HYDRA", 
+            font=("Segoe UI", 32, "bold"), 
+            text_color=COLOR_ACCENT
+        )
+        logo_label.pack(side="left")
+        
+        house = '\U0001F3E0'
+        sync = '\u21BB'
+        info = '\u2139'
+        nav_buttons_data = [(house, "Status"), (sync, "Updates"), (info, "About")]
+        
+        self.nav_buttons = []
+        for i, (icon, name) in enumerate(nav_buttons_data):
+            button = customtkinter.CTkButton(
+                sidebar_frame,
+                text=f"{icon}   {name}",
+                font=("Segoe UI", 13, "normal"),
+                fg_color="transparent",
+                hover_color=COLOR_BG_LIGHT,
+                text_color=COLOR_TEXT,
+                corner_radius=8,
+                height=40,
+                anchor="w",
+                command=self._make_nav_handler(i)
+            )
+            button.grid(row=i+1, column=0, sticky="ew", padx=15, pady=2)
+            self.nav_buttons.append(button)
+        
+        return sidebar_frame
 
-    # ---------------------------
-    # Window event handlers
-    # ---------------------------
-    def closeEvent(self, event):
-        event.ignore()
-        self.hide()
-        self.append_log_output("[*] Application minimized (window hidden)")
 
 async def main():
-    # --- QApplication + qasync event loop ---
-    app = QApplication(sys.argv)
-    loop = QEventLoop(app)
-    asyncio.set_event_loop(loop)
-
     # --- Create main window ---
     window = AntivirusApp()
-    window.setup_ui_fast()
-    window.show()
-    window.finish_ui_setup()
-    window.status_signal.emit(True)
 
     # --- Start background protection safely ---
     async def launch_protection():
         try:
-            # Use asyncio.create_task for each component
             await start_real_time_protection_async()
         except Exception:
             logger.exception("Real-time protection failed")
 
     asyncio.create_task(launch_protection())
 
-    # --- Start Qt event loop integrated with asyncio ---
-    exit_code = await app.exec()
-    sys.exit(exit_code)
+    # --- Start main async loop ---
+    await window.mainloop_async()
 
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Application shut down by user.")
+    except Exception as e:
+        logger.critical(f"Unhandled exception in main: {e}", exc_info=True)
+        sys.exit(1)
