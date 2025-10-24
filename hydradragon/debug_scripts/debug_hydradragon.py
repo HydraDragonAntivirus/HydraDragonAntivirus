@@ -111,12 +111,19 @@ async def async_main():
         from hydradragon.engine import main as hydra_main
         print("[Launcher] Import successful.")
         
-        # Run the main application
-        print("[Launcher] --- Starting HydraDragon main() ---")
+        # Import QApplication (needed by main)
+        from PySide6.QtWidgets import QApplication
+        
+        # Create QApplication for hydra_main
+        print("[Launcher] Creating QApplication...")
+        app = QApplication(sys.argv)
+        
+        # Run the main application with app parameter
+        print("[Launcher] --- Starting HydraDragon main(app) ---")
         main_app_started = True
         
         # Run main app with shutdown monitoring
-        hydra_task = asyncio.create_task(hydra_main())
+        hydra_task = asyncio.create_task(hydra_main(app))
         
         # Wait for either the app to finish or shutdown signal
         done, pending = await asyncio.wait(

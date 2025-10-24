@@ -8,6 +8,7 @@ import traceback
 import webbrowser
 import subprocess
 import csv
+import signal
 import aiofiles
 from qasync import QEventLoop, asyncSlot
 
@@ -923,47 +924,66 @@ class AntivirusApp(QWidget):
         self.append_log_output("[*] Application minimized (window hidden)")
 
 async def main():
+    """Unified async main entry point for HydraDragon Engine (PySide6 version)."""
+    app = None
+    exit_code = 0
+
     try:
-        app = QApplication(sys.argv)
+        # Ensure log directory exists
+        try:
+            os.makedirs(log_directory, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
 
-        # --- qasync setup ---
-        loop = QEventLoop(app)
-        asyncio.set_event_loop(loop)
-
-        window = AntivirusApp()
-        window.show()
-
-        # --- Start the event loop ---
-        logger.info("Starting asyncio event loop...")
-        await loop.run_forever_async()
-
-    except Exception as e:
-        logger.critical(f"Critical error during application startup: {e}", exc_info=True)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    # Ensure logs directory exists
-    try:
-        os.makedirs(log_directory, exist_ok=True)
-    except Exception as e:
-        # Fallback to stderr if logger isn't ready yet
-        print(f"Error creating log directory {log_directory}: {e}", file=sys.stderr)
-
-    # Top-level startup guarded so uncaught exceptions in main() are logged
-    try:
         logger.info("HydraDragon Engine starting up...")
         logger.info(f"Log directory: {log_directory}")
         logger.info(f"Working directory: {main_dir}")
 
-        # Run the async main function
-        asyncio.run(main())
-    except Exception:
-        # Log full traceback and exit with non-zero code
+        # Create QApplication first
+        logger.info("Creating QApplication...")
+        app = QApplication(sys.argv)
+
+        # Create qasync event loop after QApplication
+        logger.info("Creating qasync event loop...")
+        loop = QEventLoop(app)
+        asyncio.set_event_loop(loop)
+
+        # Create and show main window
+        logger.info("Creating main application window...")
+        window = AntivirusApp()
+        window.show()
+
+        logger.info("Main window shown, event loop running...")
+
+        # Keep the loop alive until shutdown
+        shutdown_event = asyncio.Event()
+
+        # Define signal handler
+        def signal_handler(signum, frame):
+            logger.info(f"Signal {signum} received, initiating shutdown...")
+            shutdown_event.set()
+
+        # Register signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
         try:
-            logger.critical("Unhandled exception in main():\n" + traceback.format_exc())
-        except Exception:
-            # If logger itself is broken, print to stderr as a last resort
-            print("Unhandled exception in main():", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
-        sys.exit(1)
+            signal.signal(signal.SIGTERM, signal_handler)
+        except AttributeError:
+            pass  # Windows may not have SIGTERM
+
+        # Wait for shutdown signal
+        await shutdown_event.wait()
+        logger.info("Shutdown signal received, cleaning up...")
+
+    except Exception as e:
+        logger.critical(f"Critical error in main(): {e}", exc_info=True)
+        exit_code = 1
+    finally:
+        logger.info("Main coroutine exiting")
+        if app:
+            try:
+                app.quit()
+            except Exception:
+                pass
+
+    logger.info(f"Application exiting with code {exit_code}")
+    return exit_code
