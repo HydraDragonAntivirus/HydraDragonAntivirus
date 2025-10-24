@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
 import customtkinter
-from PIL import Image
+from PIL import Image, ImageTk
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
