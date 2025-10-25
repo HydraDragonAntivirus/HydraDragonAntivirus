@@ -175,19 +175,34 @@ class AntivirusApp(customtkinter.CTk):
     # ---------------------------
     async def mainloop_async(self):
         """Drives both the asyncio event loop and the Tkinter UI."""
-        self.loop_time = asyncio.get_event_loop().time()
-        while self.is_running:
+        loop = asyncio.get_event_loop()
+        update_interval = 16  # ~60 FPS
+        
+        def tk_update():
+            if not self.is_running:
+                return
+            
             try:
-                # Update loop time for animations
-                self.loop_time = asyncio.get_event_loop().time()
-                
-                # Update Tkinter UI
+                self.loop_time = loop.time()
                 self.update_idletasks()
                 self.update()
+                
+                # Schedule next update
+                if self.is_running:
+                    self.after(update_interval, tk_update)
             except tkinter.TclError as e:
-                logger.warning(f"Tkinter error in mainloop: {e}. Stopping loop.")
+                logger.warning(f"Tkinter error: {e}")
                 self.is_running = False
-            
+        
+        # Start the update cycle
+        self.after(update_interval, tk_update)
+        
+        # Keep async loop alive
+        while self.is_running:
+            await asyncio.sleep(0.1)
+        
+        logger.info("Mainloop exited cleanly")
+        
     def on_closing(self):
         """Handle the window close event."""
         self.append_log_output("[*] Closing application...")
@@ -742,4 +757,3 @@ async def main():
 
     # --- Start main async loop ---
     await window.mainloop_async()
-

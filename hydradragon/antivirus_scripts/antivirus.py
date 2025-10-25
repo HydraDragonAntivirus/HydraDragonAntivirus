@@ -263,6 +263,9 @@ from wmi import WMI
 logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import pythoncom
+logger.debug"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
+start_time = time.time()
 
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
@@ -4219,8 +4222,10 @@ def validate_paths():
 # ============================================================================#
 # Windows Suricata-compatible interface detection
 # ============================================================================#
+# And simplify get_suricata_interfaces (no COM init needed):
 def get_suricata_interfaces():
     """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
+    # COM should already be initialized by monitor_interfaces()
     w = WMI()
     interfaces = []
     for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
@@ -4248,36 +4253,50 @@ def start_suricata_on_interface(iface):
 # ============================================================================#
 def monitor_interfaces():
     global running_processes, started_interfaces
-    while True:
-        interfaces = get_suricata_interfaces()
+    
+    # Initialize COM once for this thread
+    pythoncom.CoInitialize()
+    
+    try:
+        while True:
+            # Now WMI calls will work
+            interfaces = get_suricata_interfaces()
 
-        # Start Suricata for new interfaces
-        for iface in interfaces:
-            if iface not in started_interfaces:
-                proc = start_suricata_on_interface(iface)
-                started_interfaces.append(iface)
+            # Start Suricata for new interfaces
+            for iface in interfaces:
+                if iface not in started_interfaces:
+                    proc = start_suricata_on_interface(iface)
+                    started_interfaces.append(iface)
 
-        # Check for stopped processes
-        stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
-        for iface in stopped:
-            logger.warning(f"Suricata process for {iface} stopped unexpectedly")
-            del running_processes[iface]
-            if iface in started_interfaces:
+            # Check for stopped processes
+            stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
+            for iface in stopped:
+                logger.warning(f"Suricata process for {iface} stopped unexpectedly")
+                del running_processes[iface]
+                if iface in started_interfaces:
+                    started_interfaces.remove(iface)
+
+            # Remove interfaces that are no longer active
+            inactive = [iface for iface in started_interfaces if iface not in interfaces]
+            for iface in inactive:
+                logger.info(f"Interface {iface} no longer active, stopping Suricata")
+                if iface in running_processes:
+                    proc = running_processes[iface]
+                    if proc:
+                        try:
+                            proc.terminate()
+                        except Exception as e:
+                            logger.error(f"Error terminating process for {iface}: {e}")
+                    del running_processes[iface]
                 started_interfaces.remove(iface)
 
-        # Remove interfaces that are no longer active
-        inactive = [iface for iface in started_interfaces if iface not in interfaces]
-        for iface in inactive:
-            logger.info(f"Interface {iface} no longer active, stopping Suricata")
-            if iface in running_processes:
-                proc = running_processes[iface]
-                if proc:
-                    try:
-                        proc.terminate()
-                    except Exception as e:
-                        logger.error(f"Error terminating process for {iface}: {e}")
-                del running_processes[iface]
-            started_interfaces.remove(iface)
+            time.sleep(1)
+            
+    except Exception as e:
+        logger.error("Monitor interfaces error: %s", e, exc_info=True)
+    finally:
+        # Clean up COM
+        pythoncom.CoUninitialize()s
 
 async def suricata_callback():
     """
