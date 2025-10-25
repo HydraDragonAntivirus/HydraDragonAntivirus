@@ -11,8 +11,6 @@ import pywintypes
 import ctypes
 import asyncio
 from .hydra_logger import logger
-
-# Import notification functions (now assumed async)
 from .notify_user import (
     notify_user_mbr_alert,
     notify_user_self_defense_file,
@@ -353,10 +351,10 @@ async def _process_self_defense_alert(data: bytes):
         operation = alert_data.get("operation", "")
         target_pid = alert_data.get("target_pid", 0)
 
-        logger.critical(
-            f"Self-Defense Alert: {attack_type} - "
-            f"Process {attacker_path} (Attacker PID: {attacker_pid} Target PID: {target_pid}) "
-            f"attempted to tamper with {protected_file}"
+        logger.info(
+            f"Self-Defense Notifcation: {attack_type} - "
+            f"Process {attacker_path} (Detected PID: {attacker_pid} Target PID: {target_pid}) "
+            f"attempted to access with {protected_file}"
         )
 
         # Handle other attack types
