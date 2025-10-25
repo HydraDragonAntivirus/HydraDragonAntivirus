@@ -3,13 +3,13 @@
 
 import json
 import os
+import threading
+import ctypes
+import asyncio
 import win32file
 import win32pipe
 import win32api
-import winerror
 import pywintypes
-import ctypes
-import asyncio
 from .hydra_logger import logger
 from .notify_user import (
     notify_user_mbr_alert,
@@ -207,31 +207,52 @@ async def _process_threat_event(data: str):
     except Exception as e:
         logger.exception(f"Error processing threat event: {e}")
 
-# =========================
-# AV -> EDR (Threat Events)
-# =========================
-async def send_threat_event_to_edr(event: dict):
-    """AV side: send threat event to EDR (client)"""
-    try:
-        message = json.dumps(event).encode("utf-8")
-        pipe = win32file.CreateFile(
-            PIPE_AV_TO_EDR,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None
-        )
-        win32file.WriteFile(pipe, message)
-        win32file.CloseHandle(pipe)
-        logger.debug(f"[AV] Sent threat event to EDR: {event.get('file_path')}")
-    except pywintypes.error as e:
-        logger.warning(f"[AV] Cannot send threat event, pipe unavailable: {e}")
-
+# ------------------------------
+# Thread-safe AV -> EDR listener
+# ------------------------------
 async def monitor_threat_events_from_av():
-    """EDR side: listen for threat events FROM AV (server)"""
+    """
+    EDR side: listen for threat events FROM AV (server)
+    Runs ReadFile in a dedicated thread to avoid blocking main loop.
+    """
+    loop = asyncio.get_running_loop()
     logger.info(f"[EDR] Starting threat event listener on {PIPE_AV_TO_EDR}")
+
+    def pipe_thread(pipe, callback):
+        """Dedicated thread reading from the pipe."""
+        while True:
+            try:
+                hr, data = win32file.ReadFile(pipe, 4096)
+                if data:
+                    try:
+                        message = data.decode("utf-8", errors="replace")
+                        event = json.loads(message)
+                        asyncio.run_coroutine_threadsafe(callback(event), loop)
+                    except Exception as e:
+                        logger.error(f"[EDR] Failed processing AV event: {e}")
+            except pywintypes.error as e:
+                if e.winerror in [109, 232]:  # broken pipe
+                    logger.warning("[EDR] AV disconnected from pipe.")
+                    break
+                else:
+                    logger.error(f"[EDR] Windows API error in AV listener: {e}")
+                    break
+            except Exception as e:
+                logger.exception(f"[EDR] Unexpected error in AV listener thread: {e}")
+                break
+        try:
+            win32file.CloseHandle(pipe)
+        except Exception:
+            pass
+
+    async def handle_event(event):
+        """Process each incoming event asynchronously."""
+        file_path = event.get("file_path")
+        virus_name = event.get("virus_name")
+        is_malicious = event.get("is_malicious", False)
+        logger.info(f"[EDR] Received threat event: {file_path} - {virus_name} (malicious: {is_malicious})")
+        # add additional processing here...
+
     while True:
         pipe = None
         try:
@@ -240,20 +261,26 @@ async def monitor_threat_events_from_av():
                 win32pipe.PIPE_ACCESS_INBOUND,
                 win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                 win32pipe.PIPE_UNLIMITED_INSTANCES,
-                65536, 65536, 0, None
+                65536,
+                65536,
+                0,
+                None
             )
+            logger.info("[EDR] Waiting for AV to connect...")
             win32pipe.ConnectNamedPipe(pipe, None)
-            hr, data = win32file.ReadFile(pipe, 4096)
-            if data:
-                message = data.decode("utf-8", errors="replace")
-                event = json.loads(message)
-                logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
+            logger.info("[EDR] AV connected. Starting dedicated listener thread.")
+            
+            # Start dedicated reader thread
+            threading.Thread(target=pipe_thread, args=(pipe, handle_event), daemon=True).start()
+
         except Exception as e:
-            logger.error(f"[EDR] Threat listener error: {e}")
-        finally:
+            logger.exception(f"[EDR] Failed to create AV listener pipe: {e}")
             if pipe:
-                win32pipe.DisconnectNamedPipe(pipe)
-                win32file.CloseHandle(pipe)
+                try:
+                    win32file.CloseHandle(pipe)
+                except Exception:
+                    pass
+            await asyncio.sleep(1)  # wait a bit before retrying
 
 # ============================================================================#
 # MBR alert processing
