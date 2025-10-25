@@ -186,8 +186,12 @@ def run_rtp_in_thread_sync():
             logger.info("[+] RTP task finished.")
 
     def thread_target():
-        logger.info("[*] Starting RTP in new thread via asyncio.run...")
-        asyncio.run(rtp_runner())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        loop.create_task(start_real_time_protection_async())
+        
+        loop.run_forever()
 
     thread = threading.Thread(target=thread_target, daemon=True)
     thread.start()
