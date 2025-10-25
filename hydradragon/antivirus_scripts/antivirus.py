@@ -4296,7 +4296,7 @@ def monitor_interfaces():
         logger.error("Monitor interfaces error: %s", e, exc_info=True)
     finally:
         # Clean up COM
-        pythoncom.CoUninitialize()s
+        pythoncom.CoUninitialize()
 
 async def suricata_callback():
     """
