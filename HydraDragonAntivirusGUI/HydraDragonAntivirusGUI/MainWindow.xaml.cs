@@ -1,37 +1,56 @@
-﻿// MainWindow.xaml.cs
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
+using System.Windows.Media.Imaging;
 
 namespace HydraDragonAntivirusGUI
 {
     public partial class MainWindow : Window
     {
-        private readonly string _launcherProcessName = "HydraDragonLauncher"; // without .exe
+        private readonly string _scheduledTaskName = "HydraDragonAntivirus";
 
         public MainWindow()
         {
             InitializeComponent();
-
             UpdateProtectionUI();
         }
 
         private void UpdateProtectionUI()
         {
-            bool running = IsProcessRunning(_launcherProcessName);
-            txtStatus.Text = running ? "Protected — launcher is running" : "Unprotected — launcher not found";
+            bool running = IsScheduledTaskRunning(_scheduledTaskName);
 
-            if (running)
-                imgProtection.Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("hydradragon_protected.gif", UriKind.Relative));
-            else
-                imgProtection.Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("hydradragon_unprotected.gif", UriKind.Relative));
+            if (txtStatus != null)
+                txtStatus.Text = running
+                    ? "Protected — scheduled task is running"
+                    : "Unprotected — task not running";
+
+            if (imgProtection != null)
+            {
+                string gifPath = running
+                    ? "hydradragon_protected.gif"
+                    : "hydradragon_unprotected.gif";
+
+                imgProtection.Source = new BitmapImage(new Uri(gifPath, UriKind.Relative));
+            }
         }
 
-        private bool IsProcessRunning(string procNameWithoutExt)
+        private bool IsScheduledTaskRunning(string taskName)
         {
             try
             {
-                var procs = Process.GetProcessesByName(procNameWithoutExt);
-                return procs != null && procs.Length > 0;
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "schtasks",
+                    Arguments = $"/Query /TN \"{taskName}\" /FO LIST /V",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using Process proc = Process.Start(psi)!;
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit();
+
+                return output.Contains("Running");
             }
             catch
             {
@@ -40,3 +59,4 @@ namespace HydraDragonAntivirusGUI
         }
     }
 }
+

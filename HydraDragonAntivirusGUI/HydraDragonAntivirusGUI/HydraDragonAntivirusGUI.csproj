@@ -6,6 +6,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <PackageIcon>HydraDragonAVLogo.png</PackageIcon>
+    <ApplicationIcon>HydraDragonAV.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="HydraDragonAV.ico" />
+  </ItemGroup>
 
 </Project>

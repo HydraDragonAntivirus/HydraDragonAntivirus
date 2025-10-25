@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 from datetime import datetime, timedelta
 import threading
+import time
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -168,19 +169,23 @@ def run_rtp_in_thread_sync():
 # ---------------------------
 # Periodic Updates Loop
 # ---------------------------
-
-def run_periodic_updates_thread(update_interval_sec: float = 5.0):
+def run_periodic_updates_thread(update_interval_sec: int = 7200):
     """
-    Runs the update check periodically with a small delay to avoid 100% CPU usage.
+    Runs the update check periodically with a fixed interval.
     """
     logger.info(f"Starting periodic update thread (interval: {update_interval_sec}s)")
+    next_run = time.time()
+    
     while True:
         try:
             update_definitions_sync()
         except Exception:
             logger.exception("Error in periodic update thread loop")
         
-        # The loop continues immediately after update_definitions_sync completes.
+        # Calculate next run time
+        next_run += update_interval_sec
+        sleep_time = max(0, next_run - time.time())
+        time.sleep(sleep_time)
 
 # ---------------------------
 # Main Execution (Bootstrap)

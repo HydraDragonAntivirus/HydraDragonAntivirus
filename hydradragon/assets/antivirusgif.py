@@ -3,8 +3,8 @@ import math
 
 # Paths
 src_path = "HydraDragonAVLogo.png"
-protected_out = "hydra_protected.gif"
-unprotected_out = "hydra_unprotected.gif"
+protected_out = "hydradragon_protected.gif"
+unprotected_out = "hydradragon_unprotected.gif"
 
 # Load base image
 base = Image.open(src_path).convert("RGBA")
