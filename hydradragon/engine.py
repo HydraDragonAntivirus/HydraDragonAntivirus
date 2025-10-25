@@ -6,6 +6,7 @@ import os
 import asyncio
 import subprocess
 from datetime import datetime, timedelta
+import threading
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,15 +20,15 @@ from hydradragon.antivirus_scripts.antivirus import logger
 
 # --- Import paths ---
 from hydradragon.antivirus_scripts.path_and_variables import (
-    async_executor,
     freshclam_path,
     hayabusa_path,
     clamav_file_paths,
+    clamav_folder
 )
 
 # --- Import necessary functions from antivirus script ---
 from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async,  # Async function (not generator)
+    start_real_time_protection_async,
     reload_clamav_database,
     get_latest_clamav_def_time
 )
@@ -56,8 +57,17 @@ def update_definitions_clamav_sync():
 
         if needs_update:
             logger.info("[*] Definitions are older than 12 hours. Running freshclam update...")
+            
+            # --- Use the explicitly imported clamav_folder for CWD ---
+            if not clamav_folder:
+                 logger.error("[!] clamav_folder path is missing. Cannot run freshclam safely.")
+                 return False
+                 
+            logger.info(f"[*] CWD set to: {clamav_folder}")
+
             proc = subprocess.Popen(
                 [freshclam_path],
+                cwd=clamav_folder, 
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="ignore"
@@ -133,51 +143,80 @@ def update_definitions_sync():
         logger.info("--- Scheduled definition update finished ---")
         logger.info(f"Latest ClamAV Defs: {get_latest_clamav_def_time()}")
 
+# ---------------------------
+# Asynchronous Function Thread Wrapper (FORCING ASYNC INTO THREAD)
+# ---------------------------
+
+def run_rtp_in_thread_sync():
+    """
+    Wrapper to run the async real-time protection function in its own dedicated
+    event loop within a standard thread.
+    """
+    logger.info("[*] Starting RTP in new dedicated thread loop...")
+    try:
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the async function until it completes (effectively forever)
+        loop.run_until_complete(start_real_time_protection_async())
+    except Exception:
+        logger.exception("A critical RTP service task has failed within its thread.")
+    finally:
+        logger.info("[+] RTP thread finished.")
+
 
 # ---------------------------
-# Main Service Loops
+# Thread-based Service Loops (NO SLEEP)
 # ---------------------------
 
-async def run_periodic_updates(interval_seconds=3600):
+def run_periodic_updates_thread():
     """
-    Runs the update check every N seconds (default 1 hour = 3600s).
+    Runs the update check in a continuous tight loop inside a dedicated thread
+    with NO SLEEP, as requested.
     """
-    logger.info(f"Starting periodic update loop. Check interval: {interval_seconds} seconds.")
+    logger.info(f"Starting periodic update thread (AGGRESSIVE NO SLEEP).")
     while True:
         try:
-            # Run the blocking update functions in a separate thread
-            await asyncio.to_thread(update_definitions_sync)
+            # Run the blocking update function directly
+            update_definitions_sync() 
         except Exception:
-            logger.exception("Error in periodic update loop")
+            logger.exception("Error in periodic update thread loop")
         
-        logger.info(f"Update check complete. Sleeping for {interval_seconds} seconds...")
-        await asyncio.sleep(interval_seconds)
+        # The loop continues immediately after update_definitions_sync completes.
+
+# ---------------------------
+# Main Execution (Bootstrap)
+# ---------------------------
 
 async def main():
     """
     Main entry point for the headless EDR service.
+    This function's sole role is to start the fire-and-forget threads.
     """
-    loop = asyncio.get_event_loop()
-    loop.set_default_executor(async_executor)
     
     logger.info("--- HydraDragon EDR Service Starting ---")
 
     # 1. Run an initial update check immediately on start
-    #    Run in a thread so it doesn't block startup
+    #    Fire-and-forget thread.
     logger.info("Running initial definition update on startup...")
-    asyncio.create_task(asyncio.to_thread(update_definitions_sync))
+    threading.Thread(target=update_definitions_sync, daemon=True).start()
 
     # 2. Start the real-time protection
+    #    Fire-and-forget thread (forcing async logic into a thread).
     logger.info("Starting real-time protection...")
-    rtp_task = asyncio.create_task(start_real_time_protection_async())
+    threading.Thread(target=run_rtp_in_thread_sync, daemon=True).start()
 
-    # 3. Start the periodic update loop (check every 1 hour)
-    update_loop_task = asyncio.create_task(run_periodic_updates(interval_seconds=3600))
+    # 3. Start the periodic update loop
+    #    Fire-and-forget thread loop (NO SLEEP).
+    logger.info("Starting periodic update loop..")
+    threading.Thread(target=run_periodic_updates_thread, daemon=True).start()
 
-    # 4. Wait for tasks to complete (which they shouldn't, unless they crash)
-    #    This will keep the main coroutine alive.
+    # 4. Wait forever for the daemon threads to run.
     try:
-        await asyncio.gather(rtp_task, update_loop_task)
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        pass
     except Exception:
         logger.exception("A critical service task has failed.")
     finally:

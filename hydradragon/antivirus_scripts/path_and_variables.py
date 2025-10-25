@@ -7,8 +7,6 @@ import threading
 import ctypes
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-# Create a larger thread pool executor
-async_executor = ThreadPoolExecutor(max_workers=50)
 
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
