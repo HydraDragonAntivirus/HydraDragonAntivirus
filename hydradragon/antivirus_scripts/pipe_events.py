@@ -6,6 +6,7 @@ import os
 import win32file
 import win32pipe
 import win32api
+import winerror
 import pywintypes
 import ctypes
 import asyncio
@@ -168,13 +169,13 @@ async def _is_protected_path(candidate_path: str) -> bool:
 
 
 # ============================================================================#
-# Threat event processing
+# Threat event processing (AV -> EDR)
 # ============================================================================#
 
 async def _process_threat_event(data: str):
     """
-    Async version of threat event processing.
-    JSON parsing and path checks executed in threadpool where appropriate.
+    Process incoming threat events from HydraDragon AV.
+    Normalizes NT paths before processing.
     """
     try:
         # Parse JSON in thread
@@ -191,6 +192,7 @@ async def _process_threat_event(data: str):
         # Normalize path if it's an NT path
         if file_path:
             file_path = await normalize_nt_path(file_path)
+            event["file_path"] = file_path  # Update normalized path
 
         # Skip processing if this is a protected path
         if file_path and await _is_protected_path(file_path):
@@ -207,21 +209,21 @@ async def _process_threat_event(data: str):
     except Exception as e:
         logger.exception(f"Error processing threat event: {e}")
 
-
 async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
     """
-    Async client that connects to AV->EDR pipe and processes incoming messages.
-    All blocking Win32 calls run in threadpool.
+    EDR side: Listen for threat events FROM HydraDragon AV
+    This is a CLIENT that connects to the AV's server pipe
     """
-    logger.info(f"Connecting to threat event pipe: {pipe_name}")
+    logger.info(f"[EDR] Connecting to AV threat event pipe: {pipe_name}")
+    
     while True:
         pipe = None
         try:
-            # CreateFile (blocking)
+            # EDR acts as CLIENT - connects to AV's server pipe
             pipe = await asyncio.to_thread(
                 lambda: win32file.CreateFile(
                     pipe_name,
-                    win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                    win32file.GENERIC_READ,
                     0,
                     None,
                     win32file.OPEN_EXISTING,
@@ -229,32 +231,39 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
                     None,
                 )
             )
-            logger.info("Connected to threat event pipe.")
+            logger.info("[EDR] Connected to AV threat event pipe.")
 
             while True:
                 try:
                     hr_data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
                 except pywintypes.error as e:
-                    logger.debug(f"ReadFile raised pywintypes.error in threat listener: {e}")
+                    if e.winerror in [winerror.ERROR_BROKEN_PIPE, 109, 232]:
+                        logger.debug("[EDR] AV disconnected from threat pipe")
+                        break
+                    logger.error(f"[EDR] ReadFile error in threat listener: {e}")
                     break
 
                 if not hr_data:
                     break
+                    
                 _, data = hr_data
+                if not data:
+                    break
+                    
                 message = data.decode("utf-8", errors="replace")
-                logger.debug(f"Received threat event: {message}")
+                logger.debug(f"[EDR] Received threat event: {message}")
                 await _process_threat_event(message)
 
         except pywintypes.error as e:
-            if getattr(e, "winerror", None) == 2:
-                logger.warning("Pipe not found, retrying in 1 second...")
-                await asyncio.sleep(1)
+            if e.winerror == winerror.ERROR_FILE_NOT_FOUND:
+                logger.warning("[EDR] AV threat pipe not found, retrying in 2 seconds...")
+                await asyncio.sleep(2)
             else:
-                logger.error(f"Pipe error: {e}")
-                await asyncio.sleep(1)
+                logger.error(f"[EDR] Pipe error: {e}")
+                await asyncio.sleep(2)
         except Exception as e:
-            logger.exception(f"Unexpected error in threat listener: {e}")
-            await asyncio.sleep(1)
+            logger.exception(f"[EDR] Unexpected error in threat listener: {e}")
+            await asyncio.sleep(2)
         finally:
             if pipe:
                 await asyncio.to_thread(_sync_close_handle, pipe)
@@ -311,12 +320,10 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                     await _process_mbr_alert(data)
 
         except pywintypes.error as e:
-            if getattr(e, "winerror", None) in [109, 232]:
+            if e.winerror in [109, 232]:
                 logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
             else:
-                logger.error(
-                    f"Windows API Error in MBR listener: {getattr(e, 'strerror', str(e))} (Code: {getattr(e,'winerror','N/A')})"
-                )
+                logger.error(f"Windows API Error in MBR listener: {e}")
             await asyncio.sleep(0.2)
         except Exception as e:
             logger.exception(f"Unexpected error in MBR alert listener: {e}")
@@ -328,7 +335,7 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
 
 
 # ============================================================================#
-# Self-defense alert processing with PROCESS_ACCESS_BLOCKED handling
+# Self-defense alert processing
 # ============================================================================#
 
 async def _process_self_defense_alert(data: bytes):
@@ -417,12 +424,10 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                     await _process_self_defense_alert(data)
 
         except pywintypes.error as e:
-            if getattr(e, "winerror", None) in [109, 232]:
+            if e.winerror in [109, 232]:
                 logger.debug("Self-defense driver disconnected from alert pipe.")
             else:
-                logger.error(
-                    f"Windows API Error in self-defense listener: {getattr(e, 'strerror', str(e))} (Code: {getattr(e, 'winerror', 'N/A')})"
-                )
+                logger.error(f"Windows API Error in self-defense listener: {e}")
             await asyncio.sleep(0.2)
         except Exception as e:
             logger.exception(f"Unexpected error in self-defense alert listener: {e}")
@@ -439,13 +444,14 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
 
 async def start_all_pipe_listeners():
     """
-    Start all pipe listeners as asyncio tasks and return the task list.
+    Start all pipe listeners as asyncio tasks.
+    Returns task list for monitoring.
     """
     loop = asyncio.get_running_loop()
     tasks = [
-        loop.create_task(monitor_threat_events_from_av(), name="HydraDragon-ThreatListener"),
+        loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener"),
         loop.create_task(monitor_mbr_alerts_from_kernel(), name="MBR-Alert-Listener"),
         loop.create_task(monitor_self_defense_alerts_from_kernel(), name="Self-Defense-Alert-Listener"),
     ]
-    logger.info("All pipe listeners started successfully (AV, MBR, Self-Defense).")
+    logger.info("All pipe listeners started successfully (AV->EDR, Owlyshield, MBR, Self-Defense).")
     return tasks
