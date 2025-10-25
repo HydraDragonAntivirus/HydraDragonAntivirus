@@ -6,6 +6,7 @@ namespace HydraDragonAntivirusLauncher
     {
         private readonly ILogger<Worker> _logger;
         private Process _childProcess;
+        private Process _guiProcess; // <- tracks GUI started by this service
 
         // Restart supervision settings
         private readonly bool _restartOnCrash = true;
@@ -53,7 +54,7 @@ namespace HydraDragonAntivirusLauncher
             {
                 try
                 {
-                    // Try to start the child process
+                    // Try to start the child process (and GUI)
                     StartHydraDragon();
 
                     if (_childProcess == null)
@@ -67,7 +68,7 @@ namespace HydraDragonAntivirusLauncher
 
                     if (stoppingToken.IsCancellationRequested)
                     {
-                        // Service stopping: ensure child is terminated
+                        // Service stopping: ensure child and gui are terminated
                         await StopChildAsync();
                         break;
                     }
@@ -78,6 +79,9 @@ namespace HydraDragonAntivirusLauncher
                     // Dispose child and consider restart
                     _childProcess.Dispose();
                     _childProcess = null;
+
+                    // Also ensure GUI is stopped when child exits (so restart will re-open it)
+                    await StopGuiIfOwnedAsync();
 
                     if (_restartOnCrash && !stoppingToken.IsCancellationRequested)
                     {
@@ -180,6 +184,50 @@ namespace HydraDragonAntivirusLauncher
         private void StartHydraDragon()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            // ------------------------
+            // Try to start the GUI (Moved to top per request)
+            // ------------------------
+            try
+            {
+                // Path relative to service base folder
+                string guiRelative = Path.Combine("HydraDragonAntivirusGUI", "HydraDragonAntivirusGUI.exe");
+                string guiFull = Path.Combine(baseDir, guiRelative);
+
+                if (File.Exists(guiFull))
+                {
+                    // If another instance already running, skip launching another
+                    bool alreadyRunning = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(guiFull)).Length > 0;
+                    if (!alreadyRunning)
+                    {
+                        var guiPsi = new ProcessStartInfo
+                        {
+                            FileName = guiFull,
+                            WorkingDirectory = Path.GetDirectoryName(guiFull),
+                            UseShellExecute = true, // run with normal shell so GUI appears on desktop
+                        };
+
+                        _guiProcess = Process.Start(guiPsi);
+                        _logger.LogInformation("Launched GUI at {path} (pid {pid})", guiFull, _guiProcess?.Id);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("GUI already running, will not start a second instance: {exe}", guiFull);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("GUI executable not found at: {path}", guiFull);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start GUI executable.");
+            }
+
+            // ------------------------
+            // Start HydraDragon Core
+            // ------------------------
             string venvPath = Path.Combine(baseDir, "venv");
             string activateBat = Path.Combine(venvPath, "Scripts", "activate.bat");
 
@@ -242,6 +290,7 @@ namespace HydraDragonAntivirusLauncher
             {
                 _logger.LogError(ex, "Failed to start HydraDragon child process.");
                 _childProcess = null;
+                return;
             }
         }
 
@@ -297,8 +346,54 @@ namespace HydraDragonAntivirusLauncher
                 _childProcess = null;
             }
 
+            // Ensure GUI is stopped as well if we started it
+            await StopGuiIfOwnedAsync();
+
             // small grace delay
             await Task.Delay(50);
+        }
+
+        private async Task StopGuiIfOwnedAsync()
+        {
+            if (_guiProcess == null) return;
+
+            try
+            {
+                // if still running try graceful close first (CloseMainWindow) then kill
+                if (!_guiProcess.HasExited)
+                {
+                    _logger.LogInformation("Stopping GUI process (pid {pid}).", _guiProcess.Id);
+                    try
+                    {
+                        _guiProcess.CloseMainWindow();
+                    }
+                    catch { /* ignore */ }
+
+                    // wait a bit for it to exit
+                    if (!_guiProcess.WaitForExit(2000))
+                    {
+                        try
+                        {
+                            _guiProcess.Kill(true);
+                        }
+                        catch (Exception exKill)
+                        {
+                            _logger.LogWarning(exKill, "Failed to kill GUI process.");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while stopping GUI process.");
+            }
+            finally
+            {
+                try { _guiProcess?.Dispose(); } catch { }
+                _guiProcess = null;
+            }
+
+            await Task.CompletedTask;
         }
     }
 }
