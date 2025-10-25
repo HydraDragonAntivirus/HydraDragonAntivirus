@@ -207,65 +207,53 @@ async def _process_threat_event(data: str):
     except Exception as e:
         logger.exception(f"Error processing threat event: {e}")
 
-async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
-    """
-    EDR side: Listen for threat events FROM HydraDragon AV
-    This is a CLIENT that connects to the AV's server pipe
-    """
-    logger.info(f"[EDR] Connecting to AV threat event pipe: {pipe_name}")
-    
+# =========================
+# AV -> EDR (Threat Events)
+# =========================
+async def send_threat_event_to_edr(event: dict):
+    """AV side: send threat event to EDR (client)"""
+    try:
+        message = json.dumps(event).encode("utf-8")
+        pipe = win32file.CreateFile(
+            PIPE_AV_TO_EDR,
+            win32file.GENERIC_WRITE,
+            0,
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None
+        )
+        win32file.WriteFile(pipe, message)
+        win32file.CloseHandle(pipe)
+        logger.debug(f"[AV] Sent threat event to EDR: {event.get('file_path')}")
+    except pywintypes.error as e:
+        logger.warning(f"[AV] Cannot send threat event, pipe unavailable: {e}")
+
+async def monitor_threat_events_from_av():
+    """EDR side: listen for threat events FROM AV (server)"""
+    logger.info(f"[EDR] Starting threat event listener on {PIPE_AV_TO_EDR}")
     while True:
         pipe = None
         try:
-            # EDR acts as CLIENT - connects to AV's server pipe
-            pipe = await asyncio.to_thread(
-                lambda: win32file.CreateFile(
-                    pipe_name,
-                    win32file.GENERIC_READ,
-                    0,
-                    None,
-                    win32file.OPEN_EXISTING,
-                    0,
-                    None,
-                )
+            pipe = win32pipe.CreateNamedPipe(
+                PIPE_AV_TO_EDR,
+                win32pipe.PIPE_ACCESS_INBOUND,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536, 65536, 0, None
             )
-            logger.info("[EDR] Connected to AV threat event pipe.")
-
-            while True:
-                try:
-                    hr_data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
-                except pywintypes.error as e:
-                    if e.winerror in [winerror.ERROR_BROKEN_PIPE, 109, 232]:
-                        logger.debug("[EDR] AV disconnected from threat pipe")
-                        break
-                    logger.error(f"[EDR] ReadFile error in threat listener: {e}")
-                    break
-
-                if not hr_data:
-                    break
-                    
-                _, data = hr_data
-                if not data:
-                    break
-                    
+            win32pipe.ConnectNamedPipe(pipe, None)
+            hr, data = win32file.ReadFile(pipe, 4096)
+            if data:
                 message = data.decode("utf-8", errors="replace")
-                logger.debug(f"[EDR] Received threat event: {message}")
-                await _process_threat_event(message)
-
-        except pywintypes.error as e:
-            if e.winerror == winerror.ERROR_FILE_NOT_FOUND:
-                logger.warning("[EDR] AV threat pipe not found, retrying in 2 seconds...")
-                await asyncio.sleep(2)
-            else:
-                logger.error(f"[EDR] Pipe error: {e}")
-                await asyncio.sleep(2)
+                event = json.loads(message)
+                logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
         except Exception as e:
-            logger.exception(f"[EDR] Unexpected error in threat listener: {e}")
-            await asyncio.sleep(2)
+            logger.error(f"[EDR] Threat listener error: {e}")
         finally:
             if pipe:
-                await asyncio.to_thread(_sync_close_handle, pipe)
-
+                win32pipe.DisconnectNamedPipe(pipe)
+                win32file.CloseHandle(pipe)
 
 # ============================================================================#
 # MBR alert processing

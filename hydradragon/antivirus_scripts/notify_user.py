@@ -12,7 +12,7 @@ import json
 import win32file
 import pywintypes
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from .hydra_logger import logger
 from notifypy import Notify
@@ -62,7 +62,7 @@ async def _send_av_event_to_edr(file_path: str,
     Offloads blocking pipe operations to a thread.
     """
     event = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds'),
         "file_path": str(file_path),
         "virus_name": str(virus_name),
         "is_malicious": True,

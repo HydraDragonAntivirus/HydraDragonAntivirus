@@ -235,10 +235,6 @@ uefi_paths = [
     r'EFI\Boot\bootx64.efi'
 ]
 
-# Global persistent connection to AV scan pipe
-_av_scan_pipe = None
-_av_scan_pipe_lock = asyncio.Lock()
-
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
 
