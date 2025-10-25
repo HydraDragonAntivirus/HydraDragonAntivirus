@@ -169,27 +169,29 @@ def update_definitions_sync():
         logger.info(f"Latest ClamAV Defs: {get_latest_clamav_def_time()}")
 
 # ---------------------------
-# Asynchronous Function Thread Wrapper
+# Synchronous Function Thread Wrapper
 # ---------------------------
 
 def run_rtp_in_thread_sync():
     """
-    Wrapper to run the async real-time protection function in its own dedicated
-    event loop within a standard thread.
+    Run the async real-time protection function in a separate thread
+    without manually creating an event loop.
     """
-    logger.info("[*] Starting RTP in new dedicated thread loop...")
-    try:
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Run the async function until it completes (effectively forever)
-        loop.run_until_complete(start_real_time_protection_async())
-    except Exception:
-        logger.exception("A critical RTP service task has failed within its thread.")
-    finally:
-        logger.info("[+] RTP thread finished.")
+    async def rtp_runner():
+        try:
+            await start_real_time_protection_async()
+        except Exception:
+            logger.exception("A critical RTP service task has failed.")
+        finally:
+            logger.info("[+] RTP task finished.")
 
+    def thread_target():
+        logger.info("[*] Starting RTP in new thread via asyncio.run...")
+        asyncio.run(rtp_runner())
+
+    thread = threading.Thread(target=thread_target, daemon=True)
+    thread.start()
+    logger.info("[+] RTP thread started.")
 
 # ---------------------------
 # Periodic Updates Loop
