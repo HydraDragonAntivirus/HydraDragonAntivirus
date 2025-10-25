@@ -9,6 +9,7 @@ import webbrowser
 import subprocess
 import threading
 import tkinter
+import queue
 from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
@@ -70,157 +71,39 @@ def _rgb_to_hex(rgb):
 
 # --- Animated Shield Widget ---
 class AnimatedShieldWidget(customtkinter.CTkFrame):
-    """Animated shield widget with async/thread-safe GIF loading."""
     def __init__(self, parent, size=250):
-        super().__init__(parent, fg_color="transparent")
-        
-        self.size = size
-        self.is_protected = True
-
-        # Label to hold CTkImage
-        self.icon_label = customtkinter.CTkLabel(self, text="", fg_color=COLOR_BG_LIGHT)
-        self.icon_label.pack(expand=True, fill="both", padx=10, pady=10)
-
-        # Frames and delays
-        self.protected_frames = []
-        self.protected_delay = 100
-        self.unprotected_frames = []
-        self.unprotected_delay = 100
-        self.current_frames = []
-        self.current_frame_index = 0
-        self.current_delay = 100
-        self.is_animating = False
-
-        # Start async loading of GIFs
+        super().__init__(parent)
+        self.queue = queue.Queue()
         threading.Thread(target=self._load_gifs_async, daemon=True).start()
+        self.after(50, self._process_queue)
 
     def _load_gifs_async(self):
-        """Load GIFs in background thread but only PIL images."""
         try:
-            # Load only PIL Image objects
-            protected_pil_frames, protected_delay = self._load_gif_pil(icon_animated_protected_path)
-            unprotected_pil_frames, unprotected_delay = self._load_gif_pil(icon_animated_unprotected_path)
-        except Exception as e:
-            logger.exception(f"GIF load failed: {e}")
-            protected_pil_frames, protected_delay = [], 100
-            unprotected_pil_frames, unprotected_delay = [], 100
+            protected_frames, protected_delay = self.load_gif_frames(icon_animated_protected_path)
+            unprotected_frames, unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
+        except Exception:
+            logger.exception("GIF load failed")  # proper exception logging
+            protected_frames, protected_delay = [], 100
+            unprotected_frames, unprotected_delay = [], 100
 
-        # Create CTkImage on the main thread
-        self.after(0, self._set_loaded_frames_pil, protected_pil_frames, protected_delay,
-                unprotected_pil_frames, unprotected_delay)
+        self.after(0, self._set_loaded_frames, protected_frames, protected_delay,
+                unprotected_frames, unprotected_delay)
 
-    def _load_gif_pil(self, path):
-        """Load GIF frames as PIL images only."""
-        if not os.path.exists(path):
-            return [], 100
-        frames = []
-        delay = 100
-        with Image.open(path) as img:
-            delay = img.info.get('duration', 100)
-            for i in range(getattr(img, "n_frames", 1)):
-                img.seek(i)
-                frame_pil = img.copy().convert("RGBA").resize((self.size, self.size), Image.Resampling.LANCZOS)
-                frames.append(frame_pil)
-        return frames, delay
-
-    def _set_loaded_frames_pil(self, protected_pil, protected_delay, unprotected_pil, unprotected_delay):
-        """Create CTkImages on main thread."""
-        self.protected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in protected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
-        self.protected_delay = protected_delay
-        self.unprotected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in unprotected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
-        self.unprotected_delay = unprotected_delay
-
-        # Start animation
-        self.set_status(True)
-
-    def load_gif_frames(self, path):
-        """Load GIF frames from path and return list of CTkImages + delay."""
-        if not os.path.exists(path):
-            logger.error(f"GIF not found: {path}")
-            return [], 100
-        
-        logger.info(f"Loading GIF: {path}")
-        frames = []
-        delay = 100
+    def _process_queue(self):
+        """Poll queue from main thread."""
         try:
-            with Image.open(path) as img:
-                delay = img.info.get('duration', 100)
-                for i in range(getattr(img, "n_frames", 1)):
-                    img.seek(i)
-                    frame_pil = img.copy().convert("RGBA").resize((self.size, self.size), Image.Resampling.LANCZOS)
-                    frames.append(customtkinter.CTkImage(light_image=frame_pil, size=(self.size, self.size)))
-        except Exception as e:
-            logger.exception(f"Failed loading GIF {path}: {e}")
-            return [], 100
-        return frames, delay
+            while not self.queue.empty():
+                protected_pil, protected_delay, unprotected_pil, unprotected_delay = self.queue.get_nowait()
+                
+                self.protected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in protected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
+                self.protected_delay = protected_delay
+                self.unprotected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in unprotected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
+                self.unprotected_delay = unprotected_delay
 
-    def create_fallback_image(self, color_hex):
-        """Return a single fallback CTkImage."""
-        try:
-            pil_img = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
-            return [customtkinter.CTkImage(light_image=pil_img, size=(self.size, self.size))]
-        except Exception as e:
-            logger.error(f"Failed to create fallback image: {e}")
-            return []
-
-    def set_status(self, is_protected):
-        """Switch animation to protected/unprotected frames."""
-        if self.is_protected == is_protected and self.is_animating and self.current_frames:
-            return
-
-        self.is_protected = is_protected
-        
-        if is_protected:
-            self.current_frames = self.protected_frames
-            self.current_delay = self.protected_delay
-            glow_color = _rgb_to_hex(COLOR_SUCCESS)
-        else:
-            self.current_frames = self.unprotected_frames
-            self.current_delay = self.unprotected_delay
-            glow_color = _rgb_to_hex(COLOR_WARNING)
-
-        self.current_frame_index = 0
-        
-        # Update bg color (the "glow")
-        self.icon_label.configure(fg_color=glow_color)
-
-        if not self.is_animating:
-            self.start_animation()
-
-    def _animate_loop(self):
-        """Internal loop to update frames."""
-        if not self.is_animating or not self.current_frames:
-            return
-        
-        try:
-            # Get the next CTkImage frame
-            frame = self.current_frames[self.current_frame_index]
-            # Update the label's image (CTkImage is accepted)
-            self.icon_label.configure(image=frame)
-            
-            # Advance to the next frame index, looping back to 0
-            self.current_frame_index = (self.current_frame_index + 1) % len(self.current_frames)
-            
-            # Schedule the next frame update
-            self.after(self.current_delay, self._animate_loop)
-        except Exception as e:
-            logger.error(f"Error in animation loop: {e}")
-            self.is_animating = False # Stop on error
-
-    def start_animation(self):
-        """Starts the animation loop."""
-        if self.is_animating:
-            return
-        self.is_animating = True
-        self._animate_loop()
-
-    def stop_animation(self):
-        """Stops the animation loop."""
-        self.is_animating = False
-
-    def destroy(self):
-        self.stop_animation()
-        super().destroy()
+                self.set_status(True)
+        except queue.Empty:
+            pass
+        self.after(50, self._process_queue)
 
 class AntivirusApp(customtkinter.CTk):
 
