@@ -264,7 +264,7 @@ logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pythoncom
-logger.debug"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 
 from scapy.layers.inet import IP, TCP, UDP
