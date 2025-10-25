@@ -60,14 +60,13 @@ def update_definitions_clamav_sync():
             
             # --- Use the explicitly imported clamav_folder for CWD ---
             if not clamav_folder:
-                 logger.error("[!] clamav_folder path is missing. Cannot run freshclam safely.")
-                 return False
-                 
-            logger.info(f"[*] CWD set to: {clamav_folder}")
+                logger.error("[!] clamav_folder path is missing. Cannot run freshclam safely.")
+                return False
 
+            logger.info(f"[*] CWD set to: {clamav_folder}")
             proc = subprocess.Popen(
                 [freshclam_path],
-                cwd=clamav_folder, 
+                cwd=clamav_folder,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="ignore"
@@ -144,7 +143,7 @@ def update_definitions_sync():
         logger.info(f"Latest ClamAV Defs: {get_latest_clamav_def_time()}")
 
 # ---------------------------
-# Asynchronous Function Thread Wrapper (FORCING ASYNC INTO THREAD)
+# Asynchronous Function Thread Wrapper
 # ---------------------------
 
 def run_rtp_in_thread_sync():
@@ -167,19 +166,17 @@ def run_rtp_in_thread_sync():
 
 
 # ---------------------------
-# Thread-based Service Loops (NO SLEEP)
+# Periodic Updates Loop
 # ---------------------------
 
-def run_periodic_updates_thread():
+def run_periodic_updates_thread(update_interval_sec: float = 5.0):
     """
-    Runs the update check in a continuous tight loop inside a dedicated thread
-    with NO SLEEP, as requested.
+    Runs the update check periodically with a small delay to avoid 100% CPU usage.
     """
-    logger.info(f"Starting periodic update thread (AGGRESSIVE NO SLEEP).")
+    logger.info(f"Starting periodic update thread (interval: {update_interval_sec}s)")
     while True:
         try:
-            # Run the blocking update function directly
-            update_definitions_sync() 
+            update_definitions_sync()
         except Exception:
             logger.exception("Error in periodic update thread loop")
         
@@ -189,35 +186,25 @@ def run_periodic_updates_thread():
 # Main Execution (Bootstrap)
 # ---------------------------
 
-async def main():
-    """
-    Main entry point for the headless EDR service.
-    This function's sole role is to start the fire-and-forget threads.
-    """
-    
+def main():
     logger.info("--- HydraDragon EDR Service Starting ---")
 
-    # 1. Run an initial update check immediately on start
-    #    Fire-and-forget thread.
-    logger.info("Running initial definition update on startup...")
-    threading.Thread(target=update_definitions_sync, daemon=True).start()
+    # 1. Run an initial update immediately
+    threading.Thread(target=update_definitions_sync, daemon=False).start()
 
-    # 2. Start the real-time protection
-    #    Fire-and-forget thread (forcing async logic into a thread).
-    logger.info("Starting real-time protection...")
-    threading.Thread(target=run_rtp_in_thread_sync, daemon=True).start()
+    # 2. Start real-time protection
+    threading.Thread(target=run_rtp_in_thread_sync, daemon=False).start()
 
-    # 3. Start the periodic update loop
-    #    Fire-and-forget thread loop (NO SLEEP).
-    logger.info("Starting periodic update loop..")
-    threading.Thread(target=run_periodic_updates_thread, daemon=True).start()
+    # 3. Start periodic updates
+    threading.Thread(target=run_periodic_updates_thread, daemon=False).start()
 
-    # 4. Wait forever for the daemon threads to run.
-    try:
-        await asyncio.Future()
-    except asyncio.CancelledError:
-        pass
-    except Exception:
-        logger.exception("A critical service task has failed.")
-    finally:
-        logger.info("--- HydraDragon EDR Service Shutting Down ---")
+    logger.info("[*] All service threads started. Main thread will now wait for them.")
+
+    # Optionally wait forever by joining non-daemon threads
+    # This avoids using asyncio.Future()
+    for thread in threading.enumerate():
+        if thread is not threading.current_thread():
+            thread.join()
+
+if __name__ == "__main__":
+    main()
