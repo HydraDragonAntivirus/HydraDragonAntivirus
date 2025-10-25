@@ -4,7 +4,7 @@
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from .hydra_logger import (
     logger,
     log_directory,
