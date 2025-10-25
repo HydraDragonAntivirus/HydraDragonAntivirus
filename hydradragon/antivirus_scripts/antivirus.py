@@ -9759,7 +9759,7 @@ async def scan_and_warn(file_path,
         norm_path = os.path.abspath(file_path)
 
         # Compute a quick MD5
-        md5 = compute_md5(norm_path)
+        md5 = await asyncio.to_thread(compute_md5, norm_path)
 
         # Check if this hash is already known to be malicious
         with malicious_hashes_lock:

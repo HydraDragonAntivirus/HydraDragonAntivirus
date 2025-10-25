@@ -1,6 +1,9 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using WpfAnimatedGif;
 
 namespace HydraDragonAntivirusGUI
 {
@@ -18,6 +21,7 @@ namespace HydraDragonAntivirusGUI
         {
             bool running = IsScheduledTaskRunning(_scheduledTaskName);
 
+            // Update status text safely
             if (txtStatus != null)
                 txtStatus.Text = running
                     ? "Protected — scheduled task is running"
@@ -25,11 +29,28 @@ namespace HydraDragonAntivirusGUI
 
             if (imgProtection != null)
             {
-                string gifPath = running
+                // Get the folder where the executable is running
+                string exeFolder = AppDomain.CurrentDomain.BaseDirectory;
+
+                // Pick correct GIF
+                string gifFileName = running
                     ? "hydradragon_protected.gif"
                     : "hydradragon_unprotected.gif";
 
-                imgProtection.Source = new BitmapImage(new Uri(gifPath, UriKind.Relative));
+                string gifFullPath = Path.Combine(exeFolder, gifFileName);
+
+                // Load animated GIF using WpfAnimatedGif
+                if (File.Exists(gifFullPath))
+                {
+                    var image = new BitmapImage(new Uri(gifFullPath, UriKind.Absolute));
+                    ImageBehavior.SetAnimatedSource(imgProtection, image);
+                }
+                else
+                {
+                    // Optional fallback if file not found
+                    imgProtection.Source = null;
+                    Console.WriteLine($"GIF not found: {gifFullPath}");
+                }
             }
         }
 
@@ -59,4 +80,3 @@ namespace HydraDragonAntivirusGUI
         }
     }
 }
-
