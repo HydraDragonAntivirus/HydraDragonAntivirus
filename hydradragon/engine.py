@@ -67,43 +67,61 @@ def _rgb_to_hex(rgb):
     return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
 
-# --- Animated Shield Widget (Replaces Canvas version) ---
+# --- Animated Shield Widget ---
 class AnimatedShieldWidget(customtkinter.CTkFrame):
-    """
-    Displays an animated GIF for the system status.
-    Uses CTkImage for each frame so images scale correctly on HighDPI displays.
-    """
+    """Animated shield widget with async/thread-safe GIF loading."""
     def __init__(self, parent, size=250):
         super().__init__(parent, fg_color="transparent")
         
         self.size = size
         self.is_protected = True
-        
-        # This label will hold the background "glow" color and the CTkImage
+
+        # Label to hold CTkImage
         self.icon_label = customtkinter.CTkLabel(self, text="", fg_color=COLOR_BG_LIGHT)
         self.icon_label.pack(expand=True, fill="both", padx=10, pady=10)
 
-        # Load GIF frames as CTkImage objects
-        self.protected_frames, self.protected_delay = self.load_gif_frames(icon_animated_protected_path)
-        self.unprotected_frames, self.unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
-        
-        # Fallback if GIFs are missing
-        if not self.protected_frames:
-            logger.warning("Missing 'hydra_protected.gif'. Using static fallback.")
-            self.protected_frames = self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
-        if not self.unprotected_frames:
-            logger.warning("Missing 'hydra_unprotected.gif'. Using static fallback.")
-            self.unprotected_frames = self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
-
+        # Frames and delays
+        self.protected_frames = []
+        self.protected_delay = 100
+        self.unprotected_frames = []
+        self.unprotected_delay = 100
         self.current_frames = []
         self.current_frame_index = 0
         self.current_delay = 100
         self.is_animating = False
 
+        # Start async loading of GIFs
+        threading.Thread(target=self._load_gifs_async, daemon=True).start()
+
+    def _load_gifs_async(self):
+        """Load GIFs in background thread and update GUI safely."""
+        try:
+            protected_frames, protected_delay = self.load_gif_frames(icon_animated_protected_path)
+            unprotected_frames, unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
+        except Exception as e:
+            logger.exception(f"GIF load failed: {e}")
+            protected_frames, protected_delay = [], 100
+            unprotected_frames, unprotected_delay = [], 100
+
+        # GUI thread callback
+        self.after(0, self._set_loaded_frames, protected_frames, protected_delay,
+                   unprotected_frames, unprotected_delay)
+
+    def _set_loaded_frames(self, protected_frames, protected_delay,
+                           unprotected_frames, unprotected_delay):
+        """Set loaded frames in GUI thread and start animation."""
+        self.protected_frames = protected_frames or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
+        self.protected_delay = protected_delay
+        self.unprotected_frames = unprotected_frames or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
+        self.unprotected_delay = unprotected_delay
+
+        # Start with protected status
+        self.set_status(True)
+
     def load_gif_frames(self, path):
-        """Loads all frames from a GIF and returns a list of customtkinter.CTkImage objects and the delay."""
+        """Load GIF frames from path and return list of CTkImages + delay."""
         if not os.path.exists(path):
-            logger.error(f"GIF not found at {path}")
+            logger.error(f"GIF not found: {path}")
             return [], 100
         
         logger.info(f"Loading GIF: {path}")
@@ -114,29 +132,24 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
                 delay = img.info.get('duration', 100)
                 for i in range(getattr(img, "n_frames", 1)):
                     img.seek(i)
-                    # Create a PIL copy for this frame and resize it
-                    frame_pil = img.copy().convert("RGBA")
-                    frame_pil = frame_pil.resize((self.size, self.size), Image.Resampling.LANCZOS)
-                    # Wrap PIL image in CTkImage so CTkLabel can scale it on HighDPI displays
-                    ctki = customtkinter.CTkImage(light_image=frame_pil, size=(self.size, self.size))
-                    frames.append(ctki)
+                    frame_pil = img.copy().convert("RGBA").resize((self.size, self.size), Image.Resampling.LANCZOS)
+                    frames.append(customtkinter.CTkImage(light_image=frame_pil, size=(self.size, self.size)))
         except Exception as e:
-            logger.exception(f"Failed to load GIF {path}: {e}")
+            logger.exception(f"Failed loading GIF {path}: {e}")
             return [], 100
         return frames, delay
 
     def create_fallback_image(self, color_hex):
-        """Creates a single static CTkImage as a fallback (transparent PNG)."""
+        """Return a single fallback CTkImage."""
         try:
             pil_img = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
-            ctki = customtkinter.CTkImage(light_image=pil_img, size=(self.size, self.size))
-            return [ctki]
+            return [customtkinter.CTkImage(light_image=pil_img, size=(self.size, self.size))]
         except Exception as e:
             logger.error(f"Failed to create fallback image: {e}")
             return []
 
     def set_status(self, is_protected):
-        # Only update if status changed
+        """Switch animation to protected/unprotected frames."""
         if self.is_protected == is_protected and self.is_animating and self.current_frames:
             return
 
@@ -160,6 +173,7 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
             self.start_animation()
 
     def _animate_loop(self):
+        """Internal loop to update frames."""
         if not self.is_animating or not self.current_frames:
             return
         
