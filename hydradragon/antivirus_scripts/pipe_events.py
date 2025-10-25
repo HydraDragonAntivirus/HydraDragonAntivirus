@@ -3,7 +3,6 @@
 
 import json
 import os
-import threading
 import ctypes
 import asyncio
 import win32file
@@ -231,7 +230,6 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
             except pywintypes.error as e:
                 if e.winerror in (535, 536):  # client disconnected
                     logger.debug("Client not ready yet, retrying...")
-                    await asyncio.sleep(0.2)
                     continue
 
             logger.info("AV client connected!")
@@ -243,7 +241,6 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
 
         except Exception as e:
             logger.error(f"[EDR] Pipe error: {e}")
-            await asyncio.sleep(0.5)
         finally:
             if pipe:
                 await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
@@ -304,10 +301,8 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                 logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
             else:
                 logger.error(f"Windows API Error in MBR listener: {e}")
-            await asyncio.sleep(0.2)
         except Exception as e:
             logger.exception(f"Unexpected error in MBR alert listener: {e}")
-            await asyncio.sleep(0.5)
         finally:
             if pipe:
                 await asyncio.to_thread(lambda: win32pipe.DisconnectNamedPipe(pipe))
@@ -420,10 +415,8 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                 logger.debug("Self-defense driver disconnected from alert pipe.")
             else:
                 logger.error(f"Windows API Error in self-defense listener: {e}")
-            await asyncio.sleep(0.2)
         except Exception as e:
             logger.exception(f"Unexpected error in self-defense alert listener: {e}")
-            await asyncio.sleep(0.5)
         finally:
             if pipe:
                 await asyncio.to_thread(lambda: win32pipe.DisconnectNamedPipe(pipe))

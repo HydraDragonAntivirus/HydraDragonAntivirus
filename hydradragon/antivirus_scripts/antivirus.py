@@ -370,8 +370,6 @@ logger.debug(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:
 start_time = time.time()
 import win32file
 import win32pipe
-import pywintypes
-import winerror
 logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -4197,9 +4195,6 @@ async def process_alert_data(priority, src_ip, dest_ip):
         logger.error(f"Error processing alert data: {ex}")
         return False
 
-# Interval to check for new interfaces (seconds)
-CHECK_INTERVAL = 1
-
 # Dictionary to track running Suricata processes per interface
 running_processes = {}
 
@@ -4284,8 +4279,6 @@ def monitor_interfaces():
                 del running_processes[iface]
             started_interfaces.remove(iface)
 
-        time.sleep(CHECK_INTERVAL)
-
 async def suricata_callback():
     """
     Asynchronously start Suricata interface monitoring.
@@ -4354,7 +4347,6 @@ async def monitor_suricata_log_async():
 
             except Exception as ex:
                 logger.info(f"Error processing line: {ex}")
-                await asyncio.sleep(0.1)
 
 # ---------------------------
 # Helper functions
@@ -11146,11 +11138,6 @@ async def run_hayabusa_live_async():
                     # if process finished and file processing done, break
                     if waiter_task.done() and not os.path.exists(csv_path):
                         break
-
-                    if not os.path.exists(csv_path):
-                        # wait a bit instead of tight-looping
-                        await asyncio.sleep(0.5)
-                        continue
 
                     try:
                         async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:

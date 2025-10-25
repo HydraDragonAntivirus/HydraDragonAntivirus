@@ -24,14 +24,9 @@ if main_dir not in sys.path:
 
 from hydradragon.antivirus_scripts.antivirus import logger
 
-# --- Import necessary functions from antivirus script ---
-from hydradragon.antivirus_scripts.antivirus import (
-    start_real_time_protection_async,  # Async function (not generator)
-    reload_clamav_database,
-    get_latest_clamav_def_time
-)
 # --- Import paths ---
 from hydradragon.antivirus_scripts.path_and_variables import (
+    async_executor,
     freshclam_path,
     icon_path,
     hayabusa_path,
@@ -39,6 +34,13 @@ from hydradragon.antivirus_scripts.path_and_variables import (
     clamav_file_paths,
     icon_animated_protected_path,
     icon_animated_unprotected_path
+)
+
+# --- Import necessary functions from antivirus script ---
+from hydradragon.antivirus_scripts.antivirus import (
+    start_real_time_protection_async,  # Async function (not generator)
+    reload_clamav_database,
+    get_latest_clamav_def_time
 )
 
 # --- CTk Styling Constants (from original stylesheet) ---
@@ -186,9 +188,6 @@ class AntivirusApp(customtkinter.CTk):
                 logger.warning(f"Tkinter error in mainloop: {e}. Stopping loop.")
                 self.is_running = False
             
-            # Yield control to asyncio
-            await asyncio.sleep(0.01) # ~60 FPS update rate
-
     def on_closing(self):
         """Handle the window close event."""
         self.append_log_output("[*] Closing application...")
@@ -616,9 +615,7 @@ class AntivirusApp(customtkinter.CTk):
         start_time = self.loop_time
         duration = 0.3 # 300ms slide animation
         
-        while True:
-            await asyncio.sleep(0.01)
-            
+        while True:            
             elapsed = self.loop_time - start_time
             t = min(elapsed / duration, 1.0)
             
@@ -727,6 +724,9 @@ class AntivirusApp(customtkinter.CTk):
 # Main execution - MODIFIED to remove yield handling
 # ---------------------------
 async def main():
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(async_executor)
+
     # --- Create main window ---
     window = AntivirusApp()
 
