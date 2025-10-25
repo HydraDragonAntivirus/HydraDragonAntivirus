@@ -77,6 +77,17 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         threading.Thread(target=self._load_gifs_async, daemon=True).start()
         self.after(50, self._process_queue)
 
+    def _set_loaded_frames(self, protected_frames, protected_delay,
+                        unprotected_frames, unprotected_delay):
+        """Set loaded frames on the main thread."""
+        self.protected_frames = protected_frames
+        self.protected_delay = protected_delay
+        self.unprotected_frames = unprotected_frames
+        self.unprotected_delay = unprotected_delay
+
+        # Start with protected status
+        self.set_status(True)
+
     def _load_gifs_async(self):
         try:
             protected_frames, protected_delay = self.load_gif_frames(icon_animated_protected_path)
