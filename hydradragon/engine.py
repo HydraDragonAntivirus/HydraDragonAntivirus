@@ -66,13 +66,13 @@ def _rgb_to_hex(rgb):
     """Convert an RGB tuple to a hex string."""
     return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
-
 # --- Animated Shield Widget ---
 class AnimatedShieldWidget(customtkinter.CTkFrame):
     def __init__(self, parent, size=250):
         super().__init__(parent)
         self.size = size
-        # Load GIFs directly (blocking, but fast)
+
+        # --- Load GIFs synchronously using the provided paths ---
         self.protected_frames, self.protected_delay = self.load_gif_frames(icon_animated_protected_path)
         self.unprotected_frames, self.unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
 
@@ -86,32 +86,36 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
             for f in self.unprotected_frames
         ]
 
+        # Display the first frame initially
+        self.image_label = customtkinter.CTkLabel(self, image=self.protected_frames[0], text="")
+        self.image_label.pack(expand=True)
+
         # Set initial status
         self.set_status(True)
 
     def set_status(self, is_protected: bool):
         """Update shield image based on status"""
         if is_protected and self.protected_frames:
-            # just display first frame for now
-            self.image_label = customtkinter.CTkLabel(self, image=self.protected_frames[0], text="")
-            self.image_label.pack(expand=True)
+            self.image_label.configure(image=self.protected_frames[0])
         elif not is_protected and self.unprotected_frames:
-            self.image_label = customtkinter.CTkLabel(self, image=self.unprotected_frames[0], text="")
-            self.image_label.pack(expand=True)
+            self.image_label.configure(image=self.unprotected_frames[0])
 
     def load_gif_frames(self, path):
         """Return (frames list, delay) from a GIF path"""
+        frames = []
+        delay = 100  # default
         try:
             pil_img = Image.open(path)
-            frames = []
+            delay = pil_img.info.get("duration", 100)  # get GIF delay if available
             while True:
                 frame = pil_img.copy().convert("RGBA")
                 frames.append(frame)
                 pil_img.seek(pil_img.tell() + 1)
         except EOFError:
             pass
-        # Simple fixed delay
-        return frames, 100
+        except Exception as e:
+            logger.exception(f"Failed to load GIF {path}: {e}")
+        return frames, delay
 
 class AntivirusApp(customtkinter.CTk):
 
