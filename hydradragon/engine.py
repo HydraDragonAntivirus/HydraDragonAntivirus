@@ -95,28 +95,42 @@ class AnimatedShieldWidget(customtkinter.CTkFrame):
         threading.Thread(target=self._load_gifs_async, daemon=True).start()
 
     def _load_gifs_async(self):
-        """Load GIFs in background thread and update GUI safely."""
+        """Load GIFs in background thread but only PIL images."""
         try:
-            protected_frames, protected_delay = self.load_gif_frames(icon_animated_protected_path)
-            unprotected_frames, unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
+            # Load only PIL Image objects
+            protected_pil_frames, protected_delay = self._load_gif_pil(icon_animated_protected_path)
+            unprotected_pil_frames, unprotected_delay = self._load_gif_pil(icon_animated_unprotected_path)
         except Exception as e:
             logger.exception(f"GIF load failed: {e}")
-            protected_frames, protected_delay = [], 100
-            unprotected_frames, unprotected_delay = [], 100
+            protected_pil_frames, protected_delay = [], 100
+            unprotected_pil_frames, unprotected_delay = [], 100
 
-        # GUI thread callback
-        self.after(0, self._set_loaded_frames, protected_frames, protected_delay,
-                   unprotected_frames, unprotected_delay)
+        # Create CTkImage on the main thread
+        self.after(0, self._set_loaded_frames_pil, protected_pil_frames, protected_delay,
+                unprotected_pil_frames, unprotected_delay)
 
-    def _set_loaded_frames(self, protected_frames, protected_delay,
-                           unprotected_frames, unprotected_delay):
-        """Set loaded frames in GUI thread and start animation."""
-        self.protected_frames = protected_frames or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
+    def _load_gif_pil(self, path):
+        """Load GIF frames as PIL images only."""
+        if not os.path.exists(path):
+            return [], 100
+        frames = []
+        delay = 100
+        with Image.open(path) as img:
+            delay = img.info.get('duration', 100)
+            for i in range(getattr(img, "n_frames", 1)):
+                img.seek(i)
+                frame_pil = img.copy().convert("RGBA").resize((self.size, self.size), Image.Resampling.LANCZOS)
+                frames.append(frame_pil)
+        return frames, delay
+
+    def _set_loaded_frames_pil(self, protected_pil, protected_delay, unprotected_pil, unprotected_delay):
+        """Create CTkImages on main thread."""
+        self.protected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in protected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
         self.protected_delay = protected_delay
-        self.unprotected_frames = unprotected_frames or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
+        self.unprotected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in unprotected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
         self.unprotected_delay = unprotected_delay
 
-        # Start with protected status
+        # Start animation
         self.set_status(True)
 
     def load_gif_frames(self, path):
