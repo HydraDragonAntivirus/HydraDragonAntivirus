@@ -320,10 +320,22 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
 
 async def _process_self_defense_alert(data: bytes):
     try:
+        # Decode the raw message
         message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
         logger.debug(f"Raw self-defense alert: {message_str}")
 
-        alert_data = await asyncio.to_thread(json.loads, message_str)
+        # FIX: Escape backslashes before JSON parsing
+        # Replace single backslashes with double backslashes for JSON
+        message_str_escaped = message_str.replace('\\', '\\\\')
+        
+        # However, if the string already has escaped backslashes, this would double-escape
+        # Better approach: use raw string decoding with json.loads(strict=False)
+        try:
+            alert_data = await asyncio.to_thread(json.loads, message_str)
+        except json.JSONDecodeError:
+            # If normal parsing fails, try with escaped backslashes
+            logger.warning("JSON parse failed, attempting with escaped backslashes")
+            alert_data = await asyncio.to_thread(json.loads, message_str_escaped)
 
         # Normalize NT paths from kernel
         protected_file = await normalize_nt_path(alert_data.get("protected_file", "Unknown"))
@@ -334,12 +346,12 @@ async def _process_self_defense_alert(data: bytes):
         target_pid = alert_data.get("target_pid", 0)
 
         logger.info(
-            f"Self-Defense Notifcation: {attack_type} - "
+            f"Self-Defense Notification: {attack_type} - "
             f"Process {attacker_path} (Detected PID: {attacker_pid} Target PID: {target_pid}) "
-            f"attempted to access with {protected_file}"
+            f"attempted to access {protected_file}"
         )
 
-        # Handle other attack types
+        # Handle different attack types
         if attack_type == "REGISTRY_TAMPERING":
             await notify_user_self_defense_registry(
                 registry_path=protected_file,
@@ -364,12 +376,12 @@ async def _process_self_defense_alert(data: bytes):
         logger.error(f"Failed to parse self-defense alert JSON: {e}")
         try:
             message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
-            logger.critical(f"Self-Defense Alert (raw): {message_str}")
-        except Exception:
-            pass
+            # Log hex dump for debugging
+            logger.debug(f"Raw bytes (first 200): {data[:200].hex()}")
+        except Exception as decode_error:
+            logger.error(f"Could not decode raw alert data: {decode_error}")
     except Exception as e:
         logger.exception(f"Error processing self-defense alert: {e}")
-
 
 async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_ALERT):
     logger.info(f"Starting self-defense alert listener on: {pipe_name}")
