@@ -5,6 +5,7 @@ import json
 import os
 import win32file
 import win32pipe
+import win32api
 import pywintypes
 import ctypes
 import asyncio
@@ -24,11 +25,69 @@ from .path_and_variables import (
 )
 
 # ============================================================================#
-# Notes:
-# - All top-level methods below are async (async def). Blocking operations
-#   (Win32 CreateFile/ReadFile/CreateNamedPipe/ConnectNamedPipe/CloseHandle,
-#   ctypes calls, heavy JSON parsing) are executed in the threadpool via asyncio.to_thread.
-# - Notification functions (notify_user_*) are expected to be async and are awaited directly.
+# NT Path Normalization
+# ============================================================================#
+
+def _sync_normalize_nt_path(nt_path: str) -> str:
+    """
+    Normalize NT device path to standard Windows path (synchronous).
+    Example: \Device\HarddiskVolume3\Program Files\... -> C:\Program Files\...
+    """
+    if not nt_path:
+        return nt_path
+    
+    try:
+        # Already a normal path
+        if ':' in nt_path and not nt_path.startswith('\\Device\\'):
+            return os.path.normpath(nt_path)
+        
+        # Handle NT device paths like \Device\HarddiskVolume3\...
+        if nt_path.startswith('\\Device\\HarddiskVolume'):
+            parts = nt_path.split('\\', 3)
+            if len(parts) < 4:
+                logger.warning(f"Invalid NT path format: {nt_path}")
+                return nt_path
+            
+            volume_device = '\\'.join(parts[:3])  # \Device\HarddiskVolume3
+            relative_path = parts[3]  # Program Files\...
+            
+            # Get all logical drives
+            drives = win32api.GetLogicalDriveStrings().split('\x00')[:-1]
+            for drive in drives:
+                try:
+                    drive_letter = drive.rstrip('\\')
+                    nt_device = win32file.QueryDosDevice(drive_letter.rstrip(':'))
+                    
+                    if nt_device and nt_device[0] == volume_device:
+                        normalized = os.path.join(drive_letter, relative_path)
+                        logger.debug(f"Normalized NT path: {nt_path} -> {normalized}")
+                        return os.path.normpath(normalized)
+                except Exception:
+                    continue
+            
+            logger.warning(f"Could not find drive mapping for: {volume_device}")
+            return nt_path
+        
+        # Handle \??\ format
+        elif nt_path.startswith('\\??\\'):
+            normalized = nt_path[4:]
+            logger.debug(f"Normalized \\??\\ path: {nt_path} -> {normalized}")
+            return os.path.normpath(normalized)
+        
+        return nt_path
+        
+    except Exception as e:
+        logger.error(f"Error normalizing NT path '{nt_path}': {e}")
+        return nt_path
+
+
+async def normalize_nt_path(nt_path: str) -> str:
+    """Async wrapper for NT path normalization."""
+    return await asyncio.to_thread(_sync_normalize_nt_path, nt_path)
+
+
+# ============================================================================#
+# Existing helper functions
 # ============================================================================#
 
 # Constant special item ID list value for desktop folder
@@ -108,9 +167,10 @@ async def _is_protected_path(candidate_path: str) -> bool:
     return await asyncio.to_thread(_sync_is_protected_path, candidate_path)
 
 
-# -------------------------
-# Async processing functions (formerly synchronous)
-# -------------------------
+# ============================================================================#
+# Threat event processing
+# ============================================================================#
+
 async def _process_threat_event(data: str):
     """
     Async version of threat event processing.
@@ -127,6 +187,10 @@ async def _process_threat_event(data: str):
         virus_name = event.get("virus_name")
         is_malicious = event.get("is_malicious", False)
         action_required = event.get("action_required", "monitor")
+
+        # Normalize path if it's an NT path
+        if file_path:
+            file_path = await normalize_nt_path(file_path)
 
         # Skip processing if this is a protected path
         if file_path and await _is_protected_path(file_path):
@@ -196,12 +260,17 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR):
                 await asyncio.to_thread(_sync_close_handle, pipe)
 
 
-# -------------------------
+# ============================================================================#
 # MBR alert processing
-# -------------------------
+# ============================================================================#
+
 async def _process_mbr_alert(data: bytes):
     try:
         offending_path = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
+        
+        # Normalize NT path
+        offending_path = await normalize_nt_path(offending_path)
+        
         logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
         # call notification (expected async)
         await notify_user_mbr_alert(offending_path)
@@ -258,9 +327,10 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                 await asyncio.to_thread(_sync_close_handle, pipe)
 
 
-# -------------------------
-# Self-defense alert processing
-# -------------------------
+# ============================================================================#
+# Self-defense alert processing with PROCESS_ACCESS_BLOCKED handling
+# ============================================================================#
+
 async def _process_self_defense_alert(data: bytes):
     try:
         message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
@@ -268,8 +338,9 @@ async def _process_self_defense_alert(data: bytes):
 
         alert_data = await asyncio.to_thread(json.loads, message_str)
 
-        protected_file = alert_data.get("protected_file", "Unknown")
-        attacker_path = alert_data.get("attacker_path", "Unknown")
+        # Normalize NT paths from kernel
+        protected_file = await normalize_nt_path(alert_data.get("protected_file", "Unknown"))
+        attacker_path = await normalize_nt_path(alert_data.get("attacker_path", "Unknown"))
         attacker_pid = alert_data.get("attacker_pid", 0)
         attack_type = alert_data.get("attack_type", "FILE_TAMPERING")
         operation = alert_data.get("operation", "")
@@ -281,6 +352,7 @@ async def _process_self_defense_alert(data: bytes):
             f"attempted to tamper with {protected_file}"
         )
 
+        # Handle other attack types
         if attack_type == "REGISTRY_TAMPERING":
             await notify_user_self_defense_registry(
                 registry_path=protected_file,
@@ -295,12 +367,6 @@ async def _process_self_defense_alert(data: bytes):
                 attacker_pid=attacker_pid,
             )
         elif attack_type in ["FILE_TAMPERING", "HANDLE_HIJACK"]:
-            await notify_user_self_defense_file(
-                file_path=protected_file,
-                attacker_path=attacker_path,
-                attacker_pid=attacker_pid,
-            )
-        else:
             await notify_user_self_defense_file(
                 file_path=protected_file,
                 attacker_path=attacker_path,
@@ -367,9 +433,10 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                 await asyncio.to_thread(_sync_close_handle, pipe)
 
 
-# -------------------------
+# ============================================================================#
 # Integration Startup
-# -------------------------
+# ============================================================================#
+
 async def start_all_pipe_listeners():
     """
     Start all pipe listeners as asyncio tasks and return the task list.
