@@ -678,22 +678,40 @@ def is_valid_ip(ip_string: str) -> bool:
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
     False otherwise. Logs details about invalid cases.
     """
-
-    # --- strip off port if present ---
+    
+    # --- FIX: Use urlparse to handle URLs properly ---
     original = ip_string
+    
+    # Check if it looks like a URL (has scheme)
+    if '://' in ip_string:
+        try:
+            parsed = urlparse(ip_string)
+            # Extract hostname/IP from netloc (handles port automatically)
+            ip_string = parsed.hostname if parsed.hostname else parsed.netloc
+            logger.debug(f"Extracted IP/host from URL: {original!r} -> {ip_string!r}")
+        except Exception as e:
+            logger.error(f"Failed to parse URL {original!r}: {e}")
+            return False
+    
+    # --- strip off port if present (for non-URL cases) ---
     # IPv6 with brackets, e.g. "[2001:db8::1]:443"
-    if ip_string.startswith('[') and ']' in ip_string:
+    elif ip_string.startswith('[') and ']' in ip_string:
         ip_core, sep, port = ip_string.partition(']')
         if sep and port.startswith(':') and port[1:].isdigit():
             ip_string = ip_core.lstrip('[')
-            logger.debug(f"Stripped port from bracketed IPv6: {original!r} {ip_string!r}")
+            logger.debug(f"Stripped port from bracketed IPv6: {original!r} -> {ip_string!r}")
     # IPv4 or unbracketed IPv6: split on last colon only if it looks like a port
     elif ip_string.count(':') == 1:
         ip_part, port = ip_string.rsplit(':', 1)
         if port.isdigit():
             ip_string = ip_part
-            logger.debug(f"Stripped port from IPv4/unbracketed: {original!r} {ip_string!r}")
+            logger.debug(f"Stripped port from IPv4/unbracketed: {original!r} -> {ip_string!r}")
     # else: leave IPv6 with multiple colons intact
+
+    # Handle empty result
+    if not ip_string:
+        logger.error(f"Empty IP string after parsing: {original!r}")
+        return False
 
     logger.info(f"Validating IP: {ip_string!r}")
     try:
@@ -1549,41 +1567,42 @@ deobfuscated_saved_paths = []
 deobfuscated_paths_lock = threading.Lock()
 path_lists = [saved_paths, deobfuscated_saved_paths, saved_pyc_paths]
 
-def fetch_html(url, return_file_path=False):
+def _write_file(path, content):
+    """Helper for writing files synchronously"""
+    with open(path, 'w', encoding='utf-8', errors='ignore') as f:
+        f.write(content)
+    
+async def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
-        # Checking for valid IP
         if not is_valid_ip(url):
             logger.info(f"Invalid or disallowed IP address in URL: {url}")
             return ("", None) if return_file_path else ""
 
         safe_url = ensure_http_prefix(url)
-        response = requests.get(safe_url, timeout=120)
+        
+        # Blocking network call'u thread'de çalıştır
+        response = await asyncio.to_thread(requests.get, safe_url, timeout=120)
+        
         if response.status_code == 200:
             html = response.text
-            # Determine a safe filename from the URL path
             parsed = urlparse(safe_url)
             fname = Path(parsed.path if parsed.path else "index.html").name or "index.html"
             base_name = Path(fname)
-            # Generate unique output path
             out_path = get_unique_output_path(Path(html_extracted_dir), base_name)
-            # Save the HTML
-            with open(out_path, 'w', encoding='utf-8', errors='ignore') as f:
-                f.write(html)
+            
+            # File write'ı thread'de çalıştır
+            await asyncio.to_thread(_write_file, out_path, html)
+            
             logger.info(f"Saved HTML for {safe_url} to {out_path}")
-            # record the new path
             saved_paths.append(out_path)
             return (html, out_path) if return_file_path else html
         else:
             logger.error(f"Non-OK status {response.status_code} for URL: {safe_url}")
             return ("", None) if return_file_path else ""
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request error while fetching HTML content from {url}: {e}")
-        return ("", None) if return_file_path else ""
     except Exception as e:
-        logger.error(f"Unexpected error fetching HTML content from {url}: {e}")
+        logger.error(f"Error fetching HTML content from {url}: {e}")
         return ("", None) if return_file_path else ""
-
 
 # --------------------------------------------------------------------------
 # HTML Content Scanner (stops after first detection)
@@ -4227,8 +4246,12 @@ def monitor_interfaces():
                 started_interfaces.append(iface)
                 logger.info(f"Started monitoring on {iface}")
 
-        # Check for stopped processes
-        stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
+        # Check for stopped processes - FIX: None check eklendi
+        stopped = []
+        for iface, proc in running_processes.items():
+            if proc is not None and proc.poll() is not None:
+                stopped.append(iface)
+        
         for iface in stopped:
             logger.warning(f"Suricata process for {iface} stopped unexpectedly")
             del running_processes[iface]
@@ -4240,7 +4263,12 @@ def monitor_interfaces():
         for iface in inactive:
             logger.info(f"Interface {iface} no longer active, stopping Suricata")
             if iface in running_processes:
-                running_processes[iface].terminate()
+                proc = running_processes[iface]
+                if proc is not None:  # FIX: None check eklendi
+                    try:
+                        proc.terminate()
+                    except Exception as e:
+                        logger.error(f"Error terminating process for {iface}: {e}")
                 del running_processes[iface]
             if iface in started_interfaces:
                 started_interfaces.remove(iface)
