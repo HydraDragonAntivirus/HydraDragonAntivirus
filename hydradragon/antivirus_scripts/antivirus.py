@@ -10950,9 +10950,29 @@ async def monitor_scan_requests_from_edr():
                     65536, 65536, 0, None
                 )
             )
-
-            await asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None))
-            hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
+            
+            logger.info("[AV] Pipe created, waiting for client connection...")
+            
+            # Add timeout to avoid indefinite blocking
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None)),
+                    timeout=5.0  # 5 second timeout
+                )
+                logger.info("[AV] Client connected")
+            except asyncio.TimeoutError:
+                logger.debug("[AV] No client connected, retrying...")
+                continue  # Try again
+            
+            # Read data with timeout
+            try:
+                hr, data = await asyncio.wait_for(
+                    asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096)),
+                    timeout=2.0
+                )
+            except asyncio.TimeoutError:
+                logger.debug("[AV] Read timeout, disconnecting")
+                continue
 
             if data:
                 message = data.decode("utf-8", errors="replace")
@@ -10963,19 +10983,29 @@ async def monitor_scan_requests_from_edr():
                     file_path = await normalize_nt_path(file_path)
 
                     if not await _is_protected_path(file_path):
-                        logger.info(f"[AV] Received scan request: {file_path} (hr: {hr})")
-                        await scan_and_warn(file_path)
+                        logger.info(f"[AV] Received scan request: {file_path}")
+                        # Don't await - let it run in background
+                        asyncio.create_task(scan_and_warn(file_path))
                     else:
                         logger.debug(f"[AV] Skipping protected path: {file_path}")
                 else:
                     logger.debug(f"[AV] Invalid scan request: {request}")
 
+        except json.JSONDecodeError as e:
+            logger.error(f"[AV] Invalid JSON from EDR: {e}")
         except Exception as e:
             logger.error(f"[AV] Scan request listener error: {e}")
+            await asyncio.sleep(1)  # Prevent tight loop on errors
         finally:
             if pipe:
-                await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
-                await asyncio.to_thread(_sync_close_handle, pipe)
+                try:
+                    await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                    await asyncio.to_thread(_sync_close_handle, pipe)
+                except Exception as e:
+                    logger.debug(f"[AV] Error closing pipe: {e}")
+            
+            # Small sleep to prevent CPU spinning
+            await asyncio.sleep(0.1)
 
 async def load_all_resources_async():
     """

@@ -59,39 +59,52 @@ def update_definitions_clamav_sync():
         if needs_update:
             logger.info("[*] Definitions are older than 12 hours. Running freshclam update...")
             
-            # --- Use the explicitly imported clamav_folder for CWD ---
             if not clamav_folder:
                 logger.error("[!] clamav_folder path is missing. Cannot run freshclam safely.")
                 return False
 
             logger.info(f"[*] CWD set to: {clamav_folder}")
-            proc = subprocess.Popen(
-                [freshclam_path],
-                cwd=clamav_folder,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", errors="ignore"
-            )
-            stdout, stderr = proc.communicate()
-            if stdout:
-                for line in stdout.splitlines():
-                    logger.info(line)
-            if stderr:
-                for line in stderr.splitlines():
-                    logger.warning(f"[!] {line}")
-            if proc.returncode == 0:
-                reload_clamav_database()
-                logger.info("[+] Virus definitions updated successfully.")
-                return True
-            else:
-                logger.error(f"[!] freshclam failed with exit code {proc.returncode}")
+            logger.info(f"[*] Executing: {freshclam_path}")
+            
+            try:
+                # Use subprocess.run with timeout
+                result = subprocess.run(
+                    [freshclam_path],
+                    cwd=clamav_folder,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=1500
+                )
+                
+                if result.stdout:
+                    for line in result.stdout.splitlines():
+                        logger.info(f"[freshclam] {line}")
+                if result.stderr:
+                    for line in result.stderr.splitlines():
+                        logger.warning(f"[freshclam ERR] {line}")
+                
+                if result.returncode == 0:
+                    reload_clamav_database()
+                    logger.info("[+] Virus definitions updated successfully.")
+                    return True
+                else:
+                    logger.error(f"[!] freshclam failed with exit code {result.returncode}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                logger.error("[!] freshclam timed out after 5 minutes")
                 return False
+                
         else:
             logger.info("[*] ClamAV definitions are already up to date (less than 12 hours old).")
             return True
+            
     except Exception:
         logger.exception("ClamAV update failed")
         return False
+
 
 def update_definitions_hayabusa_sync():
     """
@@ -103,28 +116,40 @@ def update_definitions_hayabusa_sync():
         if not os.path.exists(hayabusa_path):
             logger.error(f"[!] Hayabusa executable not found at: {hayabusa_path}")
             return False
+            
         cmd = [hayabusa_path, "update-rules"]
         logger.info(f"[*] Running command: {' '.join(cmd)}")
-        process = subprocess.Popen(
-            cmd,
-            cwd=os.path.dirname(hayabusa_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="ignore"
-        )
-        stdout, stderr = process.communicate()
-        if stdout:
-            for line in stdout.splitlines():
-                logger.info(f"[Hayabusa Update] {line}")
-        if stderr:
-            for line in stderr.splitlines():
-                logger.warning(f"[Hayabusa Update ERR] {line}")
-        if process.returncode == 0:
-            logger.info("[+] Hayabusa rules update completed successfully!")
-            return True
-        else:
-            logger.error(f"[!] Hayabusa rules update failed (code {process.returncode})")
+        
+        try:
+            # Use subprocess.run with timeout
+            result = subprocess.run(
+                cmd,
+                cwd=os.path.dirname(hayabusa_path),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=1500
+            )
+            
+            if result.stdout:
+                for line in result.stdout.splitlines():
+                    logger.info(f"[Hayabusa Update] {line}")
+            if result.stderr:
+                for line in result.stderr.splitlines():
+                    logger.warning(f"[Hayabusa Update ERR] {line}")
+            
+            if result.returncode == 0:
+                logger.info("[+] Hayabusa rules update completed successfully!")
+                return True
+            else:
+                logger.error(f"[!] Hayabusa rules update failed (code {result.returncode})")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("[!] Hayabusa update timed out after 5 minutes")
             return False
+            
     except Exception:
         logger.exception("Exception during Hayabusa rule update")
         return False
@@ -172,20 +197,31 @@ def run_rtp_in_thread_sync():
 def run_periodic_updates_thread(update_interval_sec: int = 7200):
     """
     Runs the update check periodically with a fixed interval.
+    First update runs immediately on startup.
     """
-    logger.info(f"Starting periodic update thread (interval: {update_interval_sec}s)")
-    next_run = time.time()
+    logger.info(f"[*] Starting periodic update thread (interval: {update_interval_sec}s)")
+    
+    # Run first update immediately
+    logger.info("[*] Running initial definition update...")
+    try:
+        update_definitions_sync()
+    except Exception:
+        logger.exception("Error in initial update")
+    
+    # Then run periodically
+    next_run = time.time() + update_interval_sec
     
     while True:
+        sleep_time = max(0, next_run - time.time())
+        logger.info(f"[*] Next update in {sleep_time/60:.1f} minutes")
+        time.sleep(sleep_time)
+        
         try:
             update_definitions_sync()
         except Exception:
-            logger.exception("Error in periodic update thread loop")
+            logger.exception("Error in periodic update")
         
-        # Calculate next run time
         next_run += update_interval_sec
-        sleep_time = max(0, next_run - time.time())
-        time.sleep(sleep_time)
 
 # ---------------------------
 # Main Execution (Bootstrap)
@@ -194,21 +230,19 @@ def run_periodic_updates_thread(update_interval_sec: int = 7200):
 def main():
     logger.info("--- HydraDragon EDR Service Starting ---")
 
-    # 1. Run an initial update immediately
-    threading.Thread(target=update_definitions_sync, daemon=False).start()
+    # 1. Start real-time protection FIRST (most important)
+    threading.Thread(target=run_rtp_in_thread_sync, daemon=False, name="RTP-Thread").start()
+    logger.info("[*] Real-time protection thread started")
 
-    # 2. Start real-time protection
-    threading.Thread(target=run_rtp_in_thread_sync, daemon=False).start()
-
-    # 3. Start periodic updates
-    threading.Thread(target=run_periodic_updates_thread, daemon=False).start()
+    # 2. Start periodic updates (includes initial update)
+    threading.Thread(target=run_periodic_updates_thread, daemon=False, name="Updates-Thread").start()
+    logger.info("[*] Periodic update thread started")
 
     logger.info("[*] All service threads started. Main thread will now wait for them.")
 
-    # Optionally wait forever by joining non-daemon threads
-    # This avoids using asyncio.Future()
+    # Wait for non-daemon threads
     for thread in threading.enumerate():
-        if thread is not threading.current_thread():
+        if thread is not threading.current_thread() and not thread.daemon:
             thread.join()
 
 if __name__ == "__main__":
