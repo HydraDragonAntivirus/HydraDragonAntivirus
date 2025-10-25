@@ -7,9 +7,7 @@ import asyncio
 import traceback
 import webbrowser
 import subprocess
-import threading
 import tkinter
-import queue
 from datetime import datetime, timedelta
 
 # --- New Imports for CustomTkinter ---
@@ -73,48 +71,47 @@ def _rgb_to_hex(rgb):
 class AnimatedShieldWidget(customtkinter.CTkFrame):
     def __init__(self, parent, size=250):
         super().__init__(parent)
-        self.queue = queue.Queue()
-        threading.Thread(target=self._load_gifs_async, daemon=True).start()
-        self.after(50, self._process_queue)
+        self.size = size
+        # Load GIFs directly (blocking, but fast)
+        self.protected_frames, self.protected_delay = self.load_gif_frames(icon_animated_protected_path)
+        self.unprotected_frames, self.unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
 
-    def _set_loaded_frames(self, protected_frames, protected_delay,
-                        unprotected_frames, unprotected_delay):
-        """Set loaded frames on the main thread."""
-        self.protected_frames = protected_frames
-        self.protected_delay = protected_delay
-        self.unprotected_frames = unprotected_frames
-        self.unprotected_delay = unprotected_delay
+        # Convert PIL frames to CTkImage
+        self.protected_frames = [
+            customtkinter.CTkImage(light_image=f, size=(self.size, self.size))
+            for f in self.protected_frames
+        ]
+        self.unprotected_frames = [
+            customtkinter.CTkImage(light_image=f, size=(self.size, self.size))
+            for f in self.unprotected_frames
+        ]
 
-        # Start with protected status
+        # Set initial status
         self.set_status(True)
 
-    def _load_gifs_async(self):
+    def set_status(self, is_protected: bool):
+        """Update shield image based on status"""
+        if is_protected and self.protected_frames:
+            # just display first frame for now
+            self.image_label = customtkinter.CTkLabel(self, image=self.protected_frames[0], text="")
+            self.image_label.pack(expand=True)
+        elif not is_protected and self.unprotected_frames:
+            self.image_label = customtkinter.CTkLabel(self, image=self.unprotected_frames[0], text="")
+            self.image_label.pack(expand=True)
+
+    def load_gif_frames(self, path):
+        """Return (frames list, delay) from a GIF path"""
         try:
-            protected_frames, protected_delay = self.load_gif_frames(icon_animated_protected_path)
-            unprotected_frames, unprotected_delay = self.load_gif_frames(icon_animated_unprotected_path)
-        except Exception:
-            logger.exception("GIF load failed")  # proper exception logging
-            protected_frames, protected_delay = [], 100
-            unprotected_frames, unprotected_delay = [], 100
-
-        self.after(0, self._set_loaded_frames, protected_frames, protected_delay,
-                unprotected_frames, unprotected_delay)
-
-    def _process_queue(self):
-        """Poll queue from main thread."""
-        try:
-            while not self.queue.empty():
-                protected_pil, protected_delay, unprotected_pil, unprotected_delay = self.queue.get_nowait()
-                
-                self.protected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in protected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_SUCCESS))
-                self.protected_delay = protected_delay
-                self.unprotected_frames = [customtkinter.CTkImage(light_image=f, size=(self.size, self.size)) for f in unprotected_pil] or self.create_fallback_image(_rgb_to_hex(COLOR_WARNING))
-                self.unprotected_delay = unprotected_delay
-
-                self.set_status(True)
-        except queue.Empty:
+            pil_img = Image.open(path)
+            frames = []
+            while True:
+                frame = pil_img.copy().convert("RGBA")
+                frames.append(frame)
+                pil_img.seek(pil_img.tell() + 1)
+        except EOFError:
             pass
-        self.after(50, self._process_queue)
+        # Simple fixed delay
+        return frames, 100
 
 class AntivirusApp(customtkinter.CTk):
 
