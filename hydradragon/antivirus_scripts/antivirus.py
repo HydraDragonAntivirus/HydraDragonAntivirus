@@ -10953,76 +10953,81 @@ async def scan_and_warn(file_path,
 
 async def monitor_scan_requests_from_edr(pipe_name: str = PIPE_EDR_TO_AV):
     """
-    AV side: Listen for scan requests FROM EDR
-    This is a SERVER that creates named pipe and waits for EDR connections
+    AV side: Listen for scan requests FROM EDR in a fully non-blocking way.
     """
     logger.info(f"[AV] Starting scan request listener on: {pipe_name}")
-    
+
     while True:
         pipe = None
         try:
-            # AV acts as SERVER - creates named pipe
-            pipe = await asyncio.to_thread(
-                lambda: win32pipe.CreateNamedPipe(
-                    pipe_name,
-                    win32pipe.PIPE_ACCESS_INBOUND,
-                    win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                    win32pipe.PIPE_UNLIMITED_INSTANCES,
-                    65536,
-                    65536,
-                    0,
-                    None,
-                )
+            # Create named pipe with FILE_FLAG_OVERLAPPED for async
+            pipe = win32pipe.CreateNamedPipe(
+                pipe_name,
+                win32pipe.PIPE_ACCESS_INBOUND | win32file.FILE_FLAG_OVERLAPPED,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536,
+                65536,
+                0,
+                None,
             )
-            
-            logger.debug("[AV] Waiting for EDR to send scan requests...")
-            await asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None))
+
+            logger.debug("[AV] Waiting for EDR to connect...")
+
+            # Run ConnectNamedPipe in a separate thread with timeout
+            await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
             logger.debug("[AV] EDR connected to scan request pipe.")
 
-            try:
-                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
-            except pywintypes.error as e:
-                logger.debug(f"[AV] ReadFile error in scan listener: {e}")
-                data = None
+            # Read requests asynchronously
+            while True:
+                try:
+                    hr, data = await asyncio.to_thread(win32file.ReadFile, pipe, 4096)
+                except pywintypes.error as e:
+                    if e.winerror in (109, 232):  # disconnected
+                        logger.debug("[AV] EDR disconnected from scan request pipe")
+                        break
+                    logger.error(f"[AV] ReadFile error: {e}")
+                    break
 
-            if data:
+                if not data:
+                    continue
+
                 try:
                     request_json = data.decode("utf-8", errors="replace")
                     request = json.loads(request_json)
-                    
+
                     file_path = request.get("file_path")
                     pid = request.get("pid")
-                    
-                    # Normalize path from EDR request
+
                     if file_path:
                         file_path = await normalize_nt_path(file_path)
-                    
+
                     if file_path and os.path.isfile(file_path):
                         if not await _is_protected_path(file_path):
-                            logger.info(f"[AV] Received scan request from EDR: {file_path} (PID: {pid})")
+                            logger.info(f"[AV] Received scan request: {file_path} (PID: {pid})")
                             await scan_and_warn(file_path)
                         else:
                             logger.debug(f"[AV] Skipping protected path: {file_path}")
                     else:
                         logger.debug(f"[AV] Invalid file path in scan request: {file_path}")
-                        
+
                 except json.JSONDecodeError as e:
                     logger.error(f"[AV] Failed to parse scan request: {e}")
                 except Exception as e:
                     logger.error(f"[AV] Error processing scan request: {e}")
 
         except pywintypes.error as e:
-            if e.winerror in [109, 232]:
-                logger.debug("[AV] EDR disconnected from scan request pipe")
+            if e.winerror in (109, 232):
+                logger.debug("[AV] EDR disconnected while connecting")
             else:
-                logger.error(f"[AV] Pipe error in scan listener: {e}")
-            await asyncio.sleep(0.2)
+                logger.error(f"[AV] Pipe error: {e}")
+
         except Exception as e:
-            logger.exception(f"[AV] Unexpected error in scan request listener: {e}")
-            await asyncio.sleep(0.5)
+            logger.exception(f"[AV] Unexpected error: {e}")
+
         finally:
             if pipe:
-                await asyncio.to_thread(lambda: win32pipe.DisconnectNamedPipe(pipe))
+                await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
                 await asyncio.to_thread(_sync_close_handle, pipe)
 
 async def load_all_resources_async():
