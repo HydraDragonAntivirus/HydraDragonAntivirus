@@ -259,8 +259,8 @@ import win32serviceutil
 logger.debug(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import wmi
-logger.debug(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
+from wmi import WMI
+logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 
@@ -4220,38 +4220,50 @@ def validate_paths():
         return False
     return True
 
-def get_active_interfaces():
-    # List all interfaces except loopback
-    return [nic for nic in psutil.net_if_addrs().keys() if "Loopback" not in nic]
 
+# ============================================================================#
+# Windows Suricata-compatible interface detection
+# ============================================================================#
+def get_suricata_interfaces():
+    """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
+    w = WMI()
+    interfaces = []
+    for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
+        if nic.NetEnabled:
+            # Build NPF device name
+            npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
+            interfaces.append(npf_name)
+    return interfaces
+
+# ============================================================================#
+# Start Suricata on interface
+# ============================================================================#
 def start_suricata_on_interface(iface):
     if iface in running_processes:
-        return  # already running
+        return running_processes[iface]  # already running
     cmd = [suricata_exe_path, "-c", suricata_config_path, "-i", iface, "--pcap-file-continuous"]
     logger.info(f"Starting Suricata on interface: {iface}")
-    process = subprocess.Popen(cmd)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     running_processes[iface] = process
     logger.info(f"Suricata PID {process.pid} started for {iface}")
+    return process
 
+# ============================================================================#
+# Monitor interfaces
+# ============================================================================#
 def monitor_interfaces():
     global running_processes, started_interfaces
     while True:
-        interfaces = get_active_interfaces()
+        interfaces = get_suricata_interfaces()
 
         # Start Suricata for new interfaces
         for iface in interfaces:
             if iface not in started_interfaces:
                 proc = start_suricata_on_interface(iface)
-                running_processes[iface] = proc
                 started_interfaces.append(iface)
-                logger.info(f"Started monitoring on {iface}")
 
-        # Check for stopped processes - FIX: None check eklendi
-        stopped = []
-        for iface, proc in running_processes.items():
-            if proc is not None and proc.poll() is not None:
-                stopped.append(iface)
-        
+        # Check for stopped processes
+        stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
         for iface in stopped:
             logger.warning(f"Suricata process for {iface} stopped unexpectedly")
             del running_processes[iface]
@@ -4264,14 +4276,13 @@ def monitor_interfaces():
             logger.info(f"Interface {iface} no longer active, stopping Suricata")
             if iface in running_processes:
                 proc = running_processes[iface]
-                if proc is not None:  # FIX: None check eklendi
+                if proc:
                     try:
                         proc.terminate()
                     except Exception as e:
                         logger.error(f"Error terminating process for {iface}: {e}")
                 del running_processes[iface]
-            if iface in started_interfaces:
-                started_interfaces.remove(iface)
+            started_interfaces.remove(iface)
 
         time.sleep(CHECK_INTERVAL)
 
@@ -4333,9 +4344,6 @@ async def monitor_suricata_log_async():
         while True:
             try:
                 line = await log_file.readline()
-                if not line:
-                    await asyncio.sleep(0.1)
-                    continue
 
                 if line.strip():
                     priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
@@ -8703,42 +8711,6 @@ def extract_pe_sections(file_path: str):
         logger.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
 
-def create_shadow_copy(drive_letter):
-    """
-    Uses WMI to create a Volume Shadow Copy (VSS) for the given drive (e.g. 'C:').
-    Returns the shadow ID on success, or None on failure.
-    """
-    try:
-        c = wmi.WMI(namespace='root\\cimv2')
-        # Note: Format of the Create method is (Volume, Context)
-        # Context "ClientAccessible" means the copy is exposed under a drive letter.
-        result, shadow_id = c.Win32_ShadowCopy.Create(Volume=drive_letter + "\\", Context="ClientAccessible")
-        if result == 0:
-            logger.info(f"Shadow copy created, ID = {shadow_id}")
-            return shadow_id
-        else:
-            logger.error(f"Failed to create shadow (WMI code {result})")
-            return None
-    except Exception:
-        logger.error("Error creating shadow copy via WMI")
-        return None
-
-def copy_from_shadow(shadow_root, rel_path, dest_path):
-    """
-    Copy a file from the shadow copy. Returns True on success, False on failure.
-    """
-    shadow_file = os.path.join(shadow_root, rel_path)
-    if not os.path.exists(shadow_file):
-        logger.error(f"Not found in shadow: {shadow_file}")
-        return False
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    try:
-        shutil.copy2(shadow_file, dest_path)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to copy from shadow: {e}")
-        return False
-
 def decompile_cx_freeze(executable_path):
     """
     Extracts <exe_name>__main__.pyc from a cx_Freeze library.zip using pyzipper,
@@ -10950,54 +10922,49 @@ async def scan_and_warn(file_path,
 # =========================
 # EDR -> AV (Scan Requests)
 # =========================
-async def send_scan_request_to_av(file_path: str):
-    """EDR side: send scan request TO AV (client)"""
-    try:
-        request = {
-            "file_path": file_path,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        message = json.dumps(request).encode("utf-8")
-        pipe = win32file.CreateFile(
-            PIPE_EDR_TO_AV,
-            win32file.GENERIC_WRITE,
-            0,
-            None,
-            win32file.OPEN_EXISTING,
-            0,
-            None
-        )
-        win32file.WriteFile(pipe, message)
-        win32file.CloseHandle(pipe)
-        logger.debug(f"[EDR] Sent scan request to AV: {file_path}")
-    except pywintypes.error as e:
-        logger.warning(f"[EDR] Cannot send scan request, pipe unavailable: {e}")
-
 async def monitor_scan_requests_from_edr():
     """AV side: listen for scan requests FROM EDR (server)"""
     logger.info(f"[AV] Starting scan request listener on {PIPE_EDR_TO_AV}")
+    
     while True:
         pipe = None
         try:
-            pipe = win32pipe.CreateNamedPipe(
-                PIPE_EDR_TO_AV,
-                win32pipe.PIPE_ACCESS_INBOUND,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                win32pipe.PIPE_UNLIMITED_INSTANCES,
-                65536, 65536, 0, None
+            # Create server pipe
+            pipe = await asyncio.to_thread(
+                lambda: win32pipe.CreateNamedPipe(
+                    PIPE_EDR_TO_AV,
+                    win32pipe.PIPE_ACCESS_INBOUND,
+                    win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                    win32pipe.PIPE_UNLIMITED_INSTANCES,
+                    65536, 65536, 0, None
+                )
             )
-            win32pipe.ConnectNamedPipe(pipe, None)
-            hr, data = win32file.ReadFile(pipe, 4096)
+
+            await asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None))
+            hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
+
             if data:
                 message = data.decode("utf-8", errors="replace")
                 request = json.loads(message)
-                logger.info(f"[AV] Received scan request: {request.get('file_path')}")
+
+                file_path = request.get("file_path")
+                if file_path:
+                    file_path = await normalize_nt_path(file_path)
+
+                    if not await _is_protected_path(file_path):
+                        logger.info(f"[AV] Received scan request: {file_path} (hr: {hr})")
+                        await scan_and_warn(file_path)
+                    else:
+                        logger.debug(f"[AV] Skipping protected path: {file_path}")
+                else:
+                    logger.debug(f"[AV] Invalid scan request: {request}")
+
         except Exception as e:
             logger.error(f"[AV] Scan request listener error: {e}")
         finally:
             if pipe:
-                win32pipe.DisconnectNamedPipe(pipe)
-                win32file.CloseHandle(pipe)
+                await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                await asyncio.to_thread(_sync_close_handle, pipe)
 
 async def load_all_resources_async():
     """
@@ -11219,9 +11186,6 @@ async def run_hayabusa_live_async():
                         logger.exception("Error while tailing hayabusa csv")
                         await asyncio.sleep(0.5)
 
-                    # small yield to allow graceful cancellation & avoid hot loop
-                    await asyncio.sleep(0.1)
-
             csv_tail_task = asyncio.create_task(tail_csv(output_file))
 
             # Wait for process to exit or for any task to raise — gather ensures we capture exceptions
@@ -11242,9 +11206,6 @@ async def run_hayabusa_live_async():
             for p in pending:
                 p.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
-
-            # short pause before restarting hayabusa loop (if you want continuous monitoring)
-            await asyncio.sleep(1)
 
         except asyncio.CancelledError:
             # propagate cancellation so outer event loop can shut down
