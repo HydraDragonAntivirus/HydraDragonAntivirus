@@ -32,7 +32,7 @@ from .path_and_variables import (
 def _sync_normalize_nt_path(nt_path: str) -> str:
     """
     Normalize NT device path to standard Windows path (synchronous).
-    Example: \Device\HarddiskVolume3\Program Files\... -> C:\Program Files\...
+    Example: \\Device\\HarddiskVolume3\\Program Files\\... -> C:\\Program Files\\...
     """
     if not nt_path:
         return nt_path
