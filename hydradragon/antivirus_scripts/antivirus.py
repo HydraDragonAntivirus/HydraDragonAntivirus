@@ -4516,12 +4516,11 @@ async def monitor_interfaces():
 
             # Start Suricata for new interfaces
             for iface in interfaces:
-                if iface not in started_interfaces:
-                    proc = await start_suricata_on_interface(
-                        iface
-                    )
+                iface_id = iface["guid"]  # or iface["npf_name"]
+                if iface_id not in started_interfaces:
+                    proc = await start_suricata_on_interface(iface["npf_name"])
                     if proc:
-                        started_interfaces.append(iface)
+                        started_interfaces.append(iface_id)
 
             # Check for stopped processes
             stopped = []
