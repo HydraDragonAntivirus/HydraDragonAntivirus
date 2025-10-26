@@ -214,6 +214,7 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
     while True:
         pipe = None
         try:
+            # create server pipe (server will READ: client (AV) WRITES)
             pipe = await asyncio.to_thread(
                 lambda: win32pipe.CreateNamedPipe(
                     pipe_name,
@@ -223,28 +224,73 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
                     65536, 65536, 0, None,
                 )
             )
+            logger.debug("[EDR] Pipe created, calling ConnectNamedPipe...")
 
-            logger.debug("Pipe created, attempting to connect...")
+            # ConnectNamedPipe can raise pywintypes.error. IMPORTANT:
+            # If a client connected between CreateNamedPipe and ConnectNamedPipe,
+            # GetLastError can be ERROR_PIPE_CONNECTED (535) — that means "already connected".
+            connected = False
             try:
+                # blocking call on a thread so asyncio loop isn't blocked
                 await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
+                connected = True
             except pywintypes.error as e:
-                if e.winerror in (535, 536):  # client disconnected
-                    logger.debug("Client not ready yet, retrying...")
-                    continue
+                # ERROR_PIPE_CONNECTED == 535: client connected between CreateNamedPipe and ConnectNamedPipe
+                # Treat this as success and proceed to read.
+                if getattr(e, "winerror", None) == 535:
+                    logger.debug("[EDR] ConnectNamedPipe: client was already connected (ERROR_PIPE_CONNECTED). Proceeding to read.")
+                    connected = True
+                else:
+                    # Other errors: log and clean up; continue to next iteration to recreate the pipe.
+                    logger.debug(f"[EDR] ConnectNamedPipe raised: winerror={getattr(e,'winerror',None)}; {e}")
+                    connected = False
 
-            logger.info("AV client connected!")
-            hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
+            if not connected:
+                # Clean up and retry loop (avoid leaking handles)
+                try:
+                    win32pipe.DisconnectNamedPipe(pipe)
+                except Exception:
+                    pass
+                try:
+                    win32file.CloseHandle(pipe)
+                except Exception:
+                    pass
+                continue
+
+            logger.info("[EDR] AV client connected to AV->EDR pipe")
+
+            # Read the message (do this on a thread)
+            try:
+                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 65536))
+            except pywintypes.error as e:
+                logger.debug(f"[EDR] ReadFile raised while reading from AV pipe: {e}")
+                data = None
+
             if data:
-                message = data.decode("utf-8", errors="replace")
-                event = json.loads(message)
-                logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
+                try:
+                    message = data.decode("utf-8", errors="replace")
+                    event = json.loads(message)
+                    logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
+                    # dispatch processing async if needed
+                    asyncio.create_task(_process_threat_event(message))
+                except Exception as e:
+                    logger.exception(f"[EDR] Failed to decode/process threat event: {e}")
+            else:
+                logger.debug("[EDR] No data read from AV client")
 
         except Exception as e:
-            logger.error(f"[EDR] Pipe error: {e}")
+            logger.exception(f"[EDR] Pipe error in AV->EDR listener: {e}")
         finally:
+            # always tidy up the pipe handle if present
             if pipe:
-                await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
-                await asyncio.to_thread(win32file.CloseHandle, pipe)
+                try:
+                    win32pipe.DisconnectNamedPipe(pipe)
+                except Exception:
+                    pass
+                try:
+                    win32file.CloseHandle(pipe)
+                except Exception:
+                    pass
 
 # ============================================================================#
 # MBR alert processing
