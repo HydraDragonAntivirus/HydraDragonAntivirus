@@ -379,6 +379,7 @@ logger.debug(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:
 start_time = time.time()
 import win32file
 import win32pipe
+import pywintypes
 logger.debug(f"pywin32 modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -11201,59 +11202,99 @@ async def scan_and_warn(file_path,
 # =========================
 # EDR -> AV (Scan Requests)
 # =========================
-async def _connect_named_pipe_safe(pipe, timeout: float = CONNECT_TIMEOUT):
+async def _connect_named_pipe_safe(pipe, timeout: float = CONNECT_TIMEOUT) -> bool:
     """
     Call ConnectNamedPipe on a thread and treat ERROR_PIPE_CONNECTED as success.
-    Returns True on connected, False on timeout.
+    Returns True on connected, False on timeout or other error.
     """
     def _connect():
         try:
-            return win32pipe.ConnectNamedPipe(pipe, None)
-        except Exception as e:
-            # Some wrappers raise pywintypes.error; treat ERROR_PIPE_CONNECTED as success
-            try:
-                errcode = e.args[0] if isinstance(e.args, tuple) and len(e.args) > 0 else None
-            except Exception:
-                errcode = None
-            if errcode == win32pipe.ERROR_PIPE_CONNECTED or errcode == win32pipe.error.ERROR_PIPE_CONNECTED:
+            # ConnectNamedPipe blocks until a client connects or an error occurs.
+            win32pipe.ConnectNamedPipe(pipe, None)
+            return True
+        except pywintypes.error as e:
+            winerr = getattr(e, "winerror", None)
+            # 535 == ERROR_PIPE_CONNECTED: client connected between CreateNamedPipe and ConnectNamedPipe
+            if winerr == 535:
                 return True
-            raise
+            # On other errors, return False (caller will cleanup)
+            logger.debug(f"[AV] ConnectNamedPipe pywintypes.error winerror={winerr} - {e}")
+            return False
+        except Exception as e:
+            logger.exception(f"[AV] Unexpected exception in ConnectNamedPipe thread: {e}")
+            return False
 
     try:
-        # Wait for connect with timeout
-        await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
-        return True
+        # Wait for connect with timeout; _connect returns boolean
+        connected = await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
+        return bool(connected)
     except asyncio.TimeoutError:
+        logger.debug(f"[AV] ConnectNamedPipe timed out after {timeout}s")
         return False
-    except Exception:
-        # treat other exceptions as "connected" if they indicate ERROR_PIPE_CONNECTED, otherwise re-raise
-        return True
+    except Exception as e:
+        logger.exception(f"[AV] _connect_named_pipe_safe unexpected error: {e}")
+        return False
+
 
 async def _read_from_pipe(pipe, max_bytes: int = 65536, timeout: float = READ_TIMEOUT):
-    """Read from pipe in a thread with timeout. Returns bytes or None on timeout/failure."""
+    """
+    Read from pipe in a thread with timeout. Returns bytes on success, None on timeout/failure.
+    """
     def _read():
         try:
             hr, data = win32file.ReadFile(pipe, max_bytes)
+            # hr may be status code; return data (bytes) on success
             return data
+        except pywintypes.error as e:
+            winerr = getattr(e, "winerror", None)
+            logger.debug(f"[AV] ReadFile pywintypes.error winerror={winerr} - {e}")
+            # return None to indicate read failure (caller will decide to close/retry)
+            return None
         except Exception as e:
-            raise
+            logger.exception(f"[AV] Unexpected exception in ReadFile thread: {e}")
+            return None
 
     try:
         data = await asyncio.wait_for(asyncio.to_thread(_read), timeout=timeout)
-        return data
+        return data  # bytes or None
     except asyncio.TimeoutError:
+        logger.debug(f"[AV] ReadFile timed out after {timeout}s")
         return None
     except Exception as e:
-        logger.debug(f"[AV] ReadFile exception: {e}")
+        logger.exception(f"[AV] _read_from_pipe unexpected error: {e}")
         return None
 
-async def _write_to_pipe(pipe, data: bytes):
+
+async def _write_to_pipe(pipe, data: bytes, timeout: float = None) -> bool:
+    """
+    Write data (bytes) to the pipe on a thread. Returns True on success, False on failure.
+    Optional timeout in seconds for the write operation.
+    """
     def _write():
         try:
-            win32file.WriteFile(pipe, data)
+            # WriteFile returns (hr, None) or raises; we don't need hr here but we can capture it.
+            hr, _ = win32file.WriteFile(pipe, data)
+            return True
+        except pywintypes.error as e:
+            winerr = getattr(e, "winerror", None)
+            logger.debug(f"[AV] WriteFile pywintypes.error winerror={winerr} - {e}")
+            return False
         except Exception as e:
-            raise
-    await asyncio.to_thread(_write)
+            logger.exception(f"[AV] Unexpected exception in WriteFile thread: {e}")
+            return False
+
+    try:
+        if timeout:
+            success = await asyncio.wait_for(asyncio.to_thread(_write), timeout=timeout)
+        else:
+            success = await asyncio.to_thread(_write)
+        return bool(success)
+    except asyncio.TimeoutError:
+        logger.debug(f"[AV] WriteFile timed out after {timeout}s")
+        return False
+    except Exception as e:
+        logger.exception(f"[AV] _write_to_pipe unexpected error: {e}")
+        return False
 
 async def monitor_scan_requests_from_edr():
     """AV side: listen for scan requests FROM EDR (server)"""
