@@ -11461,107 +11461,183 @@ async def load_excluded_rules_async():
         return []
 
 # ==========================================
-# FIXED: Parallel Resource Loading
+# FIXED: Safe YARA-X Loader
+# ==========================================
+
+async def load_yara_safe(path, display_name, is_yara_x=False):
+    """
+    Load YARA rules with timeout protection.
+    """
+    def load_rules():
+        try:
+            if is_yara_x:
+                with open(path, 'rb') as f:
+                    rules = yara_x.Rules.deserialize_from(f)
+            else:
+                rules = yara.load(path)
+            logger.info(f"{display_name} loaded successfully!")
+            return rules
+        except Exception as e:
+            logger.error(f"Failed to load {display_name}: {e}")
+            raise
+
+    try:
+        rules = await asyncio.wait_for(
+            asyncio.to_thread(load_rules)
+        )
+        return rules
+    except Exception as e:
+        logger.error(f"{display_name} loading error: {e}")
+        return None
+
+# ==========================================
+# FIXED: Non-blocking Resource Loading
 # ==========================================
 
 async def load_all_resources_async():
     """
-    Asynchronously load all core HydraDragon resources **IN PARALLEL**.
-    Uses asyncio.gather() to run all loads concurrently.
-    Returns a dict mapping task names to results or exceptions.
+    Start loading all resources in background WITHOUT waiting.
+    Returns immediately, resources load asynchronously.
     """
-    # Explicitly declare globals
     global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
     global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
 
-    logger.info("Starting parallel resource loading...")
+    logger.info("=" * 70)
+    logger.info("Starting background resource loading (non-blocking)...")
+    logger.info("=" * 70)
 
-    # Create all tasks as a dictionary for easy tracking
-    tasks = {
-        "suricata_callback": asyncio.create_task(
-            suricata_callback() if inspect.iscoroutinefunction(suricata_callback) 
-            else asyncio.to_thread(suricata_callback)
-        ),
-        "load_website_data": asyncio.create_task(load_website_data_async()),
-        "load_antivirus_list": asyncio.create_task(asyncio.to_thread(load_antivirus_list)),
-        "yarGen_rules": asyncio.create_task(asyncio.to_thread(
-            load_yara_rule, yarGen_rule_path, "yarGen Rules", False
-        )),
-        "icewater_rules": asyncio.create_task(asyncio.to_thread(
-            load_yara_rule, icewater_rule_path, "Icewater Rules", False
-        )),
-        "valhalla_rules": asyncio.create_task(asyncio.to_thread(
-            load_yara_rule, valhalla_rule_path, "Valhalla Demo Rules", False
-        )),
-        "clean_rules": asyncio.create_task(asyncio.to_thread(
-            load_yara_rule, clean_rules_path, "(clean) YARA Rules", False
-        )),
-        "yaraxtr_rules": asyncio.create_task(asyncio.to_thread(
-            load_yara_rule, yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True
-        )),
-        "clamav_scanner": asyncio.create_task(asyncio.to_thread(
-            clamav.Scanner, libclamav_path=libclamav_path, dbpath=clamav_database_directory_path
-        )),
-        "ml_definitions": asyncio.create_task(asyncio.to_thread(
-            load_ml_definitions_pickle, machine_learning_pickle_path
-        )),
-        "excluded_rules": asyncio.create_task(load_excluded_rules_async()),
-    }
-
-    # Track progress
-    total_tasks = len(tasks)
-    completed_count = 0
-
-    # Wait for all tasks to complete with progress tracking
-    pending = set(tasks.values())
-    task_name_map = {task: name for name, task in tasks.items()}
-
-    while pending:
-        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-        
-        for task in done:
-            completed_count += 1
-            task_name = task_name_map[task]
+    async def load_resource_safe(name, coro, timeout):
+        """Load a single resource with timeout and error handling"""
+        try:
+            logger.info(f"[{name}] Loading...")
+            result = await asyncio.wait_for(coro, timeout=timeout)
             
-            try:
-                result = task.result()
-                if isinstance(result, Exception):
-                    logger.error(f"[{completed_count}/{total_tasks}] ❌ {task_name} failed: {result}")
-                else:
-                    logger.info(f"[{completed_count}/{total_tasks}] ✓ {task_name} loaded successfully")
-            except Exception as e:
-                logger.error(f"[{completed_count}/{total_tasks}] ❌ {task_name} exception: {e}")
+            if isinstance(result, Exception):
+                logger.error(f"[{name}] Failed: {result}")
+                return None
+            elif result is None:
+                logger.warning(f"[{name}] Returned None")
+                return None
+            else:
+                logger.info(f"[{name}] Loaded successfully")
+                return result
+                
+        except Exception as e:
+            logger.error(f"[{name}] Exception: {e}")
+            return None
 
-    # Gather all results (with exceptions captured)
-    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    result_dict = dict(zip(tasks.keys(), results))
+    async def load_suricata():
+        global suricata_callback
+        result = await load_resource_safe(
+            "Suricata",
+            suricata_callback() if inspect.iscoroutinefunction(suricata_callback) 
+            else asyncio.to_thread(suricata_callback),
+            timeout=15
+        )
+        return result
 
-    # Assign results to globals (with error checking)
-    def safe_assign(result):
-        return result if not isinstance(result, Exception) else None
+    async def load_website():
+        result = await load_resource_safe(
+            "Website Data",
+            load_website_data_async(),
+            timeout=60
+        )
+        return result
 
-    yarGen_rules = safe_assign(result_dict["yarGen_rules"])
-    icewater_rules = safe_assign(result_dict["icewater_rules"])
-    valhalla_rules = safe_assign(result_dict["valhalla_rules"])
-    clean_rules = safe_assign(result_dict["clean_rules"])
-    yaraxtr_rules = safe_assign(result_dict["yaraxtr_rules"])
-    clamav_scanner = safe_assign(result_dict["clamav_scanner"])
-    ml_definitions = safe_assign(result_dict["ml_definitions"])
-    excluded_rules = safe_assign(result_dict["excluded_rules"])
+    async def load_antivirus():
+        result = await load_resource_safe(
+            "Antivirus List",
+            asyncio.to_thread(load_antivirus_list),
+            timeout=10
+        )
+        return result
 
-    # Log summary
-    success_count = sum(1 for r in results if not isinstance(r, Exception))
-    fail_count = total_tasks - success_count
+    async def load_yargen():
+        global yarGen_rules
+        yarGen_rules = await load_resource_safe(
+            "yarGen Rules",
+            load_yara_safe(yarGen_rule_path, "yarGen Rules", False),
+            timeout=30
+        )
+
+    async def load_icewater():
+        global icewater_rules
+        icewater_rules = await load_resource_safe(
+            "Icewater Rules",
+            load_yara_safe(icewater_rule_path, "Icewater Rules", False),
+            timeout=30
+        )
+
+    async def load_valhalla():
+        global valhalla_rules
+        valhalla_rules = await load_resource_safe(
+            "Valhalla Rules",
+            load_yara_safe(valhalla_rule_path, "Valhalla Rules", False),
+            timeout=30
+        )
+
+    async def load_clean():
+        global clean_rules
+        clean_rules = await load_resource_safe(
+            "Clean Rules",
+            load_yara_safe(clean_rules_path, "(clean) YARA Rules", False),
+            timeout=30
+        )
+
+    async def load_yaraxtr():
+        global yaraxtr_rules
+        yaraxtr_rules = await load_resource_safe(
+            "YARA-X Rules",
+            load_yara_safe(yaraxtr_yrc_path, "YARA-X Rules", True),
+            timeout=45
+        )
+
+    async def load_clamav():
+        global clamav_scanner
+        clamav_scanner = await load_resource_safe(
+            "ClamAV Scanner",
+            clamav.Scanner.create_async(
+                libclamav_path=libclamav_path,
+                dbpath=clamav_database_directory_path,
+                timeout=90
+            ),
+            timeout=120
+        )
+
+    async def load_ml():
+        global ml_definitions
+        ml_definitions = await load_resource_safe(
+            "ML Definitions",
+            asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_path),
+            timeout=30
+        )
+
+    async def load_excluded():
+        global excluded_rules
+        excluded_rules = await load_resource_safe(
+            "Excluded Rules",
+            load_excluded_rules_async(),
+            timeout=10
+        )
+
+    # Fire and forget all tasks
+    asyncio.create_task(load_suricata(), name="load_suricata")
+    asyncio.create_task(load_website(), name="load_website")
+    asyncio.create_task(load_antivirus(), name="load_antivirus")
+    asyncio.create_task(load_yargen(), name="load_yargen")
+    asyncio.create_task(load_icewater(), name="load_icewater")
+    asyncio.create_task(load_valhalla(), name="load_valhalla")
+    asyncio.create_task(load_clean(), name="load_clean")
+    asyncio.create_task(load_yaraxtr(), name="load_yaraxtr")
+    asyncio.create_task(load_clamav(), name="load_clamav")
+    asyncio.create_task(load_ml(), name="load_ml")
+    asyncio.create_task(load_excluded(), name="load_excluded")
+
+    logger.info("All resource loading tasks started in background")
+    logger.info("Application will continue while resources load...")
     
-    logger.info(f"Resource loading complete: {success_count} succeeded, {fail_count} failed")
-    
-    # Log critical failures
-    critical_resources = ["clean_rules", "clamav_scanner", "excluded_rules"]
-    for resource in critical_resources:
-        if isinstance(result_dict[resource], Exception):
-            logger.exception(f"EXCEPTION: {resource} failed to load! Scanning may be impaired.")
-
-    return result_dict
+    # Return immediately without waiting
+    return {}
 
 async def parse_hayabusa_results(csv_file):
     """
