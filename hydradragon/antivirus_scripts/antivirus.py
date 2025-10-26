@@ -11287,13 +11287,12 @@ async def monitor_scan_requests_from_edr():
             pipe = await asyncio.to_thread(
                 lambda: win32pipe.CreateNamedPipe(
                     PIPE_EDR_TO_AV,
-                    win32pipe.PIPE_ACCESS_DUPLEX,  # <- change here from PIPE_ACCESS_INBOUND
-                    win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                    win32pipe.PIPE_ACCESS_DUPLEX,  # allow read/write
+                    win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
                     win32pipe.PIPE_UNLIMITED_INSTANCES,
                     65536, 65536, 0, None
                 )
             )
-
             logger.info("[AV] Pipe created, waiting for client connection...")
 
             connected = await _connect_named_pipe_safe(pipe, timeout=CONNECT_TIMEOUT)
