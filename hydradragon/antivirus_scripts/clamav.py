@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Fixed and optimized 64-bit ClamAV Python wrapper
+# Fixed and optimized 64-bit ClamAV Python wrapper with ASYNC support
 # Author: Emirhan Ucan
 # Inspired by: https://github.com/clamwin/python-clamav/blob/master/clamav.py
 
 import os
+import asyncio
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
     c_void_p, byref
@@ -98,6 +99,7 @@ def load_clamav(libpath):
 
     # Change current working directory to the DLL directory
     dll_dir = os.path.dirname(os.path.abspath(libpath))
+    original_dir = os.getcwd()
     os.chdir(dll_dir)
     logger.debug(f"Changed working directory to: {dll_dir}")
 
@@ -105,53 +107,124 @@ def load_clamav(libpath):
         lib = CDLL(libpath)
     except Exception as e:
         logger.error(f"Failed to load DLL: {e}")
+        os.chdir(original_dir)  # Restore directory
         return None
 
     try:
         _setup_lib_prototypes(lib, libpath)
         logger.debug(f"Loaded libclamav: {libpath}")
+        os.chdir(original_dir)  # Restore directory
         return lib
     except Exception as e:
         logger.error(f"Failed to setup function prototypes: {e}")
+        os.chdir(original_dir)  # Restore directory
         return None
 
-# --- Scanner class ---
+
+# --- Scanner class with ASYNC initialization ---
 class Scanner:
-    def __init__(self, libclamav_path, dbpath=None, autoreload=False, dboptions=CL_DB_STDOPT, engine_options=None):
+    """
+    ClamAV Scanner with async initialization support.
+    
+    Usage:
+        # Async (recommended):
+        scanner = await Scanner.create_async(libclamav_path, dbpath)
+        
+        # Sync (blocks event loop - NOT recommended):
+        scanner = Scanner(libclamav_path, dbpath)
+    """
+    
+    def __init__(self, libclamav_path, dbpath=None, autoreload=False, 
+                 dboptions=CL_DB_STDOPT, engine_options=None, _skip_init=False):
+        """
+        DO NOT call this directly for async code!
+        Use Scanner.create_async() instead.
+        """
         self.libclamav = None
         self.engine = None
         self.dbpath = None
-
-        self.libclamav = load_clamav(libclamav_path)
-        if not self.libclamav:
-            logger.error("Scanner could not initialize because libclamav failed to load.")
-            return
-
-        # init clamav engine
-        try:
-            res = self.libclamav.cl_init(0)
-            if res != CL_SUCCESS:
-                logger.error(f"cl_init failed with code {res}")
-                return
-        except Exception as e:
-            logger.error(f"cl_init exception: {e}")
-            return
-
-        if not os.path.isdir(dbpath):
-            logger.error(f"Invalid database path: {dbpath}")
-            return
-
-        self.dbpath = dbpath
         self.autoreload = autoreload
         self.dboptions = dboptions
         self.engine_options = engine_options or self.def_engine_options()
-
-        # Load database
-        if not self.loadDB():
-            logger.error("Failed to load ClamAV database")
+        
+        if _skip_init:
+            # Used by create_async() to defer initialization
             return
+        
+        # Synchronous initialization (BLOCKS!)
+        if not self._init_sync(libclamav_path, dbpath):
+            logger.error("Scanner initialization failed")
 
-        logger.debug("Scanner initialized successfully")
+    @classmethod
+    async def create_async(cls, libclamav_path, dbpath=None, autoreload=False,
+                          dboptions=CL_DB_STDOPT, engine_options=None, timeout=60):
+        """
+        Async factory method to create Scanner instance.
+        
+        Args:
+            timeout: Maximum seconds to wait for database loading (default: 60)
+        
+        Returns:
+            Scanner instance or None on failure
+        """
+        logger.info("Starting async ClamAV initialization...")
+        
+        # Create instance without initialization
+        scanner = cls(None, None, autoreload, dboptions, engine_options, _skip_init=True)
+        
+        try:
+            # Run blocking initialization in thread pool with timeout
+            success = await asyncio.wait_for(
+                asyncio.to_thread(scanner._init_sync, libclamav_path, dbpath),
+                timeout=timeout
+            )
+            
+            if success:
+                logger.info("ClamAV scanner initialized successfully (async)")
+                return scanner
+            else:
+                logger.error("ClamAV initialization failed")
+                return None
+                
+        except asyncio.TimeoutError:
+            logger.error(f"ClamAV initialization timed out after {timeout}s")
+            return None
+        except Exception as e:
+            logger.error(f"ClamAV async initialization error: {e}")
+            return None
+
+    def _init_sync(self, libclamav_path, dbpath):
+        """Internal synchronous initialization (runs in thread)"""
+        try:
+            logger.debug("Loading libclamav library...")
+            self.libclamav = load_clamav(libclamav_path)
+            if not self.libclamav:
+                logger.error("Failed to load libclamav")
+                return False
+
+            logger.debug("Initializing ClamAV engine...")
+            res = self.libclamav.cl_init(0)
+            if res != CL_SUCCESS:
+                logger.error(f"cl_init failed with code {res}")
+                return False
+
+            if not os.path.isdir(dbpath):
+                logger.error(f"Invalid database path: {dbpath}")
+                return False
+
+            self.dbpath = dbpath
+            
+            logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
+            if not self.loadDB():
+                logger.error("Failed to load ClamAV database")
+                return False
+
+            logger.debug("ClamAV initialization complete")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Exception during ClamAV initialization: {e}")
+            return False
 
     @staticmethod
     def def_engine_options():
@@ -181,7 +254,7 @@ class Scanner:
             logger.error("libclamav is not loaded, cannot load DB.")
             return False
 
-        logger.debug("Loading ClamAV database...")
+        logger.debug("Loading ClamAV signature database...")
 
         # Free existing engine
         if self.engine:
@@ -201,7 +274,7 @@ class Scanner:
             logger.error(f"Exception creating engine: {e}")
             return False
 
-        # Load database
+        # Load database (THIS IS THE SLOW PART - 30-60 seconds)
         try:
             dbpath_b = _to_bytes_or_none(self.dbpath)
             if not dbpath_b:
@@ -209,6 +282,7 @@ class Scanner:
                 return False
 
             signo = c_uint()
+            logger.debug(f"Loading signatures from: {self.dbpath}")
             res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
 
             if res != CL_SUCCESS:
@@ -216,7 +290,9 @@ class Scanner:
                 logger.error(f"cl_load failed: {error_msg}")
                 return False
 
-            # Apply custom engine options here
+            logger.debug(f"Loaded {signo.value} signatures, applying engine options...")
+
+            # Apply custom engine options
             for opt, val in self.engine_options.items():
                 res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
                 if res != CL_SUCCESS:
@@ -228,6 +304,7 @@ class Scanner:
 
         # Compile engine
         try:
+            logger.debug("Compiling ClamAV engine...")
             res = self.libclamav.cl_engine_compile(self.engine)
             if res != CL_SUCCESS:
                 error_msg = self.get_error_message(res)
@@ -237,7 +314,7 @@ class Scanner:
             logger.error(f"Exception during cl_engine_compile: {e}")
             return False
 
-        logger.debug(f"ClamAV database loaded successfully. Signatures: {signo.value}")
+        logger.info(f"ClamAV database ready. Signatures loaded: {signo.value}")
         return True
 
     def scanFile(self, filepath):
@@ -260,9 +337,8 @@ class Scanner:
             virname = c_char_p()
             bytes_scanned = c_ulong(0)
 
-            # Create an instance of the cl_scan_options struct
+            # Create scan options with heuristics enabled
             scan_opts = cl_scan_options()
-            # *** ENABLED HEURISTICS ***: Enable all heuristic scanning functions.
             scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
 
             # Call cl_scanfile
@@ -271,12 +347,12 @@ class Scanner:
                 byref(virname),
                 byref(bytes_scanned),
                 self.engine,
-                byref(scan_opts)  # Pass the struct by reference
+                byref(scan_opts)
             )
 
             # Process results
             if ret == CL_CLEAN:
-                logger.info(f"File clean (ClamAV): {filepath}")
+                logger.debug(f"File clean (ClamAV): {filepath}")
                 return CL_CLEAN, None
             elif ret == CL_VIRUS:
                 virus_name = virname.value.decode("utf-8", errors="ignore") if virname.value else "Unknown"
