@@ -4499,66 +4499,47 @@ async def start_suricata_on_interface(iface):
 # Monitor interfaces (Async)
 # ============================================================================#
 async def monitor_interfaces():
-    """Monitor network interfaces and manage Suricata processes."""
+    """Monitor network interfaces and start Suricata without stopping anything."""
     global running_processes, started_interfaces
 
-    logger.info("Starting Suricata interface monitor...")
+    logger.info("Starting Suricata interface monitor (keep all interfaces)...")
 
     while True:
         try:
             # Get current interfaces
             interfaces = await get_suricata_interfaces()
-
             if not interfaces:
                 logger.warning("No network interfaces found")
                 await asyncio.sleep(10)
                 continue
 
-            # Start Suricata for new interfaces
+            # Log all detected interfaces for debugging
             for iface in interfaces:
-                iface_id = iface["guid"]  # or iface["npf_name"]
-                if iface_id not in started_interfaces:
-                    proc = await start_suricata_on_interface(iface["npf_name"])
+                logger.debug(f"Detected interface: {iface['guid']} | {iface.get('wmi_name')} | MTU: {iface.get('mtu')} | Reason: {iface.get('reason')}")
+
+            # Start Suricata on any new interfaces
+            for iface in interfaces:
+                iface_guid = iface["guid"]
+                npf_name = iface["npf_name"]
+
+                if iface_guid not in started_interfaces:
+                    proc = await start_suricata_on_interface(npf_name)
                     if proc:
-                        started_interfaces.append(iface_id)
+                        started_interfaces.append(iface_guid)
+                        logger.info(f"Started Suricata on new interface: {iface_guid}")
 
-            # Check for stopped processes
-            stopped = []
-            for iface, proc in list(running_processes.items()):
-                if proc.returncode is not None:
-                    stopped.append(iface)
-
-            for iface in stopped:
-                logger.warning(f"Suricata process for {iface} stopped unexpectedly (exit code: {running_processes[iface].returncode})")
-                del running_processes[iface]
-                if iface in started_interfaces:
-                    started_interfaces.remove(iface)
-
-            # Remove interfaces that are no longer active
-            inactive = [iface for iface in started_interfaces if iface not in interfaces]
+            # Instead of removing inactive interfaces, just log them
+            current_guids = {iface["guid"] for iface in interfaces}
+            inactive = [iface for iface in started_interfaces if iface not in current_guids]
             for iface in inactive:
-                logger.info(f"Interface {iface} no longer active, stopping Suricata")
-                if iface in running_processes:
-                    proc = running_processes[iface]
-                    if proc:
-                        try:
-                            proc.terminate()
-                            await asyncio.wait_for(proc.wait(), timeout=5.0)
-                        except asyncio.TimeoutError:
-                            logger.warning(f"Suricata process for {iface} didn't terminate, killing...")
-                            proc.kill()
-                        except Exception as e:
-                            logger.error(f"Error terminating process for {iface}: {e}")
-                    del running_processes[iface]
-                if iface in started_interfaces:
-                    started_interfaces.remove(iface)
+                logger.debug(f"Interface {iface} not currently detected, but process will be kept running.")
 
             # Sleep before next check
             await asyncio.sleep(5)
 
         except asyncio.CancelledError:
             logger.info("Suricata monitor cancelled, stopping all processes...")
-            # Stop all running processes
+            # Stop all running processes safely
             for iface, proc in list(running_processes.items()):
                 try:
                     proc.terminate()
