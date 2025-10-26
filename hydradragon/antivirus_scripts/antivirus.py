@@ -4262,14 +4262,13 @@ async def start_suricata_on_interface(iface):
     if iface in running_processes:
         return running_processes[iface]  # already running
 
-    # Remove --pcap-file-continuous which is for PCAP files, not live capture
     cmd = [
         suricata_exe_path,
         "-c", suricata_config_path,
         "-i", iface,
         # Add these options for better live capture
-        "--set", "outputs.fast.enabled=yes",  # Enable fast.log for alerts
-        "--set", "outputs.eve-log.enabled=yes"  # Enable eve.json for detailed logs
+        "--set", "outputs.fast.enabled=yes",
+        "--set", "outputs.eve-log.enabled=yes"
     ]
 
     logger.info(f"Starting Suricata on interface: {iface}")
@@ -4277,42 +4276,22 @@ async def start_suricata_on_interface(iface):
 
     try:
         # Use asyncio subprocess for non-blocking execution
+        # *** FIX: Removed stdout=... and stderr=... ***
+        # Let Suricata handle its own output.
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stdout=None,  # Or just remove this line
+            stderr=None   # Or just remove this line
         )
 
         running_processes[iface] = process
         logger.info(f"Suricata PID {process.pid} started for {iface}")
-
-        # Start background tasks to read output
-        asyncio.create_task(read_suricata_output(process.stdout, iface, "stdout"))
-        asyncio.create_task(read_suricata_output(process.stderr, iface, "stderr"))
 
         return process
 
     except Exception as e:
         logger.error(f"Failed to start Suricata on {iface}: {e}", exc_info=True)
         return None
-
-# ============================================================================#
-# Read Suricata output (Async)
-# ============================================================================#
-async def read_suricata_output(stream, iface, stream_type):
-    """Read and log Suricata output."""
-    try:
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            decoded = line.decode('utf-8', errors='ignore').strip()
-            if decoded:
-                logger.info(f"[Suricata-{iface}-{stream_type}] {decoded}")
-    except asyncio.CancelledError:
-        return
-    except Exception as e:
-        logger.error(f"Error reading Suricata output for {iface}: {e}")
 
 # ============================================================================#
 # Monitor interfaces (Async)
