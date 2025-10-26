@@ -4261,7 +4261,7 @@ async def get_suricata_interfaces():
 # ============================================================================#
 # Start Suricata on interface (Async)
 # ============================================================================#
-async def start_suricata_on_interface(iface, suricata_exe_path, suricata_config_path):
+async def start_suricata_on_interface(iface):
     """Start Suricata process for a specific interface."""
     if iface in running_processes:
         return running_processes[iface]  # already running
@@ -4321,7 +4321,7 @@ async def read_suricata_output(stream, iface, stream_type):
 # ============================================================================#
 # Monitor interfaces (Async)
 # ============================================================================#
-async def monitor_interfaces(suricata_exe_path, suricata_config_path):
+async def monitor_interfaces():
     """Monitor network interfaces and manage Suricata processes."""
     global running_processes, started_interfaces
 
@@ -4341,9 +4341,7 @@ async def monitor_interfaces(suricata_exe_path, suricata_config_path):
             for iface in interfaces:
                 if iface not in started_interfaces:
                     proc = await start_suricata_on_interface(
-                        iface,
-                        suricata_exe_path,
-                        suricata_config_path
+                        iface
                     )
                     if proc:
                         started_interfaces.append(iface)
@@ -4400,7 +4398,7 @@ async def monitor_interfaces(suricata_exe_path, suricata_config_path):
 # ============================================================================#
 # Suricata callback (Async entry point)
 # ============================================================================#
-async def suricata_callback(suricata_exe_path, suricata_config_path):
+async def suricata_callback():
     """
     Start Suricata interface monitoring asynchronously.
     Returns immediately, monitoring runs in background task.
@@ -4420,7 +4418,7 @@ async def suricata_callback(suricata_exe_path, suricata_config_path):
 
         # Start monitoring in background task
         asyncio.create_task(
-            monitor_interfaces(suricata_exe_path, suricata_config_path),
+            monitor_interfaces(),
             name="SuricataMonitorTask"
         )
 
