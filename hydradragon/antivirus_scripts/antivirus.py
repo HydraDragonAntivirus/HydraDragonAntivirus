@@ -11306,8 +11306,7 @@ async def monitor_scan_requests_from_edr():
             pipe = await asyncio.to_thread(
                 lambda: win32pipe.CreateNamedPipe(
                     PIPE_EDR_TO_AV,
-                    # if you want ACKs, use PIPE_ACCESS_DUPLEX here and set SEND_ACK True
-                    win32pipe.PIPE_ACCESS_INBOUND,
+                    win32pipe.PIPE_ACCESS_DUPLEX,  # <- change here from PIPE_ACCESS_INBOUND
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                     win32pipe.PIPE_UNLIMITED_INSTANCES,
                     65536, 65536, 0, None
