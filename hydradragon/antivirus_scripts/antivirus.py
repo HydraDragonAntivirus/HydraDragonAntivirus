@@ -11498,11 +11498,12 @@ async def load_all_resources_async():
     Returns immediately, resources load asynchronously.
     """
     logger.info("Starting background resource loading (non-blocking)...")
-    async def load_resource_safe(name, coro, timeout):
-        """Load a single resource with timeout and error handling"""
+
+    async def load_resource_safe(name, coro):
+        """Load a single resource with error handling"""
         try:
             logger.info(f"[{name}] Loading...")
-            result = await asyncio.wait_for(coro, timeout=timeout)
+            result = await coro
             
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed: {result}")
@@ -11519,18 +11520,16 @@ async def load_all_resources_async():
             return None
 
     async def load_suricata():
-        result = await load_resource_safe(
+        # schedule the async coroutine directly (non-blocking)
+        return await load_resource_safe(
             "Suricata",
-            asyncio.to_thread(suricata_callback),
-            timeout=15
+            suricata_callback(),  # do NOT wrap in to_thread
         )
-        return result
 
     async def load_website():
         result = await load_resource_safe(
             "Website Data",
             load_website_data_async(),
-            timeout=60
         )
         return result
 
@@ -11538,7 +11537,6 @@ async def load_all_resources_async():
         result = await load_resource_safe(
             "Antivirus List",
             asyncio.to_thread(load_antivirus_list),
-            timeout=10
         )
         return result
 
@@ -11547,7 +11545,6 @@ async def load_all_resources_async():
         yarGen_rules = await load_resource_safe(
             "yarGen Rules",
             load_yara_safe(yarGen_rule_path, "yarGen Rules", False),
-            timeout=30
         )
 
     async def load_icewater():
@@ -11555,7 +11552,6 @@ async def load_all_resources_async():
         icewater_rules = await load_resource_safe(
             "Icewater Rules",
             load_yara_safe(icewater_rule_path, "Icewater Rules", False),
-            timeout=30
         )
 
     async def load_valhalla():
@@ -11563,7 +11559,6 @@ async def load_all_resources_async():
         valhalla_rules = await load_resource_safe(
             "Valhalla Rules",
             load_yara_safe(valhalla_rule_path, "Valhalla Rules", False),
-            timeout=30
         )
 
     async def load_clean():
@@ -11571,7 +11566,6 @@ async def load_all_resources_async():
         clean_rules = await load_resource_safe(
             "Clean Rules",
             load_yara_safe(clean_rules_path, "(clean) YARA Rules", False),
-            timeout=30
         )
 
     async def load_yaraxtr():
@@ -11579,19 +11573,17 @@ async def load_all_resources_async():
         yaraxtr_rules = await load_resource_safe(
             "YARA-X Rules",
             load_yara_safe(yaraxtr_yrc_path, "YARA-X Rules", True),
-            timeout=45
         )
 
     async def load_clamav():
         global clamav_scanner
+        # leave this exactly as-is
         clamav_scanner = await load_resource_safe(
             "ClamAV Scanner",
             clamav.Scanner.create_async(
                 libclamav_path=libclamav_path,
                 dbpath=clamav_database_directory_path,
-                timeout=90
             ),
-            timeout=120
         )
 
     async def load_ml():
@@ -11599,7 +11591,6 @@ async def load_all_resources_async():
         ml_definitions = await load_resource_safe(
             "ML Definitions",
             asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_path),
-            timeout=30
         )
 
     async def load_excluded():
@@ -11607,7 +11598,6 @@ async def load_all_resources_async():
         excluded_rules = await load_resource_safe(
             "Excluded Rules",
             load_excluded_rules_async(),
-            timeout=10
         )
 
     # Fire and forget all tasks
