@@ -132,6 +132,8 @@ from .path_and_variables import (
     scanned_ipv6_addresses_general,
     unified_pe_cache,
     existing_projects,
+    running_processes,
+    started_interfaces,
     system_drive,
     system32_dir,
     file_md5_cache,
@@ -4212,11 +4214,6 @@ async def process_alert_data(priority, src_ip, dest_ip):
         logger.error(f"Error processing alert data: {ex}")
         return False
 
-# Dictionary to track running Suricata processes per interface
-running_processes = {}
-
-started_interfaces = []  # using list instead of set
-
 def validate_paths():
     for path, desc in [(suricata_exe_path, "Suricata executable"),
                        (suricata_config_path, "Suricata config")]:
@@ -4242,7 +4239,6 @@ async def get_suricata_interfaces():
 
     def _get_interfaces():
         try:
-            from wmi import WMI
             w = WMI()
             interfaces = []
             for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):

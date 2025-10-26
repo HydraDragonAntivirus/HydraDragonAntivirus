@@ -178,6 +178,11 @@ unified_pe_cache = {}
 # List to keep track of existing project names
 existing_projects = []
 
+# Dictionary to track running Suricata processes per interface
+running_processes = {}
+
+started_interfaces = []  # using list instead of set
+
 APP_NAME = "HydraDragon Antivirus"
 APP_VERSION = "v0.1 (Beta 6)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
