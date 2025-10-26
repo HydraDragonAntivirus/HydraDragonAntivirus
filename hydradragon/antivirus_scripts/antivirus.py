@@ -11464,7 +11464,7 @@ async def load_excluded_rules_async():
 
 async def load_yara_safe(path, display_name, is_yara_x=False):
     """
-    Load YARA rules with timeout protection.
+    Load YARA rules safely in a background thread, no timeout.
     """
     def load_rules():
         try:
@@ -11477,16 +11477,11 @@ async def load_yara_safe(path, display_name, is_yara_x=False):
             return rules
         except Exception as e:
             logger.error(f"Failed to load {display_name}: {e}")
-            raise
+            return None
 
-    try:
-        rules = await asyncio.wait_for(
-            asyncio.to_thread(load_rules)
-        )
-        return rules
-    except Exception as e:
-        logger.error(f"{display_name} loading error: {e}")
-        return None
+    # Run blocking load_rules in a thread
+    rules = await asyncio.to_thread(load_rules)
+    return rules
 
 # ==========================================
 # FIXED: Non-blocking Resource Loading
