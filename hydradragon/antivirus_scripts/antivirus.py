@@ -11453,28 +11453,31 @@ async def load_excluded_rules_async():
 # FIXED: Safe YARA-X Loader
 # ==========================================
 
-async def load_yara_safe(path, display_name, is_yara_x=False):
+def load_yara_safe(path, display_name, is_yara_x=False):
     """
-    Load YARA rules asynchronously with no timeout.
+    Fire-and-forget version of load_yara_safe.
     """
-    def load_rules():
-        try:
-            if is_yara_x:
-                with open(path, 'rb') as f:
-                    return yara_x.Rules.deserialize_from(f)
-            else:
-                return yara.load(path)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load {display_name}: {e}")
+    async def _load():
+        def load_rules():
+            try:
+                if is_yara_x:
+                    with open(path, 'rb') as f:
+                        return yara_x.Rules.deserialize_from(f)
+                else:
+                    return yara.load(path)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load {display_name}: {e}")
 
-    try:
-        # Offload to thread, await completion (no timeout)
-        rules = await asyncio.to_thread(load_rules)
-        print(f"{display_name} loaded successfully!")
-        return rules
-    except Exception as e:
-        print(f"{display_name} loading error: {e}")
-        return None
+        try:
+            rules = await asyncio.to_thread(load_rules)
+            logger.info(f"{display_name} loaded successfully!")
+            return rules
+        except Exception as e:
+            logger.error(f"{display_name} loading error: {e}")
+            return None
+
+    # Fire-and-forget: schedule as a background task
+    asyncio.create_task(_load())
 
 # ==========================================
 # FIXED: Non-blocking Resource Loading
