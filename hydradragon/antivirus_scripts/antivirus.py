@@ -4569,8 +4569,6 @@ async def start_suricata_on_interface(iface):
 # ============================================================================#
 async def monitor_interfaces():
     """Monitor network interfaces and start Suricata without stopping anything."""
-    global running_processes, started_interfaces
-
     logger.info("Starting Suricata interface monitor (keep all interfaces)...")
 
     while True:
@@ -11499,13 +11497,7 @@ async def load_all_resources_async():
     Start loading all resources in background WITHOUT waiting.
     Returns immediately, resources load asynchronously.
     """
-    global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
-    global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
-
-    logger.info("=" * 70)
     logger.info("Starting background resource loading (non-blocking)...")
-    logger.info("=" * 70)
-
     async def load_resource_safe(name, coro, timeout):
         """Load a single resource with timeout and error handling"""
         try:
@@ -11527,11 +11519,9 @@ async def load_all_resources_async():
             return None
 
     async def load_suricata():
-        global suricata_callback
         result = await load_resource_safe(
             "Suricata",
-            suricata_callback() if inspect.iscoroutinefunction(suricata_callback) 
-            else asyncio.to_thread(suricata_callback),
+            asyncio.to_thread(suricata_callback),
             timeout=15
         )
         return result
