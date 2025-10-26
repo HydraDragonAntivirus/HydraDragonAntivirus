@@ -63,42 +63,40 @@ async def update_definitions_clamav_async():
             logger.info(f"[*] CWD set to: {clamav_folder}")
             logger.info(f"[*] Executing: {freshclam_path}")
             
+            # Use asyncio subprocess for non-blocking execution
+            process = await asyncio.create_subprocess_exec(
+                freshclam_path,
+                cwd=clamav_folder,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
             try:
-                # Use asyncio subprocess for non-blocking execution
-                process = await asyncio.create_subprocess_exec(
-                    freshclam_path,
-                    cwd=clamav_folder,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=1500
                 )
                 
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=1500
-                    )
-                    
-                    if stdout:
-                        for line in stdout.decode('utf-8', errors='ignore').splitlines():
-                            logger.info(f"[freshclam] {line}")
-                    if stderr:
-                        for line in stderr.decode('utf-8', errors='ignore').splitlines():
-                            logger.warning(f"[freshclam ERR] {line}")
-                    
-                    if process.returncode == 0:
-                        reload_clamav_database()
-                        logger.info("[+] Virus definitions updated successfully.")
-                        return True
-                    else:
-                        logger.error(f"[!] freshclam failed with exit code {process.returncode}")
-                        return False
-                        
-                except asyncio.TimeoutError:
-                    logger.error("[!] freshclam timed out after 1500 seconds")
-                    process.kill()
-                    await process.wait()
+                if stdout:
+                    for line in stdout.decode('utf-8', errors='ignore').splitlines():
+                        logger.info(f"[freshclam] {line}")
+                if stderr:
+                    for line in stderr.decode('utf-8', errors='ignore').splitlines():
+                        logger.warning(f"[freshclam ERR] {line}")
+                
+                if process.returncode == 0:
+                    reload_clamav_database()
+                    logger.info("[+] Virus definitions updated successfully.")
+                    return True
+                else:
+                    logger.error(f"[!] freshclam failed with exit code {process.returncode}")
                     return False
                     
+            except asyncio.TimeoutError:
+                logger.error("[!] freshclam timed out after 1500 seconds")
+                process.kill()
+                await process.wait()
+                return False
         else:
             logger.info("[*] ClamAV definitions are already up to date (less than 12 hours old).")
             return True
@@ -121,41 +119,40 @@ async def update_definitions_hayabusa_async():
             
         logger.info(f"[*] Running command: {hayabusa_path} update-rules")
         
+        # Use asyncio subprocess for non-blocking execution
+        process = await asyncio.create_subprocess_exec(
+            hayabusa_path,
+            "update-rules",
+            cwd=os.path.dirname(hayabusa_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
         try:
-            # Use asyncio subprocess for non-blocking execution
-            process = await asyncio.create_subprocess_exec(
-                hayabusa_path,
-                "update-rules",
-                cwd=os.path.dirname(hayabusa_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=1500
             )
             
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=1500
-                )
-                
-                if stdout:
-                    for line in stdout.decode('utf-8', errors='ignore').splitlines():
-                        logger.info(f"[Hayabusa Update] {line}")
-                if stderr:
-                    for line in stderr.decode('utf-8', errors='ignore').splitlines():
-                        logger.warning(f"[Hayabusa Update ERR] {line}")
-                
-                if process.returncode == 0:
-                    logger.info("[+] Hayabusa rules update completed successfully!")
-                    return True
-                else:
-                    logger.error(f"[!] Hayabusa rules update failed (code {process.returncode})")
-                    return False
-                    
-            except asyncio.TimeoutError:
-                logger.error("[!] Hayabusa update timed out after 1500 seconds")
-                process.kill()
-                await process.wait()
+            if stdout:
+                for line in stdout.decode('utf-8', errors='ignore').splitlines():
+                    logger.info(f"[Hayabusa Update] {line}")
+            if stderr:
+                for line in stderr.decode('utf-8', errors='ignore').splitlines():
+                    logger.warning(f"[Hayabusa Update ERR] {line}")
+            
+            if process.returncode == 0:
+                logger.info("[+] Hayabusa rules update completed successfully!")
+                return True
+            else:
+                logger.error(f"[!] Hayabusa rules update failed (code {process.returncode})")
                 return False
+                
+        except asyncio.TimeoutError:
+            logger.error("[!] Hayabusa update timed out after 1500 seconds")
+            process.kill()
+            await process.wait()
+            return False
                 
     except Exception:
         logger.exception("Exception during Hayabusa rule update")
