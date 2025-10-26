@@ -1085,103 +1085,172 @@ def load_antivirus_list():
     except Exception as ex:
         logger.error(f"Error loading Antivirus domains: {ex}")
 
-def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data, \
-           ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, \
-           ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data, \
-           ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data, \
-           ipv6_addresses_ddos_signatures_data, ipv6_whitelist_data, \
-           malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, \
-           mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, \
-           malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, \
-           abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, \
-           whitelist_mail_sub_domains_data, urlhaus_data, spam_email_365_data, registry
+# ==========================================
+# FIXED: Async CSV Loading
+# ==========================================
 
+async def load_csv_async(file_path, data_name, registry):
+    """
+    Async CSV loader with proper error handling.
+    Returns list of dicts with 'address' and 'ref_ids'.
+    """
+    data = []
+    try:
+        # Read file asynchronously
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+        
+        # Parse CSV in thread (CPU-bound operation)
+        def parse_csv(content):
+            reader = csv.reader(content.splitlines())
+            parsed = []
+            for row in reader:
+                if not row:
+                    continue
+                address = row[0].strip()
+                refs = row[1:] if len(row) > 1 else []
+                parsed.append({
+                    'address': address,
+                    'ref_ids': [registry.register(r.strip()) for r in refs if r.strip()]
+                })
+            return parsed
+        
+        data = await asyncio.to_thread(parse_csv, content)
+        logger.info(f"{data_name} loaded ({len(data)} entries)")
+        
+    except Exception as e:
+        logger.error(f"Failed to load {data_name} from {file_path}: {e}")
+    
+    return data
+
+
+# ==========================================
+# FIXED: Async Website Data Loading
+# ==========================================
+
+async def load_website_data_async():
+    """
+    Fully async version of load_website_data that loads all CSVs in parallel.
+    Updates global variables.
+    """
+    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data
+    global ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data
+    global ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data
+    global ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data
+    global ipv6_addresses_ddos_signatures_data, ipv6_whitelist_data
+    global malware_domains_data, malware_domains_mail_data, phishing_domains_data
+    global abuse_domains_data, mining_domains_data, spam_domains_data
+    global whitelist_domains_data, whitelist_domains_mail_data
+    global malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data
+    global abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data
+    global whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global urlhaus_data, spam_email_365_data, registry
+
+    logger.info("Starting async website data loading...")
+    
+    # Create registry instance
     registry = ReferenceRegistry()
 
-    def load_csv(file_path, data_name):
-        data = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if not row:
-                        continue
-                    address = row[0].strip()
-                    refs = row[1:] if len(row) > 1 else []
-                    data.append({
-                        'address': address,
-                        'ref_ids': [registry.register(r.strip()) for r in refs if r.strip()]
-                    })
-            logger.info(f"{data_name} loaded ({len(data)} entries)")
-        except Exception as e:
-            logger.error(f"Failed to load {data_name}: {e}")
-        return data
+    # Define all CSV files to load with their names
+    csv_loads = [
+        (ipv4_addresses_path, "IPv4 Malicious Addresses"),
+        (ipv4_addresses_spam_path, "IPv4 Spam Addresses"),
+        (ipv4_addresses_bruteforce_path, "IPv4 BruteForce Addresses"),
+        (ipv4_addresses_phishing_active_path, "IPv4 Active Phishing Addresses"),
+        (ipv4_addresses_phishing_inactive_path, "IPv4 Inactive Phishing Addresses"),
+        (ipv4_addresses_ddos_path, "IPv4 DDoS Addresses"),
+        (ipv4_whitelist_path, "IPv4 Whitelist"),
+        (ipv6_addresses_path, "IPv6 Malicious Addresses"),
+        (ipv6_addresses_spam_path, "IPv6 Spam Addresses"),
+        (ipv6_addresses_ddos_path, "IPv6 DDoS Addresses"),
+        (ipv6_whitelist_path, "IPv6 Whitelist"),
+        (malware_domains_path, "Malware Domains"),
+        (malware_domains_mail_path, "Malware Mail Domains"),
+        (phishing_domains_path, "Phishing Domains"),
+        (abuse_domains_path, "Abuse Domains"),
+        (mining_domains_path, "Mining Domains"),
+        (spam_domains_path, "Spam Domains"),
+        (whitelist_domains_path, "Whitelist Domains"),
+        (whitelist_domains_mail_path, "Whitelist Mail Domains"),
+        (malware_sub_domains_path, "Malware Subdomains"),
+        (malware_mail_sub_domains_path, "Malware Mail Subdomains"),
+        (phishing_sub_domains_path, "Phishing Subdomains"),
+        (abuse_sub_domains_path, "Abuse Subdomains"),
+        (mining_sub_domains_path, "Mining Subdomains"),
+        (spam_sub_domains_path, "Spam Subdomains"),
+        (whitelist_sub_domains_path, "Whitelist Subdomains"),
+        (whitelist_mail_sub_domains_path, "Whitelist Mail Subdomains"),
+    ]
 
-    # Directly use your file path variables
-    ipv4_addresses_signatures_data = load_csv(ipv4_addresses_path, "IPv4 Malicious Addresses")
-    ipv4_addresses_spam_signatures_data = load_csv(ipv4_addresses_spam_path, "IPv4 Spam Addresses")
-    ipv4_addresses_bruteforce_signatures_data = load_csv(ipv4_addresses_bruteforce_path, "IPv4 BruteForce Addresses")
-    ipv4_addresses_phishing_active_signatures_data = load_csv(ipv4_addresses_phishing_active_path, "IPv4 Active Phishing Addresses")
-    ipv4_addresses_phishing_inactive_signatures_data = load_csv(ipv4_addresses_phishing_inactive_path, "IPv4 Inactive Phishing Addresses")
-    ipv4_addresses_ddos_signatures_data = load_csv(ipv4_addresses_ddos_path, "IPv4 DDoS Addresses")
-    ipv4_whitelist_data = load_csv(ipv4_whitelist_path, "IPv4 Whitelist")
-    ipv6_addresses_signatures_data = load_csv(ipv6_addresses_path, "IPv6 Malicious Addresses")
-    ipv6_addresses_spam_signatures_data = load_csv(ipv6_addresses_spam_path, "IPv6 Spam Addresses")
-    ipv6_addresses_ddos_signatures_data = load_csv(ipv6_addresses_ddos_path, "IPv6 DDoS Addresses")
-    ipv6_whitelist_data = load_csv(ipv6_whitelist_path, "IPv6 Whitelist")
+    # Load all CSVs concurrently
+    tasks = [load_csv_async(path, name, registry) for path, name in csv_loads]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    malware_domains_data = load_csv(malware_domains_path, "Malware Domains")
-    malware_domains_mail_data = load_csv(malware_domains_mail_path, "Malware Mail Domains")
-    phishing_domains_data = load_csv(phishing_domains_path, "Phishing Domains")
-    abuse_domains_data = load_csv(abuse_domains_path, "Abuse Domains")
-    mining_domains_data = load_csv(mining_domains_path, "Mining Domains")
-    spam_domains_data = load_csv(spam_domains_path, "Spam Domains")
-    whitelist_domains_data = load_csv(whitelist_domains_path, "Whitelist Domains")
-    whitelist_domains_mail_data = load_csv(whitelist_domains_mail_path, "Whitelist Mail Domains")
+    # Assign results to globals
+    (
+        ipv4_addresses_signatures_data,
+        ipv4_addresses_spam_signatures_data,
+        ipv4_addresses_bruteforce_signatures_data,
+        ipv4_addresses_phishing_active_signatures_data,
+        ipv4_addresses_phishing_inactive_signatures_data,
+        ipv4_addresses_ddos_signatures_data,
+        ipv4_whitelist_data,
+        ipv6_addresses_signatures_data,
+        ipv6_addresses_spam_signatures_data,
+        ipv6_addresses_ddos_signatures_data,
+        ipv6_whitelist_data,
+        malware_domains_data,
+        malware_domains_mail_data,
+        phishing_domains_data,
+        abuse_domains_data,
+        mining_domains_data,
+        spam_domains_data,
+        whitelist_domains_data,
+        whitelist_domains_mail_data,
+        malware_sub_domains_data,
+        malware_mail_sub_domains_data,
+        phishing_sub_domains_data,
+        abuse_sub_domains_data,
+        mining_sub_domains_data,
+        spam_sub_domains_data,
+        whitelist_sub_domains_data,
+        whitelist_mail_sub_domains_data,
+    ) = results
 
-    malware_sub_domains_data = load_csv(malware_sub_domains_path, "Malware Subdomains")
-    malware_mail_sub_domains_data = load_csv(malware_mail_sub_domains_path, "Malware Mail Subdomains")
-    phishing_sub_domains_data = load_csv(phishing_sub_domains_path, "Phishing Subdomains")
-    abuse_sub_domains_data = load_csv(abuse_sub_domains_path, "Abuse Subdomains")
-    mining_sub_domains_data = load_csv(mining_sub_domains_path, "Mining Subdomains")
-    spam_sub_domains_data = load_csv(spam_sub_domains_path, "Spam Subdomains")
-    whitelist_sub_domains_data = load_csv(whitelist_sub_domains_path, "Whitelist Subdomains")
-    whitelist_mail_sub_domains_data = load_csv(whitelist_mail_sub_domains_path, "Whitelist Mail Subdomains")
-
-    # Load URLhaus data (keeping original format as it's already CSV with DictReader)
+    # Load URLhaus data (special format with DictReader)
     try:
-        urlhaus_data = []
-        with open(urlhaus_path, 'r', encoding='utf-8') as urlhaus_file:
-            reader = csv.DictReader(urlhaus_file)
-            for row in reader:
-                urlhaus_data.append(row)
+        async with aiofiles.open(urlhaus_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+        
+        def parse_urlhaus(content):
+            reader = csv.DictReader(content.splitlines())
+            return list(reader)
+        
+        urlhaus_data = await asyncio.to_thread(parse_urlhaus, content)
         logger.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
     except Exception as ex:
         logger.error(f"Error loading URLhaus data: {ex}")
         urlhaus_data = []
 
-    # Spam Email 365 (plain text)
-    spam_email_365_data = []
+    # Load Spam Email 365 (plain text)
     try:
-        with spam_email_365_path.open('r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    spam_email_365_data.append(line)  # no registry, single source
+        async with aiofiles.open(spam_email_365_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+        spam_email_365_data = [line.strip() for line in content.splitlines() if line.strip()]
         logger.info(f"Spam Email 365 loaded ({len(spam_email_365_data)} entries)")
     except Exception as e:
         logger.error(f"Failed to load Spam Email 365: {e}")
+        spam_email_365_data = []
 
     # Save registry
     try:
         registry_path = Path(website_rules_dir) / "references.txt"
-        registry.save_text(registry_path)
+        await asyncio.to_thread(registry.save_text, registry_path)
         logger.info(f"Reference registry saved ({len(registry.id_to_ref)} entries)")
     except Exception as e:
         logger.error(f"Failed to save reference registry: {e}")
 
-    logger.info("All website data loaded successfully.")
+    logger.info("All website data loaded successfully (async).")
 
 def get_reference_strings(ref_ids):
     """Convert reference IDs to human-readable strings."""
@@ -11375,110 +11444,124 @@ async def monitor_scan_requests_from_edr():
                     pass
             await asyncio.sleep(0.1)
 
+# ==========================================
+# FIXED: Async Excluded Rules Loading
+# ==========================================
+
+async def load_excluded_rules_async():
+    """Load excluded rules with aiofiles"""
+    try:
+        async with aiofiles.open(excluded_rules_path, "r", encoding='utf-8') as f:
+            content = await f.read()
+        rules = [line.strip() for line in content.splitlines() if line.strip()]
+        logger.info(f"Loaded {len(rules)} excluded rules")
+        return rules
+    except Exception as e:
+        logger.error(f"Failed to load excluded rules: {e}")
+        return []
+
+# ==========================================
+# FIXED: Parallel Resource Loading
+# ==========================================
+
 async def load_all_resources_async():
     """
-    Asynchronously load all core HydraDragon resources concurrently.
-    Runs blocking functions in threads and awaits async functions directly.
+    Asynchronously load all core HydraDragon resources **IN PARALLEL**.
+    Uses asyncio.gather() to run all loads concurrently.
     Returns a dict mapping task names to results or exceptions.
-
-    Additionally: assigns successful results into module globals for key resources.
     """
     # Explicitly declare globals
     global yarGen_rules, icewater_rules, valhalla_rules, clean_rules
     global yaraxtr_rules, clamav_scanner, ml_definitions, excluded_rules
 
-    logger.info("Starting to load all resources asynchronously...")
+    logger.info("Starting parallel resource loading...")
 
-    # Load each resource individually, assign directly to globals
-    try:
-        if inspect.iscoroutinefunction(suricata_callback):
-            suricata_callback_result = await suricata_callback()
-        else:
-            suricata_callback_result = await asyncio.to_thread(suricata_callback)
-    except Exception as e:
-        suricata_callback_result = e
-        logger.error(f"Error loading suricata_callback: {e}", exc_info=e)
-
-    try:
-        load_website_data_result = await asyncio.to_thread(load_website_data)
-    except Exception as e:
-        load_website_data_result = e
-        logger.error(f"Error loading load_website_data: {e}", exc_info=e)
-
-    try:
-        load_antivirus_list_result = await asyncio.to_thread(load_antivirus_list)
-    except Exception as e:
-        load_antivirus_list_result = e
-        logger.error(f"Error loading load_antivirus_list: {e}", exc_info=e)
-
-    try:
-        yarGen_rules = await asyncio.to_thread(load_yara_rule, yarGen_rule_path, "yarGen Rules")
-    except Exception as e:
-        yarGen_rules = e
-        logger.error(f"Error loading yarGen_rules: {e}", exc_info=e)
-
-    try:
-        icewater_rules = await asyncio.to_thread(load_yara_rule, icewater_rule_path, "Icewater Rules")
-    except Exception as e:
-        icewater_rules = e
-        logger.error(f"Error loading icewater_rules: {e}", exc_info=e)
-
-    try:
-        valhalla_rules = await asyncio.to_thread(load_yara_rule, valhalla_rule_path, "Vallhalla Demo Rules")
-    except Exception as e:
-        valhalla_rules = e
-        logger.error(f"Error loading valhalla_rules: {e}", exc_info=e)
-
-    try:
-        clean_rules = await asyncio.to_thread(load_yara_rule, clean_rules_path, "(clean) YARA Rules")
-    except Exception as e:
-        clean_rules = e
-        logger.error(f"Error loading clean_rules: {e}", exc_info=e)
-
-    try:
-        yaraxtr_rules = await asyncio.to_thread(load_yara_rule, yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True)
-    except Exception as e:
-        yaraxtr_rules = e
-        logger.error(f"Error loading yaraxtr_rules: {e}", exc_info=e)
-
-    try:
-        clamav_scanner = await asyncio.to_thread(clamav.Scanner, libclamav_path=libclamav_path,
-                                                 dbpath=clamav_database_directory_path)
-    except Exception as e:
-        clamav_scanner = e
-        logger.error(f"Error loading clamav_scanner: {e}", exc_info=e)
-
-    try:
-        ml_definitions = await asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_path)
-    except Exception as e:
-        ml_definitions = e
-        logger.error(f"Error loading ml_definitions: {e}", exc_info=e)
-
-    try:
-        with open(excluded_rules_path, "r") as f:
-            excluded_rules = [line.strip() for line in f if line.strip()]
-    except Exception as e:
-        excluded_rules = e
-        logger.error(f"Error loading excluded_rules: {e}", exc_info=e)
-
-    logger.info("Resource loading completed.")
-
-    # Collect all results in a dict
-    results = {
-        "suricata_callback": suricata_callback_result,
-        "load_website_data": load_website_data_result,
-        "load_antivirus_list": load_antivirus_list_result,
-        "yarGen_rules": yarGen_rules,
-        "icewater_rules": icewater_rules,
-        "valhalla_rules": valhalla_rules,
-        "clean_rules": clean_rules,
-        "yaraxtr_rules": yaraxtr_rules,
-        "clamav_scanner": clamav_scanner,
-        "ml_definitions": ml_definitions,
-        "excluded_rules": excluded_rules,
+    # Create all tasks as a dictionary for easy tracking
+    tasks = {
+        "suricata_callback": asyncio.create_task(
+            suricata_callback() if inspect.iscoroutinefunction(suricata_callback) 
+            else asyncio.to_thread(suricata_callback)
+        ),
+        "load_website_data": asyncio.create_task(load_website_data_async()),
+        "load_antivirus_list": asyncio.create_task(asyncio.to_thread(load_antivirus_list)),
+        "yarGen_rules": asyncio.create_task(asyncio.to_thread(
+            load_yara_rule, yarGen_rule_path, "yarGen Rules", False
+        )),
+        "icewater_rules": asyncio.create_task(asyncio.to_thread(
+            load_yara_rule, icewater_rule_path, "Icewater Rules", False
+        )),
+        "valhalla_rules": asyncio.create_task(asyncio.to_thread(
+            load_yara_rule, valhalla_rule_path, "Valhalla Demo Rules", False
+        )),
+        "clean_rules": asyncio.create_task(asyncio.to_thread(
+            load_yara_rule, clean_rules_path, "(clean) YARA Rules", False
+        )),
+        "yaraxtr_rules": asyncio.create_task(asyncio.to_thread(
+            load_yara_rule, yaraxtr_yrc_path, "YARA-X yaraxtr Rules", True
+        )),
+        "clamav_scanner": asyncio.create_task(asyncio.to_thread(
+            clamav.Scanner, libclamav_path=libclamav_path, dbpath=clamav_database_directory_path
+        )),
+        "ml_definitions": asyncio.create_task(asyncio.to_thread(
+            load_ml_definitions_pickle, machine_learning_pickle_path
+        )),
+        "excluded_rules": asyncio.create_task(load_excluded_rules_async()),
     }
 
-    return results
+    # Track progress
+    total_tasks = len(tasks)
+    completed_count = 0
+
+    # Wait for all tasks to complete with progress tracking
+    pending = set(tasks.values())
+    task_name_map = {task: name for name, task in tasks.items()}
+
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        
+        for task in done:
+            completed_count += 1
+            task_name = task_name_map[task]
+            
+            try:
+                result = task.result()
+                if isinstance(result, Exception):
+                    logger.error(f"[{completed_count}/{total_tasks}] ❌ {task_name} failed: {result}")
+                else:
+                    logger.info(f"[{completed_count}/{total_tasks}] ✓ {task_name} loaded successfully")
+            except Exception as e:
+                logger.error(f"[{completed_count}/{total_tasks}] ❌ {task_name} exception: {e}")
+
+    # Gather all results (with exceptions captured)
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    result_dict = dict(zip(tasks.keys(), results))
+
+    # Assign results to globals (with error checking)
+    def safe_assign(result):
+        return result if not isinstance(result, Exception) else None
+
+    yarGen_rules = safe_assign(result_dict["yarGen_rules"])
+    icewater_rules = safe_assign(result_dict["icewater_rules"])
+    valhalla_rules = safe_assign(result_dict["valhalla_rules"])
+    clean_rules = safe_assign(result_dict["clean_rules"])
+    yaraxtr_rules = safe_assign(result_dict["yaraxtr_rules"])
+    clamav_scanner = safe_assign(result_dict["clamav_scanner"])
+    ml_definitions = safe_assign(result_dict["ml_definitions"])
+    excluded_rules = safe_assign(result_dict["excluded_rules"])
+
+    # Log summary
+    success_count = sum(1 for r in results if not isinstance(r, Exception))
+    fail_count = total_tasks - success_count
+    
+    logger.info(f"Resource loading complete: {success_count} succeeded, {fail_count} failed")
+    
+    # Log critical failures
+    critical_resources = ["clean_rules", "clamav_scanner", "excluded_rules"]
+    for resource in critical_resources:
+        if isinstance(result_dict[resource], Exception):
+            logger.exception(f"EXCEPTION: {resource} failed to load! Scanning may be impaired.")
+
+    return result_dict
 
 async def parse_hayabusa_results(csv_file):
     """
