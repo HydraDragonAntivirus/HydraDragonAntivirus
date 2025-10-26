@@ -2667,6 +2667,9 @@ yaraxtr_rules = None
 def scan_yara(file_path):
     """Scan file with multiple YARA rule sets in parallel using threads.
 
+    SAFETY: This function will ABORT scanning if the excluded_rules file is missing,
+    empty, or corrupted. This prevents false positives if malware deletes the file.
+
     Change: when a VMProtect unpacking indicator is matched, we do NOT
     attempt to unpack the PE or write any metadata file. Instead we set
     a boolean flag `is_vmprotect` which is returned as the third
@@ -2676,7 +2679,14 @@ def scan_yara(file_path):
     Rust thread safety constraints. The yara_x.Scanner and compiled rules
     cannot be safely shared across threads.
     """
-
+    
+    # CRITICAL SAFETY CHECK: Load excluded rules with verification
+    if excluded_rules is None:
+        logger.critical(f"ABORTING YARA scan of {file_path} - excluded_rules file integrity check failed!")
+        logger.critical("This could indicate malware tampering with configuration files.")
+        # Return None to signal scan failure due to security issue
+        return None, None, None
+    
     # Shared variables for results
     results = {
         'matched_rules': [],
@@ -4220,58 +4230,128 @@ def validate_paths():
 
 
 # ============================================================================#
-# Windows Suricata-compatible interface detection
+# Windows Suricata-compatible interface detection (Async)
 # ============================================================================#
-# And simplify get_suricata_interfaces (no COM init needed):
-def get_suricata_interfaces():
+async def get_suricata_interfaces():
     """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
-    # COM should already be initialized by monitor_interfaces()
-    w = WMI()
-    interfaces = []
-    for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
-        if nic.NetEnabled:
-            # Build NPF device name
-            npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
-            interfaces.append(npf_name)
-    return interfaces
+    loop = asyncio.get_event_loop()
+    
+    def _get_interfaces():
+        try:
+            from wmi import WMI
+            w = WMI()
+            interfaces = []
+            for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
+                if nic.NetEnabled:
+                    # Build NPF device name
+                    npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
+                    interfaces.append(npf_name)
+            return interfaces
+        except Exception as e:
+            logger.error(f"Error getting interfaces: {e}", exc_info=True)
+            return []
+    
+    # Run WMI calls in thread executor to avoid blocking
+    return await loop.run_in_executor(None, _get_interfaces)
 
 # ============================================================================#
-# Start Suricata on interface
+# Start Suricata on interface (Async)
 # ============================================================================#
-def start_suricata_on_interface(iface):
+async def start_suricata_on_interface(iface, suricata_exe_path, suricata_config_path):
+    """Start Suricata process for a specific interface."""
     if iface in running_processes:
         return running_processes[iface]  # already running
-    cmd = [suricata_exe_path, "-c", suricata_config_path, "-i", iface, "--pcap-file-continuous"]
-    logger.info(f"Starting Suricata on interface: {iface}")
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    running_processes[iface] = process
-    logger.info(f"Suricata PID {process.pid} started for {iface}")
-    return process
-
-# ============================================================================#
-# Monitor interfaces
-# ============================================================================#
-def monitor_interfaces():
-    global running_processes, started_interfaces
     
-    # Initialize COM once for this thread
-    pythoncom.CoInitialize()
+    # Remove --pcap-file-continuous which is for PCAP files, not live capture
+    cmd = [
+        suricata_exe_path,
+        "-c", suricata_config_path,
+        "-i", iface,
+        # Add these options for better live capture
+        "--set", "outputs.fast.enabled=yes",  # Enable fast.log for alerts
+        "--set", "outputs.eve-log.enabled=yes"  # Enable eve.json for detailed logs
+    ]
+    
+    logger.info(f"Starting Suricata on interface: {iface}")
+    logger.info(f"Command: {' '.join(cmd)}")
     
     try:
-        while True:
-            # Now WMI calls will work
-            interfaces = get_suricata_interfaces()
+        # Use asyncio subprocess for non-blocking execution
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        running_processes[iface] = process
+        logger.info(f"Suricata PID {process.pid} started for {iface}")
+        
+        # Start background tasks to read output
+        asyncio.create_task(read_suricata_output(process.stdout, iface, "stdout"))
+        asyncio.create_task(read_suricata_output(process.stderr, iface, "stderr"))
+        
+        return process
+        
+    except Exception as e:
+        logger.error(f"Failed to start Suricata on {iface}: {e}", exc_info=True)
+        return None
 
+# ============================================================================#
+# Read Suricata output (Async)
+# ============================================================================#
+async def read_suricata_output(stream, iface, stream_type):
+    """Read and log Suricata output."""
+    try:
+        while True:
+            line = await stream.readline()
+            if not line:
+                break
+            decoded = line.decode('utf-8', errors='ignore').strip()
+            if decoded:
+                logger.info(f"[Suricata-{iface}-{stream_type}] {decoded}")
+    except asyncio.CancelledError:
+        return
+    except Exception as e:
+        logger.error(f"Error reading Suricata output for {iface}: {e}")
+
+# ============================================================================#
+# Monitor interfaces (Async)
+# ============================================================================#
+async def monitor_interfaces(suricata_exe_path, suricata_config_path):
+    """Monitor network interfaces and manage Suricata processes."""
+    global running_processes, started_interfaces
+    
+    logger.info("Starting Suricata interface monitor...")
+    
+    while True:
+        try:
+            # Get current interfaces
+            interfaces = await get_suricata_interfaces()
+            
+            if not interfaces:
+                logger.warning("No network interfaces found")
+                await asyncio.sleep(10)
+                continue
+            
             # Start Suricata for new interfaces
             for iface in interfaces:
                 if iface not in started_interfaces:
-                    proc = start_suricata_on_interface(iface)
-                    started_interfaces.append(iface)
-
+                    proc = await start_suricata_on_interface(
+                        iface, 
+                        suricata_exe_path, 
+                        suricata_config_path
+                    )
+                    if proc:
+                        started_interfaces.append(iface)
+            
             # Check for stopped processes
-            stopped = [iface for iface, proc in running_processes.items() if proc.poll() is not None]
+            stopped = []
+            for iface, proc in list(running_processes.items()):
+                if proc.returncode is not None:
+                    stopped.append(iface)
+            
             for iface in stopped:
-                logger.warning(f"Suricata process for {iface} stopped unexpectedly")
+                logger.warning(f"Suricata process for {iface} stopped unexpectedly (exit code: {running_processes[iface].returncode})")
                 del running_processes[iface]
                 if iface in started_interfaces:
                     started_interfaces.remove(iface)
@@ -4285,57 +4365,67 @@ def monitor_interfaces():
                     if proc:
                         try:
                             proc.terminate()
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Suricata process for {iface} didn't terminate, killing...")
+                            proc.kill()
                         except Exception as e:
                             logger.error(f"Error terminating process for {iface}: {e}")
                     del running_processes[iface]
-                started_interfaces.remove(iface)
-
-            time.sleep(1)
+                if iface in started_interfaces:
+                    started_interfaces.remove(iface)
             
-    except Exception as e:
-        logger.error("Monitor interfaces error: %s", e, exc_info=True)
-    finally:
-        # Clean up COM
-        pythoncom.CoUninitialize()
+            # Sleep before next check
+            await asyncio.sleep(5)
+            
+        except asyncio.CancelledError:
+            logger.info("Suricata monitor cancelled, stopping all processes...")
+            # Stop all running processes
+            for iface, proc in list(running_processes.items()):
+                try:
+                    proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except Exception:
+                    proc.kill()
+            raise
+            
+        except Exception as e:
+            logger.error(f"Monitor interfaces error: {e}", exc_info=True)
+            await asyncio.sleep(10)
 
-async def suricata_callback():
+# ============================================================================#
+# Suricata callback (Async entry point)
+# ============================================================================#
+async def suricata_callback(suricata_exe_path, suricata_config_path):
     """
-    Asynchronously start Suricata interface monitoring.
-    Runs monitor_interfaces() in a daemon thread (non-blocking).
-    Returns immediately.
+    Start Suricata interface monitoring asynchronously.
+    Returns immediately, monitoring runs in background task.
     """
-    loop = asyncio.get_event_loop()
-
     try:
-        # Validate paths (CPU-bound, run in thread to avoid blocking)
-        valid = await loop.run_in_executor(None, validate_paths)
-        if not valid:
-            logger.error("Suricata paths are invalid. Cannot start.")
+        # Validate paths
+        import os
+        if not os.path.exists(suricata_exe_path):
+            logger.error(f"Suricata executable not found: {suricata_exe_path}")
             return False
-
-        logger.info("Starting Suricata interface monitor (async-thread)...")
-
-        # Target for background thread
-        def monitor_thread_target():
-            try:
-                monitor_interfaces()  # This is the blocking monitoring function
-            except Exception as e:
-                logger.error("Suricata monitor thread crashed: %s", e, exc_info=True)
-
-        # Start the monitoring in a daemon thread (fire-and-forget)
-        thread = threading.Thread(
-            target=monitor_thread_target,
-            daemon=True,
-            name="SuricataMonitorThread"
+        
+        if not os.path.exists(suricata_config_path):
+            logger.error(f"Suricata config not found: {suricata_config_path}")
+            return False
+        
+        logger.info("Starting Suricata interface monitor (async)...")
+        
+        # Start monitoring in background task
+        asyncio.create_task(
+            monitor_interfaces(suricata_exe_path, suricata_config_path),
+            name="SuricataMonitorTask"
         )
-        thread.start()
-
+        
+        logger.info("Suricata monitor started successfully")
+        return True
+        
     except Exception as ex:
-        logger.error("Unexpected error starting Suricata: %s", ex, exc_info=True)
+        logger.error(f"Unexpected error starting Suricata: {ex}", exc_info=True)
         return False
-
-    # Immediately return — main thread is not blocked
-    return True
 
 # ========== ASYNC SURICATA MONITORING ==========
 
@@ -11112,24 +11202,66 @@ async def load_all_resources_async():
 
     return results
 
+async def parse_hayabusa_results(csv_file):
+    """
+    Parse Hayabusa CSV results and send notifications for critical alerts.
+    """
+    try:
+        import csv as csv_module
+        
+        async with aiofiles.open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
+            content = await f.read()
+            
+        reader = csv_module.DictReader(content.splitlines())
+        critical_count = 0
+        
+        for row in reader:
+            level = (row.get("Level") or "").lower()
+            if level in ("critical", "crit"):
+                critical_count += 1
+                rule = row.get("RuleTitle", "N/A")
+                details = row.get("Details", "N/A")
+                computer = row.get("Computer", "N/A")
+                channel = row.get("Channel", "N/A")
+                
+                logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
+                
+                try:
+                    await notify_user_hayabusa_critical(
+                        event_log=channel,
+                        rule_title=rule,
+                        details=details,
+                        computer=computer
+                    )
+                except Exception:
+                    logger.exception("notify_user_hayabusa_critical failed")
+        
+        if critical_count > 0:
+            logger.warning(f"Found {critical_count} critical alerts in this scan")
+        else:
+            logger.info("No critical alerts found in this scan")
+            
+    except Exception:
+        logger.exception(f"Error parsing Hayabusa results from {csv_file}")
+
 async def run_hayabusa_live_async():
     """
-    Continuous Hayabusa live monitoring loop (resilient, with sleeps to avoid tight loops).
+    Periodic Hayabusa scanning loop - runs every 30 seconds to detect threats.
     """
+    scan_interval = 30  # Run scan every 30 seconds
+    
     while True:
         try:
             if not os.path.exists(hayabusa_path):
                 logger.warning(f"Hayabusa executable not found at: {hayabusa_path}")
-                # sleep to avoid busy retrying when binary is missing
-                await asyncio.sleep(5)
                 continue
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(log_directory, f"hayabusa_live_{timestamp}")
+            output_dir = os.path.join(log_directory, f"hayabusa_scan_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"hayabusa_live_{timestamp}.csv")
+            output_file = os.path.join(output_dir, f"hayabusa_{timestamp}.csv")
 
-            # Use explicit long-form args so hayabusa doesn't complain
+            # Scan with time offset to only check recent events
             cmd = [
                 hayabusa_path,
                 "csv-timeline",
@@ -11137,119 +11269,37 @@ async def run_hayabusa_live_async():
                 "--output", output_file,
                 "--profile", "standard",
                 "--min-level", "critical",
-                "--live-analysis"
+                "--live-analysis",
+                "--time-offset", "40s",  # Only scan events from last 40 seconds
+                "--quiet"  # Reduce output noise
             ]
-            logger.info(f"Launching Hayabusa: {' '.join(cmd)}")
+            logger.info(f"Starting Hayabusa scan: {' '.join(cmd)}")
 
+            # Run Hayabusa and let output go to redirected stdout/stderr
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                cwd=os.path.dirname(hayabusa_path)
             )
 
-            async def stream_reader(pipe, label):
+            # Wait for scan to complete
+            rc = await process.wait()
+            logger.info(f"Hayabusa scan completed with returncode {rc}")
+
+            # Parse the results file for critical alerts
+            if rc == 0 and os.path.exists(output_file):
                 try:
-                    while True:
-                        line = await pipe.readline()
-                        if not line:
-                            break
-                        decoded = line.decode("utf-8", errors="ignore").strip()
-                        logger.info(f"[{label}] {decoded}")
-                except asyncio.CancelledError:
-                    # Task cancelled during shutdown
-                    return
+                    await parse_hayabusa_results(output_file)
                 except Exception:
-                    logger.exception(f"Exception in stream_reader ({label})")
-
-            stdout_task = asyncio.create_task(stream_reader(process.stdout, "Hayabusa"))
-            stderr_task = asyncio.create_task(stream_reader(process.stderr, "Hayabusa-ERR"))
-
-            # background waiter to detect process exit and ensure tasks are cancelled
-            async def process_waiter():
-                try:
-                    rc = await process.wait()
-                    logger.info(f"Hayabusa exited with returncode {rc}")
-                except asyncio.CancelledError:
-                    # if we cancel waiter, try to terminate process
-                    try:
-                        process.terminate()
-                    except Exception:
-                        pass
-                    raise
-
-            waiter_task = asyncio.create_task(process_waiter())
-
-            async def tail_csv(csv_path):
-                seen = set()
-                last_pos = 0
-                while True:
-                    # if process finished and file processing done, break
-                    if waiter_task.done() and not os.path.exists(csv_path):
-                        break
-
-                    try:
-                        async with aiofiles.open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                            # move to last read position
-                            await f.seek(last_pos)
-                            content = await f.read()
-                            last_pos = await f.tell()
-                            if content:
-                                reader = csv.DictReader(content.splitlines())
-                                for row in reader:
-                                    key = (row.get("Timestamp"), row.get("EventID"), row.get("RuleTitle"))
-                                    if key in seen:
-                                        continue
-                                    seen.add(key)
-                                    level = (row.get("Level") or "").lower()
-                                    if level in ("critical", "crit"):
-                                        rule = row.get("RuleTitle", "N/A")
-                                        details = row.get("Details", "N/A")
-                                        logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
-                                        try:
-                                            await notify_user_hayabusa_critical(
-                                                event_log=row.get("Channel", ""),
-                                                rule_title=rule,
-                                                details=details,
-                                                computer=row.get("Computer", "")
-                                            )
-                                        except Exception:
-                                            logger.exception("notify_user_hayabusa_critical failed")
-                    except asyncio.CancelledError:
-                        return
-                    except Exception:
-                        # log exception and continue; small sleep to avoid busy looping on repeated errors
-                        logger.exception("Error while tailing hayabusa csv")
-                        await asyncio.sleep(0.5)
-
-            csv_tail_task = asyncio.create_task(tail_csv(output_file))
-
-            # Wait for process to exit or for any task to raise — gather ensures we capture exceptions
-            done, pending = await asyncio.wait(
-                [stdout_task, stderr_task, csv_tail_task, waiter_task],
-                return_when=asyncio.FIRST_EXCEPTION
-            )
-
-            # If any task raised, log them
-            for d in done:
-                if d.cancelled():
-                    continue
-                exc = d.exception()
-                if exc:
-                    logger.exception("Task in hayabusa group raised", exc_info=exc)
-
-            # Cancel any remaining tasks and await them
-            for p in pending:
-                p.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+                    logger.exception("Failed to parse Hayabusa results")
+            
+            # Wait before next scan
+            logger.info(f"Next Hayabusa scan in {scan_interval} seconds")
+            await asyncio.sleep(scan_interval)
 
         except asyncio.CancelledError:
-            # propagate cancellation so outer event loop can shut down
             raise
         except Exception:
-            logger.exception("Unhandled exception in Hayabusa live loop, restarting after short delay...")
-            await asyncio.sleep(2)
-            continue
+            logger.exception("Unhandled exception in Hayabusa scan loop, restarting after short delay...")
 
 # --- start_real_time_protection_async ---
 async def start_real_time_protection_async():
