@@ -1076,15 +1076,6 @@ def decode_b64_import(match: re.Match) -> str:
     except Exception:
         return match.group(0)
 
-# Function to load antivirus list
-def load_antivirus_list():
-    global antivirus_domains_data
-    try:
-        with open(antivirus_list_path, 'r') as antivirus_file:
-            antivirus_domains_data = antivirus_file.read().splitlines()
-    except Exception as ex:
-        logger.error(f"Error loading Antivirus domains: {ex}")
-
 # ==========================================
 # FIXED: Async CSV Loading
 # ==========================================
@@ -11529,11 +11520,15 @@ async def load_all_resources_async():
         return result
 
     async def load_antivirus():
-        result = await load_resource_safe(
-            "Antivirus List",
-            asyncio.to_thread(load_antivirus_list),
-        )
-        return result
+        try:
+            async with aiofiles.open(antivirus_list_path, 'r') as f:
+                lines = await f.read()
+            antivirus_domains_data[:] = lines.splitlines()
+            logger.info("Antivirus List loaded successfully!")
+            return antivirus_domains_data
+        except Exception as ex:
+            logger.error(f"Error loading Antivirus List: {ex}")
+            return None
 
     async def load_yargen():
         global yarGen_rules
