@@ -4238,6 +4238,13 @@ async def get_suricata_interfaces():
     loop = asyncio.get_event_loop()
 
     def _get_interfaces():
+        # *** FIX: Initialize COM for this thread ***
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            # CoInitialize can fail if already called, but we try to ensure it runs
+            pass
+            
         try:
             w = WMI()
             interfaces = []
@@ -4248,10 +4255,21 @@ async def get_suricata_interfaces():
                     interfaces.append(npf_name)
             return interfaces
         except Exception as e:
-            logger.error(f"Error getting interfaces: {e}", exc_info=True)
-            return []
-
+            # We don't call logger here since we're in the executor thread, 
+            # let the calling context handle logging the return value.
+            # However, your original code *was* logging, so let's keep it simple
+            # and rely on the exception being handled by the logger.error call 
+            # in your existing code block.
+            raise  # Re-raise the exception to be logged by the caller
+        finally:
+            # *** FIX: Uninitialize COM when done ***
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+                
     # Run WMI calls in thread executor to avoid blocking
+    # The WMI operation now runs correctly in the non-main thread
     return await loop.run_in_executor(None, _get_interfaces)
 
 # ============================================================================#
