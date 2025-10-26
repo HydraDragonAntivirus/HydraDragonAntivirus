@@ -244,7 +244,6 @@ uefi_paths = [
 CONNECT_TIMEOUT = 10.0   # increase for debugging, reduce later
 READ_TIMEOUT = 5.0       # increase for debugging, reduce later
 RAW_PREVIEW_LEN = 200    # how many raw bytes to log for inspection
-SEND_ACK = False         # set True if you want to send a small JSON ack back (requires duplex on both sides)
 
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"

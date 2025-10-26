@@ -16,7 +16,6 @@ from .path_and_variables import (
     CONNECT_TIMEOUT,
     READ_TIMEOUT,
     RAW_PREVIEW_LEN,
-    SEND_ACK,
     hayabusa_path,
     python_path,
     jadx_decompiled_dir,
@@ -11406,15 +11405,6 @@ async def monitor_scan_requests_from_edr():
 
             logger.info(f"[AV] Received scan request: {file_path}")
             asyncio.create_task(scan_and_warn(file_path))
-
-            # Optional: send ack back (requires duplex pipe on both sides)
-            if SEND_ACK:
-                try:
-                    ack = json.dumps({"status": "ok", "file_path": file_path}).encode("utf-8")
-                    await _write_to_pipe(pipe, ack)
-                    logger.debug("[AV] Sent ACK to client")
-                except Exception as e:
-                    logger.debug(f"[AV] Failed to send ACK: {e}")
 
         except json.JSONDecodeError as e:
             logger.error(f"[AV] Invalid JSON from EDR: {e}")
