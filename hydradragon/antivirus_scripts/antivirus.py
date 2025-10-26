@@ -4229,6 +4229,9 @@ def validate_paths():
         return False
     return True
 
+# ============================================================================#
+# Windows Suricata-compatible interface detection (Async)
+# ============================================================================#
 
 # Constants for GetAdaptersAddresses
 AF_UNSPEC = 0
