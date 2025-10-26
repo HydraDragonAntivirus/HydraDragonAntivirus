@@ -33,47 +33,47 @@ def _sync_normalize_nt_path(nt_path: str) -> str:
     """
     if not nt_path:
         return nt_path
-    
+
     try:
         # Already a normal path
         if ':' in nt_path and not nt_path.startswith('\\Device\\'):
             return os.path.normpath(nt_path)
-        
+
         # Handle NT device paths like \Device\HarddiskVolume3\...
         if nt_path.startswith('\\Device\\HarddiskVolume'):
             parts = nt_path.split('\\', 3)
             if len(parts) < 4:
                 logger.warning(f"Invalid NT path format: {nt_path}")
                 return nt_path
-            
+
             volume_device = '\\'.join(parts[:3])  # \Device\HarddiskVolume3
             relative_path = parts[3]  # Program Files\...
-            
+
             # Get all logical drives
             drives = win32api.GetLogicalDriveStrings().split('\x00')[:-1]
             for drive in drives:
                 try:
                     drive_letter = drive.rstrip('\\')
                     nt_device = win32file.QueryDosDevice(drive_letter.rstrip(':'))
-                    
+
                     if nt_device and nt_device[0] == volume_device:
                         normalized = os.path.join(drive_letter, relative_path)
                         logger.debug(f"Normalized NT path: {nt_path} -> {normalized}")
                         return os.path.normpath(normalized)
                 except Exception:
                     continue
-            
+
             logger.warning(f"Could not find drive mapping for: {volume_device}")
             return nt_path
-        
+
         # Handle \??\ format
         elif nt_path.startswith('\\??\\'):
             normalized = nt_path[4:]
             logger.debug(f"Normalized \\??\\ path: {nt_path} -> {normalized}")
             return os.path.normpath(normalized)
-        
+
         return nt_path
-        
+
     except Exception as e:
         logger.error(f"Error normalizing NT path '{nt_path}': {e}")
         return nt_path
@@ -253,10 +253,10 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
 async def _process_mbr_alert(data: bytes):
     try:
         offending_path = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
-        
+
         # Normalize NT path
         offending_path = await normalize_nt_path(offending_path)
-        
+
         logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
         # call notification (expected async)
         await notify_user_mbr_alert(offending_path)
@@ -322,7 +322,7 @@ async def _process_self_defense_alert(data: bytes):
         # FIX: Escape backslashes before JSON parsing
         # Replace single backslashes with double backslashes for JSON
         message_str_escaped = message_str.replace('\\', '\\\\')
-        
+
         # However, if the string already has escaped backslashes, this would double-escape
         # Better approach: use raw string decoding with json.loads(strict=False)
         try:

@@ -55,14 +55,14 @@ async def update_definitions_clamav_async():
 
         if needs_update:
             logger.info("[*] Definitions are older than 12 hours. Running freshclam update...")
-            
+
             if not clamav_folder:
                 logger.error("[!] clamav_folder path is missing. Cannot run freshclam safely.")
                 return False
 
             logger.info(f"[*] CWD set to: {clamav_folder}")
             logger.info(f"[*] Executing: {freshclam_path}")
-            
+
             # Use asyncio subprocess for non-blocking execution
             process = await asyncio.create_subprocess_exec(
                 freshclam_path,
@@ -70,20 +70,20 @@ async def update_definitions_clamav_async():
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
                     timeout=1500
                 )
-                
+
                 if stdout:
                     for line in stdout.decode('utf-8', errors='ignore').splitlines():
                         logger.info(f"[freshclam] {line}")
                 if stderr:
                     for line in stderr.decode('utf-8', errors='ignore').splitlines():
                         logger.warning(f"[freshclam ERR] {line}")
-                
+
                 if process.returncode == 0:
                     reload_clamav_database()
                     logger.info("[+] Virus definitions updated successfully.")
@@ -91,7 +91,7 @@ async def update_definitions_clamav_async():
                 else:
                     logger.error(f"[!] freshclam failed with exit code {process.returncode}")
                     return False
-                    
+
             except asyncio.TimeoutError:
                 logger.error("[!] freshclam timed out after 1500 seconds")
                 process.kill()
@@ -100,7 +100,7 @@ async def update_definitions_clamav_async():
         else:
             logger.info("[*] ClamAV definitions are already up to date (less than 12 hours old).")
             return True
-            
+
     except Exception:
         logger.exception("ClamAV update failed")
         return False
@@ -116,9 +116,9 @@ async def update_definitions_hayabusa_async():
         if not os.path.exists(hayabusa_path):
             logger.error(f"[!] Hayabusa executable not found at: {hayabusa_path}")
             return False
-            
+
         logger.info(f"[*] Running command: {hayabusa_path} update-rules")
-        
+
         # Use asyncio subprocess for non-blocking execution
         process = await asyncio.create_subprocess_exec(
             hayabusa_path,
@@ -127,33 +127,33 @@ async def update_definitions_hayabusa_async():
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=1500
             )
-            
+
             if stdout:
                 for line in stdout.decode('utf-8', errors='ignore').splitlines():
                     logger.info(f"[Hayabusa Update] {line}")
             if stderr:
                 for line in stderr.decode('utf-8', errors='ignore').splitlines():
                     logger.warning(f"[Hayabusa Update ERR] {line}")
-            
+
             if process.returncode == 0:
                 logger.info("[+] Hayabusa rules update completed successfully!")
                 return True
             else:
                 logger.error(f"[!] Hayabusa rules update failed (code {process.returncode})")
                 return False
-                
+
         except asyncio.TimeoutError:
             logger.error("[!] Hayabusa update timed out after 1500 seconds")
             process.kill()
             await process.wait()
             return False
-                
+
     except Exception:
         logger.exception("Exception during Hayabusa rule update")
         return False
@@ -187,19 +187,19 @@ async def run_periodic_updates_async(update_interval_sec: int = 7200):
     First update runs immediately on startup.
     """
     logger.info(f"[*] Starting periodic update task (interval: {update_interval_sec}s)")
-    
+
     # Run first update immediately
     logger.info("[*] Running initial definition update...")
     try:
         await update_definitions_async()
     except Exception:
         logger.exception("Error in initial update")
-    
+
     # Then run periodically
     while True:
         logger.info(f"[*] Next update in {update_interval_sec/60:.1f} minutes")
         await asyncio.sleep(update_interval_sec)
-        
+
         try:
             await update_definitions_async()
         except Exception:

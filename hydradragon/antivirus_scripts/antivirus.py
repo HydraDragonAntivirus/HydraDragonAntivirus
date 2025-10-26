@@ -13,6 +13,10 @@ from .hydra_logger import (
 from .path_and_variables import (
     script_dir,
     PIPE_EDR_TO_AV,
+    CONNECT_TIMEOUT,
+    READ_TIMEOUT,
+    RAW_PREVIEW_LEN,
+    SEND_ACK,
     hayabusa_path,
     python_path,
     jadx_decompiled_dir,
@@ -679,10 +683,10 @@ def is_valid_ip(ip_string: str) -> bool:
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
     False otherwise. Logs details about invalid cases.
     """
-    
+
     # --- FIX: Use urlparse to handle URLs properly ---
     original = ip_string
-    
+
     # Check if it looks like a URL (has scheme)
     if '://' in ip_string:
         try:
@@ -693,7 +697,7 @@ def is_valid_ip(ip_string: str) -> bool:
         except Exception as e:
             logger.error(f"Failed to parse URL {original!r}: {e}")
             return False
-    
+
     # --- strip off port if present (for non-URL cases) ---
     # IPv6 with brackets, e.g. "[2001:db8::1]:443"
     elif ip_string.startswith('[') and ']' in ip_string:
@@ -1572,7 +1576,7 @@ def _write_file(path, content):
     """Helper for writing files synchronously"""
     with open(path, 'w', encoding='utf-8', errors='ignore') as f:
         f.write(content)
-    
+
 async def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
@@ -1581,20 +1585,20 @@ async def fetch_html(url, return_file_path=False):
             return ("", None) if return_file_path else ""
 
         safe_url = ensure_http_prefix(url)
-        
+
         # Blocking network call'u thread'de çalıştır
         response = await asyncio.to_thread(requests.get, safe_url, timeout=120)
-        
+
         if response.status_code == 200:
             html = response.text
             parsed = urlparse(safe_url)
             fname = Path(parsed.path if parsed.path else "index.html").name or "index.html"
             base_name = Path(fname)
             out_path = get_unique_output_path(Path(html_extracted_dir), base_name)
-            
+
             # File write'ı thread'de çalıştır
             await asyncio.to_thread(_write_file, out_path, html)
-            
+
             logger.info(f"Saved HTML for {safe_url} to {out_path}")
             saved_paths.append(out_path)
             return (html, out_path) if return_file_path else html
@@ -2679,14 +2683,14 @@ def scan_yara(file_path):
     Rust thread safety constraints. The yara_x.Scanner and compiled rules
     cannot be safely shared across threads.
     """
-    
+
     # CRITICAL SAFETY CHECK: Load excluded rules with verification
     if excluded_rules is None:
         logger.critical(f"ABORTING YARA scan of {file_path} - excluded_rules file integrity check failed!")
         logger.critical("This could indicate malware tampering with configuration files.")
         # Return None to signal scan failure due to security issue
         return None, None, None
-    
+
     # Shared variables for results
     results = {
         'matched_rules': [],
@@ -4235,7 +4239,7 @@ def validate_paths():
 async def get_suricata_interfaces():
     """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
     loop = asyncio.get_event_loop()
-    
+
     def _get_interfaces():
         try:
             from wmi import WMI
@@ -4250,7 +4254,7 @@ async def get_suricata_interfaces():
         except Exception as e:
             logger.error(f"Error getting interfaces: {e}", exc_info=True)
             return []
-    
+
     # Run WMI calls in thread executor to avoid blocking
     return await loop.run_in_executor(None, _get_interfaces)
 
@@ -4261,7 +4265,7 @@ async def start_suricata_on_interface(iface, suricata_exe_path, suricata_config_
     """Start Suricata process for a specific interface."""
     if iface in running_processes:
         return running_processes[iface]  # already running
-    
+
     # Remove --pcap-file-continuous which is for PCAP files, not live capture
     cmd = [
         suricata_exe_path,
@@ -4271,10 +4275,10 @@ async def start_suricata_on_interface(iface, suricata_exe_path, suricata_config_
         "--set", "outputs.fast.enabled=yes",  # Enable fast.log for alerts
         "--set", "outputs.eve-log.enabled=yes"  # Enable eve.json for detailed logs
     ]
-    
+
     logger.info(f"Starting Suricata on interface: {iface}")
     logger.info(f"Command: {' '.join(cmd)}")
-    
+
     try:
         # Use asyncio subprocess for non-blocking execution
         process = await asyncio.create_subprocess_exec(
@@ -4282,16 +4286,16 @@ async def start_suricata_on_interface(iface, suricata_exe_path, suricata_config_
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         running_processes[iface] = process
         logger.info(f"Suricata PID {process.pid} started for {iface}")
-        
+
         # Start background tasks to read output
         asyncio.create_task(read_suricata_output(process.stdout, iface, "stdout"))
         asyncio.create_task(read_suricata_output(process.stderr, iface, "stderr"))
-        
+
         return process
-        
+
     except Exception as e:
         logger.error(f"Failed to start Suricata on {iface}: {e}", exc_info=True)
         return None
@@ -4320,36 +4324,36 @@ async def read_suricata_output(stream, iface, stream_type):
 async def monitor_interfaces(suricata_exe_path, suricata_config_path):
     """Monitor network interfaces and manage Suricata processes."""
     global running_processes, started_interfaces
-    
+
     logger.info("Starting Suricata interface monitor...")
-    
+
     while True:
         try:
             # Get current interfaces
             interfaces = await get_suricata_interfaces()
-            
+
             if not interfaces:
                 logger.warning("No network interfaces found")
                 await asyncio.sleep(10)
                 continue
-            
+
             # Start Suricata for new interfaces
             for iface in interfaces:
                 if iface not in started_interfaces:
                     proc = await start_suricata_on_interface(
-                        iface, 
-                        suricata_exe_path, 
+                        iface,
+                        suricata_exe_path,
                         suricata_config_path
                     )
                     if proc:
                         started_interfaces.append(iface)
-            
+
             # Check for stopped processes
             stopped = []
             for iface, proc in list(running_processes.items()):
                 if proc.returncode is not None:
                     stopped.append(iface)
-            
+
             for iface in stopped:
                 logger.warning(f"Suricata process for {iface} stopped unexpectedly (exit code: {running_processes[iface].returncode})")
                 del running_processes[iface]
@@ -4374,10 +4378,10 @@ async def monitor_interfaces(suricata_exe_path, suricata_config_path):
                     del running_processes[iface]
                 if iface in started_interfaces:
                     started_interfaces.remove(iface)
-            
+
             # Sleep before next check
             await asyncio.sleep(5)
-            
+
         except asyncio.CancelledError:
             logger.info("Suricata monitor cancelled, stopping all processes...")
             # Stop all running processes
@@ -4388,7 +4392,7 @@ async def monitor_interfaces(suricata_exe_path, suricata_config_path):
                 except Exception:
                     proc.kill()
             raise
-            
+
         except Exception as e:
             logger.error(f"Monitor interfaces error: {e}", exc_info=True)
             await asyncio.sleep(10)
@@ -4407,22 +4411,22 @@ async def suricata_callback(suricata_exe_path, suricata_config_path):
         if not os.path.exists(suricata_exe_path):
             logger.error(f"Suricata executable not found: {suricata_exe_path}")
             return False
-        
+
         if not os.path.exists(suricata_config_path):
             logger.error(f"Suricata config not found: {suricata_config_path}")
             return False
-        
+
         logger.info("Starting Suricata interface monitor (async)...")
-        
+
         # Start monitoring in background task
         asyncio.create_task(
             monitor_interfaces(suricata_exe_path, suricata_config_path),
             name="SuricataMonitorTask"
         )
-        
+
         logger.info("Suricata monitor started successfully")
         return True
-        
+
     except Exception as ex:
         logger.error(f"Unexpected error starting Suricata: {ex}", exc_info=True)
         return False
@@ -4442,7 +4446,7 @@ async def monitor_suricata_log_async():
 
     async with aiofiles.open(log_path, 'r') as log_file:
         await log_file.seek(0, os.SEEK_END)  # Move to end
-        
+
         while True:
             try:
                 line = await log_file.readline()
@@ -11023,63 +11027,143 @@ async def scan_and_warn(file_path,
 # =========================
 # EDR -> AV (Scan Requests)
 # =========================
+async def _connect_named_pipe_safe(pipe, timeout: float = CONNECT_TIMEOUT):
+    """
+    Call ConnectNamedPipe on a thread and treat ERROR_PIPE_CONNECTED as success.
+    Returns True on connected, False on timeout.
+    """
+    def _connect():
+        try:
+            return win32pipe.ConnectNamedPipe(pipe, None)
+        except Exception as e:
+            # Some wrappers raise pywintypes.error; treat ERROR_PIPE_CONNECTED as success
+            try:
+                errcode = e.args[0] if isinstance(e.args, tuple) and len(e.args) > 0 else None
+            except Exception:
+                errcode = None
+            if errcode == win32pipe.ERROR_PIPE_CONNECTED or errcode == win32pipe.error.ERROR_PIPE_CONNECTED:
+                return True
+            raise
+
+    try:
+        # Wait for connect with timeout
+        await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
+        return True
+    except asyncio.TimeoutError:
+        return False
+    except Exception:
+        # treat other exceptions as "connected" if they indicate ERROR_PIPE_CONNECTED, otherwise re-raise
+        return True
+
+async def _read_from_pipe(pipe, max_bytes: int = 65536, timeout: float = READ_TIMEOUT):
+    """Read from pipe in a thread with timeout. Returns bytes or None on timeout/failure."""
+    def _read():
+        try:
+            hr, data = win32file.ReadFile(pipe, max_bytes)
+            return data
+        except Exception as e:
+            raise
+
+    try:
+        data = await asyncio.wait_for(asyncio.to_thread(_read), timeout=timeout)
+        return data
+    except asyncio.TimeoutError:
+        return None
+    except Exception as e:
+        logger.debug(f"[AV] ReadFile exception: {e}")
+        return None
+
+async def _write_to_pipe(pipe, data: bytes):
+    def _write():
+        try:
+            win32file.WriteFile(pipe, data)
+        except Exception as e:
+            raise
+    await asyncio.to_thread(_write)
+
 async def monitor_scan_requests_from_edr():
     """AV side: listen for scan requests FROM EDR (server)"""
     logger.info(f"[AV] Starting scan request listener on {PIPE_EDR_TO_AV}")
-    
+
     while True:
         pipe = None
         try:
-            # Create server pipe
+            logger.debug(f"[AV] Creating pipe: {PIPE_EDR_TO_AV}")
             pipe = await asyncio.to_thread(
                 lambda: win32pipe.CreateNamedPipe(
                     PIPE_EDR_TO_AV,
+                    # if you want ACKs, use PIPE_ACCESS_DUPLEX here and set SEND_ACK True
                     win32pipe.PIPE_ACCESS_INBOUND,
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                     win32pipe.PIPE_UNLIMITED_INSTANCES,
                     65536, 65536, 0, None
                 )
             )
-            
+
             logger.info("[AV] Pipe created, waiting for client connection...")
-            
-            # Add timeout to avoid indefinite blocking
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None)),
-                    timeout=5.0  # 5 second timeout
-                )
-                logger.info("[AV] Client connected")
-            except asyncio.TimeoutError:
-                logger.debug("[AV] No client connected, retrying...")
-                continue  # Try again
-            
-            # Read data with timeout
-            try:
-                hr, data = await asyncio.wait_for(
-                    asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096)),
-                    timeout=2.0
-                )
-            except asyncio.TimeoutError:
-                logger.debug("[AV] Read timeout, disconnecting")
+
+            connected = await _connect_named_pipe_safe(pipe, timeout=CONNECT_TIMEOUT)
+            if not connected:
+                logger.debug("[AV] No client connected within timeout; disconnecting and retrying")
+                try:
+                    await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                except Exception:
+                    pass
+                try:
+                    await asyncio.to_thread(_sync_close_handle, pipe)
+                except Exception:
+                    pass
+                pipe = None
                 continue
 
-            if data:
+            logger.info("[AV] Client connected")
+
+            # Read message with timeout
+            data = await _read_from_pipe(pipe, max_bytes=65536, timeout=READ_TIMEOUT)
+            if data is None:
+                logger.debug("[AV] Read timeout/failed, disconnecting and retrying")
+                continue
+
+            if not data:
+                logger.debug("[AV] Empty read, disconnecting")
+                continue
+
+            # Peek raw bytes for debugging
+            try:
+                preview = data[:RAW_PREVIEW_LEN]
+                logger.debug(f"[AV] Raw bytes received (preview): {preview!r}")
+            except Exception:
+                pass
+
+            # Parse JSON
+            try:
                 message = data.decode("utf-8", errors="replace")
                 request = json.loads(message)
+            except json.JSONDecodeError as e:
+                logger.error(f"[AV] Invalid JSON from EDR: {e} -- raw: {data[:RAW_PREVIEW_LEN]!r}")
+                continue
 
-                file_path = request.get("file_path")
-                if file_path:
-                    file_path = await normalize_nt_path(file_path)
+            file_path = request.get("file_path")
+            if not file_path:
+                logger.debug(f"[AV] Invalid scan request (missing file_path): {request}")
+                continue
 
-                    if not await _is_protected_path(file_path):
-                        logger.info(f"[AV] Received scan request: {file_path}")
-                        # Don't await - let it run in background
-                        asyncio.create_task(scan_and_warn(file_path))
-                    else:
-                        logger.debug(f"[AV] Skipping protected path: {file_path}")
-                else:
-                    logger.debug(f"[AV] Invalid scan request: {request}")
+            file_path = await normalize_nt_path(file_path)
+            if await _is_protected_path(file_path):
+                logger.debug(f"[AV] Skipping protected path: {file_path}")
+                continue
+
+            logger.info(f"[AV] Received scan request: {file_path}")
+            asyncio.create_task(scan_and_warn(file_path))
+
+            # Optional: send ack back (requires duplex pipe on both sides)
+            if SEND_ACK:
+                try:
+                    ack = json.dumps({"status": "ok", "file_path": file_path}).encode("utf-8")
+                    await _write_to_pipe(pipe, ack)
+                    logger.debug("[AV] Sent ACK to client")
+                except Exception as e:
+                    logger.debug(f"[AV] Failed to send ACK: {e}")
 
         except json.JSONDecodeError as e:
             logger.error(f"[AV] Invalid JSON from EDR: {e}")
@@ -11090,11 +11174,12 @@ async def monitor_scan_requests_from_edr():
             if pipe:
                 try:
                     await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
+                except Exception:
+                    pass
+                try:
                     await asyncio.to_thread(_sync_close_handle, pipe)
-                except Exception as e:
-                    logger.debug(f"[AV] Error closing pipe: {e}")
-            
-            # Small sleep to prevent CPU spinning
+                except Exception:
+                    pass
             await asyncio.sleep(0.1)
 
 async def load_all_resources_async():
@@ -11208,13 +11293,13 @@ async def parse_hayabusa_results(csv_file):
     """
     try:
         import csv as csv_module
-        
+
         async with aiofiles.open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
             content = await f.read()
-            
+
         reader = csv_module.DictReader(content.splitlines())
         critical_count = 0
-        
+
         for row in reader:
             level = (row.get("Level") or "").lower()
             if level in ("critical", "crit"):
@@ -11223,9 +11308,9 @@ async def parse_hayabusa_results(csv_file):
                 details = row.get("Details", "N/A")
                 computer = row.get("Computer", "N/A")
                 channel = row.get("Channel", "N/A")
-                
+
                 logger.warning(f"[!] CRITICAL: {rule} | {details[:100]}")
-                
+
                 try:
                     await notify_user_hayabusa_critical(
                         event_log=channel,
@@ -11235,12 +11320,12 @@ async def parse_hayabusa_results(csv_file):
                     )
                 except Exception:
                     logger.exception("notify_user_hayabusa_critical failed")
-        
+
         if critical_count > 0:
             logger.warning(f"Found {critical_count} critical alerts in this scan")
         else:
             logger.info("No critical alerts found in this scan")
-            
+
     except Exception:
         logger.exception(f"Error parsing Hayabusa results from {csv_file}")
 
@@ -11249,7 +11334,7 @@ async def run_hayabusa_live_async():
     Periodic Hayabusa scanning loop - runs every 30 seconds to detect threats.
     """
     scan_interval = 30  # Run scan every 30 seconds
-    
+
     while True:
         try:
             if not os.path.exists(hayabusa_path):
@@ -11291,7 +11376,7 @@ async def run_hayabusa_live_async():
                     await parse_hayabusa_results(output_file)
                 except Exception:
                     logger.exception("Failed to parse Hayabusa results")
-            
+
             # Wait before next scan
             logger.info(f"Next Hayabusa scan in {scan_interval} seconds")
             await asyncio.sleep(scan_interval)
