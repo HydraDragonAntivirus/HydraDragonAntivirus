@@ -4233,38 +4233,46 @@ def validate_paths():
 # ============================================================================#
 # Windows Suricata-compatible interface detection (Async)
 # ============================================================================#
-def _get_interfaces():
-    try:
-        # 1. Initialize COM (This was the fix for your previous error, keep it)
-        pythoncom.CoInitialize()
-    except Exception:
-        pass # Ignore if already initialized
+async def get_suricata_interfaces():
+    """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
+    loop = asyncio.get_event_loop()
 
-    try:
-        w = WMI()
-        interfaces = []
-        
-        # *** FIX: Removed the problematic filter from the WMI call ***
-        # The original was: for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
-        for nic in w.Win32_NetworkAdapter(): 
-            
-            # Now, check the properties you need in Python:
-            # Check if the adapter is enabled AND has a GUID
-            if nic.NetEnabled and nic.GUID: 
-                # Build NPF device name
-                npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
-                interfaces.append(npf_name)
-        
-        return interfaces
-    except Exception as e:
-        # Re-raise the exception to be logged by the caller
-        raise
-    finally:
-        # 2. Uninitialize COM when done
+    def _get_interfaces():
         try:
-            pythoncom.CoUninitialize()
+            # 1. Initialize COM (This was the fix for your previous error, keep it)
+            pythoncom.CoInitialize()
         except Exception:
-            pass
+            pass # Ignore if already initialized
+
+        try:
+            w = WMI()
+            interfaces = []
+            
+            # *** FIX: Removed the problematic filter from the WMI call ***
+            # The original was: for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
+            for nic in w.Win32_NetworkAdapter(): 
+                
+                # Now, check the properties you need in Python:
+                # Check if the adapter is enabled AND has a GUID
+                if nic.NetEnabled and nic.GUID: 
+                    # Build NPF device name
+                    npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
+                    interfaces.append(npf_name)
+            
+            return interfaces
+        except Exception as e:
+            # Re-raise the exception to be logged by the caller
+            raise
+        finally:
+            # 2. Uninitialize COM when done
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+                
+    # Run WMI calls in thread executor to avoid blocking
+    # The WMI operation now runs correctly in the non-main thread
+    return await loop.run_in_executor(None, _get_interfaces)
 
 # ============================================================================#
 # Start Suricata on interface (Async)
