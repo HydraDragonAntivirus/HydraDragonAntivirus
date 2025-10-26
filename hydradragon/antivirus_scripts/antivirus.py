@@ -4230,49 +4230,227 @@ def validate_paths():
     return True
 
 
-# ============================================================================#
-# Windows Suricata-compatible interface detection (Async)
-# ============================================================================#
+# Constants for GetAdaptersAddresses
+AF_UNSPEC = 0
+GAA_FLAG_INCLUDE_PREFIX = 0x00000010
+
+iphlpapi = ctypes.WinDLL('Iphlpapi.dll')
+GetAdaptersAddresses = iphlpapi.GetAdaptersAddresses
+GetAdaptersAddresses.argtypes = [
+    wintypes.ULONG, wintypes.ULONG, wintypes.LPVOID,
+    wintypes.LPVOID, ctypes.POINTER(wintypes.ULONG)
+]
+# We'll use a minimal adapters structure parsing approach: read the AdapterName and IfIndex fields.
+# This structure is large; to avoid crafting full struct we call the function twice to get needed buffer,
+# then parse the buffer using a simplified adapter structure only for necessary offsets.
+
+GetIfEntry = iphlpapi.GetIfEntry
+# MIB_IFROW struct
+class MIB_IFROW(ctypes.Structure):
+    _fields_ = [
+        ("wszName", ctypes.c_char * 256),
+        ("dwIndex", wintypes.DWORD),
+        ("dwType", wintypes.DWORD),
+        ("dwMtu", wintypes.DWORD),
+        ("dwSpeed", wintypes.DWORD),
+        ("dwPhysAddrLen", wintypes.DWORD),
+        ("bPhysAddr", ctypes.c_ubyte * 8),
+        ("dwAdminStatus", wintypes.DWORD),
+        ("dwOperStatus", wintypes.DWORD),
+        ("dwLastChange", wintypes.DWORD),
+        ("dwInOctets", wintypes.DWORD),
+        ("dwInUcastPkts", wintypes.DWORD),
+        ("dwInNUcastPkts", wintypes.DWORD),
+        ("dwInDiscards", wintypes.DWORD),
+        ("dwInErrors", wintypes.DWORD),
+        ("dwInUnknownProtos", wintypes.DWORD),
+        ("dwOutOctets", wintypes.DWORD),
+        ("dwOutUcastPkts", wintypes.DWORD),
+        ("dwOutNUcastPkts", wintypes.DWORD),
+        ("dwOutDiscards", wintypes.DWORD),
+        ("dwOutErrors", wintypes.DWORD),
+        ("dwOutQLen", wintypes.DWORD),
+        ("dwDescrLen", wintypes.DWORD),
+        ("bDescr", ctypes.c_ubyte * 256)
+    ]
+GetIfEntry.argtypes = [ctypes.POINTER(MIB_IFROW)]
+GetIfEntry.restype = wintypes.DWORD
+
+# Helper: build mapping GUID -> IfIndex using GetAdaptersAddresses via ctypes.
+def _build_guid_to_index_map():
+    # Call GetAdaptersAddresses to get buffer size, then call again.
+    size = wintypes.ULONG(0)
+    rv = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, None, None, ctypes.byref(size))
+    if rv not in (0, 122):  # 122 = ERROR_INSUFFICIENT_BUFFER
+        logger.debug("GetAdaptersAddresses initial call returned %s", rv)
+        return {}
+    buf = ctypes.create_string_buffer(size.value)
+    rv = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, None, ctypes.byref(buf), ctypes.byref(size))
+    if rv != 0:
+        logger.debug("GetAdaptersAddresses failed with %s", rv)
+        return {}
+
+    # Simple parser: search for adapter GUID string patterns in the buffer and nearby IfIndex.
+    # The full structure parsing is verbose — this heuristic is robust enough for mapping GUIDs ->
+    # IfIndex because GetAdaptersAddresses returns ASCII adapter names (AdapterName) and
+    # friendly names (which often contain the GUID in some cases). We'll fall back to WMI IfIndex if needed.
+
+    data = buf.raw
+    mapping = {}
+    # GUIDs have pattern like '{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}' or 'XXXXXXXX-XXXX-...'
+    import re
+    # find GUID-style occurrences in buffer
+    for m in re.finditer(br'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', data):
+        # try to find a nearby IfIndex (DWORD) by scanning ±200 bytes for a 4-byte little-endian value
+        guid_bytes = m.group(0)
+        # decode GUID in the common forms to normalized GUID without braces
+        guid = guid_bytes.decode(errors='ignore').strip('{}').upper()
+        # crude attempt to find IfIndex in the next 200 bytes
+        start = max(0, m.start() - 16)
+        end = min(len(data), m.end() + 200)
+        window = data[start:end]
+        # search for a little-endian DWORD that looks like a reasonable IfIndex (1..1000)
+        for i in range(0, max(0, len(window) - 4)):
+            val = int.from_bytes(window[i:i+4], 'little')
+            if 0 < val < 2000:
+                mapping[guid] = val
+                break
+    return mapping
+
+# Fallback helper using WMI: get mapping from NIC GUID -> IfIndex property (Win32_NetworkAdapter has InterfaceIndex or Index)
+def _wmi_guid_to_index_map():
+    try:
+        w = WMI()
+        m = {}
+        for nic in w.Win32_NetworkAdapter():
+            # InterfaceIndex or NetConnectionID or Index
+            # Some WMI instances provide 'InterfaceIndex'
+            idx = getattr(nic, 'InterfaceIndex', None) or getattr(nic, 'Index', None)
+            if idx and getattr(nic, 'GUID', None):
+                guid = str(nic.GUID).strip('{}').upper()
+                m[guid] = int(idx)
+        return m
+    except Exception:
+        return {}
+
+# Helper to get MTU for a given IfIndex using GetIfEntry
+def get_mtu_for_ifindex(ifindex: int):
+    row = MIB_IFROW()
+    row.dwIndex = int(ifindex)
+    rv = GetIfEntry(ctypes.byref(row))
+    if rv == 0:
+        return int(row.dwMtu)
+    else:
+        # non-zero means failure; return None to indicate MTU couldn't be read
+        logger.debug("GetIfEntry failed for ifindex=%s (rv=%s)", ifindex, rv)
+        return None
+
+# ------------------ main async function ---------------------------------------------------
 async def get_suricata_interfaces():
-    """Return interfaces compatible with Suricata (WinPcap/Npcap format)."""
+    """
+    Return list of dicts with fields:
+      - npf_name: like r"\\Device\\NPF_{GUID}"
+      - guid: GUID string (upper, no braces)
+      - mtu: integer MTU or None if unavailable
+      - reason: optional text why MTU unavailable
+    This function is safe to call from an asyncio event loop (runs WMI & ctypes calls in executor).
+    """
     loop = asyncio.get_event_loop()
 
-    def _get_interfaces():
+    def _worker():
+        # Ensure COM is initialized for this thread (pywin32 requirement)
         try:
-            # 1. Initialize COM (This was the fix for your previous error, keep it)
             pythoncom.CoInitialize()
         except Exception:
-            pass # Ignore if already initialized
-
+            pass
         try:
             w = WMI()
             interfaces = []
-            
-            # *** FIX: Removed the problematic filter from the WMI call ***
-            # The original was: for nic in w.Win32_NetworkAdapter(ConfigurationManagerErrorCode=0):
-            for nic in w.Win32_NetworkAdapter(): 
-                
-                # Now, check the properties you need in Python:
-                # Check if the adapter is enabled AND has a GUID
-                if nic.NetEnabled and nic.GUID: 
-                    # Build NPF device name
-                    npf_name = f"\\Device\\NPF_{{{nic.GUID}}}"
-                    interfaces.append(npf_name)
-            
+
+            # Build GUID->IfIndex maps (attempt fast iphlpapi parsing then WMI fallback)
+            guid_ifindex_map = {}
+            try:
+                guid_ifindex_map = _build_guid_to_index_map()
+            except Exception:
+                guid_ifindex_map = {}
+            if not guid_ifindex_map:
+                try:
+                    guid_ifindex_map = _wmi_guid_to_index_map()
+                except Exception:
+                    guid_ifindex_map = {}
+
+            for nic in w.Win32_NetworkAdapter():
+                try:
+                    # Skip adapters that are not NetEnabled (False/None)
+                    net_enabled = getattr(nic, 'NetEnabled', None)
+                    guid_raw = getattr(nic, 'GUID', None)
+                    # Some adapters expose PNPDeviceID or Name with GUID-like substring; prefer explicit GUID
+                    if not guid_raw:
+                        # try to extract GUID from PNPDeviceID or Name (some VM adapters)
+                        from re import search
+                        src = str(getattr(nic, "PNPDeviceID", "") or getattr(nic, "Name", ""))
+                        m = search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', src)
+                        if m:
+                            guid_raw = m.group(0)
+                    if not guid_raw:
+                        continue
+                    guid = str(guid_raw).strip('{}').upper()
+
+                    # Build expected NPF device name
+                    npf_name = rf"\\Device\\NPF_{{{guid}}}"
+
+                    # Only include if adapter looks usable for packet capture
+                    if net_enabled is False:
+                        # still include disabled adapters only if they have NPF device? skip normally
+                        logger.debug("Skipping adapter (disabled): %s", getattr(nic, 'Name', '<unknown>'))
+                        continue
+
+                    # Attempt MTU lookup using IfIndex mapping
+                    mtu = None
+                    reason = None
+                    ifguid = guid_ifindex_map.get(guid)
+                    if ifguid:
+                        try:
+                            mtu_val = get_mtu_for_ifindex(ifguid)
+                            if mtu_val:
+                                mtu = mtu_val
+                            else:
+                                reason = f"GetIfEntry failed for IfIndex {ifguid}"
+                        except Exception as e:
+                            reason = f"MTU lookup exception: {e!r}"
+                    else:
+                        # If we don't have mapping, try to read InterfaceIndex from WMI instance (if available)
+                        if_index = getattr(nic, 'InterfaceIndex', None) or getattr(nic, 'Index', None)
+                        if if_index:
+                            try:
+                                mtu_val = get_mtu_for_ifindex(int(if_index))
+                                if mtu_val:
+                                    mtu = mtu_val
+                                else:
+                                    reason = f"GetIfEntry failed for WMI Index {if_index}"
+                            except Exception as e:
+                                reason = f"MTU lookup exception via WMI index: {e!r}"
+                        else:
+                            reason = "No IfIndex mapping available"
+
+                    interfaces.append({
+                        "npf_name": npf_name,
+                        "guid": guid,
+                        "mtu": mtu,
+                        "reason": reason,
+                        "wmi_name": getattr(nic, "Name", None),
+                    })
+                except Exception as e:
+                    logger.debug("Error processing nic: %s", e, exc_info=True)
+                    continue
             return interfaces
-        except Exception as e:
-            # Re-raise the exception to be logged by the caller
-            raise
         finally:
-            # 2. Uninitialize COM when done
             try:
                 pythoncom.CoUninitialize()
             except Exception:
                 pass
-                
-    # Run WMI calls in thread executor to avoid blocking
-    # The WMI operation now runs correctly in the non-main thread
-    return await loop.run_in_executor(None, _get_interfaces)
+
+    return await loop.run_in_executor(None, _worker)
 
 # ============================================================================#
 # Start Suricata on interface (Async)
