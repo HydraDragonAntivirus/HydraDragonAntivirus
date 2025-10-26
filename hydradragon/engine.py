@@ -177,14 +177,6 @@ def run_rtp_in_thread_sync():
     Run the async real-time protection function in a separate thread
     without manually creating an event loop.
     """
-    async def rtp_runner():
-        try:
-            await start_real_time_protection_async()
-        except Exception:
-            logger.exception("A critical RTP service task has failed.")
-        finally:
-            logger.info("[+] RTP task finished.")
-
     def thread_target():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
