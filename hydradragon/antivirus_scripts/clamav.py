@@ -102,39 +102,29 @@ def load_clamav(libpath):
     original_dir = os.getcwd()
     os.chdir(dll_dir)
     logger.debug(f"Changed working directory to: {dll_dir}")
-    
-    # Add DLL directory to PATH for dependency resolution
-    old_path = os.environ.get('PATH', '')
-    if dll_dir not in old_path:
-        os.environ['PATH'] = dll_dir + os.pathsep + old_path
-        logger.debug(f"Added to PATH: {dll_dir}")
 
     try:
         logger.debug(f"Attempting to load: {libpath}")
         logger.debug("This may take 10-30 seconds on first load...")
-        
+
         # CDLL loading can block while Windows loads all dependencies
         lib = CDLL(libpath)
-        
+
         logger.debug("DLL loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load DLL: {e}")
         os.chdir(original_dir)
-        os.environ['PATH'] = old_path
         return None
 
     try:
         _setup_lib_prototypes(lib, libpath)
         logger.debug(f"Loaded libclamav: {libpath}")
         os.chdir(original_dir)
-        os.environ['PATH'] = old_path
         return lib
     except Exception as e:
         logger.error(f"Failed to setup function prototypes: {e}")
         os.chdir(original_dir)
-        os.environ['PATH'] = old_path
         return None
-
 
 # --- Scanner class with ASYNC initialization ---
 class Scanner:
