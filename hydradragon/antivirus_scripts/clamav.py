@@ -96,32 +96,22 @@ def load_clamav(libpath):
         logger.error(f"Invalid or missing libclamav.dll path: {libpath}")
         return None
 
-    # --- FIX: Use os.add_dll_directory (thread-safe) ---
-    # This is the modern, non-blocking way.
-    # No more os.chdir()
     dll_dir = os.path.dirname(os.path.abspath(libpath))
+    logger.debug(f"Adding DLL directory: {dll_dir}")
 
     try:
-        logger.debug(f"Adding to DLL search path: {dll_dir}")
-        # This context manager tells Windows to also look in dll_dir
-        # for any dependent DLLs (like libwinpthread-1.dll)
-        with os.add_dll_directory(dll_dir):
-            logger.debug(f"Attempting to load: {libpath}")
-            logger.debug("This may take 10-30 seconds on first load...")
-            lib = CDLL(libpath)
+        # Ensure all dependencies in same folder can be found
+        os.add_dll_directory(dll_dir)
 
+        logger.debug(f"Attempting to load: {libpath}")
+        lib = CDLL(libpath)
         logger.debug("DLL loaded successfully")
-    except Exception as e:
-        logger.error(f"Failed to load DLL: {e} (from dir: {dll_dir})")
-        return None
-    # --- END FIX ---
 
-    try:
         _setup_lib_prototypes(lib, libpath)
-        logger.debug(f"Loaded libclamav: {libpath}")
         return lib
+
     except Exception as e:
-        logger.error(f"Failed to setup function prototypes: {e}")
+        logger.error(f"Failed to load DLL: {e}")
         return None
 
 # --- Scanner class with ASYNC initialization ---
