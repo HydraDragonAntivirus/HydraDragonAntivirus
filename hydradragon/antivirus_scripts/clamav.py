@@ -12,16 +12,13 @@ from ctypes import (
 )
 from .hydra_logger import logger
 
-
 # --- helpers ---
 def _to_bytes_or_none(value):
-    if value is None:
-        return None
     if isinstance(value, bytes):
         return value
     if isinstance(value, str):
         return value.encode('utf-8')
-    return None
+    raise TypeError(f"Cannot convert {type(value)} to bytes")
 
 # --- ctypes types ---
 cl_engine_p = c_void_p
@@ -264,83 +261,59 @@ class Scanner:
                 
             logger.debug(f"Background initialization task completed. Final stage: {self._init_stage}")
 
+    # --- _init_sync safety ---
     def _init_sync(self, libclamav_path, dbpath):
-            """Internal synchronous initialization (runs in thread)"""
-            try:
-                self._init_stage = "Checking library path"
-                logger.debug(f"Library path: {libclamav_path}")
-                logger.debug(f"Library exists: {os.path.exists(libclamav_path)}")
-                
-                self._init_stage = "Loading library (may take 10-30s)"
-                logger.debug("Loading libclamav library...")
-                logger.debug("NOTE: Windows may be loading DLL dependencies, please wait...")
-                
-                # This calls the NEW load_clamav (Fix 1)
-                self.libclamav = load_clamav(libclamav_path)
-                
-                if not self.libclamav:
-                    logger.error("Failed to load libclamav")
-                    self._init_stage = "Failed: Library load error"
-                    return False
-
-                logger.debug("Library loaded successfully!")
-                self._init_stage = "Calling cl_init"
-                logger.debug("Initializing ClamAV engine (this may take a moment)...")
-                
-                # This can block for a while on first run
-                res = self.libclamav.cl_init(0)
-                
-                logger.debug(f"cl_init returned: {res}")
-                if res != CL_SUCCESS:
-                    logger.error(f"cl_init failed with code {res}")
-                    self._init_stage = f"Failed: cl_init error {res}"
-                    return False
-
-                self._init_stage = "Validating database path"
-                
-                # --- NEW FIX (Problem 2): Resolve relative dbpath to an absolute path ---
-                original_dbpath = dbpath
-                if not os.path.isabs(dbpath):
-                    logger.warning(f"Database path '{dbpath}' is relative. Resolving it "
-                                f"relative to the ClamAV library location.")
-                    # Get the directory of the DLL
-                    dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
-                    # Join the DLL dir with the relative dbpath (e.g., C:/.../bin + ../database)
-                    resolved_dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
-                    
-                    logger.debug(f"Resolved relative DB path to: {resolved_dbpath}")
-                    dbpath = resolved_dbpath # Use the new absolute path
-                # --- END NEW FIX ---
-
-                logger.debug(f"Using absolute database path: {dbpath}")
-                logger.debug(f"Database exists: {os.path.isdir(dbpath)}")
-                
-                if not os.path.isdir(dbpath):
-                    logger.error(f"Invalid database path. Original: '{original_dbpath}', "
-                                f"Resolved: '{dbpath}'")
-                    self._init_stage = "Failed: Invalid DB path"
-                    return False
-
-                self.dbpath = dbpath # Store the verified, absolute path
-                
-                # THIS IS THE SLOW, BLOCKING PART
-                self._init_stage = "Loading database (30-60s)"
-                logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
-                if not self.loadDB():
-                    logger.error("Failed to load ClamAV database")
-                    self._init_stage = "Failed: DB load error"
-                    return False
-
-                logger.debug("ClamAV initialization complete")
-                self._init_stage = "Complete"
-                return True
-                
-            except Exception as e:
-                logger.error(f"Exception during ClamAV initialization: {e}")
-                logger.exception("Full traceback:")
-                self._init_stage = f"Exception: {e}"
+        try:
+            self._init_stage = "Checking library path"
+            if not os.path.exists(libclamav_path):
+                self._init_success = False
+                self._init_error = f"Library path does not exist: {libclamav_path}"
+                self.ready_event.set()
                 return False
 
+            self.libclamav = load_clamav(libclamav_path)
+            if not self.libclamav:
+                self._init_success = False
+                self._init_error = "Failed to load libclamav DLL"
+                self.ready_event.set()
+                return False
+
+            res = self.libclamav.cl_init(0)
+            if res != CL_SUCCESS:
+                self._init_success = False
+                self._init_error = f"cl_init failed with code {res}"
+                self.ready_event.set()
+                return False
+
+            # Resolve DB path
+            if not os.path.isabs(dbpath):
+                dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
+                dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
+
+            if not os.path.isdir(dbpath):
+                self._init_success = False
+                self._init_error = f"Database path invalid: {dbpath}"
+                self.ready_event.set()
+                return False
+
+            self.dbpath = dbpath
+            if not self.loadDB():
+                self._init_success = False
+                self._init_error = "Failed to load database"
+                self.ready_event.set()
+                return False
+
+            self._init_success = True
+            self._is_ready = True
+            self.ready_event.set()
+            return True
+
+        except Exception as e:
+            self._init_success = False
+            self._init_error = str(e)
+            self.ready_event.set()
+            return False
+    
     @staticmethod
     def def_engine_options():
         return {
@@ -363,8 +336,8 @@ class Scanner:
 
         return f"Error code: {error_code}"
 
+    # --- loadDB fixed ---
     def loadDB(self):
-        """Load ClamAV database with improved error handling"""
         if not self.libclamav:
             logger.error("libclamav is not loaded, cannot load DB.")
             return False
@@ -390,29 +363,18 @@ class Scanner:
             logger.error(f"Exception creating engine: {e}")
             return False
 
-        # Load database (THIS IS THE SLOW PART - 30-60 seconds)
+        # Load database
         try:
             dbpath_b = _to_bytes_or_none(self.dbpath)
-            if not dbpath_b:
-                logger.error("Invalid database path")
-                return False
-
             signo = c_uint()
             self._init_stage = "Loading signatures"
-            logger.debug(f"Loading signatures from: {self.dbpath}")
-            
-            # This is the C call that blocks the thread for 30-60 seconds
             res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
-
             if res != CL_SUCCESS:
                 error_msg = self.get_error_message(res)
                 logger.error(f"cl_load failed: {error_msg}")
                 return False
 
-            self._init_stage = "Applying engine options"
-            logger.debug(f"Loaded {signo.value} signatures, applying engine options...")
-
-            # Apply custom engine options
+            # Apply engine options
             for opt, val in self.engine_options.items():
                 res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
                 if res != CL_SUCCESS:
@@ -425,7 +387,6 @@ class Scanner:
         # Compile engine
         try:
             self._init_stage = "Compiling engine"
-            logger.debug("Compiling ClamAV engine...")
             res = self.libclamav.cl_engine_compile(self.engine)
             if res != CL_SUCCESS:
                 error_msg = self.get_error_message(res)
@@ -500,19 +461,15 @@ class Scanner:
         # Run the blocking scan in a thread pool
         return await asyncio.to_thread(self.scanFile, filepath)
 
+    # --- scanFile fixed ---
     def scanFile(self, filepath):
-        """
-        Scan file (BLOCKING - use scanFileAsync for async code).
-        
-        This will block the calling thread.
-        """
         if not self._is_ready:
             if self._init_in_progress:
                 logger.error("Scanner not ready. Initialization still in progress. Use scanFileAsync() instead.")
             else:
                 logger.error("Scanner not ready. Initialization failed.")
             return None, None
-            
+
         if not self.libclamav or not self.engine:
             logger.error("Engine not initialized.")
             return None, None
@@ -523,22 +480,19 @@ class Scanner:
 
         try:
             fname_b = _to_bytes_or_none(filepath)
-            if not fname_b:
-                logger.error("Invalid file path encoding")
-                return None, None
 
             # Initialize variables properly
-            virname = c_char_p()
+            virname_pp = c_char_pp()
             bytes_scanned = c_ulong(0)
 
-            # Create scan options with heuristics enabled
+            # Scan options with heuristics
             scan_opts = cl_scan_options()
             scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
 
             # Call cl_scanfile
             ret = self.libclamav.cl_scanfile(
                 fname_b,
-                byref(virname),
+                byref(virname_pp),
                 byref(bytes_scanned),
                 self.engine,
                 byref(scan_opts)
@@ -549,7 +503,7 @@ class Scanner:
                 logger.debug(f"File clean (ClamAV): {filepath}")
                 return CL_CLEAN, None
             elif ret == CL_VIRUS:
-                virus_name = virname.value.decode("utf-8", errors="ignore") if virname.value else "Unknown"
+                virus_name = virname_pp[0].decode("utf-8", errors="ignore") if virname_pp[0] else "Unknown"
                 logger.warning(f"Virus found in {filepath}: {virus_name}")
                 return CL_VIRUS, virus_name
             else:
