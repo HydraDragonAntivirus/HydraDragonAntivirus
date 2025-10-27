@@ -132,6 +132,11 @@ class Scanner:
         scanner = await Scanner.create_async(libclamav_path, dbpath)
         
         # First scan will wait for DB to be ready asynchronously
+        result, virus = await scanner.scanFileAsync(filepath)
+        
+        # Check if ready (non-blocking)
+        if scanner.is_ready():
+            result, virus = scanner.scanFile(filepath)
         
         # Sync (blocks event loop - NOT recommended):
         scanner = Scanner(libclamav_path, dbpath)
@@ -153,9 +158,11 @@ class Scanner:
         
         # --- Fields for Async Fire-and-Forget Initialization ---
         self._is_ready = False 
+        self._init_in_progress = False
         self.ready_event = asyncio.Event() # Event to signal initialization completion
         self._initialization_task = None
         self._init_success = False
+        self._init_error = None
         # --------------------------------------------------------
         
         if _skip_init:
@@ -174,16 +181,13 @@ class Scanner:
 
     @classmethod
     async def create_async(cls, libclamav_path, dbpath=None, autoreload=False,
-                           dboptions=CL_DB_STDOPT, engine_options=None, timeout=60):
+                           dboptions=CL_DB_STDOPT, engine_options=None):
         """
         Async factory method to create Scanner instance (FIRE AND FORGET).
         
         This method returns *immediately*. The database loading is started 
         in a background task, preventing the event loop from freezing. 
         Scan calls will wait asynchronously until the scanner is ready.
-        
-        Args:
-            timeout: Maximum seconds to wait for database loading (default: 60)
         
         Returns:
             Scanner instance (not yet ready to scan)
@@ -194,37 +198,39 @@ class Scanner:
         scanner = cls(libclamav_path, dbpath, autoreload, dboptions, engine_options, _skip_init=True)
         
         # Start the background initialization task (FIRE AND FORGET)
-        scanner._initialization_task = asyncio.create_task(scanner._init_async_task(libclamav_path, dbpath, timeout))
+        scanner._init_in_progress = True
+        scanner._initialization_task = asyncio.create_task(
+            scanner._init_async_task(libclamav_path, dbpath)
+        )
         
         return scanner # IMMEDIATE RETURN
 
-    async def _init_async_task(self, libclamav_path, dbpath, timeout):
+    async def _init_async_task(self, libclamav_path, dbpath):
         """Internal task to run blocking init in a thread and set ready event."""
         try:
-            logger.debug(f"Running background initialization with {timeout}s timeout...")
-            # Run the synchronous init method in a thread
-            success = await asyncio.wait_for(
-                asyncio.to_thread(self._init_sync, libclamav_path, dbpath),
-                timeout=timeout
-            )
+            logger.debug("Running background initialization (no timeout)...")
+            
+            # Run the synchronous init method in a thread without timeout
+            success = await asyncio.to_thread(self._init_sync, libclamav_path, dbpath)
             
             if success:
                 logger.info("ClamAV scanner initialized successfully (background)")
                 self._init_success = True
-                self._is_ready = True # Set ready state
+                self._is_ready = True
             else:
                 logger.error("ClamAV initialization failed (background)")
                 self._init_success = False
+                self._init_error = "Initialization returned False"
                 
-        except asyncio.TimeoutError:
-            logger.error(f"ClamAV initialization timed out after {timeout}s (background)")
-            self._init_success = False
         except Exception as e:
             logger.error(f"ClamAV async initialization error (background): {e}")
             self._init_success = False
+            self._init_error = str(e)
         finally:
             # Signal that initialization (or attempt) is complete
+            self._init_in_progress = False
             self.ready_event.set()
+            logger.debug("Background initialization task completed")
 
     def _init_sync(self, libclamav_path, dbpath):
         """Internal synchronous initialization (runs in thread)"""
@@ -248,7 +254,7 @@ class Scanner:
             self.dbpath = dbpath
             
             # THIS IS THE SLOW, BLOCKING PART
-            logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
+            logger.debug("Loading ClamAV database (this may take time)...")
             if not self.loadDB():
                 logger.error("Failed to load ClamAV database")
                 return False
@@ -352,14 +358,75 @@ class Scanner:
         logger.info(f"ClamAV database ready. Signatures loaded: {signo.value}")
         return True
 
+    def is_ready(self):
+        """Check if scanner is ready (non-blocking)"""
+        return self._is_ready
+    
+    def is_initializing(self):
+        """Check if initialization is in progress"""
+        return self._init_in_progress
+    
+    def get_init_error(self):
+        """Get initialization error message if any"""
+        return self._init_error
+
+    async def wait_until_ready(self, check_interval=0.1):
+        """
+        Wait asynchronously until scanner is ready.
+        
+        Args:
+            check_interval: How often to check status (seconds)
+            
+        Returns:
+            bool: True if ready, False if initialization failed
+        """
+        if self._is_ready:
+            return True
+            
+        logger.debug("Waiting for ClamAV initialization to complete...")
+        
+        # Wait for the ready event
+        await self.ready_event.wait()
+        
+        if self._init_success and self._is_ready:
+            logger.debug("ClamAV scanner is now ready")
+            return True
+        else:
+            error_msg = self._init_error or "Unknown error"
+            logger.error(f"ClamAV initialization failed: {error_msg}")
+            return False
+
+    async def scanFileAsync(self, filepath):
+        """
+        Scan file asynchronously.
+        
+        This will wait for the scanner to be ready if initialization is still in progress,
+        then run the scan in a thread pool to avoid blocking the event loop.
+        
+        Returns:
+            tuple: (result_code, virus_name or None)
+        """
+        # Wait for initialization to complete if needed
+        if not self._is_ready:
+            ready = await self.wait_until_ready()
+            if not ready:
+                logger.error("Cannot scan: Scanner initialization failed")
+                return None, None
+        
+        # Run the blocking scan in a thread pool
+        return await asyncio.to_thread(self.scanFile, filepath)
+
     def scanFile(self, filepath):
         """
-        Scan file (BLOCKING).
+        Scan file (BLOCKING - use scanFileAsync for async code).
         
         This will block the calling thread.
         """
         if not self._is_ready:
-            logger.error("Scanner not ready. Initialization failed or has not completed.")
+            if self._init_in_progress:
+                logger.error("Scanner not ready. Initialization still in progress. Use scanFileAsync() instead.")
+            else:
+                logger.error("Scanner not ready. Initialization failed.")
             return None, None
             
         if not self.libclamav or not self.engine:
@@ -403,6 +470,7 @@ class Scanner:
                 return CL_VIRUS, virus_name
             else:
                 error_msg = self.get_error_message(ret)
+                logger.error(f"Scan error for {filepath}: {error_msg}")
                 return ret, None
 
         except Exception as e:
