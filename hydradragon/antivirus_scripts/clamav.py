@@ -103,22 +103,37 @@ def load_clamav(libpath):
     original_dir = os.getcwd()
     os.chdir(dll_dir)
     logger.debug(f"Changed working directory to: {dll_dir}")
+    
+    # Add DLL directory to PATH for dependency resolution
+    old_path = os.environ.get('PATH', '')
+    if dll_dir not in old_path:
+        os.environ['PATH'] = dll_dir + os.pathsep + old_path
+        logger.debug(f"Added to PATH: {dll_dir}")
 
     try:
+        logger.debug(f"Attempting to load: {libpath}")
+        logger.debug("This may take 10-30 seconds on first load...")
+        
+        # CDLL loading can block while Windows loads all dependencies
         lib = CDLL(libpath)
+        
+        logger.debug("DLL loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load DLL: {e}")
-        os.chdir(original_dir)  # Restore directory
+        os.chdir(original_dir)
+        os.environ['PATH'] = old_path
         return None
 
     try:
         _setup_lib_prototypes(lib, libpath)
         logger.debug(f"Loaded libclamav: {libpath}")
-        os.chdir(original_dir)  # Restore directory
+        os.chdir(original_dir)
+        os.environ['PATH'] = old_path
         return lib
     except Exception as e:
         logger.error(f"Failed to setup function prototypes: {e}")
-        os.chdir(original_dir)  # Restore directory
+        os.chdir(original_dir)
+        os.environ['PATH'] = old_path
         return None
 
 
@@ -275,14 +290,21 @@ class Scanner:
     def _init_sync(self, libclamav_path, dbpath):
         """Internal synchronous initialization (runs in thread)"""
         try:
-            self._init_stage = "Loading library"
+            self._init_stage = "Checking library path"
+            logger.debug(f"Library path: {libclamav_path}")
+            logger.debug(f"Library exists: {os.path.exists(libclamav_path)}")
+            
+            self._init_stage = "Loading library (may take 10-30s)"
             logger.debug("Loading libclamav library...")
+            logger.debug("NOTE: Windows may be loading DLL dependencies, please wait...")
+            
             self.libclamav = load_clamav(libclamav_path)
             if not self.libclamav:
                 logger.error("Failed to load libclamav")
                 self._init_stage = "Failed: Library load error"
                 return False
 
+            logger.debug("Library loaded successfully!")
             self._init_stage = "Calling cl_init"
             logger.debug("Initializing ClamAV engine (this may take a moment)...")
             
@@ -296,6 +318,9 @@ class Scanner:
                 return False
 
             self._init_stage = "Validating database path"
+            logger.debug(f"Database path: {dbpath}")
+            logger.debug(f"Database exists: {os.path.isdir(dbpath)}")
+            
             if not os.path.isdir(dbpath):
                 logger.error(f"Invalid database path: {dbpath}")
                 self._init_stage = "Failed: Invalid DB path"
@@ -304,7 +329,7 @@ class Scanner:
             self.dbpath = dbpath
             
             # THIS IS THE SLOW, BLOCKING PART
-            self._init_stage = "Loading database"
+            self._init_stage = "Loading database (30-60s)"
             logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
             if not self.loadDB():
                 logger.error("Failed to load ClamAV database")
@@ -317,6 +342,7 @@ class Scanner:
             
         except Exception as e:
             logger.error(f"Exception during ClamAV initialization: {e}")
+            logger.exception("Full traceback:")
             self._init_stage = f"Exception: {e}"
             return False
 

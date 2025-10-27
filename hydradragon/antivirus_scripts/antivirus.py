@@ -4416,22 +4416,28 @@ async def get_suricata_interfaces():
       - guid: GUID string (upper, no braces)
       - mtu: integer MTU or None if unavailable
       - reason: optional text why MTU unavailable
-    This function is safe to call from an asyncio event loop (runs WMI & ctypes calls in executor).
+      - wmi_name: adapter friendly name
+    Runs WMI and any ctypes helpers in executor to avoid blocking event loop.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _worker():
-        # Ensure COM is initialized for this thread (pywin32 requirement)
         try:
-            pythoncom.CoInitialize()
-        except Exception:
-            pass
-        try:
-            w = WMI()
+            # Each thread must initialize COM
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+
             interfaces = []
 
-            # Build GUID->IfIndex maps (attempt fast iphlpapi parsing then WMI fallback)
-            guid_ifindex_map = {}
+            try:
+                w = WMI()
+            except Exception as e:
+                logger.exception("WMI instantiation failed: %s", e)
+                return []
+
+            # Try fast GUID->IfIndex map then WMI fallback
             try:
                 guid_ifindex_map = _build_guid_to_index_map()
             except Exception:
@@ -4444,57 +4450,52 @@ async def get_suricata_interfaces():
 
             for nic in w.Win32_NetworkAdapter():
                 try:
-                    # Skip adapters that are not NetEnabled (False/None)
                     net_enabled = getattr(nic, 'NetEnabled', None)
+                    # Prefer explicit GUID; fallback to regex
                     guid_raw = getattr(nic, 'GUID', None)
-                    # Some adapters expose PNPDeviceID or Name with GUID-like substring; prefer explicit GUID
                     if not guid_raw:
-                        # try to extract GUID from PNPDeviceID or Name (some VM adapters)
-                        from re import search
                         src = str(getattr(nic, "PNPDeviceID", "") or getattr(nic, "Name", ""))
-                        m = search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', src)
+                        m = re.search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', src)
                         if m:
                             guid_raw = m.group(0)
                     if not guid_raw:
+                        # skip adapters without GUID
                         continue
-                    guid = str(guid_raw).strip('{}').upper()
 
-                    # Build expected NPF device name
+                    guid = str(guid_raw).strip('{}').upper()
                     npf_name = rf"\\Device\\NPF_{{{guid}}}"
 
-                    # Only include if adapter looks usable for packet capture
                     if net_enabled is False:
-                        # still include disabled adapters only if they have NPF device? skip normally
                         logger.debug("Skipping adapter (disabled): %s", getattr(nic, 'Name', '<unknown>'))
                         continue
 
-                    # Attempt MTU lookup using IfIndex mapping
                     mtu = None
                     reason = None
-                    ifguid = guid_ifindex_map.get(guid)
-                    if ifguid:
-                        try:
-                            mtu_val = get_mtu_for_ifindex(ifguid)
-                            if mtu_val:
-                                mtu = mtu_val
-                            else:
-                                reason = f"GetIfEntry failed for IfIndex {ifguid}"
-                        except Exception as e:
-                            reason = f"MTU lookup exception: {e!r}"
-                    else:
-                        # If we don't have mapping, try to read InterfaceIndex from WMI instance (if available)
+
+                    ifindex = guid_ifindex_map.get(guid)
+                    if ifindex is None:
+                        # try WMI properties Index or InterfaceIndex
                         if_index = getattr(nic, 'InterfaceIndex', None) or getattr(nic, 'Index', None)
                         if if_index:
                             try:
                                 mtu_val = get_mtu_for_ifindex(int(if_index))
                                 if mtu_val:
-                                    mtu = mtu_val
+                                    mtu = int(mtu_val)
                                 else:
                                     reason = f"GetIfEntry failed for WMI Index {if_index}"
                             except Exception as e:
                                 reason = f"MTU lookup exception via WMI index: {e!r}"
                         else:
                             reason = "No IfIndex mapping available"
+                    else:
+                        try:
+                            mtu_val = get_mtu_for_ifindex(int(ifindex))
+                            if mtu_val:
+                                mtu = int(mtu_val)
+                            else:
+                                reason = f"GetIfEntry failed for IfIndex {ifindex}"
+                        except Exception as e:
+                            reason = f"MTU lookup exception: {e!r}"
 
                     interfaces.append({
                         "npf_name": npf_name,
@@ -4503,9 +4504,10 @@ async def get_suricata_interfaces():
                         "reason": reason,
                         "wmi_name": getattr(nic, "Name", None),
                     })
-                except Exception as e:
-                    logger.debug("Error processing nic: %s", e, exc_info=True)
+                except Exception:
+                    logger.exception("Error while processing adapter")
                     continue
+
             return interfaces
         finally:
             try:
@@ -4518,96 +4520,138 @@ async def get_suricata_interfaces():
 # ============================================================================#
 # Start Suricata on interface (Async)
 # ============================================================================#
+# On Windows, use CREATE_NEW_PROCESS_GROUP so terminate() works more predictably.
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
+
 async def start_suricata_on_interface(iface):
-    """Start Suricata process for a specific interface."""
     if iface in running_processes:
-        return running_processes[iface]  # already running
+        return running_processes[iface]
 
     cmd = [
         suricata_exe_path,
         "-c", suricata_config_path,
         "-i", iface,
-        # Add these options for better live capture
         "--set", "outputs.fast.enabled=yes",
         "--set", "outputs.eve-log.enabled=yes"
     ]
 
     logger.info(f"Starting Suricata on interface: {iface}")
-    logger.info(f"Command: {' '.join(cmd)}")
+    logger.info("Command: %s", " ".join(cmd))
 
     try:
-        # Use asyncio subprocess for non-blocking execution
-        # *** FIX: Removed stdout=... and stderr=... ***
-        # Let Suricata handle its own output.
-        process = await asyncio.create_subprocess_exec(
+        # Don't capture stdout/stderr unless you plan to consume them.
+        # On Windows pass creationflags to avoid spawning console windows.
+        proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=None,  # Or just remove this line
-            stderr=None   # Or just remove this line
+            stdout=None,
+            stderr=None,
+            creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
         )
-
-        running_processes[iface] = process
-        logger.info(f"Suricata PID {process.pid} started for {iface}")
-
-        return process
+        running_processes[iface] = proc
+        logger.info("Suricata PID %s started for %s", proc.pid, iface)
+        return proc
 
     except Exception as e:
-        logger.error(f"Failed to start Suricata on {iface}: {e}", exc_info=True)
+        logger.exception("Failed to start Suricata on %s: %s", iface, e)
         return None
 
 # ============================================================================#
 # Monitor interfaces (Async)
 # ============================================================================#
+# ============================================================================#
+# Monitor interfaces (Async)
+# ============================================================================#
 async def monitor_interfaces():
-    """Monitor network interfaces and start Suricata without stopping anything."""
+    """
+    Monitor all network interfaces and ensure Suricata runs on each usable one.
+    - Starts Suricata on new interfaces.
+    - Keeps existing Suricata processes running.
+    - Restarts Suricata if it exits unexpectedly.
+    - Never stops running instances automatically.
+    """
     logger.info("Starting Suricata interface monitor (keep all interfaces)...")
+
+    # Track state across loops
+    global started_interfaces, running_processes
+    started_interfaces = []         # list of GUIDs
+    running_processes = {}          # { npf_name: process }
+    last_known_npf_name = {}        # { guid: npf_name }
 
     while True:
         try:
-            # Get current interfaces
             interfaces = await get_suricata_interfaces()
             if not interfaces:
                 logger.warning("No network interfaces found")
                 await asyncio.sleep(10)
                 continue
 
-            # Log all detected interfaces for debugging
+            # Log detected interfaces (debug-level)
             for iface in interfaces:
-                logger.debug(f"Detected interface: {iface['guid']} | {iface.get('wmi_name')} | MTU: {iface.get('mtu')} | Reason: {iface.get('reason')}")
+                logger.debug(
+                    f"Detected interface: {iface['guid']} | "
+                    f"{iface.get('wmi_name')} | "
+                    f"MTU={iface.get('mtu')} | Reason={iface.get('reason')}"
+                )
 
-            # Start Suricata on any new interfaces
+            # Start Suricata on new interfaces
             for iface in interfaces:
-                iface_guid = iface["guid"]
+                guid = iface["guid"]
                 npf_name = iface["npf_name"]
 
-                if iface_guid not in started_interfaces:
+                last_known_npf_name[guid] = npf_name
+
+                if guid not in started_interfaces:
+                    logger.info(f"Starting Suricata for new interface: {guid}")
                     proc = await start_suricata_on_interface(npf_name)
                     if proc:
-                        started_interfaces.append(iface_guid)
-                        logger.info(f"Started Suricata on new interface: {iface_guid}")
+                        started_interfaces.append(guid)
+                        running_processes[npf_name] = proc
+                        logger.info(f"Started Suricata (PID {proc.pid}) for {guid}")
+                    else:
+                        logger.error(f"Failed to start Suricata on {guid}")
 
-            # Instead of removing inactive interfaces, just log them
+            # Restart Suricata if any process exited unexpectedly
+            for guid in list(started_interfaces):
+                npf_name = last_known_npf_name.get(guid)
+                proc = running_processes.get(npf_name)
+                if not proc:
+                    continue
+
+                if proc.returncode is not None:  # process exited
+                    logger.warning(
+                        f"Suricata for {guid} exited with code {proc.returncode}; restarting..."
+                    )
+                    new_proc = await start_suricata_on_interface(npf_name)
+                    if new_proc:
+                        running_processes[npf_name] = new_proc
+                        logger.info(f"Restarted Suricata for {guid} (PID {new_proc.pid})")
+
+            # Keep log-only behavior for inactive interfaces
             current_guids = {iface["guid"] for iface in interfaces}
-            inactive = [iface for iface in started_interfaces if iface not in current_guids]
-            for iface in inactive:
-                logger.debug(f"Interface {iface} not currently detected, but process will be kept running.")
+            inactive = [guid for guid in started_interfaces if guid not in current_guids]
+            for guid in inactive:
+                logger.debug(
+                    f"Interface {guid} not currently detected, "
+                    f"but Suricata process will remain running."
+                )
 
-            # Sleep before next check
             await asyncio.sleep(5)
 
         except asyncio.CancelledError:
-            logger.info("Suricata monitor cancelled, stopping all processes...")
-            # Stop all running processes safely
-            for iface, proc in list(running_processes.items()):
+            logger.info("Suricata monitor cancelled, stopping all Suricata processes...")
+            for npf_name, proc in list(running_processes.items()):
                 try:
+                    logger.info(f"Terminating Suricata PID {proc.pid} for {npf_name}")
                     proc.terminate()
                     await asyncio.wait_for(proc.wait(), timeout=5.0)
                 except Exception:
+                    logger.warning(f"Forcing kill for {npf_name}")
                     proc.kill()
             raise
 
         except Exception as e:
             logger.error(f"Monitor interfaces error: {e}", exc_info=True)
-            await asyncio.sleep(10)
 
 # ============================================================================#
 # Suricata callback (Async entry point)
@@ -4646,32 +4690,39 @@ async def suricata_callback():
 # ========== ASYNC SURICATA MONITORING ==========
 
 async def monitor_suricata_log_async():
-    """Async monitor for Suricata EVE JSON log file"""
     log_path = eve_log_path
 
-    # Wait for the file to exist
+    # wait for file
     while not await asyncio.to_thread(os.path.exists, log_path):
-        logger.info(f"Waiting for log file to be created: {log_path}")
+        logger.info("Waiting for log file to be created: %s", log_path)
         await asyncio.sleep(1)
 
-    logger.info(f"Log file found: {log_path}")
+    logger.info("Log file found: %s", log_path)
 
     async with aiofiles.open(log_path, 'r') as log_file:
-        await log_file.seek(0, os.SEEK_END)  # Move to end
-
+        await log_file.seek(0, os.SEEK_END)
         while True:
             try:
                 line = await log_file.readline()
 
                 if line.strip():
-                    priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
+                    # parse_suricata_alert should return (priority, src_ip, dest_ip, signature, category)
+                    try:
+                        priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
+                    except Exception as ex:
+                        logger.debug("Failed to parse alert line: %s (%s)", line.strip(), ex)
+                        continue
+
                     if priority is not None:
                         full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
                         logger.debug(full_line)
                         await process_alert_data(priority, src_ip, dest_ip)
 
-            except Exception as ex:
-                logger.info(f"Error processing line: {ex}")
+            except asyncio.CancelledError:
+                logger.info("Log monitoring cancelled")
+                raise
+            except Exception:
+                logger.exception("Error while monitoring Suricata log, sleeping and retrying")
 
 # ---------------------------
 # Helper functions
