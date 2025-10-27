@@ -90,40 +90,38 @@ def _setup_lib_prototypes(lib, libfile):
 
     logger.debug(f"Set libclamav prototypes for: {libfile}")
 
-
 # --- loader ---
 def load_clamav(libpath):
     if not libpath or not os.path.exists(libpath):
         logger.error(f"Invalid or missing libclamav.dll path: {libpath}")
         return None
 
-    # Change current working directory to the DLL directory
+    # --- FIX: Use os.add_dll_directory (thread-safe) ---
+    # This is the modern, non-blocking way.
+    # No more os.chdir()
     dll_dir = os.path.dirname(os.path.abspath(libpath))
-    original_dir = os.getcwd()
-    os.chdir(dll_dir)
-    logger.debug(f"Changed working directory to: {dll_dir}")
 
     try:
-        logger.debug(f"Attempting to load: {libpath}")
-        logger.debug("This may take 10-30 seconds on first load...")
-
-        # CDLL loading can block while Windows loads all dependencies
-        lib = CDLL(libpath)
+        logger.debug(f"Adding to DLL search path: {dll_dir}")
+        # This context manager tells Windows to also look in dll_dir
+        # for any dependent DLLs (like libwinpthread-1.dll)
+        with os.add_dll_directory(dll_dir):
+            logger.debug(f"Attempting to load: {libpath}")
+            logger.debug("This may take 10-30 seconds on first load...")
+            lib = CDLL(libpath)
 
         logger.debug("DLL loaded successfully")
     except Exception as e:
-        logger.error(f"Failed to load DLL: {e}")
-        os.chdir(original_dir)
+        logger.error(f"Failed to load DLL: {e} (from dir: {dll_dir})")
         return None
+    # --- END FIX ---
 
     try:
         _setup_lib_prototypes(lib, libpath)
         logger.debug(f"Loaded libclamav: {libpath}")
-        os.chdir(original_dir)
         return lib
     except Exception as e:
         logger.error(f"Failed to setup function prototypes: {e}")
-        os.chdir(original_dir)
         return None
 
 # --- Scanner class with ASYNC initialization ---
@@ -277,63 +275,81 @@ class Scanner:
             logger.debug(f"Background initialization task completed. Final stage: {self._init_stage}")
 
     def _init_sync(self, libclamav_path, dbpath):
-        """Internal synchronous initialization (runs in thread)"""
-        try:
-            self._init_stage = "Checking library path"
-            logger.debug(f"Library path: {libclamav_path}")
-            logger.debug(f"Library exists: {os.path.exists(libclamav_path)}")
-            
-            self._init_stage = "Loading library (may take 10-30s)"
-            logger.debug("Loading libclamav library...")
-            logger.debug("NOTE: Windows may be loading DLL dependencies, please wait...")
-            
-            self.libclamav = load_clamav(libclamav_path)
-            if not self.libclamav:
-                logger.error("Failed to load libclamav")
-                self._init_stage = "Failed: Library load error"
-                return False
+            """Internal synchronous initialization (runs in thread)"""
+            try:
+                self._init_stage = "Checking library path"
+                logger.debug(f"Library path: {libclamav_path}")
+                logger.debug(f"Library exists: {os.path.exists(libclamav_path)}")
+                
+                self._init_stage = "Loading library (may take 10-30s)"
+                logger.debug("Loading libclamav library...")
+                logger.debug("NOTE: Windows may be loading DLL dependencies, please wait...")
+                
+                # This calls the NEW load_clamav (Fix 1)
+                self.libclamav = load_clamav(libclamav_path)
+                
+                if not self.libclamav:
+                    logger.error("Failed to load libclamav")
+                    self._init_stage = "Failed: Library load error"
+                    return False
 
-            logger.debug("Library loaded successfully!")
-            self._init_stage = "Calling cl_init"
-            logger.debug("Initializing ClamAV engine (this may take a moment)...")
-            
-            # This can block for a while on first run
-            res = self.libclamav.cl_init(0)
-            
-            logger.debug(f"cl_init returned: {res}")
-            if res != CL_SUCCESS:
-                logger.error(f"cl_init failed with code {res}")
-                self._init_stage = f"Failed: cl_init error {res}"
-                return False
+                logger.debug("Library loaded successfully!")
+                self._init_stage = "Calling cl_init"
+                logger.debug("Initializing ClamAV engine (this may take a moment)...")
+                
+                # This can block for a while on first run
+                res = self.libclamav.cl_init(0)
+                
+                logger.debug(f"cl_init returned: {res}")
+                if res != CL_SUCCESS:
+                    logger.error(f"cl_init failed with code {res}")
+                    self._init_stage = f"Failed: cl_init error {res}"
+                    return False
 
-            self._init_stage = "Validating database path"
-            logger.debug(f"Database path: {dbpath}")
-            logger.debug(f"Database exists: {os.path.isdir(dbpath)}")
-            
-            if not os.path.isdir(dbpath):
-                logger.error(f"Invalid database path: {dbpath}")
-                self._init_stage = "Failed: Invalid DB path"
-                return False
+                self._init_stage = "Validating database path"
+                
+                # --- NEW FIX (Problem 2): Resolve relative dbpath to an absolute path ---
+                original_dbpath = dbpath
+                if not os.path.isabs(dbpath):
+                    logger.warning(f"Database path '{dbpath}' is relative. Resolving it "
+                                f"relative to the ClamAV library location.")
+                    # Get the directory of the DLL
+                    dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
+                    # Join the DLL dir with the relative dbpath (e.g., C:/.../bin + ../database)
+                    resolved_dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
+                    
+                    logger.debug(f"Resolved relative DB path to: {resolved_dbpath}")
+                    dbpath = resolved_dbpath # Use the new absolute path
+                # --- END NEW FIX ---
 
-            self.dbpath = dbpath
-            
-            # THIS IS THE SLOW, BLOCKING PART
-            self._init_stage = "Loading database (30-60s)"
-            logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
-            if not self.loadDB():
-                logger.error("Failed to load ClamAV database")
-                self._init_stage = "Failed: DB load error"
-                return False
+                logger.debug(f"Using absolute database path: {dbpath}")
+                logger.debug(f"Database exists: {os.path.isdir(dbpath)}")
+                
+                if not os.path.isdir(dbpath):
+                    logger.error(f"Invalid database path. Original: '{original_dbpath}', "
+                                f"Resolved: '{dbpath}'")
+                    self._init_stage = "Failed: Invalid DB path"
+                    return False
 
-            logger.debug("ClamAV initialization complete")
-            self._init_stage = "Complete"
-            return True
-            
-        except Exception as e:
-            logger.error(f"Exception during ClamAV initialization: {e}")
-            logger.exception("Full traceback:")
-            self._init_stage = f"Exception: {e}"
-            return False
+                self.dbpath = dbpath # Store the verified, absolute path
+                
+                # THIS IS THE SLOW, BLOCKING PART
+                self._init_stage = "Loading database (30-60s)"
+                logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
+                if not self.loadDB():
+                    logger.error("Failed to load ClamAV database")
+                    self._init_stage = "Failed: DB load error"
+                    return False
+
+                logger.debug("ClamAV initialization complete")
+                self._init_stage = "Complete"
+                return True
+                
+            except Exception as e:
+                logger.error(f"Exception during ClamAV initialization: {e}")
+                logger.exception("Full traceback:")
+                self._init_stage = f"Exception: {e}"
+                return False
 
     @staticmethod
     def def_engine_options():
