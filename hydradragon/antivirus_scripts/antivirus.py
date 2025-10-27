@@ -4532,6 +4532,8 @@ async def start_suricata_on_interface(iface):
         suricata_exe_path,
         "-c", suricata_config_path,
         "-i", iface,
+        "--set", f"pcap.interface={iface}",   # force Windows pcap mode
+        "--set", "runmode=autofp",           # avoids looking for af-packet/nfq
         "--set", "outputs.fast.enabled=yes",
         "--set", "outputs.eve-log.enabled=yes"
     ]
@@ -4556,9 +4558,6 @@ async def start_suricata_on_interface(iface):
         logger.exception("Failed to start Suricata on %s: %s", iface, e)
         return None
 
-# ============================================================================#
-# Monitor interfaces (Async)
-# ============================================================================#
 # ============================================================================#
 # Monitor interfaces (Async)
 # ============================================================================#
