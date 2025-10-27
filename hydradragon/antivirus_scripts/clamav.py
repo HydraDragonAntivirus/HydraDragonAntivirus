@@ -6,7 +6,6 @@
 
 import os
 import asyncio
-import threading
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
     c_void_p, byref

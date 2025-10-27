@@ -4573,9 +4573,6 @@ async def monitor_interfaces():
     logger.info("Starting Suricata interface monitor (keep all interfaces)...")
 
     # Track state across loops
-    global started_interfaces, running_processes
-    started_interfaces = []         # list of GUIDs
-    running_processes = {}          # { npf_name: process }
     last_known_npf_name = {}        # { guid: npf_name }
 
     while True:
@@ -11565,16 +11562,15 @@ async def load_all_resources_async():
         )
         return result
 
-    async def load_antivirus():
+    async def load_antivirus_list():
+        global antivirus_domains_data
         try:
-            async with aiofiles.open(antivirus_list_path, 'r') as f:
-                lines = await f.read()
-            antivirus_domains_data[:] = lines.splitlines()
+            async with aiofiles.open(antivirus_list_path, 'r') as antivirus_file:
+                lines = await antivirus_file.read()
+                antivirus_domains_data = lines.splitlines()
             logger.info("Antivirus List loaded successfully!")
-            return antivirus_domains_data
         except Exception as ex:
             logger.error(f"Error loading Antivirus List: {ex}")
-            return None
 
     async def load_yargen():
         global yarGen_rules
@@ -11639,7 +11635,7 @@ async def load_all_resources_async():
     # Fire and forget all tasks
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_website(), name="load_website")
-    asyncio.create_task(load_antivirus(), name="load_antivirus")
+    asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
     asyncio.create_task(load_yargen(), name="load_yargen")
     asyncio.create_task(load_icewater(), name="load_icewater")
     asyncio.create_task(load_valhalla(), name="load_valhalla")
