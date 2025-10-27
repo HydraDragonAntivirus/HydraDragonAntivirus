@@ -6112,89 +6112,120 @@ class PyInstArchive:
                 pycFile.write(self.pycMagic)
 
     def extractFiles(self, one_dir):
-        logger.info("Beginning extraction...please standby")
-        extractionDir = pyinstaller_extracted_dir
-        if not os.path.exists(extractionDir):
-            os.mkdir(extractionDir)
+            logger.info("Beginning extraction...please standby")
+            
+            # --- FIX: Use an absolute path, do not os.chdir() ---
+            
+            # 1. Resolve the extraction directory to an absolute path
+            # (Assuming pyinstaller_extracted_dir is a variable available here)
+            extractionDir = os.path.abspath(pyinstaller_extracted_dir)
+            
+            # 2. Use makedirs with exist_ok=True, it's safer and simpler
+            if not os.path.exists(extractionDir):
+                os.makedirs(extractionDir) # Use makedirs in case the path is nested
 
-        os.chdir(extractionDir)
+            # 3. REMOVED the non-thread-safe call
+            # os.chdir(extractionDir) 
+            
+            # --- END FIX ---
 
-        for entry in self.tocList:
-            self.fPtr.seek(entry.position, os.SEEK_SET)
-            data = self.fPtr.read(entry.cmprsdDataSize)
+            for entry in self.tocList:
+                self.fPtr.seek(entry.position, os.SEEK_SET)
+                data = self.fPtr.read(entry.cmprsdDataSize)
 
-            if entry.cmprsFlag == 1:
-                data = zlib.decompress(data)
-                # Malware may tamper with the uncompressed size
-                # Comment out the assertion in such a case
-                assert len(data) == entry.uncmprsdDataSize  # Sanity Check
+                if entry.cmprsFlag == 1:
+                    data = zlib.decompress(data)
+                    # Malware may tamper with the uncompressed size
+                    # Comment out the assertion in such a case
+                    assert len(data) == entry.uncmprsdDataSize  # Sanity Check
 
-            if entry.typeCmprsData == b"d" or entry.typeCmprsData == b"o":
-                # d -> ARCHIVE_ITEM_DEPENDENCY
-                # o -> ARCHIVE_ITEM_RUNTIME_OPTION
-                # These are runtime options, not files
-                continue
+                if entry.typeCmprsData == b"d" or entry.typeCmprsData == b"o":
+                    # d -> ARCHIVE_ITEM_DEPENDENCY
+                    # o -> ARCHIVE_ITEM_RUNTIME_OPTION
+                    # These are runtime options, not files
+                    continue
 
-            basePath = os.path.dirname(entry.name)
-            if basePath != "":
-                # Check if path exists, create if not
-                if not os.path.exists(basePath):
-                    os.makedirs(basePath)
+                # --- FIX: All paths must now be explicitly joined with extractionDir ---
+                basePath = os.path.dirname(entry.name)
+                if basePath != "":
+                    # 4. Create the full, absolute path for the directory
+                    fullBasePath = os.path.join(extractionDir, basePath)
+                    if not os.path.exists(fullBasePath):
+                        os.makedirs(fullBasePath)
 
-            if entry.typeCmprsData == b"s":
-                # s -> ARCHIVE_ITEM_PYSOURCE
-                # Entry point are expected to be python scripts
-                logger.info("Possible entry point: %s.pyc", entry.name)
+                if entry.typeCmprsData == b"s":
+                    # s -> ARCHIVE_ITEM_PYSOURCE
+                    # Entry point are expected to be python scripts
+                    logger.info("Possible entry point: %s.pyc", entry.name)
 
-                if self.pycMagic == b"\0" * 4:
-                    # if we don't have the pyc header yet, fix them in a later pass
-                    self.barePycList.append(entry.name + ".pyc")
-                self._writePyc(entry.name + ".pyc", data)
+                    # 5. Create the full, absolute path for the file
+                    fullPycPath = os.path.join(extractionDir, entry.name + ".pyc")
 
-            elif entry.typeCmprsData == b"M" or entry.typeCmprsData == b"m":
-                # M -> ARCHIVE_ITEM_PYPACKAGE
-                # m -> ARCHIVE_ITEM_PYMODULE
-                # packages and modules are pyc files with their header intact
-
-                # From PyInstaller 5.3 and above pyc headers are no longer stored
-                # https://github.com/pyinstaller/pyinstaller/commit/a97fdf
-                if data[2:4] == b"\r\n":
-                    # < pyinstaller 5.3
                     if self.pycMagic == b"\0" * 4:
-                        self.pycMagic = data[0:4]
-                    self._writeRawData(entry.name + ".pyc", data)
+                        # 6. Store the full path for _fixBarePycs()
+                        self.barePycList.append(fullPycPath)
+                    
+                    # 7. Write to the full path
+                    self._writePyc(fullPycPath, data)
 
-                    if entry.name.endswith("_crypto_key"):
-                        logger.info(
-                            "Detected _crypto_key file, saving key for automatic decryption"
-                        )
-                        # This is a pyc file with a header (8,12, or 16 bytes)
-                        # Extract the code object after the header
-                        self.cryptoKeyFileData = self._extractCryptoKeyObject(data)
+                elif entry.typeCmprsData == b"M" or entry.typeCmprsData == b"m":
+                    # M -> ARCHIVE_ITEM_PYPACKAGE
+                    # m -> ARCHIVE_ITEM_PYMODULE
+                    
+                    # 5. Create the full, absolute path for the file
+                    fullPycPath = os.path.join(extractionDir, entry.name + ".pyc")
+
+                    # From PyInstaller 5.3 and above pyc headers are no longer stored
+                    # https://github.com/pyinstaller/pyinstaller/commit/a97fdf
+                    if data[2:4] == b"\r\n":
+                        # < pyinstaller 5.3
+                        if self.pycMagic == b"\0" * 4:
+                            self.pycMagic = data[0:4]
+                        
+                        # 7. Write to the full path
+                        self._writeRawData(fullPycPath, data)
+
+                        if entry.name.endswith("_crypto_key"):
+                            logger.info(
+                                "Detected _crypto_key file, saving key for automatic decryption"
+                            )
+                            # This is a pyc file with a header (8,12, or 16 bytes)
+                            # Extract the code object after the header
+                            self.cryptoKeyFileData = self._extractCryptoKeyObject(data)
+
+                    else:
+                        # >= pyinstaller 5.3
+                        if self.pycMagic == b"\0" * 4:
+                            # 6. Store the full path for _fixBarePycs()
+                            self.barePycList.append(fullPycPath)
+
+                        # 7. Write to the full path
+                        self._writePyc(fullPycPath, data)
+
+                        if entry.name.endswith("_crypto_key"):
+                            logger.info(
+                                "Detected _crypto_key file, saving key for automatic decryption"
+                            )
+                            # This is a plain code object without a header
+                            self.cryptoKeyFileData = data
 
                 else:
-                    # >= pyinstaller 5.3
-                    if self.pycMagic == b"\0" * 4:
-                        # if we don't have the pyc header yet, fix them in a later pass
-                        self.barePycList.append(entry.name + ".pyc")
+                    # 5. Create the full, absolute path for the file
+                    fullFilePath = os.path.join(extractionDir, entry.name)
+                    
+                    # 7. Write to the full path
+                    self._writeRawData(fullFilePath, data)
 
-                    self._writePyc(entry.name + ".pyc", data)
+                    if entry.typeCmprsData == b"z" or entry.typeCmprsData == b"Z":
+                        # 8. Pass the full path to the extractor
+                        self._extractPyz(fullFilePath, one_dir)
+                
+                # --- END FIX ---
 
-                    if entry.name.endswith("_crypto_key"):
-                        logger.info(
-                            "Detected _crypto_key file, saving key for automatic decryption"
-                        )
-                        # This is a plain code object without a header
-                        self.cryptoKeyFileData = data
-
-            else:
-                self._writeRawData(entry.name, data)
-
-                if entry.typeCmprsData == b"z" or entry.typeCmprsData == b"Z":
-                    self._extractPyz(entry.name, one_dir)
-
-        # Fix bare pyc's if any
-        self._fixBarePycs()
+            # Fix bare pyc's if any
+            # This will now work correctly because self.barePycList
+            # contains full, absolute paths.
+            self._fixBarePycs()
 
 def extract_pyinstaller_archive(file_path):
     try:
