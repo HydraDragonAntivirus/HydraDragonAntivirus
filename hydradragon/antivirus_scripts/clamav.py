@@ -6,6 +6,7 @@
 
 import os
 import asyncio
+import threading
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
     c_void_p, byref
@@ -159,10 +160,12 @@ class Scanner:
         # --- Fields for Async Fire-and-Forget Initialization ---
         self._is_ready = False 
         self._init_in_progress = False
+        self._init_stage = "Not started"  # Track current initialization stage
         self.ready_event = asyncio.Event() # Event to signal initialization completion
         self._initialization_task = None
         self._init_success = False
         self._init_error = None
+        self._progress_task = None  # Background task for progress logging
         # --------------------------------------------------------
         
         if _skip_init:
@@ -181,13 +184,17 @@ class Scanner:
 
     @classmethod
     async def create_async(cls, libclamav_path, dbpath=None, autoreload=False,
-                           dboptions=CL_DB_STDOPT, engine_options=None):
+                           dboptions=CL_DB_STDOPT, engine_options=None, 
+                           progress_log_interval=5):
         """
         Async factory method to create Scanner instance (FIRE AND FORGET).
         
         This method returns *immediately*. The database loading is started 
         in a background task, preventing the event loop from freezing. 
         Scan calls will wait asynchronously until the scanner is ready.
+        
+        Args:
+            progress_log_interval: Log progress every N seconds (default: 5, 0 to disable)
         
         Returns:
             Scanner instance (not yet ready to scan)
@@ -197,73 +204,120 @@ class Scanner:
         # Create instance, passing paths for background init
         scanner = cls(libclamav_path, dbpath, autoreload, dboptions, engine_options, _skip_init=True)
         
+        # Start progress logging task if enabled
+        if progress_log_interval > 0:
+            scanner._progress_task = asyncio.create_task(
+                scanner._log_init_progress(progress_log_interval)
+            )
+        
         # Start the background initialization task (FIRE AND FORGET)
         scanner._init_in_progress = True
+        scanner._init_stage = "Starting"
         scanner._initialization_task = asyncio.create_task(
             scanner._init_async_task(libclamav_path, dbpath)
         )
         
         return scanner # IMMEDIATE RETURN
 
+    async def _log_init_progress(self, interval):
+        """Background task to log initialization progress"""
+        try:
+            while self._init_in_progress:
+                await asyncio.sleep(interval)
+                if self._init_in_progress:
+                    logger.info(f"ClamAV initialization still in progress... Stage: {self._init_stage}")
+        except asyncio.CancelledError:
+            pass
+
     async def _init_async_task(self, libclamav_path, dbpath):
         """Internal task to run blocking init in a thread and set ready event."""
         try:
             logger.debug("Running background initialization (no timeout)...")
+            self._init_stage = "Loading library"
             
             # Run the synchronous init method in a thread without timeout
-            success = await asyncio.to_thread(self._init_sync, libclamav_path, dbpath)
+            # Using a dedicated thread instead of thread pool to avoid blocking other tasks
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                None,  # Uses default ThreadPoolExecutor
+                self._init_sync, 
+                libclamav_path, 
+                dbpath
+            )
             
             if success:
                 logger.info("ClamAV scanner initialized successfully (background)")
                 self._init_success = True
                 self._is_ready = True
+                self._init_stage = "Complete"
             else:
                 logger.error("ClamAV initialization failed (background)")
                 self._init_success = False
                 self._init_error = "Initialization returned False"
+                self._init_stage = "Failed"
                 
         except Exception as e:
             logger.error(f"ClamAV async initialization error (background): {e}")
             self._init_success = False
             self._init_error = str(e)
+            self._init_stage = f"Error: {e}"
         finally:
             # Signal that initialization (or attempt) is complete
             self._init_in_progress = False
             self.ready_event.set()
-            logger.debug("Background initialization task completed")
+            
+            # Cancel progress logging
+            if self._progress_task:
+                self._progress_task.cancel()
+                
+            logger.debug(f"Background initialization task completed. Final stage: {self._init_stage}")
 
     def _init_sync(self, libclamav_path, dbpath):
         """Internal synchronous initialization (runs in thread)"""
         try:
+            self._init_stage = "Loading library"
             logger.debug("Loading libclamav library...")
             self.libclamav = load_clamav(libclamav_path)
             if not self.libclamav:
                 logger.error("Failed to load libclamav")
+                self._init_stage = "Failed: Library load error"
                 return False
 
-            logger.debug("Initializing ClamAV engine...")
+            self._init_stage = "Calling cl_init"
+            logger.debug("Initializing ClamAV engine (this may take a moment)...")
+            
+            # This can block for a while on first run
             res = self.libclamav.cl_init(0)
+            
+            logger.debug(f"cl_init returned: {res}")
             if res != CL_SUCCESS:
                 logger.error(f"cl_init failed with code {res}")
+                self._init_stage = f"Failed: cl_init error {res}"
                 return False
 
+            self._init_stage = "Validating database path"
             if not os.path.isdir(dbpath):
                 logger.error(f"Invalid database path: {dbpath}")
+                self._init_stage = "Failed: Invalid DB path"
                 return False
 
             self.dbpath = dbpath
             
             # THIS IS THE SLOW, BLOCKING PART
-            logger.debug("Loading ClamAV database (this may take time)...")
+            self._init_stage = "Loading database"
+            logger.debug("Loading ClamAV database (this may take 30-60 seconds)...")
             if not self.loadDB():
                 logger.error("Failed to load ClamAV database")
+                self._init_stage = "Failed: DB load error"
                 return False
 
             logger.debug("ClamAV initialization complete")
+            self._init_stage = "Complete"
             return True
             
         except Exception as e:
             logger.error(f"Exception during ClamAV initialization: {e}")
+            self._init_stage = f"Exception: {e}"
             return False
 
     @staticmethod
@@ -306,6 +360,7 @@ class Scanner:
 
         # Create new engine
         try:
+            self._init_stage = "Creating engine"
             self.engine = self.libclamav.cl_engine_new()
             if not self.engine:
                 logger.error("Failed to create ClamAV engine")
@@ -322,8 +377,10 @@ class Scanner:
                 return False
 
             signo = c_uint()
+            self._init_stage = "Loading signatures"
             logger.debug(f"Loading signatures from: {self.dbpath}")
-            # This is the C call that blocks the thread
+            
+            # This is the C call that blocks the thread for 30-60 seconds
             res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
 
             if res != CL_SUCCESS:
@@ -331,6 +388,7 @@ class Scanner:
                 logger.error(f"cl_load failed: {error_msg}")
                 return False
 
+            self._init_stage = "Applying engine options"
             logger.debug(f"Loaded {signo.value} signatures, applying engine options...")
 
             # Apply custom engine options
@@ -345,6 +403,7 @@ class Scanner:
 
         # Compile engine
         try:
+            self._init_stage = "Compiling engine"
             logger.debug("Compiling ClamAV engine...")
             res = self.libclamav.cl_engine_compile(self.engine)
             if res != CL_SUCCESS:
@@ -365,6 +424,10 @@ class Scanner:
     def is_initializing(self):
         """Check if initialization is in progress"""
         return self._init_in_progress
+    
+    def get_init_stage(self):
+        """Get current initialization stage"""
+        return self._init_stage
     
     def get_init_error(self):
         """Get initialization error message if any"""
