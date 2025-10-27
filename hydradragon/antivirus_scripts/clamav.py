@@ -97,10 +97,10 @@ def load_clamav(libpath):
         return None
 
     dll_dir = os.path.dirname(os.path.abspath(libpath))
-    logger.debug(f"Adding DLL directory: {dll_dir}")
 
     try:
         # Ensure all dependencies in same folder can be found
+        logger.debug(f"Adding DLL directory: {dll_dir}")
         os.add_dll_directory(dll_dir)
 
         logger.debug(f"Attempting to load: {libpath}")
