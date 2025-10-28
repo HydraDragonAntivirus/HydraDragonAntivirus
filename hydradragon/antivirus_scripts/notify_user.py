@@ -471,7 +471,7 @@ async def notify_user_for_web_source(
         try:
             await _add_malicious_hash(edr_file_param, threat_name)
             # forward with main_file_path included where available
-            await _send_to_edr(edr_file_param, threat_name, action="kill_and_remove", main_file_path=main_file_path)
+            await _send_to_edr(edr_file_param, threat_name, action="kill_only", main_file_path=main_file_path)
         except Exception:
             logger.exception(f"Failed to forward web alert to EDR for {edr_file_param}")
 
