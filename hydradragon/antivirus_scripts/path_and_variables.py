@@ -240,6 +240,10 @@ uefi_paths = [
     r'EFI\Boot\bootx64.efi'
 ]
 
+# tuning knobs
+CONNECT_TIMEOUT = 10.0   # increase for debugging, reduce later
+READ_TIMEOUT = 5.0       # increase for debugging, reduce later
+
 # Config
 _WAIT_TIMEOUT_MS = 5000        # WaitNamedPipe timeout when opening (ms)
 _OPEN_RETRIES = 10             # retries for opening the pipe
