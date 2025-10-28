@@ -1089,7 +1089,7 @@ async def load_csv_async(file_path, data_name, registry):
         # Read file asynchronously
         async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
             content = await f.read()
-        
+
         # Parse CSV in thread (CPU-bound operation)
         def parse_csv(content):
             reader = csv.reader(content.splitlines())
@@ -1104,13 +1104,13 @@ async def load_csv_async(file_path, data_name, registry):
                     'ref_ids': [registry.register(r.strip()) for r in refs if r.strip()]
                 })
             return parsed
-        
+
         data = await asyncio.to_thread(parse_csv, content)
         logger.info(f"{data_name} loaded ({len(data)} entries)")
-        
+
     except Exception as e:
         logger.error(f"Failed to load {data_name} from {file_path}: {e}")
-    
+
     return data
 
 
@@ -1137,7 +1137,7 @@ async def load_website_data_async():
     global urlhaus_data, spam_email_365_data, registry
 
     logger.info("Starting async website data loading...")
-    
+
     # Create registry instance
     registry = ReferenceRegistry()
 
@@ -1211,11 +1211,11 @@ async def load_website_data_async():
     try:
         async with aiofiles.open(urlhaus_path, 'r', encoding='utf-8') as f:
             content = await f.read()
-        
+
         def parse_urlhaus(content):
             reader = csv.DictReader(content.splitlines())
             return list(reader)
-        
+
         urlhaus_data = await asyncio.to_thread(parse_urlhaus, content)
         logger.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
     except Exception as ex:
@@ -6112,20 +6112,20 @@ class PyInstArchive:
 
     def extractFiles(self, one_dir):
             logger.info("Beginning extraction...please standby")
-            
+
             # --- FIX: Use an absolute path, do not os.chdir() ---
-            
+
             # 1. Resolve the extraction directory to an absolute path
             # (Assuming pyinstaller_extracted_dir is a variable available here)
             extractionDir = os.path.abspath(pyinstaller_extracted_dir)
-            
+
             # 2. Use makedirs with exist_ok=True, it's safer and simpler
             if not os.path.exists(extractionDir):
                 os.makedirs(extractionDir) # Use makedirs in case the path is nested
 
             # 3. REMOVED the non-thread-safe call
-            # os.chdir(extractionDir) 
-            
+            # os.chdir(extractionDir)
+
             # --- END FIX ---
 
             for entry in self.tocList:
@@ -6163,14 +6163,14 @@ class PyInstArchive:
                     if self.pycMagic == b"\0" * 4:
                         # 6. Store the full path for _fixBarePycs()
                         self.barePycList.append(fullPycPath)
-                    
+
                     # 7. Write to the full path
                     self._writePyc(fullPycPath, data)
 
                 elif entry.typeCmprsData == b"M" or entry.typeCmprsData == b"m":
                     # M -> ARCHIVE_ITEM_PYPACKAGE
                     # m -> ARCHIVE_ITEM_PYMODULE
-                    
+
                     # 5. Create the full, absolute path for the file
                     fullPycPath = os.path.join(extractionDir, entry.name + ".pyc")
 
@@ -6180,7 +6180,7 @@ class PyInstArchive:
                         # < pyinstaller 5.3
                         if self.pycMagic == b"\0" * 4:
                             self.pycMagic = data[0:4]
-                        
+
                         # 7. Write to the full path
                         self._writeRawData(fullPycPath, data)
 
@@ -6211,14 +6211,14 @@ class PyInstArchive:
                 else:
                     # 5. Create the full, absolute path for the file
                     fullFilePath = os.path.join(extractionDir, entry.name)
-                    
+
                     # 7. Write to the full path
                     self._writeRawData(fullFilePath, data)
 
                     if entry.typeCmprsData == b"z" or entry.typeCmprsData == b"Z":
                         # 8. Pass the full path to the extractor
                         self._extractPyz(fullFilePath, one_dir)
-                
+
                 # --- END FIX ---
 
             # Fix bare pyc's if any
@@ -11531,7 +11531,7 @@ async def load_all_resources_async():
         try:
             logger.info(f"[{name}] Loading...")
             result = await coro
-            
+
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed: {result}")
                 return None
@@ -11541,7 +11541,7 @@ async def load_all_resources_async():
             else:
                 logger.info(f"[{name}] Loaded successfully")
                 return result
-                
+
         except Exception as e:
             logger.error(f"[{name}] Exception: {e}")
             return None
@@ -11645,7 +11645,7 @@ async def load_all_resources_async():
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")
-    
+
     # Return immediately without waiting
     return {}
 

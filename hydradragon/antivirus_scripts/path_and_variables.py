@@ -240,10 +240,18 @@ uefi_paths = [
     r'EFI\Boot\bootx64.efi'
 ]
 
-# tuning knobs
-CONNECT_TIMEOUT = 10.0   # increase for debugging, reduce later
-READ_TIMEOUT = 5.0       # increase for debugging, reduce later
-RAW_PREVIEW_LEN = 200    # how many raw bytes to log for inspection
+# Config
+_WAIT_TIMEOUT_MS = 5000        # WaitNamedPipe timeout when opening (ms)
+_OPEN_RETRIES = 10             # retries for opening the pipe
+_RETRY_DELAY = 0.5             # seconds between open retries
+_WRITE_RETRIES = 3             # retries for write errors
+
+# Internal queue other code will push scan requests into
+_SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
+
+RAW_PREVIEW_LEN = 128
+READ_BUFFER_SIZE = 65536
+RAW_PREVIEW_LEN = 128
 
 # Pipe 1: HydraDragon SENDS threat events TO Owlyshield (Owlyshield receives)
 PIPE_AV_TO_EDR = r"\\.\pipe\Global\hydradragon_to_owlyshield"
