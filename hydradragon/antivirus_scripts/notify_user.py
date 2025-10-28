@@ -54,13 +54,25 @@ def _sync_write_pipe(message_bytes: bytes) -> None:
 
 async def _send_av_event_to_edr(file_path: str,
                                 virus_name: str,
-                                action: str = "monitor",
+                                action: str = "kill_and_remove",
                                 pid: Optional[int] = None,
                                 main_file_path: Optional[str] = None) -> None:
     """
     (Internal) Async: Connects to the Owlyshield EDR pipe and sends a threat event.
     Offloads blocking pipe operations to a thread.
+    
+    Args:
+        file_path: Path to the threat file
+        virus_name: Name of the detected threat
+        action: Action to take - either "kill_and_remove" or "kill_only" (default: "kill_and_remove")
+        pid: Optional process ID
+        main_file_path: Optional main file path context
     """
+    # Validate action parameter
+    if action not in ["kill_and_remove", "kill_only"]:
+        logger.warning(f"Invalid action '{action}' for EDR event, defaulting to 'kill_and_remove'")
+        action = "kill_and_remove"
+    
     event = {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds'),
         "file_path": str(file_path),
@@ -78,7 +90,7 @@ async def _send_av_event_to_edr(file_path: str,
     try:
         message_bytes = json.dumps(event).encode("utf-8")
         await asyncio.to_thread(_sync_write_pipe, message_bytes)
-        logger.info(f"Successfully sent threat event to EDR for: {file_path}")
+        logger.info(f"Successfully sent threat event to EDR for: {file_path} [action: {action}]")
     except pywintypes.error as e:
         if hasattr(e, "winerror") and e.winerror == 2:
             logger.error("Could not connect to Owlyshield EDR. Is the service running?")
@@ -87,16 +99,26 @@ async def _send_av_event_to_edr(file_path: str,
     except Exception as e:
         logger.error(f"Unexpected error sending threat event to EDR: {e}")
 
-
 async def _send_to_edr(
     target_path: str,
     threat_name: str,
-    action: str,
+    action: str = "kill_and_remove",
     main_file_path: Optional[str] = None
 ) -> None:
     """
     Async helper to forward to EDR.
+    
+    Args:
+        target_path: Path to the threat file
+        threat_name: Name of the detected threat
+        action: Action to take - either "kill_and_remove" or "kill_only" (default: "kill_and_remove")
+        main_file_path: Optional main file path context
     """
+    # Validate action parameter
+    if action not in ["kill_and_remove", "kill_only"]:
+        logger.warning(f"Invalid action '{action}', defaulting to 'kill_and_remove'")
+        action = "kill_and_remove"
+    
     try:
         await _send_av_event_to_edr(
             target_path,
@@ -113,7 +135,6 @@ async def _send_to_edr(
             logger.exception(f"Failed to forward to EDR (fallback): {e}")
     except Exception as e:
         logger.exception(f"Failed forwarding to EDR: {e}")
-
 
 async def _add_malicious_hash(file_path: str, virus_name: str) -> None:
     """
