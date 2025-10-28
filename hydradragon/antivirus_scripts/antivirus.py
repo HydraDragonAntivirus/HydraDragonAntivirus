@@ -11379,38 +11379,6 @@ async def _read_from_pipe(pipe, max_bytes: int = 65536, timeout: float = READ_TI
         logger.exception(f"[AV] _read_from_pipe unexpected error: {e}")
         return None
 
-
-async def _write_to_pipe(pipe, data: bytes, timeout: float = None) -> bool:
-    """
-    Write data (bytes) to the pipe on a thread. Returns True on success, False on failure.
-    Optional timeout in seconds for the write operation.
-    """
-    def _write():
-        try:
-            # WriteFile returns (hr, None) or raises; we don't need hr here but we can capture it.
-            hr, _ = win32file.WriteFile(pipe, data)
-            return True
-        except pywintypes.error as e:
-            winerr = getattr(e, "winerror", None)
-            logger.debug(f"[AV] WriteFile pywintypes.error winerror={winerr} - {e}")
-            return False
-        except Exception as e:
-            logger.exception(f"[AV] Unexpected exception in WriteFile thread: {e}")
-            return False
-
-    try:
-        if timeout:
-            success = await asyncio.wait_for(asyncio.to_thread(_write), timeout=timeout)
-        else:
-            success = await asyncio.to_thread(_write)
-        return bool(success)
-    except asyncio.TimeoutError:
-        logger.debug(f"[AV] WriteFile timed out after {timeout}s")
-        return False
-    except Exception as e:
-        logger.exception(f"[AV] _write_to_pipe unexpected error: {e}")
-        return False
-
 async def monitor_scan_requests_from_edr():
     """AV side: listen for scan requests FROM EDR (server)"""
     logger.info(f"[AV] Starting scan request listener on {PIPE_EDR_TO_AV}")
