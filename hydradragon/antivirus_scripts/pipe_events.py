@@ -23,7 +23,6 @@ from .path_and_variables import (
     PIPE_SELF_DEFENSE_ALERT,
     RAW_PREVIEW_LEN,
     READ_BUFFER_SIZE,
-    RAW_PREVIEW_LEN,
 )
 
 # ============================================================================#

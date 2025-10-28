@@ -13,9 +13,10 @@ from .hydra_logger import (
 from .path_and_variables import (
     script_dir,
     PIPE_EDR_TO_AV,
-    CONNECT_TIMEOUT,
-    READ_TIMEOUT,
-    RAW_PREVIEW_LEN,
+    _WAIT_TIMEOUT_MS,
+    _OPEN_RETRIES,
+    _RETRY_DELAY,
+    _SCAN_REQUEST_SEND_QUEUE,
     hayabusa_path,
     python_path,
     jadx_decompiled_dir,
@@ -4528,29 +4529,47 @@ async def start_suricata_on_interface(iface):
     if iface in running_processes:
         return running_processes[iface]
 
+    # Note: outputs and pcap are YAML lists in suricata.yaml.
+    # Use numeric index to override values inside list items.
     cmd = [
         suricata_exe_path,
         "-c", suricata_config_path,
         "-i", iface,
-        "--set", f"pcap.interface={iface}",   # force Windows pcap mode
-        "--set", "runmode=autofp",           # avoids looking for af-packet/nfq
-        "--set", "outputs.fast.enabled=yes",
-        "--set", "outputs.eve-log.enabled=yes"
+        "--set", f"pcap.0.interface={iface}",        # pcap is a list; set the first entry's interface
+        "--set", "runmode=autofp",                   # top-level scalar is fine
+        "--set", "outputs.0.fast.enabled=yes",       # outputs[0] contains 'fast' in default suricata.yaml
+        "--set", "outputs.1.eve-log.enabled=yes"     # outputs[1] contains 'eve-log' in default suricata.yaml
     ]
 
-    logger.info(f"Starting Suricata on interface: {iface}")
-    logger.info("Command: %s", " ".join(cmd))
+    logger.info("Starting Suricata on interface: %s", iface)
+    logger.debug("Command: %s", " ".join(cmd))
+
+    async def _log_stream(stream, prefix):
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                logger.info("%s %s", prefix, line.decode(errors="replace").rstrip())
+        except Exception:
+            logger.exception("Stream reader error for %s", prefix)
 
     try:
-        # Don't capture stdout/stderr unless you plan to consume them.
-        # On Windows pass creationflags to avoid spawning console windows.
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=None,
-            stderr=None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
         )
+
+        # Pump stdout/stderr into logger so Suricata's own errors are visible.
+        asyncio.create_task(_log_stream(proc.stdout, f"[suricata:{iface}][OUT]"))
+        asyncio.create_task(_log_stream(proc.stderr, f"[suricata:{iface}][ERR]"))
+
+        # Use the npf device name key consistently in running_processes
         running_processes[iface] = proc
+        started_interfaces.append(iface if iface not in started_interfaces else iface)
+
         logger.info("Suricata PID %s started for %s", proc.pid, iface)
         return proc
 
@@ -11317,157 +11336,168 @@ async def scan_and_warn(file_path,
 # =========================
 # EDR -> AV (Scan Requests)
 # =========================
-async def _connect_named_pipe_safe(pipe, timeout: float = CONNECT_TIMEOUT) -> bool:
+async def queue_scan_request(request_obj: dict) -> None:
     """
-    Call ConnectNamedPipe on a thread and treat ERROR_PIPE_CONNECTED as success.
-    Returns True on connected, False on timeout or other error.
+    Normalize incoming request file_path and skip protected paths before enqueueing.
+    Ensures we don't send unnecessary or invalid scan requests to AV.
     """
-    def _connect():
-        try:
-            # ConnectNamedPipe blocks until a client connects or an error occurs.
-            win32pipe.ConnectNamedPipe(pipe, None)
-            return True
-        except pywintypes.error as e:
-            winerr = getattr(e, "winerror", None)
-            # 535 == ERROR_PIPE_CONNECTED: client connected between CreateNamedPipe and ConnectNamedPipe
-            if winerr == 535:
-                return True
-            # On other errors, return False (caller will cleanup)
-            logger.debug(f"[AV] ConnectNamedPipe pywintypes.error winerror={winerr} - {e}")
-            return False
-        except Exception as e:
-            logger.exception(f"[AV] Unexpected exception in ConnectNamedPipe thread: {e}")
-            return False
-
     try:
-        # Wait for connect with timeout; _connect returns boolean
-        connected = await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
-        return bool(connected)
-    except asyncio.TimeoutError:
-        logger.debug(f"[AV] ConnectNamedPipe timed out after {timeout}s")
-        return False
-    except Exception as e:
-        logger.exception(f"[AV] _connect_named_pipe_safe unexpected error: {e}")
-        return False
+        file_path = request_obj.get("file_path")
+        if not file_path:
+            logger.debug("[EDR->AV] queue_scan_request: missing file_path; dropping request")
+            return
 
-
-async def _read_from_pipe(pipe, max_bytes: int = 65536, timeout: float = READ_TIMEOUT):
-    """
-    Read from pipe in a thread with timeout. Returns bytes on success, None on timeout/failure.
-    """
-    def _read():
+        # normalize NT path (may raise; run in thread)
         try:
-            hr, data = win32file.ReadFile(pipe, max_bytes)
-            # hr may be status code; return data (bytes) on success
-            return data
-        except pywintypes.error as e:
-            winerr = getattr(e, "winerror", None)
-            logger.debug(f"[AV] ReadFile pywintypes.error winerror={winerr} - {e}")
-            # return None to indicate read failure (caller will decide to close/retry)
-            return None
+            normalized = await normalize_nt_path(file_path)
         except Exception as e:
-            logger.exception(f"[AV] Unexpected exception in ReadFile thread: {e}")
-            return None
+            # If normalization fails, log and drop or fallback to original path
+            logger.exception(f"[EDR->AV] queue_scan_request: normalize_nt_path failed for {file_path}: {e}")
+            # Option: use original path instead of dropping. Here we drop to be safe:
+            return
 
-    try:
-        data = await asyncio.wait_for(asyncio.to_thread(_read), timeout=timeout)
-        return data  # bytes or None
-    except asyncio.TimeoutError:
-        logger.debug(f"[AV] ReadFile timed out after {timeout}s")
-        return None
-    except Exception as e:
-        logger.exception(f"[AV] _read_from_pipe unexpected error: {e}")
-        return None
-
-async def monitor_scan_requests_from_edr():
-    """AV side: listen for scan requests FROM EDR (server)"""
-    logger.info(f"[AV] Starting scan request listener on {PIPE_EDR_TO_AV}")
-
-    while True:
-        pipe = None
+        # Check protected paths (run in thread if it's blocking)
         try:
-            logger.debug(f"[AV] Creating pipe: {PIPE_EDR_TO_AV}")
-            pipe = await asyncio.to_thread(
-                lambda: win32pipe.CreateNamedPipe(
-                    PIPE_EDR_TO_AV,
-                    win32pipe.PIPE_ACCESS_DUPLEX,  # allow read/write
-                    win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
-                    win32pipe.PIPE_UNLIMITED_INSTANCES,
-                    65536, 65536, 0, None
-                )
-            )
-            logger.info("[AV] Pipe created, waiting for client connection...")
+            is_prot = await _is_protected_path(normalized)
+        except Exception as e:
+            logger.exception(f"[EDR->AV] queue_scan_request: _is_protected_path failed for {normalized}: {e}")
+            # conservative fallback: drop request on failure to check
+            return
 
-            connected = await _connect_named_pipe_safe(pipe, timeout=CONNECT_TIMEOUT)
-            if not connected:
-                logger.debug("[AV] No client connected within timeout; disconnecting and retrying")
-                try:
-                    await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
-                except Exception:
-                    pass
-                try:
-                    await asyncio.to_thread(_sync_close_handle, pipe)
-                except Exception:
-                    pass
-                pipe = None
-                continue
+        if is_prot:
+            logger.debug(f"[EDR->AV] queue_scan_request: skipping protected path {normalized}")
+            return
 
-            logger.info("[AV] Client connected")
+        # update request and enqueue
+        request_obj["file_path"] = normalized
+        await _SCAN_REQUEST_SEND_QUEUE.put(request_obj)
 
-            # Read message with timeout
-            data = await _read_from_pipe(pipe, max_bytes=65536, timeout=READ_TIMEOUT)
-            if data is None:
-                logger.debug("[AV] Read timeout/failed, disconnecting and retrying")
-                continue
+    except Exception as e:
+        logger.exception(f"[EDR->AV] queue_scan_request: unexpected error: {e}")
 
-            if not data:
-                logger.debug("[AV] Empty read, disconnecting")
-                continue
+# Synchronous helper used via asyncio.to_thread: tries to open the pipe for writing
+def _sync_open_pipe_for_write(timeout_ms: int = _WAIT_TIMEOUT_MS):
+    """
+    Try to open the AV server pipe for writing and return a handle or None.
+    This is synchronous and intended to be called via asyncio.to_thread().
+    """
+    try:
+        try:
+            win32pipe.WaitNamedPipe(PIPE_EDR_TO_AV, int(timeout_ms))
+        except Exception:
+            # WaitNamedPipe can fail; still try CreateFile below
+            pass
 
-            # Peek raw bytes for debugging
+        handle = win32file.CreateFile(
+            PIPE_EDR_TO_AV,
+            win32file.GENERIC_WRITE,
+            0,
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None,
+        )
+        return handle
+    except Exception:
+        # return None so async caller can retry; optionally log in caller
+        return None
+
+
+def _sync_write_and_close(handle, data_bytes: bytes) -> bool:
+    """
+    Write to the given handle synchronously and ensure the handle is closed via
+    the centralized _sync_close_handle helper whether write succeeds or fails.
+    Intended to be called via asyncio.to_thread().
+    """
+    try:
+        win32file.WriteFile(handle, data_bytes)
+        try:
+            win32file.FlushFileBuffers(handle)
+        except Exception:
+            pass
+        # always attempt centralized close
+        try:
+            _sync_close_handle(handle)
+        except Exception:
+            # fallback: try handle.close
             try:
-                preview = data[:RAW_PREVIEW_LEN]
-                logger.debug(f"[AV] Raw bytes received (preview): {preview!r}")
+                handle.close()
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        # ensure handle closed on error
+        try:
+            _sync_close_handle(handle)
+        except Exception:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        logger.debug(f"[EDR->AV] _sync_write_and_close: write error: {e}")
+        return False
+
+
+async def send_scan_request_async(request_obj: dict,
+                                  open_retries: int = _OPEN_RETRIES,
+                                  retry_delay: float = _RETRY_DELAY) -> bool:
+    """
+    Async wrapper: open pipe in a thread, write in a thread, and always close via _sync_close_handle.
+    """
+    data = json.dumps(request_obj).encode("utf-8")
+
+    for attempt in range(open_retries):
+        # Open handle in thread (synchronous operation)
+        handle = await asyncio.to_thread(_sync_open_pipe_for_write)
+        if handle:
+            # We have a handle — perform write+close in a thread
+            ok = await asyncio.to_thread(_sync_write_and_close, handle, data)
+            if ok:
+                logger.info(f"[EDR->AV] Sent scan request: {request_obj.get('file_path')} (attempt {attempt+1})")
+                return True
+            else:
+                logger.debug(f"[EDR->AV] Write failed; will retry (attempt {attempt+1}/{open_retries})")
+                continue
+        else:
+            # Try to capture more detailed error for logs (single failing CreateFile attempt)
+            try:
+                try:
+                    win32pipe.WaitNamedPipe(PIPE_EDR_TO_AV, int(retry_delay * 1000))
+                except Exception:
+                    pass
+                # this will raise pywintypes.error so we can log it
+                win32file.CreateFile(
+                    PIPE_EDR_TO_AV,
+                    win32file.GENERIC_WRITE,
+                    0,
+                    None,
+                    win32file.OPEN_EXISTING,
+                    0,
+                    None,
+                )
+            except pywintypes.error as e:
+                logger.debug(f"[EDR->AV] CreateFile error winerror={getattr(e,'winerror',None)} - {e}")
             except Exception:
                 pass
 
-            # Parse JSON
-            try:
-                message = data.decode("utf-8", errors="replace")
-                request = json.loads(message)
-            except json.JSONDecodeError as e:
-                logger.error(f"[AV] Invalid JSON from EDR: {e} -- raw: {data[:RAW_PREVIEW_LEN]!r}")
-                continue
+    logger.error(f"[EDR->AV] Giving up sending scan request after {open_retries} attempts: {request_obj}")
+    return False
 
-            file_path = request.get("file_path")
-            if not file_path:
-                logger.debug(f"[AV] Invalid scan request (missing file_path): {request}")
-                continue
-
-            file_path = await normalize_nt_path(file_path)
-            if await _is_protected_path(file_path):
-                logger.debug(f"[AV] Skipping protected path: {file_path}")
-                continue
-
-            logger.info(f"[AV] Received scan request: {file_path}")
-            asyncio.create_task(scan_and_warn(file_path))
-
-        except json.JSONDecodeError as e:
-            logger.error(f"[AV] Invalid JSON from EDR: {e}")
+# Drop-in monitor: run this at startup and call queue_scan_request(...) to send scans
+async def monitor_scan_requests_from_edr():
+    logger.info(f"[EDR->AV] Sender started; will send to {PIPE_EDR_TO_AV}")
+    while True:
+        try:
+            request_obj = await _SCAN_REQUEST_SEND_QUEUE.get()
+            if request_obj is None:
+                logger.info("[EDR->AV] Sender received shutdown sentinel")
+                break
+            logger.debug(f"[EDR->AV] Dequeued scan request: {request_obj.get('file_path', '<no-file>')}")
+            sent = await send_scan_request_async(request_obj)
+            if not sent:
+                logger.error(f"[EDR->AV] Failed to send scan request for: {request_obj.get('file_path')}")
         except Exception as e:
-            logger.error(f"[AV] Scan request listener error: {e}")
-            await asyncio.sleep(1)  # Prevent tight loop on errors
-        finally:
-            if pipe:
-                try:
-                    await asyncio.to_thread(win32pipe.DisconnectNamedPipe, pipe)
-                except Exception:
-                    pass
-                try:
-                    await asyncio.to_thread(_sync_close_handle, pipe)
-                except Exception:
-                    pass
-            await asyncio.sleep(0.1)
+            logger.exception(f"[EDR->AV] Sender loop error: {e}")
 
 # ==========================================
 # FIXED: Async Excluded Rules Loading
