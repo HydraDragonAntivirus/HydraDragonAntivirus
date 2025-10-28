@@ -9,6 +9,7 @@ import win32file
 import win32pipe
 import win32api
 import pywintypes
+from typing import Any, Optional
 from .hydra_logger import logger
 from .notify_user import (
     notify_user_mbr_alert,
@@ -20,6 +21,9 @@ from .path_and_variables import (
     PIPE_AV_TO_EDR,
     PIPE_MBR_ALERT,
     PIPE_SELF_DEFENSE_ALERT,
+    RAW_PREVIEW_LEN,
+    READ_BUFFER_SIZE,
+    RAW_PREVIEW_LEN,
 )
 
 # ============================================================================#
@@ -169,85 +173,110 @@ async def _is_protected_path(candidate_path: str) -> bool:
 # Threat event processing (AV -> EDR)
 # ============================================================================#
 
-async def _process_threat_event(data: str):
+async def _process_threat_event(event: Any) -> None:
     """
     Process incoming threat events from HydraDragon AV.
-    Normalizes NT paths before processing.
+    Accepts either a parsed dict or a JSON string. Normalizes NT paths before processing.
     """
     try:
-        # Parse JSON in thread
-        event = await asyncio.to_thread(json.loads, data)
-        if not isinstance(event, dict):
-            logger.warning(f"Received valid JSON, but it was not an object: {data}")
+        # Accept either a parsed dict or a JSON string
+        if isinstance(event, str):
+            try:
+                event = await asyncio.to_thread(json.loads, event)
+            except json.JSONDecodeError:
+                logger.error(f"[EDR] _process_threat_event: failed to parse JSON string: {event!r}")
+                return
+        elif not isinstance(event, dict):
+            logger.warning(f"[EDR] _process_threat_event: unexpected event type (expected dict or json str): {type(event)}")
             return
 
-        file_path = event.get("file_path")
-        virus_name = event.get("virus_name")
-        is_malicious = event.get("is_malicious", False)
-        action_required = event.get("action_required", "monitor")
+        file_path: Optional[str] = event.get("file_path")
+        virus_name: Optional[str] = event.get("virus_name")
+        is_malicious: bool = bool(event.get("is_malicious", False))
+        action_required: str = event.get("action_required", "monitor")
 
         # Normalize path if it's an NT path
         if file_path:
-            file_path = await normalize_nt_path(file_path)
-            event["file_path"] = file_path  # Update normalized path
+            try:
+                file_path = await normalize_nt_path(file_path)
+                event["file_path"] = file_path
+            except Exception as e:
+                logger.exception(f"[EDR] _process_threat_event: normalize_nt_path failed: {e}")
+                # If normalization fails, proceed with original value (or return - choose behavior)
+                # return
 
         # Skip processing if this is a protected path
-        if file_path and await _is_protected_path(file_path):
-            logger.debug(f"Ignoring threat event for protected path: {file_path}")
-            return
+        try:
+            if file_path and await _is_protected_path(file_path):
+                logger.debug(f"[EDR] Ignoring threat event for protected path: {file_path}")
+                return
+        except Exception as e:
+            logger.exception(f"[EDR] _process_threat_event: _is_protected_path check failed: {e}")
 
-        logger.info(f"Received threat event from HydraDragon: {file_path} - {virus_name} (malicious: {is_malicious})")
+        logger.info(f"[EDR] Received threat event from HydraDragon: {file_path} - {virus_name} (malicious: {is_malicious})")
 
         if is_malicious and action_required == "kill_and_remove":
-            logger.critical(f"CRITICAL THREAT DETECTED: {file_path} - {virus_name}")
-
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse threat event JSON from HydraDragon: {data}")
+            # Put your critical handling here (kill process, quarantine file, alert operators, etc.)
+            logger.critical(f"[EDR] CRITICAL THREAT DETECTED: {file_path} - {virus_name}")
+            # you may want to call further async tasks here, e.g.:
+            # await take_mitigation_actions(file_path, event)
     except Exception as e:
-        logger.exception(f"Error processing threat event: {e}")
+        logger.exception(f"[EDR] _process_threat_event: unexpected error: {e}")
+
 
 # ------------------------------
 # Thread-safe AV -> EDR listener
 # ------------------------------
-async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
+async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None:
+    """
+    EDR-side server: create a named pipe and read threat events from AV.
+    This function implements a robust create/connect/read/cleanup loop and dispatches
+    parsed events to _process_threat_event(event_dict).
+    """
     logger.info(f"[EDR] Waiting for AV to connect on {pipe_name}")
+
     while True:
         pipe = None
         try:
-            # create server pipe (server will READ: client (AV) WRITES)
-            pipe = await asyncio.to_thread(
-                lambda: win32pipe.CreateNamedPipe(
+            # Create server pipe (server will READ; AV client WRITES)
+            def _create_pipe():
+                return win32pipe.CreateNamedPipe(
                     pipe_name,
-                    win32pipe.PIPE_ACCESS_INBOUND,
+                    win32pipe.PIPE_ACCESS_INBOUND,  # server reads only for this pipe
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                     win32pipe.PIPE_UNLIMITED_INSTANCES,
-                    65536, 65536, 0, None,
+                    READ_BUFFER_SIZE,
+                    READ_BUFFER_SIZE,
+                    0,
+                    None,
                 )
-            )
+
+            pipe = await asyncio.to_thread(_create_pipe)
             logger.debug("[EDR] Pipe created, calling ConnectNamedPipe...")
 
-            # ConnectNamedPipe can raise pywintypes.error. IMPORTANT:
-            # If a client connected between CreateNamedPipe and ConnectNamedPipe,
-            # GetLastError can be ERROR_PIPE_CONNECTED (535) — that means "already connected".
+            # ConnectNamedPipe can raise pywintypes.error;
+            # if a client connects between CreateNamedPipe and ConnectNamedPipe,
+            # GetLastError may be ERROR_PIPE_CONNECTED (535) — treat as success.
             connected = False
             try:
-                # blocking call on a thread so asyncio loop isn't blocked
                 await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
                 connected = True
             except pywintypes.error as e:
-                # ERROR_PIPE_CONNECTED == 535: client connected between CreateNamedPipe and ConnectNamedPipe
-                # Treat this as success and proceed to read.
-                if getattr(e, "winerror", None) == 535:
-                    logger.debug("[EDR] ConnectNamedPipe: client was already connected (ERROR_PIPE_CONNECTED). Proceeding to read.")
+                winerr = getattr(e, "winerror", None)
+                if winerr == 535:  # ERROR_PIPE_CONNECTED
+                    logger.debug("[EDR] ConnectNamedPipe: client had already connected (ERROR_PIPE_CONNECTED). Proceeding.")
                     connected = True
                 else:
-                    # Other errors: log and clean up; continue to next iteration to recreate the pipe.
-                    logger.debug(f"[EDR] ConnectNamedPipe raised: winerror={getattr(e,'winerror',None)}; {e}")
+                    logger.debug(f"[EDR] ConnectNamedPipe raised: winerror={winerr}; {e}")
                     connected = False
+            except Exception as e:
+                logger.exception(f"[EDR] ConnectNamedPipe unexpected error: {e}")
+                connected = False
 
             if not connected:
-                # Clean up and retry loop (avoid leaking handles)
+                # Cleanup and restart loop
                 try:
+                    # safe disconnect/close
                     win32pipe.DisconnectNamedPipe(pipe)
                 except Exception:
                     pass
@@ -259,24 +288,42 @@ async def monitor_threat_events_from_av(pipe_name=PIPE_AV_TO_EDR):
 
             logger.info("[EDR] AV client connected to AV->EDR pipe")
 
-            # Read the message (do this on a thread)
+            # Read the message on a thread so we don't block the event loop.
             try:
-                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 65536))
+                # win32file.ReadFile returns (hr, data)
+                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, READ_BUFFER_SIZE))
             except pywintypes.error as e:
-                logger.debug(f"[EDR] ReadFile raised while reading from AV pipe: {e}")
+                winerr = getattr(e, "winerror", None)
+                logger.debug(f"[EDR] ReadFile raised while reading from AV pipe: winerror={winerr}; {e}")
+                data = None
+            except Exception as e:
+                logger.exception(f"[EDR] Unexpected error during ReadFile: {e}")
                 data = None
 
-            if data:
-                try:
-                    message = data.decode("utf-8", errors="replace")
-                    event = json.loads(message)
-                    logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
-                    # dispatch processing async if needed
-                    asyncio.create_task(_process_threat_event(message))
-                except Exception as e:
-                    logger.exception(f"[EDR] Failed to decode/process threat event: {e}")
-            else:
-                logger.debug("[EDR] No data read from AV client")
+            if not data:
+                # None or empty bytes indicates no payload / disconnect
+                logger.debug("[EDR] No data read from AV client (None or empty). Treating as disconnect.")
+                continue
+
+            # decode and parse JSON (do it once, pass dict to processor)
+            try:
+                message = data.decode("utf-8", errors="replace")
+                event = json.loads(message)
+            except json.JSONDecodeError as e:
+                logger.error(f"[EDR] Invalid threat event JSON: {e} -- raw: {data[:RAW_PREVIEW_LEN]!r}")
+                continue
+            except Exception as e:
+                logger.exception(f"[EDR] Failed to decode/parse threat event: {e}")
+                continue
+
+            logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
+            # Dispatch processing asynchronously (no double JSON parsing)
+            try:
+                asyncio.create_task(_process_threat_event(event))
+            except Exception:
+                # If create_task fails (rare), process synchronously to avoid dropping the event
+                logger.exception("[EDR] Failed to create task for _process_threat_event; processing inline.")
+                await _process_threat_event(event)
 
         except Exception as e:
             logger.exception(f"[EDR] Pipe error in AV->EDR listener: {e}")

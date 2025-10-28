@@ -249,7 +249,6 @@ _WRITE_RETRIES = 3             # retries for write errors
 # Internal queue other code will push scan requests into
 _SCAN_REQUEST_SEND_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
 
-RAW_PREVIEW_LEN = 128
 READ_BUFFER_SIZE = 65536
 RAW_PREVIEW_LEN = 128
 

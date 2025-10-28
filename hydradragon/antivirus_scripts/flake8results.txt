@@ -199,22 +199,15 @@
 .\antivirus.py:1044:80: E501 line too long (97 > 79 characters)
 .\antivirus.py:1065:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:1082:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:1092:1: W293 blank line contains whitespace
 .\antivirus.py:1104:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:1107:1: W293 blank line contains whitespace
-.\antivirus.py:1110:1: W293 blank line contains whitespace
-.\antivirus.py:1113:1: W293 blank line contains whitespace
 .\antivirus.py:1127:80: E501 line too long (100 > 79 characters)
 .\antivirus.py:1128:80: E501 line too long (96 > 79 characters)
 .\antivirus.py:1129:80: E501 line too long (99 > 79 characters)
 .\antivirus.py:1131:80: E501 line too long (81 > 79 characters)
 .\antivirus.py:1134:80: E501 line too long (93 > 79 characters)
 .\antivirus.py:1135:80: E501 line too long (81 > 79 characters)
-.\antivirus.py:1140:1: W293 blank line contains whitespace
 .\antivirus.py:1149:80: E501 line too long (80 > 79 characters)
 .\antivirus.py:1150:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:1214:1: W293 blank line contains whitespace
-.\antivirus.py:1218:1: W293 blank line contains whitespace
 .\antivirus.py:1220:80: E501 line too long (87 > 79 characters)
 .\antivirus.py:1227:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:1229:80: E501 line too long (93 > 79 characters)
@@ -764,28 +757,18 @@
 .\antivirus.py:6101:80: E501 line too long (106 > 79 characters)
 .\antivirus.py:6102:80: E501 line too long (80 > 79 characters)
 .\antivirus.py:6114:13: E117 over-indented
-.\antivirus.py:6115:1: W293 blank line contains whitespace
-.\antivirus.py:6117:1: W293 blank line contains whitespace
-.\antivirus.py:6121:1: W293 blank line contains whitespace
 .\antivirus.py:6124:43: E261 at least two spaces before inline comment
 .\antivirus.py:6124:80: E501 line too long (84 > 79 characters)
-.\antivirus.py:6127:38: W291 trailing whitespace
-.\antivirus.py:6128:1: W293 blank line contains whitespace
 .\antivirus.py:6147:80: E501 line too long (89 > 79 characters)
 .\antivirus.py:6161:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6166:1: W293 blank line contains whitespace
 .\antivirus.py:6170:80: E501 line too long (80 > 79 characters)
-.\antivirus.py:6173:1: W293 blank line contains whitespace
 .\antivirus.py:6175:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:6177:80: E501 line too long (85 > 79 characters)
-.\antivirus.py:6183:1: W293 blank line contains whitespace
 .\antivirus.py:6189:80: E501 line too long (96 > 79 characters)
 .\antivirus.py:6191:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:6193:80: E501 line too long (87 > 79 characters)
 .\antivirus.py:6206:80: E501 line too long (96 > 79 characters)
-.\antivirus.py:6214:1: W293 blank line contains whitespace
 .\antivirus.py:6218:80: E501 line too long (82 > 79 characters)
-.\antivirus.py:6221:1: W293 blank line contains whitespace
 .\antivirus.py:6229:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:6240:80: E501 line too long (81 > 79 characters)
 .\antivirus.py:6262:80: E501 line too long (97 > 79 characters)
@@ -1528,11 +1511,8 @@
 .\antivirus.py:11479:80: E501 line too long (82 > 79 characters)
 .\antivirus.py:11492:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:11522:1: E302 expected 2 blank lines, found 1
-.\antivirus.py:11534:1: W293 blank line contains whitespace
-.\antivirus.py:11544:1: W293 blank line contains whitespace
 .\antivirus.py:11566:80: E501 line too long (81 > 79 characters)
 .\antivirus.py:11623:80: E501 line too long (88 > 79 characters)
-.\antivirus.py:11648:1: W293 blank line contains whitespace
 .\antivirus.py:11652:1: E302 expected 2 blank lines, found 1
 .\antivirus.py:11659:80: E501 line too long (88 > 79 characters)
 .\antivirus.py:11687:80: E501 line too long (82 > 79 characters)
@@ -1563,67 +1543,28 @@
 .\clamav.py:53:1: E302 expected 2 blank lines, found 1
 .\clamav.py:91:1: E302 expected 2 blank lines, found 1
 .\clamav.py:115:1: E302 expected 2 blank lines, found 1
-.\clamav.py:118:1: W293 blank line contains whitespace
-.\clamav.py:123:1: W293 blank line contains whitespace
-.\clamav.py:126:1: W293 blank line contains whitespace
-.\clamav.py:130:1: W293 blank line contains whitespace
-.\clamav.py:134:1: W293 blank line contains whitespace
-.\clamav.py:135:70: W291 trailing whitespace
 .\clamav.py:136:80: E501 line too long (80 > 79 characters)
 .\clamav.py:143:45: E261 at least two spaces before inline comment
 .\clamav.py:144:29: E261 at least two spaces before inline comment
-.\clamav.py:148:1: W293 blank line contains whitespace
-.\clamav.py:150:31: W291 trailing whitespace
 .\clamav.py:153:43: E261 at least two spaces before inline comment
 .\clamav.py:153:80: E501 line too long (86 > 79 characters)
-.\clamav.py:159:1: W293 blank line contains whitespace
-.\clamav.py:163:1: W293 blank line contains whitespace
 .\clamav.py:168:35: E261 at least two spaces before inline comment
 .\clamav.py:172:35: E261 at least two spaces before inline comment
-.\clamav.py:176:72: W291 trailing whitespace
-.\clamav.py:180:1: W293 blank line contains whitespace
-.\clamav.py:181:75: W291 trailing whitespace
-.\clamav.py:182:71: W291 trailing whitespace
-.\clamav.py:184:1: W293 blank line contains whitespace
 .\clamav.py:186:80: E501 line too long (90 > 79 characters)
-.\clamav.py:187:1: W293 blank line contains whitespace
 .\clamav.py:191:80: E501 line too long (80 > 79 characters)
-.\clamav.py:192:1: W293 blank line contains whitespace
 .\clamav.py:194:80: E501 line too long (101 > 79 characters)
-.\clamav.py:195:1: W293 blank line contains whitespace
-.\clamav.py:201:1: W293 blank line contains whitespace
-.\clamav.py:208:1: W293 blank line contains whitespace
 .\clamav.py:209:23: E261 at least two spaces before inline comment
 .\clamav.py:217:80: E501 line too long (104 > 79 characters)
 .\clamav.py:222:80: E501 line too long (81 > 79 characters)
-.\clamav.py:226:1: W293 blank line contains whitespace
 .\clamav.py:228:80: E501 line too long (91 > 79 characters)
-.\clamav.py:232:33: W291 trailing whitespace
-.\clamav.py:233:32: W291 trailing whitespace
-.\clamav.py:236:1: W293 blank line contains whitespace
 .\clamav.py:238:80: E501 line too long (83 > 79 characters)
-.\clamav.py:247:1: W293 blank line contains whitespace
 .\clamav.py:249:80: E501 line too long (80 > 79 characters)
-.\clamav.py:257:1: W293 blank line contains whitespace
-.\clamav.py:261:1: W293 blank line contains whitespace
 .\clamav.py:262:80: E501 line too long (102 > 79 characters)
 .\clamav.py:270:80: E501 line too long (83 > 79 characters)
-.\clamav.py:316:1: W293 blank line contains whitespace
 .\clamav.py:371:80: E501 line too long (101 > 79 characters)
 .\clamav.py:379:80: E501 line too long (86 > 79 characters)
 .\clamav.py:381:80: E501 line too long (109 > 79 characters)
-.\clamav.py:405:1: W293 blank line contains whitespace
-.\clamav.py:409:1: W293 blank line contains whitespace
-.\clamav.py:413:1: W293 blank line contains whitespace
-.\clamav.py:421:1: W293 blank line contains whitespace
-.\clamav.py:424:1: W293 blank line contains whitespace
-.\clamav.py:430:1: W293 blank line contains whitespace
-.\clamav.py:432:1: W293 blank line contains whitespace
-.\clamav.py:435:1: W293 blank line contains whitespace
-.\clamav.py:447:1: W293 blank line contains whitespace
 .\clamav.py:448:80: E501 line too long (90 > 79 characters)
-.\clamav.py:450:1: W293 blank line contains whitespace
-.\clamav.py:460:1: W293 blank line contains whitespace
 .\clamav.py:468:80: E501 line too long (113 > 79 characters)
 .\clamav.py:506:80: E501 line too long (107 > 79 characters)
 .\detect_type.py:15:1: E302 expected 2 blank lines, found 1
@@ -1860,11 +1801,11 @@
 .\path_and_variables.py:166:80: E501 line too long (103 > 79 characters)
 .\path_and_variables.py:228:80: E501 line too long (86 > 79 characters)
 .\path_and_variables.py:229:80: E501 line too long (82 > 79 characters)
-.\path_and_variables.py:268:1: E302 expected 2 blank lines, found 1
-.\path_and_variables.py:269:80: E501 line too long (84 > 79 characters)
-.\path_and_variables.py:272:32: E261 at least two spaces before inline comment
-.\path_and_variables.py:277:80: E501 line too long (87 > 79 characters)
-.\path_and_variables.py:278:80: E501 line too long (96 > 79 characters)
+.\path_and_variables.py:267:1: E302 expected 2 blank lines, found 1
+.\path_and_variables.py:268:80: E501 line too long (84 > 79 characters)
+.\path_and_variables.py:271:32: E261 at least two spaces before inline comment
+.\path_and_variables.py:276:80: E501 line too long (87 > 79 characters)
+.\path_and_variables.py:277:80: E501 line too long (96 > 79 characters)
 .\pattern.py:8:80: E501 line too long (120 > 79 characters)
 .\pattern.py:11:80: E501 line too long (145 > 79 characters)
 .\pattern.py:18:80: E501 line too long (112 > 79 characters)
@@ -2018,63 +1959,73 @@
 .\pe_feature_extractor.py:687:1: E305 expected 2 blank lines after class or function definition, found 1
 .\pe_feature_extractor.py:691:1: E302 expected 2 blank lines, found 1
 .\pe_feature_extractor.py:692:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:29:1: E302 expected 2 blank lines, found 1
-.\pipe_events.py:32:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:57:80: E501 line too long (82 > 79 characters)
-.\pipe_events.py:61:80: E501 line too long (86 > 79 characters)
-.\pipe_events.py:66:80: E501 line too long (80 > 79 characters)
-.\pipe_events.py:99:1: E302 expected 2 blank lines, found 1
-.\pipe_events.py:161:80: E501 line too long (81 > 79 characters)
-.\pipe_events.py:181:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:196:80: E501 line too long (82 > 79 characters)
-.\pipe_events.py:199:80: E501 line too long (118 > 79 characters)
-.\pipe_events.py:202:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:205:80: E501 line too long (83 > 79 characters)
-.\pipe_events.py:212:1: E302 expected 2 blank lines, found 1
-.\pipe_events.py:222:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:20:1: F811 redefinition of unused 'RAW_PREVIEW_LEN' from line 20
+.\pipe_events.py:33:1: E302 expected 2 blank lines, found 1
+.\pipe_events.py:36:80: E501 line too long (84 > 79 characters)
+.\pipe_events.py:61:80: E501 line too long (82 > 79 characters)
+.\pipe_events.py:65:80: E501 line too long (86 > 79 characters)
+.\pipe_events.py:70:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:103:1: E302 expected 2 blank lines, found 1
+.\pipe_events.py:165:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:179:80: E501 line too long (89 > 79 characters)
+.\pipe_events.py:187:80: E501 line too long (100 > 79 characters)
+.\pipe_events.py:190:80: E501 line too long (124 > 79 characters)
+.\pipe_events.py:204:80: E501 line too long (95 > 79 characters)
+.\pipe_events.py:205:80: E501 line too long (99 > 79 characters)
+.\pipe_events.py:211:80: E501 line too long (92 > 79 characters)
+.\pipe_events.py:214:80: E501 line too long (98 > 79 characters)
+.\pipe_events.py:216:80: E501 line too long (124 > 79 characters)
+.\pipe_events.py:219:80: E501 line too long (100 > 79 characters)
+.\pipe_events.py:220:80: E501 line too long (90 > 79 characters)
 .\pipe_events.py:230:80: E501 line too long (81 > 79 characters)
-.\pipe_events.py:231:80: E501 line too long (94 > 79 characters)
-.\pipe_events.py:238:80: E501 line too long (108 > 79 characters)
-.\pipe_events.py:241:80: E501 line too long (132 > 79 characters)
-.\pipe_events.py:244:80: E501 line too long (102 > 79 characters)
-.\pipe_events.py:245:80: E501 line too long (110 > 79 characters)
-.\pipe_events.py:245:86: E231 missing whitespace after ','
-.\pipe_events.py:245:97: E231 missing whitespace after ','
-.\pipe_events.py:264:80: E501 line too long (91 > 79 characters)
-.\pipe_events.py:266:80: E501 line too long (86 > 79 characters)
-.\pipe_events.py:273:80: E501 line too long (89 > 79 characters)
-.\pipe_events.py:277:80: E501 line too long (89 > 79 characters)
-.\pipe_events.py:299:1: E302 expected 2 blank lines, found 1
-.\pipe_events.py:301:80: E501 line too long (96 > 79 characters)
-.\pipe_events.py:306:80: E501 line too long (101 > 79 characters)
-.\pipe_events.py:314:80: E501 line too long (82 > 79 characters)
-.\pipe_events.py:322:80: E501 line too long (104 > 79 characters)
-.\pipe_events.py:331:80: E501 line too long (83 > 79 characters)
-.\pipe_events.py:335:80: E501 line too long (90 > 79 characters)
-.\pipe_events.py:347:80: E501 line too long (81 > 79 characters)
-.\pipe_events.py:354:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:365:80: E501 line too long (93 > 79 characters)
-.\pipe_events.py:372:80: E501 line too long (90 > 79 characters)
-.\pipe_events.py:373:80: E501 line too long (80 > 79 characters)
-.\pipe_events.py:378:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:379:80: E501 line too long (81 > 79 characters)
-.\pipe_events.py:382:80: E501 line too long (93 > 79 characters)
-.\pipe_events.py:383:80: E501 line too long (91 > 79 characters)
-.\pipe_events.py:391:80: E501 line too long (95 > 79 characters)
-.\pipe_events.py:419:80: E501 line too long (97 > 79 characters)
-.\pipe_events.py:427:1: E302 expected 2 blank lines, found 1
-.\pipe_events.py:427:80: E501 line too long (92 > 79 characters)
-.\pipe_events.py:436:80: E501 line too long (104 > 79 characters)
-.\pipe_events.py:446:80: E501 line too long (83 > 79 characters)
-.\pipe_events.py:450:80: E501 line too long (90 > 79 characters)
-.\pipe_events.py:461:80: E501 line too long (81 > 79 characters)
-.\pipe_events.py:463:80: E501 line too long (80 > 79 characters)
-.\pipe_events.py:465:80: E501 line too long (85 > 79 characters)
-.\pipe_events.py:468:80: E501 line too long (84 > 79 characters)
-.\pipe_events.py:483:80: E501 line too long (91 > 79 characters)
-.\pipe_events.py:484:80: E501 line too long (86 > 79 characters)
-.\pipe_events.py:485:80: E501 line too long (104 > 79 characters)
-.\pipe_events.py:487:80: E501 line too long (100 > 79 characters)
+.\pipe_events.py:233:80: E501 line too long (85 > 79 characters)
+.\pipe_events.py:245:80: E501 line too long (85 > 79 characters)
+.\pipe_events.py:246:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:258:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:259:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:267:80: E501 line too long (124 > 79 characters)
+.\pipe_events.py:270:80: E501 line too long (90 > 79 characters)
+.\pipe_events.py:273:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:294:80: E501 line too long (102 > 79 characters)
+.\pipe_events.py:297:80: E501 line too long (105 > 79 characters)
+.\pipe_events.py:300:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:305:80: E501 line too long (106 > 79 characters)
+.\pipe_events.py:313:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:316:80: E501 line too long (83 > 79 characters)
+.\pipe_events.py:319:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:324:80: E501 line too long (96 > 79 characters)
+.\pipe_events.py:325:80: E501 line too long (109 > 79 characters)
+.\pipe_events.py:346:1: E302 expected 2 blank lines, found 1
+.\pipe_events.py:348:80: E501 line too long (96 > 79 characters)
+.\pipe_events.py:353:80: E501 line too long (101 > 79 characters)
+.\pipe_events.py:361:80: E501 line too long (82 > 79 characters)
+.\pipe_events.py:369:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:378:80: E501 line too long (83 > 79 characters)
+.\pipe_events.py:382:80: E501 line too long (90 > 79 characters)
+.\pipe_events.py:394:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:401:80: E501 line too long (84 > 79 characters)
+.\pipe_events.py:412:80: E501 line too long (93 > 79 characters)
+.\pipe_events.py:419:80: E501 line too long (90 > 79 characters)
+.\pipe_events.py:420:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:425:80: E501 line too long (84 > 79 characters)
+.\pipe_events.py:426:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:429:80: E501 line too long (93 > 79 characters)
+.\pipe_events.py:430:80: E501 line too long (91 > 79 characters)
+.\pipe_events.py:438:80: E501 line too long (95 > 79 characters)
+.\pipe_events.py:466:80: E501 line too long (97 > 79 characters)
+.\pipe_events.py:474:1: E302 expected 2 blank lines, found 1
+.\pipe_events.py:474:80: E501 line too long (92 > 79 characters)
+.\pipe_events.py:483:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:493:80: E501 line too long (83 > 79 characters)
+.\pipe_events.py:497:80: E501 line too long (90 > 79 characters)
+.\pipe_events.py:508:80: E501 line too long (81 > 79 characters)
+.\pipe_events.py:510:80: E501 line too long (80 > 79 characters)
+.\pipe_events.py:512:80: E501 line too long (85 > 79 characters)
+.\pipe_events.py:515:80: E501 line too long (84 > 79 characters)
+.\pipe_events.py:530:80: E501 line too long (91 > 79 characters)
+.\pipe_events.py:531:80: E501 line too long (86 > 79 characters)
+.\pipe_events.py:532:80: E501 line too long (104 > 79 characters)
+.\pipe_events.py:534:80: E501 line too long (100 > 79 characters)
 .\reference_registry.py:9:1: E302 expected 2 blank lines, found 1
 .\utils_and_helpers.py:10:1: E302 expected 2 blank lines, found 1
 .\utils_and_helpers.py:25:20: E203 whitespace before ':'
