@@ -15,7 +15,6 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from .hydra_logger import logger
-from notifypy import Notify
 from .path_and_variables import (
     malicious_hashes,
     malicious_hashes_lock,
@@ -176,16 +175,12 @@ async def notify_user_mbr_alert(file_path: str) -> None:
     Async: Notify the user about a blocked MBR write attempt and send a critical alert to the EDR.
     """
     try:
-        notification = Notify()
-        notification.title = "CRITICAL: MBR Write Attempt Blocked"
         notification_message = (
             f"A process attempted to modify the Master Boot Record (MBR) and was blocked.\n\n"
             f"Offending Process: {file_path}"
         )
-        notification.message = notification_message
 
         # send desktop notification offloaded
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
 
         # Define threat and send it to the EDR
@@ -208,11 +203,7 @@ async def notify_user_mbr_alert(file_path: str) -> None:
 
 async def notify_user(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Malware Alert"
         notification_message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -228,11 +219,7 @@ async def notify_user(file_path, virus_name, engine_detected, main_file_path: Op
 
 async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "PUA Alert"
         notification_message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -248,8 +235,6 @@ async def notify_user_pua(file_path, virus_name, engine_detected, main_file_path
 
 async def notify_user_hayabusa_critical(event_log, rule_title, details, computer) -> None:
     try:
-        notification = Notify()
-        notification.title = "Critical Security Event Detected"
         notification_message = (
             f"CRITICAL event detected by Hayabusa:\n"
             f"Computer: {computer}\n"
@@ -257,8 +242,6 @@ async def notify_user_hayabusa_critical(event_log, rule_title, details, computer
             f"Rule: {rule_title}\n"
             f"Details: {details}"
         )
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         threat_name = f"Hayabusa Critical: {rule_title}"
         await _send_to_edr(
@@ -273,11 +256,7 @@ async def notify_user_hayabusa_critical(event_log, rule_title, details, computer
 
 async def notify_user_for_malicious_source_code(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = f"Malicious Source Code detected: {virus_name}"
         notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.error(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -293,12 +272,8 @@ async def notify_user_for_malicious_source_code(file_path, virus_name, main_file
 
 async def notify_user_size_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Size Warning"
         notification_message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
                                 f"which might be suspicious. Virus Name: {virus_name}")
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -314,13 +289,9 @@ async def notify_user_size_warning(file_path, archive_type, virus_name, main_fil
 
 async def notify_user_susp_archive_file_name_warning(file_path, archive_type, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Suspicious Filename In Archive Warning"
         notification_message = (
             f"The filename in the {archive_type} archive '{file_path}' contains a suspicious pattern: {virus_name}."
         )
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -336,11 +307,7 @@ async def notify_user_susp_archive_file_name_warning(file_path, archive_type, vi
 
 async def notify_user_susp_name(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Suspicious Name Alert"
         notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -356,11 +323,7 @@ async def notify_user_susp_name(file_path, virus_name, main_file_path: Optional[
 
 async def notify_user_scr(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Suspicious .SCR File Detected"
         notification_message = f"Suspicious .scr file detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(f"ALERT: {notification_message}")
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -376,16 +339,12 @@ async def notify_user_scr(file_path, virus_name, main_file_path: Optional[str] =
 
 async def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Fake System File Alert"
         notification_message = (
             f"Fake system file detected:\n"
             f"File Path: {file_path}\n"
             f"File Name: {file_name}\n"
             f"Threat: {virus_name}"
         )
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -401,11 +360,7 @@ async def notify_user_for_detected_fake_system_file(file_path, file_name, virus_
 
 async def notify_user_invalid(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Fully Invalid signature Alert"
         notification_message = f"Fully Invalid signature file detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -421,11 +376,7 @@ async def notify_user_invalid(file_path, virus_name, main_file_path: Optional[st
 
 async def notify_user_fake_size(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Fake Size Alert"
         notification_message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -441,11 +392,7 @@ async def notify_user_fake_size(file_path, virus_name, main_file_path: Optional[
 
 async def notify_user_startup(file_path, message, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Startup File Alert"
         notification_message = f"File: {file_path}\n{message}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         virus_name = f"Startup Alert: {message}"
         await _add_malicious_hash(file_path, virus_name)
@@ -462,11 +409,7 @@ async def notify_user_startup(file_path, message, main_file_path: Optional[str] 
 
 async def notify_user_exela_stealer_v2(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Exela Stealer version 2 Alert in Python source code"
         notification_message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -482,11 +425,7 @@ async def notify_user_exela_stealer_v2(file_path, virus_name, main_file_path: Op
 
 async def notify_user_hosts(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "Host Hijacker Alert"
         notification_message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
         await _send_to_edr(
@@ -510,8 +449,6 @@ async def notify_user_for_web(domain: Optional[str] = None,
     Lightweight web notification. If file_path is provided, add to EDR as a file event.
     """
     try:
-        notification = Notify()
-        notification.title = "Malware or Phishing Alert"
         message_parts = []
         if detection_type:
             message_parts.append(f"Detection Type: {detection_type}")
@@ -526,13 +463,9 @@ async def notify_user_for_web(domain: Optional[str] = None,
         if file_path:
             message_parts.append(f"File Path: {file_path}")
 
-        notification.message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
-        try:
-            await asyncio.to_thread(notification.send)
-        except Exception:
-            logger.exception("Failed to send desktop notification (continuing).")
+        notification_message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
 
-        logger.critical(notification.message)
+        logger.critical(notification_message)
 
         if file_path:
             threat_name = f"WebThreat: {domain or url or ipv4_address or ipv6_address or detection_type or 'web'}"
@@ -564,8 +497,6 @@ async def notify_user_for_web_source(
     Web notification that includes source file context.
     """
     try:
-        notification = Notify()
-        notification.title = "Malicious Web/Phishing Alert (with source)"
         message_parts = []
         if detection_type:
             message_parts.append(f"Detection Type: {detection_type}")
@@ -583,11 +514,6 @@ async def notify_user_for_web_source(
             message_parts.append(f"Source File: {main_file_path}")
 
         notification_message = "Phishing or Malicious web activity detected:\n" + "\n".join(message_parts)
-        notification.message = notification_message
-        try:
-            await asyncio.to_thread(notification.send)
-        except Exception:
-            logger.exception("Failed to send desktop notification (continuing).")
         logger.critical(notification_message)
 
         # Prefer directly associated file for EDR; fall back to main file.
@@ -617,11 +543,7 @@ async def notify_user_for_web_source(
 
 async def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "(Verified) Web Malware Alert For File"
         notification_message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         virus_name = f"HIPS Alert: {alert_line}"
         await _add_malicious_hash(file_path, virus_name)
@@ -642,8 +564,6 @@ async def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str
     Still forwards to EDR for tracking.
     """
     try:
-        notification = Notify()
-        notification.title = "Duplicate Malware Detected"
         notification_message = (
             f"Duplicate malicious file detected:\n"
             f"File: {file_path}\n"
@@ -651,8 +571,6 @@ async def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str
             f"Previously identified as: {known_virus_name}\n"
             f"Action: Skipped scanning (already known malware)"
         )
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.warning(notification_message)
         await _send_to_edr(
             file_path, 
@@ -666,11 +584,7 @@ async def notify_user_duplicate(file_path, file_hash: str, known_virus_name: str
 
 async def notify_user_for_uefi(file_path, virus_name, main_file_path: Optional[str] = None) -> None:
     try:
-        notification = Notify()
-        notification.title = "(Verified) UEFI Malware Alert"
         notification_message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
 
         logger.critical(notification_message)
         await _add_malicious_hash(file_path, virus_name)
@@ -694,11 +608,7 @@ async def notify_user_self_defense_file(file_path: str, attacker_path: str, atta
     Notify user about file tampering attempt blocked by self-defense driver.
     """
     try:
-        notification = Notify()
-        notification.title = "Self-Defense File Protection Alert"
         notification_message = f"File tampering attempt blocked: {file_path}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         virus_name = f"Self-Defense Alert: File Tampering by PID {attacker_pid}"
         await _add_malicious_hash(attacker_path, virus_name)
@@ -718,11 +628,7 @@ async def notify_user_self_defense_process(protected_process: str, attacker_path
     Notify user about process kill attempt blocked by self-defense driver.
     """
     try:
-        notification = Notify()
-        notification.title = "Self-Defense Process Protection Alert"
         notification_message = f"Process kill attempt blocked: {protected_process}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         virus_name = f"Self-Defense Alert: Process Kill Attempt by PID {attacker_pid}"
         await _add_malicious_hash(attacker_path, virus_name)
@@ -742,11 +648,7 @@ async def notify_user_self_defense_registry(registry_path: str, attacker_path: s
     Notify user about registry tampering attempt blocked by self-defense driver.
     """
     try:
-        notification = Notify()
-        notification.title = "Self-Defense Registry Protection Alert"
         notification_message = f"Registry tampering attempt blocked: {registry_path}\nOperation: {operation}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        notification.message = notification_message
-        await asyncio.to_thread(notification.send)
         logger.critical(notification_message)
         virus_name = f"Self-Defense Alert: Registry {operation} Attempt by PID {attacker_pid}"
         await _add_malicious_hash(attacker_path, virus_name)
