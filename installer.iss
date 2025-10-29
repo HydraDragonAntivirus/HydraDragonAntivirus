@@ -122,7 +122,7 @@ Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=
 Filename: "{tmp}\clamav-1.5.1.win.x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Suricata Installer (MSI - Silent Install)
-Filename: "{tmp}\Suricata-8.0.1-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Suricata-7.0.12-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Node.js 22.18.0 (silent)
 Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
