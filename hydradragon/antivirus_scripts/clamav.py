@@ -49,87 +49,41 @@ CL_EOPEN = 3
 CL_EMALFDB = 4
 CL_EPARSE = 5
 
-def _has_export(lib, name):
-    try:
-        getattr(lib, name)
-        return True
-    except AttributeError:
-        return False
-
 def _setup_lib_prototypes(lib, libfile):
-    """
-    Safe prototype setup: only assign argtypes/restype for symbols that exist.
-    Returns True on success, False on unrecoverable failure.
-    """
-    try:
-        # Required minimal functions
-        if not _has_export(lib, 'cl_init'):
-            logger.error(f"cl_init not found in {libfile}")
-            return False
-        lib.cl_init.argtypes = (c_uint,)
-        lib.cl_init.restype = c_int
+    """Safely set up libclamav prototypes with detailed error logging"""
+    logger.debug(f"Verifying ClamAV exports for {libfile} ...")
 
-        if not _has_export(lib, 'cl_engine_new'):
-            logger.error(f"cl_engine_new not found in {libfile}")
-            return False
-        lib.cl_engine_new.argtypes = None
-        lib.cl_engine_new.restype = cl_engine_p
+    def _safe_define(func_name, argtypes=None, restype=None):
+        try:
+            func = getattr(lib, func_name)
+        except AttributeError:
+            logger.error(f"[MISSING] {func_name} not found in {libfile}")
+            return
+        try:
+            if argtypes is not None:
+                func.argtypes = argtypes
+            if restype is not None:
+                func.restype = restype
+            logger.debug(f"[OK] {func_name} prototype defined")
+        except Exception as e:
+            logger.error(f"[FAIL] {func_name} prototype error: {e}")
 
-        # Optional but expected
-        if _has_export(lib, 'cl_engine_free'):
-            lib.cl_engine_free.argtypes = (cl_engine_p,)
-            lib.cl_engine_free.restype = c_int
-        else:
-            logger.warning(f"cl_engine_free missing in {libfile}")
+    # define prototypes
+    _safe_define('cl_init', (c_uint,), c_int)
+    _safe_define('cl_engine_new', None, cl_engine_p)
+    _safe_define('cl_engine_free', (cl_engine_p,), c_int)
+    _safe_define('cl_load', (c_char_p, cl_engine_p, POINTER(c_uint), c_uint), c_int)
+    _safe_define('cl_engine_compile', (cl_engine_p,), c_int)
+    _safe_define('cl_engine_set_num', (cl_engine_p, c_uint, c_ulong), c_int)
+    _safe_define(
+        'cl_scanfile',
+        (c_char_p, POINTER(c_char_p), c_ulong_p, cl_engine_p, POINTER(cl_scan_options)),
+        c_int
+    )
+    _safe_define('cl_retver', None, c_char_p)
+    _safe_define('cl_strerror', (c_int,), c_char_p)
 
-        if _has_export(lib, 'cl_load'):
-            lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
-            lib.cl_load.restype = c_int
-        else:
-            logger.warning(f"cl_load missing in {libfile}")
-
-        if _has_export(lib, 'cl_engine_compile'):
-            lib.cl_engine_compile.argtypes = (cl_engine_p,)
-            lib.cl_engine_compile.restype = c_int
-        else:
-            logger.warning(f"cl_engine_compile missing in {libfile}")
-
-        if _has_export(lib, 'cl_engine_set_num'):
-            lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
-            lib.cl_engine_set_num.restype = c_int
-        else:
-            logger.debug(f"cl_engine_set_num not present in {libfile}")
-
-        # NOTE: last arg of cl_scanfile should be pointer to cl_scan_options (your struct)
-        if _has_export(lib, 'cl_scanfile'):
-            lib.cl_scanfile.argtypes = [
-                c_char_p,
-                POINTER(c_char_p),   # virname pointer-to-pointer (c_char **)
-                c_ulong_p,
-                cl_engine_p,
-                POINTER(cl_scan_options)
-            ]
-            lib.cl_scanfile.restype = c_int
-        else:
-            logger.warning(f"cl_scanfile missing in {libfile}")
-
-        if _has_export(lib, 'cl_retver'):
-            lib.cl_retver.argtypes = None
-            lib.cl_retver.restype = c_char_p
-        else:
-            logger.debug(f"cl_retver not exported in {libfile}")
-
-        if _has_export(lib, 'cl_strerror'):
-            lib.cl_strerror.argtypes = (c_int,)
-            lib.cl_strerror.restype = c_char_p
-
-        logger.debug(f"Set libclamav prototypes for: {libfile}")
-        return True
-
-    except Exception as e:
-        # something went wrong while setting prototypes — do not let it kill the host
-        logger.exception(f"Exception while setting prototypes for {libfile}: {e}")
-        return False
+    logger.debug(f"Finished setting up prototypes for {libfile}")
 
 # --- loader ---
 def load_clamav(libpath, try_add_dll_dir=True):
