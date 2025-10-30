@@ -8,7 +8,7 @@ import os
 import asyncio
 from ctypes import (
     CDLL, Structure, POINTER, c_uint, c_int, c_char_p, c_ulong,
-    c_void_p, byref
+    c_void_p, byref, WinDLL
 )
 from .hydra_logger import logger
 
@@ -49,67 +49,132 @@ CL_EOPEN = 3
 CL_EMALFDB = 4
 CL_EPARSE = 5
 
-# --- loader ---
+def _has_export(lib, name):
+    try:
+        getattr(lib, name)
+        return True
+    except AttributeError:
+        return False
+
 def _setup_lib_prototypes(lib, libfile):
-    lib.cl_init.argtypes = (c_uint,)
-    lib.cl_init.restype = c_int
+    """
+    Safe prototype setup: only assign argtypes/restype for symbols that exist.
+    Returns True on success, False on unrecoverable failure.
+    """
+    try:
+        # Required minimal functions
+        if not _has_export(lib, 'cl_init'):
+            logger.error(f"cl_init not found in {libfile}")
+            return False
+        lib.cl_init.argtypes = (c_uint,)
+        lib.cl_init.restype = c_int
 
-    lib.cl_engine_new.argtypes = None
-    lib.cl_engine_new.restype = cl_engine_p
+        if not _has_export(lib, 'cl_engine_new'):
+            logger.error(f"cl_engine_new not found in {libfile}")
+            return False
+        lib.cl_engine_new.argtypes = None
+        lib.cl_engine_new.restype = cl_engine_p
 
-    lib.cl_engine_free.argtypes = (cl_engine_p,)
-    lib.cl_engine_free.restype = c_int
+        # Optional but expected
+        if _has_export(lib, 'cl_engine_free'):
+            lib.cl_engine_free.argtypes = (cl_engine_p,)
+            lib.cl_engine_free.restype = c_int
+        else:
+            logger.warning(f"cl_engine_free missing in {libfile}")
 
-    lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
-    lib.cl_load.restype = c_int
+        if _has_export(lib, 'cl_load'):
+            lib.cl_load.argtypes = (c_char_p, cl_engine_p, POINTER(c_uint), c_uint)
+            lib.cl_load.restype = c_int
+        else:
+            logger.warning(f"cl_load missing in {libfile}")
 
-    lib.cl_engine_compile.argtypes = (cl_engine_p,)
-    lib.cl_engine_compile.restype = c_int
+        if _has_export(lib, 'cl_engine_compile'):
+            lib.cl_engine_compile.argtypes = (cl_engine_p,)
+            lib.cl_engine_compile.restype = c_int
+        else:
+            logger.warning(f"cl_engine_compile missing in {libfile}")
 
-    lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
-    lib.cl_engine_set_num.restype = c_int
+        if _has_export(lib, 'cl_engine_set_num'):
+            lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
+            lib.cl_engine_set_num.restype = c_int
+        else:
+            logger.debug(f"cl_engine_set_num not present in {libfile}")
 
-    lib.cl_scanfile.argtypes = [
-        c_char_p,
-        POINTER(c_char_p),
-        c_ulong_p,
-        cl_engine_p,
-        POINTER(cl_scan_options)
-    ]
-    lib.cl_scanfile.restype = c_int
+        # NOTE: last arg of cl_scanfile should be pointer to cl_scan_options (your struct)
+        if _has_export(lib, 'cl_scanfile'):
+            lib.cl_scanfile.argtypes = [
+                c_char_p,
+                POINTER(c_char_p),   # virname pointer-to-pointer (c_char **)
+                c_ulong_p,
+                cl_engine_p,
+                POINTER(cl_scan_options)
+            ]
+            lib.cl_scanfile.restype = c_int
+        else:
+            logger.warning(f"cl_scanfile missing in {libfile}")
 
-    lib.cl_retver.argtypes = None
-    lib.cl_retver.restype = c_char_p
+        if _has_export(lib, 'cl_retver'):
+            lib.cl_retver.argtypes = None
+            lib.cl_retver.restype = c_char_p
+        else:
+            logger.debug(f"cl_retver not exported in {libfile}")
 
-    if hasattr(lib, 'cl_strerror'):
-        lib.cl_strerror.argtypes = (c_int,)
-        lib.cl_strerror.restype = c_char_p
+        if _has_export(lib, 'cl_strerror'):
+            lib.cl_strerror.argtypes = (c_int,)
+            lib.cl_strerror.restype = c_char_p
 
-    logger.debug(f"Set libclamav prototypes for: {libfile}")
+        logger.debug(f"Set libclamav prototypes for: {libfile}")
+        return True
+
+    except Exception as e:
+        # something went wrong while setting prototypes — do not let it kill the host
+        logger.exception(f"Exception while setting prototypes for {libfile}: {e}")
+        return False
 
 # --- loader ---
-def load_clamav(libpath):
+def load_clamav(libpath, try_add_dll_dir=True):
+    """
+    Robust loader: add DLL dir, try CDLL then WinDLL, set prototypes safely.
+    Returns the loaded lib object or None on failure.
+    """
     if not libpath or not os.path.exists(libpath):
         logger.error(f"Invalid or missing libclamav.dll path: {libpath}")
         return None
 
     dll_dir = os.path.dirname(os.path.abspath(libpath))
 
-    try:
-        # Ensure all dependencies in same folder can be found
-        logger.debug(f"Adding DLL directory: {dll_dir}")
-        os.add_dll_directory(dll_dir)
+    # add DLL directory so dependencies resolve
+    if try_add_dll_dir:
+        try:
+            logger.debug(f"Adding DLL directory: {dll_dir}")
+            os.add_dll_directory(dll_dir)
+        except Exception as e:
+            logger.warning(f"os.add_dll_directory failed: {e}")
 
-        logger.debug(f"Attempting to load: {libpath}")
-        lib = CDLL(libpath)
-        logger.debug("DLL loaded successfully")
+    last_err = None
+    for loader_name, loader in (('CDLL', CDLL), ('WinDLL', WinDLL)):
+        try:
+            logger.debug(f"Attempting to load {libpath} using {loader_name}")
+            lib = loader(libpath)
+            logger.debug(f"{loader_name} loaded OK — verifying prototypes")
+            ok = _setup_lib_prototypes(lib, libpath)
+            if not ok:
+                # prototypes failed — unload by deleting reference and try next loader
+                logger.error(f"Prototype setup failed for {libpath} using {loader_name}")
+                del lib
+                last_err = RuntimeError("Prototype setup failure")
+                continue
 
-        _setup_lib_prototypes(lib, libpath)
-        return lib
+            logger.info(f"Loaded libclamav ({loader_name}): {libpath}")
+            return lib
 
-    except Exception as e:
-        logger.error(f"Failed to load DLL: {e}")
-        return None
+        except Exception as e:
+            logger.exception(f"Failed to load {libpath} with {loader_name}: {e}")
+            last_err = e
+            # try next loader
+
+    logger.error(f"Could not load libclamav (tried CDLL and WinDLL). Last error: {last_err}")
+    return None
 
 # --- Scanner class with ASYNC initialization ---
 class Scanner:
