@@ -120,7 +120,7 @@ if exist "%OWLY_TARGET_EXE%" (
 :: --------------------------------------------------------
 :: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_LAUNCHER_EXE=%~dp0hydradragon\HydraDragonAntivirusLauncher.exe"
+set "HD_LAUNCHER_EXE=%~dp0\HydraDragonAntivirusLauncher.exe"
 
 if exist "%HD_LAUNCHER_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
