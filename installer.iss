@@ -96,6 +96,10 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: 0; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
+[Icons]
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
 [Run]
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2501-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
