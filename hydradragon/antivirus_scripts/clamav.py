@@ -110,7 +110,7 @@ def load_clamav(libpath, try_add_dll_dir=True):
         try:
             logger.debug(f"Attempting to load {libpath} using {loader_name}")
             lib = loader(libpath)
-            logger.debug(f"{loader_name} loaded OK — verifying prototypes")
+            logger.debug(f"{loader_name} loaded OK - verifying prototypes")
             ok = _setup_lib_prototypes(lib, libpath)
             if not ok:
                 # prototypes failed — unload by deleting reference and try next loader
