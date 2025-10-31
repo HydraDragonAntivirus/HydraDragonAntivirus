@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
         # Import HydraDragon main after tracing is active
         print("[Launcher] Importing hydradragon.engine.main...")
-        from hydradragon.__main__ import main as hydra_main
+        from hydradragon.engine import main as hydra_main
         print("[Launcher] Import successful.")
         # Run the main application
         print("[Launcher] --- Starting HydraDragon main() ---")
