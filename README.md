@@ -149,10 +149,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - Also you need run "spacy download en_core_web_md"
 
 **Note 8:**
-
-- If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
-
-**Note 9:**
 - Inno Setup version 6.5.4
 
 ## Tips
