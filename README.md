@@ -18,6 +18,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
+- Disable Secure Boot if the driver installation fails.
 - We recommend waiting until the antivirus fully opens, even if some protections are already active.
 - Quarantine folder: C:\Program Files\HydraDragonAntivirus\Quarantine
 - You can manually terminate the antivirus, but a virus cannot, because the antivirus driver can detect whether the request comes from a user or not. So don’t worry if you managed to close it manually.
