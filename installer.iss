@@ -142,8 +142,8 @@ Filename: "{tmp}\setup.py"; Flags: shellexec waituntilterminated
 Filename: "bcdedit.exe"; Parameters: "/set testsigning off"
 
 ; Owlyshield cleanup
-Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
-Filename: "sc.exe"; Parameters: "stop ""{#FsFilter}"""
-Filename: "sc.exe"; Parameters: "delete ""{#AgentName}"""
-Filename: "sc.exe"; Parameters: "delete ""{#FsFilter}"""
-Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FsFilter}.sys"""
+; Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
+;  Filename: "sc.exe"; Parameters: "stop ""{#FsFilter}"""
+; Filename: "sc.exe"; Parameters: "delete ""{#AgentName}"""
+; Filename: "sc.exe"; Parameters: "delete ""{#FsFilter}"""
+; Filename: "del.exe"; Parameters: """C:\Windows\System32\drivers\{#FsFilter}.sys"""
