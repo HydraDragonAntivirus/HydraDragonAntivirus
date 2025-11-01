@@ -138,6 +138,8 @@ namespace HydraDragonAntivirusLauncher
                         Arguments = args,
                         UseShellExecute = false,
                         CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
+                        StandardErrorEncoding = System.Text.Encoding.UTF8
                     };
                     var p = Process.Start(psi);
                     _logger.LogInformation("Started: {exe} (pid {pid})", exePath, p?.Id);
@@ -162,6 +164,8 @@ namespace HydraDragonAntivirusLauncher
                     Arguments = "start sanctum_ppl_runner",
                     UseShellExecute = false,
                     CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
                 Process.Start(psi);
                 await Task.Delay(1500, ct);
@@ -252,7 +256,9 @@ namespace HydraDragonAntivirusLauncher
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8
             };
 
             _childProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };

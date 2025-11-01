@@ -84,7 +84,7 @@ CONFIG_FILE = CLAMAV_DIR / "freshclam.conf"
 SURICATA_DIR = PROGRAMW6432 / "Suricata"
 NODEJS_PATH = PROGRAMW6432 / "nodejs"
 PKG_UNPACKER_DIR = HYDRADRAGON_PATH / "pkg-unpacker"
-CLEAN_VM_PSB_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.ps1"
+CLEAN_VM_PY_PATH = HYDRADRAGON_PATH / "Sanctum" / "clean_vm" / "installer_clean_vm.py"
 CLEAN_VM_FOLDER = HYDRADRAGON_PATH / "Sanctum" / "clean_vm"
 SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
@@ -612,23 +612,16 @@ def main():
     # ------------------------------
     log.info("Processing Sanctum folder...")
 
-    # 8. Run installer_clean_vm.ps1 if present (force PowerShell to UTF-8 output)
-    if CLEAN_VM_PSB_PATH.exists():
-        log.info("Running installer_clean_vm.ps1...")
-        # Use -Command with OutputEncoding set to UTF8 to improve decoding reliability
-        ps_cmd = [
-            "powershell",
-            "-NoProfile", "-NonInteractive",
-            "-ExecutionPolicy", "Bypass",
-            "-Command",
-            f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '{str(CLEAN_VM_PSB_PATH)}'"
-        ]
-        rc = run_cmd(ps_cmd, "installer_clean_vm.ps1", retries=1, retry_delay=0)
+    # 8. Run installer_clean_vm.py if present
+    if CLEAN_VM_PY_PATH.exists():
+        log.info("Running installer_clean_vm.py...")
+        py_cmd = [sys.executable, str(CLEAN_VM_PY_PATH)]
+        rc = run_cmd(py_cmd, "installer_clean_vm.py", retries=1, retry_delay=0)
         if rc != 0:
-            log.warning("installer_clean_vm.ps1 exited with code %d", rc)
-            errors.append(("installer_clean_vm.ps1", rc))
+            log.warning("installer_clean_vm.py exited with code %d", rc)
+            errors.append(("installer_clean_vm.py", rc))
     else:
-        log.info("installer_clean_vm.ps1 not found. Skipping.")
+        log.info("installer_clean_vm.py not found. Skipping.")
 
     # 9. Remove clean_vm folder
     if CLEAN_VM_FOLDER.exists():
