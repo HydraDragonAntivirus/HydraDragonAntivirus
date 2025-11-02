@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 installer_clean_vm.py - Clean VM installer script (replaces .ps1 version)
 
@@ -17,6 +18,20 @@ import sys
 from pathlib import Path
 from urllib.request import urlretrieve
 from urllib.error import URLError
+
+# Configure UTF-8 output for Windows console
+try:
+    # Try to set UTF-8 mode for stdout/stderr
+    import io
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    # Fallback: replace stdout/stderr with UTF-8 versions
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
 
 # ----------------------
 # Administrator check

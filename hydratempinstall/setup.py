@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 setup.py - Robust Windows setup script to replace the .bat installer.
 Run with: py -3.12 setup.py
@@ -23,6 +24,20 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Set, Union
 import ctypes
 from ctypes import wintypes
+
+# Configure UTF-8 output for Windows console before any output
+try:
+    # Try to set UTF-8 mode for stdout/stderr
+    import io
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    # Fallback: replace stdout/stderr with UTF-8 versions
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
 
 # ----------------------
 # CLI / configuration
@@ -557,12 +572,9 @@ def main():
             rc = run_cmd([str(freshclam)], "ClamAV virus definitions update", 
                           retries=MAX_RETRIES, retry_delay=RETRY_DELAY, always_log_output=True)
             
-            # For demonstration:
-            import subprocess
-            rc = subprocess.run([str(freshclam)], capture_output=True)
-            
-            if rc.returncode != 0:
-                log.info(f"freshclam failed with return code {rc.returncode}")
+            if rc != 0:
+                log.warning("freshclam returned rc=%d", rc)
+                errors.append(("freshclam", rc))
         finally:
             os.chdir(original_cwd)
             log.info(f"Restored directory to: {original_cwd}")
