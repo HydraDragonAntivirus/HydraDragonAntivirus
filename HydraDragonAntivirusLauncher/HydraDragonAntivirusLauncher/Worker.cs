@@ -138,6 +138,8 @@ namespace HydraDragonAntivirusLauncher
                         Arguments = args,
                         UseShellExecute = false,
                         CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
                         StandardOutputEncoding = System.Text.Encoding.UTF8,
                         StandardErrorEncoding = System.Text.Encoding.UTF8
                     };
@@ -164,6 +166,8 @@ namespace HydraDragonAntivirusLauncher
                     Arguments = "start sanctum_ppl_runner",
                     UseShellExecute = false,
                     CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
                     StandardOutputEncoding = System.Text.Encoding.UTF8,
                     StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
