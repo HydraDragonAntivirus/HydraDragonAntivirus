@@ -2,21 +2,16 @@ using System.Diagnostics;
 
 namespace HydraDragonAntivirusLauncher
 {
-    public class Worker : BackgroundService
+    public class Worker(ILogger<Worker> logger) : BackgroundService
     {
-        private readonly ILogger<Worker> _logger;
-        private Process _childProcess;
-        private Process _guiProcess; // <- tracks GUI started by this service
+        private readonly ILogger<Worker> _logger = logger;
+        private Process? _childProcess;  // Marked as nullable
+        private Process? _guiProcess;    // Marked as nullable
 
         // Restart supervision settings
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
         private readonly int _maxBackoffMs = 30000;
-
-        public Worker(ILogger<Worker> logger)
-        {
-            _logger = logger;
-        }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -211,7 +206,7 @@ namespace HydraDragonAntivirusLauncher
                         var guiPsi = new ProcessStartInfo
                         {
                             FileName = guiFull,
-                            WorkingDirectory = Path.GetDirectoryName(guiFull),
+                            WorkingDirectory = Path.GetDirectoryName(guiFull) ?? baseDir,  // Null-coalescing added
                             UseShellExecute = true, // run with normal shell so GUI appears on desktop
                         };
 
@@ -304,7 +299,7 @@ namespace HydraDragonAntivirusLauncher
             }
         }
 
-        private async Task<bool> WaitForChildExitOrCancellationAsync(Process child, CancellationToken cancellationToken)
+        private async Task<bool> WaitForChildExitOrCancellationAsync(Process? child, CancellationToken cancellationToken)
         {
             if (child == null) return true;
 
