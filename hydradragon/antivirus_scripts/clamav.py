@@ -50,40 +50,61 @@ CL_EMALFDB = 4
 CL_EPARSE = 5
 
 def _setup_lib_prototypes(lib, libfile):
-    """Safely set up libclamav prototypes with detailed error logging"""
+    """Safely set up libclamav prototypes with detailed error logging.
+    Returns True if required exports were found and prototypes were set,
+    False otherwise.
+    """
     logger.debug(f"Verifying ClamAV exports for {libfile} ...")
 
-    def _safe_define(func_name, argtypes=None, restype=None):
+    missing_required = False
+
+    def _safe_define(func_name, argtypes=None, restype=None, required=False):
+        nonlocal missing_required
         try:
             func = getattr(lib, func_name)
         except AttributeError:
-            logger.error(f"[MISSING] {func_name} not found in {libfile}")
-            return
+            if required:
+                logger.error(f"[MISSING REQUIRED] {func_name} not found in {libfile}")
+                missing_required = True
+            else:
+                logger.warning(f"[MISSING] {func_name} not found in {libfile} (optional)")
+            return False
         try:
+            # Only set argtypes/restype when supplied (some functions have no args)
             if argtypes is not None:
                 func.argtypes = argtypes
             if restype is not None:
                 func.restype = restype
             logger.debug(f"[OK] {func_name} prototype defined")
+            return True
         except Exception as e:
             logger.error(f"[FAIL] {func_name} prototype error: {e}")
+            # treat prototype errors as missing required export
+            missing_required = True
+            return False
 
-    # define prototypes
-    _safe_define('cl_init', (c_uint,), c_int)
-    _safe_define('cl_engine_new', None, cl_engine_p)
-    _safe_define('cl_engine_free', (cl_engine_p,), c_int)
-    _safe_define('cl_load', (c_char_p, cl_engine_p, POINTER(c_uint), c_uint), c_int)
-    _safe_define('cl_engine_compile', (cl_engine_p,), c_int)
-    _safe_define('cl_engine_set_num', (cl_engine_p, c_uint, c_ulong), c_int)
+    # define prototypes (mark critical functions required)
+    _safe_define('cl_init', (c_uint,), c_int, required=True)
+    _safe_define('cl_engine_new', None, cl_engine_p, required=True)
+    _safe_define('cl_engine_free', (cl_engine_p,), c_int, required=True)
+    _safe_define('cl_load', (c_char_p, cl_engine_p, POINTER(c_uint), c_uint), c_int, required=True)
+    _safe_define('cl_engine_compile', (cl_engine_p,), c_int, required=True)
+    _safe_define('cl_engine_set_num', (cl_engine_p, c_uint, c_ulong), c_int, required=False)
     _safe_define(
         'cl_scanfile',
         (c_char_p, POINTER(c_char_p), c_ulong_p, cl_engine_p, POINTER(cl_scan_options)),
-        c_int
+        c_int,
+        required=True
     )
-    _safe_define('cl_retver', None, c_char_p)
-    _safe_define('cl_strerror', (c_int,), c_char_p)
+    _safe_define('cl_retver', None, c_char_p, required=False)
+    _safe_define('cl_strerror', (c_int,), c_char_p, required=False)
+
+    if missing_required:
+        logger.error(f"Prototype verification failed for {libfile} (missing required symbols).")
+        return False
 
     logger.debug(f"Finished setting up prototypes for {libfile}")
+    return True
 
 # --- loader ---
 def load_clamav(libpath, try_add_dll_dir=True):
@@ -107,6 +128,7 @@ def load_clamav(libpath, try_add_dll_dir=True):
 
     last_err = None
     for loader_name, loader in (('CDLL', CDLL), ('WinDLL', WinDLL)):
+        lib = None
         try:
             logger.debug(f"Attempting to load {libpath} using {loader_name}")
             lib = loader(libpath)
@@ -115,7 +137,11 @@ def load_clamav(libpath, try_add_dll_dir=True):
             if not ok:
                 # prototypes failed — unload by deleting reference and try next loader
                 logger.error(f"Prototype setup failed for {libpath} using {loader_name}")
-                del lib
+                # attempt to explicitly free reference
+                try:
+                    del lib
+                except Exception:
+                    pass
                 last_err = RuntimeError("Prototype setup failure")
                 continue
 
@@ -126,6 +152,13 @@ def load_clamav(libpath, try_add_dll_dir=True):
             logger.exception(f"Failed to load {libpath} with {loader_name}: {e}")
             last_err = e
             # try next loader
+        finally:
+            # defensive cleanup if lib was created but we are not returning it
+            if lib is not None and ok is False:
+                try:
+                    del lib
+                except Exception:
+                    pass
 
     logger.error(f"Could not load libclamav (tried CDLL and WinDLL). Last error: {last_err}")
     return None
