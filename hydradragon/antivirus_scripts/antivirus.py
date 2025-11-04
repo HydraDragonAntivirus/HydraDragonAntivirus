@@ -237,6 +237,10 @@ import traceback
 logger.debug(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import functools
+logger.debug(f"functools module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pyzipper
 logger.debug(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -11617,15 +11621,60 @@ def load_yara_safe(path, display_name, is_yara_x=False):
 async def load_all_resources_async():
     """
     Start loading all resources in background WITHOUT waiting.
-    Returns immediately, resources load asynchronously.
+    Returns immediately; resources load asynchronously.
     """
-    logger.info("Starting background resource loading (non-blocking)...")
 
-    async def load_resource_safe(name, coro):
-        """Load a single resource with error handling"""
+    async def load_resource_safe(name, coro_or_factory, *, run_in_thread_for_sync=False, timeout=None):
+        """
+        coro_or_factory may be:
+         - an awaitable coroutine object (inspect.isawaitable True) -> await it
+         - an async function (coroutine function) -> call it to get awaitable and await
+         - a sync function -> either run synchronously (bad) or run in thread if run_in_thread_for_sync True
+         - None -> logged and ignored
+        """
+        if coro_or_factory is None:
+            logger.warning(f"[{name}] No loader provided (None). Skipping.")
+            return None
+
         try:
-            logger.info(f"[{name}] Loading...")
-            result = await coro
+            # If it's already an awaitable (coroutine object / Future), await it directly.
+            if inspect.isawaitable(coro_or_factory):
+                coro = coro_or_factory
+
+            # If it's a coroutine function (callable returning coroutine), call it to get the coroutine.
+            elif inspect.iscoroutinefunction(coro_or_factory):
+                coro = coro_or_factory()
+
+            # If it's callable but not async, call it; if it returns awaitable, await it; otherwise handle sync result.
+            elif callable(coro_or_factory):
+                maybe = coro_or_factory()
+                if inspect.isawaitable(maybe):
+                    coro = maybe
+                else:
+                    # a synchronous return value
+                    if run_in_thread_for_sync:
+                        # run the callable in a thread to avoid blocking the event loop
+                        coro = asyncio.to_thread(lambda: maybe)
+                    else:
+                        # Non-blocking synchronous result already returned
+                        if isinstance(maybe, Exception):
+                            logger.error(f"[{name}] Sync loader returned Exception: {maybe}")
+                            return None
+                        logger.info(f"[{name}] Loaded synchronously (no await needed)")
+                        return maybe
+            else:
+                logger.error(f"[{name}] Provided loader is not awaitable nor callable: {type(coro_or_factory)}")
+                return None
+
+            # At this point 'coro' should be an awaitable/coroutine object
+            if coro is None:
+                logger.warning(f"[{name}] Loader produced None; skipping.")
+                return None
+
+            if timeout:
+                result = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                result = await coro
 
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed: {result}")
@@ -11637,23 +11686,21 @@ async def load_all_resources_async():
                 logger.info(f"[{name}] Loaded successfully")
                 return result
 
+        except asyncio.TimeoutError:
+            logger.error(f"[{name}] Timeout after {timeout} seconds")
+            return None
         except Exception as e:
-            logger.error(f"[{name}] Exception: {e}")
+            logger.exception(f"[{name}] Exception while loading: {e}")
             return None
 
+    # Example loader wrappers (adapt to your actual loader names/paths)
     async def load_suricata():
-        # schedule the async coroutine directly (non-blocking)
-        return await load_resource_safe(
-            "Suricata",
-            suricata_callback(),  # do NOT wrap in to_thread
-        )
+        # pass the callable (not the result). If suricata_callback is an async function,
+        # pass the function object and let load_resource_safe call it.
+        return await load_resource_safe("Suricata", suricata_callback, run_in_thread_for_sync=False, timeout=30)
 
     async def load_website():
-        result = await load_resource_safe(
-            "Website Data",
-            load_website_data_async(),
-        )
-        return result
+        return await load_resource_safe("Website Data", load_website_data_async, timeout=20)
 
     async def load_antivirus_list():
         global antivirus_domains_data
@@ -11663,69 +11710,62 @@ async def load_all_resources_async():
                 antivirus_domains_data = lines.splitlines()
             logger.info("Antivirus List loaded successfully!")
         except Exception as ex:
-            logger.error(f"Error loading Antivirus List: {ex}")
+            logger.exception(f"Error loading Antivirus List: {ex}")
 
     async def load_yargen():
         global yarGen_rules
-        yarGen_rules = await load_resource_safe(
-            "yarGen Rules",
-            load_yara_safe(yarGen_rule_path, "yarGen Rules", False),
-        )
+        yarGen_rules = await load_resource_safe("yarGen Rules",
+                                                functools.partial(load_yara_safe, yarGen_rule_path, "yarGen Rules", False),
+                                                timeout=30)
 
     async def load_icewater():
         global icewater_rules
-        icewater_rules = await load_resource_safe(
-            "Icewater Rules",
-            load_yara_safe(icewater_rule_path, "Icewater Rules", False),
-        )
+        icewater_rules = await load_resource_safe("Icewater Rules",
+                                                  functools.partial(load_yara_safe, icewater_rule_path, "Icewater Rules", False),
+                                                  timeout=30)
 
     async def load_valhalla():
         global valhalla_rules
-        valhalla_rules = await load_resource_safe(
-            "Valhalla Rules",
-            load_yara_safe(valhalla_rule_path, "Valhalla Rules", False),
-        )
+        valhalla_rules = await load_resource_safe("Valhalla Rules",
+                                                  functools.partial(load_yara_safe, valhalla_rule_path, "Valhalla Rules", False),
+                                                  timeout=30)
 
     async def load_clean():
         global clean_rules
-        clean_rules = await load_resource_safe(
-            "Clean Rules",
-            load_yara_safe(clean_rules_path, "(clean) YARA Rules", False),
-        )
+        clean_rules = await load_resource_safe("Clean Rules",
+                                               functools.partial(load_yara_safe, clean_rules_path, "(clean) YARA Rules", False),
+                                               timeout=30)
 
     async def load_yaraxtr():
         global yaraxtr_rules
-        yaraxtr_rules = await load_resource_safe(
-            "YARA-X Rules",
-            load_yara_safe(yaraxtr_yrc_path, "YARA-X Rules", True),
-        )
+        yaraxtr_rules = await load_resource_safe("YARA-X Rules",
+                                                 functools.partial(load_yara_safe, yaraxtr_yrc_path, "YARA-X Rules", True),
+                                                 timeout=40)
 
     async def load_clamav():
         global clamav_scanner
-        # leave this exactly as-is
+        # let clamav.Scanner.create_async(...) return its coroutine
         clamav_scanner = await load_resource_safe(
             "ClamAV Scanner",
-            clamav.Scanner.create_async(
-                libclamav_path=libclamav_path,
-                dbpath=clamav_database_directory_path,
-            ),
+            clamav.Scanner.create_async(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path),
+            timeout=45,
         )
 
     async def load_ml():
         global ml_definitions
+        # load_ml_definitions_pickle is sync, so run in a thread
         ml_definitions = await load_resource_safe(
             "ML Definitions",
-            asyncio.to_thread(load_ml_definitions_pickle, machine_learning_pickle_path),
+            functools.partial(load_ml_definitions_pickle, machine_learning_pickle_path),
+            run_in_thread_for_sync=True,
+            timeout=30,
         )
 
     async def load_excluded():
         global excluded_rules
-        excluded_rules = await load_resource_safe(
-            "Excluded Rules",
-            load_excluded_rules_async(),
-        )
+        excluded_rules = await load_resource_safe("Excluded Rules", load_excluded_rules_async, timeout=20)
 
-    # Fire and forget all tasks
+    # Fire and forget all tasks (pass coroutine objects to create_task)
     asyncio.create_task(load_suricata(), name="load_suricata")
     asyncio.create_task(load_website(), name="load_website")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
