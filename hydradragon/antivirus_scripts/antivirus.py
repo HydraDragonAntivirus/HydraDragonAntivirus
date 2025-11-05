@@ -5470,41 +5470,40 @@ def clean_text(input_text):
 
 def split_source_by_u_delimiter(source_code, base_name="initial_code"):
     """
-    Reconstructs source code using 'u'-delimiter splitting.
-
-    Features:
-    - Preserves protected fragments (URLs, IPs, Discord/Telegram/webhooks)
-    - Splits content on 'u', merging tokens safely
-    - Groups into modules by <module ...> markers
-  y  - Saves reconstructed modules
-    - Creates separate file with extracted links/webhooks/tokens
+    Stage 2 reconstruction of Nuitka-decompiled Python code.
+    Parses the source for unicode ('u') strings, preserved URLs/tokens/IPs, and reconstructs modules.
+    Compatible with modern 'pattern.py' that returns (patterns_list, find_ips).
     """
-    logger.info("Reconstructing nuitka source code...")
+    logger.info("Reconstructing Nuitka source code (Stage 2)...")
 
-    # Build regex patterns for URLs and IPs
+    # --- Build URL/IP regex sets ---
     url_regex = build_url_regex()
-    ip_patterns = build_ip_patterns()
+    ip_patterns, find_ips = build_ip_patterns()
 
     preserve_patterns = [
-        discord_webhook_pattern,
-        discord_attachment_pattern,
-        discord_canary_webhook_pattern,
-        cdn_attachment_pattern,
-        telegram_token_pattern,
-        telegram_keyword_pattern,
-        UBLOCK_REGEX,
-        ZIP_JOIN,
-        CHAINED_JOIN,
-        B64_LITERAL,
+        discord_webhook_pattern, discord_attachment_pattern, discord_canary_webhook_pattern,
+        cdn_attachment_pattern, telegram_token_pattern, telegram_keyword_pattern,
+        UBLOCK_REGEX, ZIP_JOIN, CHAINED_JOIN, B64_LITERAL,
     ]
 
+    # Extract compiled regex objects for join
+    ip_pattern_list = []
+    for p in ip_patterns:
+        if isinstance(p, (list, tuple)) and len(p) >= 1:
+            ip_pattern_list.append(p[0])
+        elif hasattr(p, "pattern"):  # already compiled regex
+            ip_pattern_list.append(p)
+
     combined_preserve = re.compile(
-        '|'.join([p if isinstance(p, str) else p.pattern for p in preserve_patterns] +
-                 [url_regex.pattern] +
-                 [p[0] for p in ip_patterns])
+        '|'.join(
+            [p if isinstance(p, str) else p.pattern for p in preserve_patterns]
+            + [url_regex.pattern]
+            + [r.pattern for r in ip_pattern_list]
+        ),
+        re.IGNORECASE
     )
 
-    # --- STEP 1: Tokenize and extract protected links ---
+    # --- Stage 2 token merge ---
     tokens = []
     extracted_links = []
 
@@ -5515,26 +5514,22 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
             if 'u' in unprotected:
                 parts = re.split(r'(u)', unprotected)
                 tokens.extend([p for p in parts if p])
-            else:
-                if unprotected:
-                    tokens.append(unprotected)
+            elif unprotected:
+                tokens.append(unprotected)
 
-            # Add preserved/protected content
             protected_content = m.group(0)
             tokens.append(protected_content)
             extracted_links.append(protected_content)
-
             start = m.end()
 
         tail = line[start:]
         if 'u' in tail:
             parts = re.split(r'(u)', tail)
             tokens.extend([p for p in parts if p])
-        else:
-            if tail:
-                tokens.append(tail)
+        elif tail:
+            tokens.append(tail)
 
-    # --- STEP 2: Merge 'u' tokens safely ---
+    # --- Merge consecutive 'u' tokens ---
     merged_tokens = []
     i, n = 0, len(tokens)
     while i < n:
@@ -5542,7 +5537,6 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
         if t == 'u':
             if i + 1 < n:
                 next_token = tokens[i + 1]
-                # Merge only if next token is likely valid code/URL
                 if next_token.startswith(('"', "'", 'http')):
                     merged_tokens.append('u' + next_token)
                     i += 2
@@ -5556,26 +5550,36 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
             merged_tokens.append(t)
             i += 1
 
+    final_code_content = "\n".join(merged_tokens)
+    self.display_analysis_code(final_code_content)
+
     final_lines = [t.strip() for t in merged_tokens if t.strip()]
 
-    # --- STEP 3: Save extracted links to separate file ---
+    # --- Save extracted links and findings ---
     def save_links_file(links, base_filename):
         if not links:
             logger.info("No links/webhooks/tokens found to save.")
             return
 
         links_filename = f"{base_filename}_extracted_links.txt"
-        links_path = os.path.join(nuitka_source_code_dir, links_filename)
+        links_path = os.path.join(self.stage2_dir, links_filename)
 
         obfuscated_results = []
         try:
-            obfuscated_results = detect_obfuscated_urls(source_code)
+            obfuscated_results = self.detect_obfuscated_urls(source_code)
         except Exception as e:
-            logger.warning(f"Error detecting obfuscated URLs: {e}")
+            logger.error(f"Error detecting obfuscated URLs: {e}", "warning")
+
+        # --- NEW: find plain + obfuscated IPs using find_ips ---
+        ip_results = []
+        try:
+            ip_results = find_ips(source_code)
+        except Exception as e:
+            logger.error(f"Error detecting IPs via pattern.py: {e}", "warning")
 
         try:
             with open(links_path, "w", encoding="utf-8") as f:
-                total_items = len(links) + len(obfuscated_results)
+                total_items = len(links) + len(obfuscated_results) + len(ip_results)
                 f.write(f"# Extracted Links/Webhooks/Tokens ({total_items} items)\n")
                 f.write(f"# From: {base_filename}\n\n")
 
@@ -5597,7 +5601,14 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                 for r in obfuscated_results:
                     obfuscated_urls.append(f"{r['original']} -> {r['decoded']} ({r['type']})")
 
-                # Write categorized content
+                if ip_results:
+                    for entry in ip_results:
+                        val = entry.get("value")
+                        src = entry.get("source")
+                        typ = entry.get("type")
+                        if val:
+                            ips.append(f"{val} ({typ}/{src})")
+
                 if discord_webhooks:
                     f.write("## Discord Webhooks\n" + "\n".join(discord_webhooks) + "\n\n")
                 if telegram_tokens:
@@ -5611,15 +5622,13 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
                 if other_content:
                     f.write("## Other Protected Content\n" + "\n".join(other_content) + "\n\n")
 
-            logger.info(f"Links file saved: {links_path} ({total_items} items)")
-            scan_code_for_links(source_code, links_path, nuitka_flag=True)
-
+            logger.info(f"Links file saved: {links_path} ({total_items} items)", "success")
         except IOError as e:
-            logger.error(f"Failed to write links file {links_path}: {e}")
+            logger.error(f"Failed to write links file {links_path}: {e}", "error")
 
     save_links_file(extracted_links, base_name)
 
-    # --- STEP 4: Group lines into modules ---
+    # --- Split reconstructed modules ---
     module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
     current_module_name, current_module_code, modules = base_name, [], []
 
@@ -5627,13 +5636,13 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code"):
         if not code_lines:
             return
         safe_filename = name.replace('.', '_') + ".py"
-        output_path = os.path.join(nuitka_source_code_dir, safe_filename)
+        output_path = os.path.join(self.stage2_dir, safe_filename)
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(code_lines))
             logger.info(f"Module saved: {output_path}")
         except IOError as e:
-            logger.error(f"Failed to write module file {output_path}: {e}")
+            logger.error(f"Failed to write module file {output_path}: {e}", "error")
 
     for line in final_lines:
         match = module_start_pattern.match(line)
