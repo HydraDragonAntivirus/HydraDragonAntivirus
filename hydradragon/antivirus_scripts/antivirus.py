@@ -1725,10 +1725,7 @@ def scan_html_content(html_content, html_content_file_path, **flags):
         logger.error(f"Error scanning URLs in HTML: {e}")
 
     # --- 3. Extract and scan IP addresses ---
-    ip_patterns = [
-        (r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}', 'IPv4'),
-        (r'(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', 'IPv6'),
-    ]
+    ip_patterns = build_ip_patterns()
 
     for pattern, ip_type in ip_patterns:
         try:
