@@ -171,7 +171,7 @@ def build_url_regex():
         r'//:[a-z]{4}ptth',
         r'//:[a-z]{3}ptf',
 
-        # Base32 obfuscations — DECODED USING _dec32 (escaped for safe regex insertion)
+        # Base32 obfuscations - DECODED USING _dec32 (escaped for safe regex insertion)
         re.escape(_dec32("NBXXK4TFMFZGKIDCNFZGKIDDOJSWCZ3P")) + r'[A-Z2-7]*={0,6}',
         re.escape(_dec32("NBXXK4TFMFZGKIDCMJUWC2LP")) + r'[A-Z2-7]*={0,6}',
         re.escape(_dec32("MZXW6IDCMFZWK4Q=")) + r'[A-Z2-7]*={0,6}',
