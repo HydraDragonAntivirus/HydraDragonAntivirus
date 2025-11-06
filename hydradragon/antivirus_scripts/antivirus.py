@@ -5472,14 +5472,12 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
     """
     Stage 2 reconstruction of Nuitka-decompiled Python code.
     Parses the source for unicode ('u') strings, preserved URLs/tokens/IPs, and reconstructs modules.
-    Compatible with modern 'pattern.py' that returns (patterns_list, find_ips).
     """
     if file_path:
         logger.info(f"Reconstructing Nuitka source code (Stage 2) for file: {file_path}")
     else:
         logger.info("Reconstructing Nuitka source code (Stage 2)...")
 
-    # --- Build URL/IP regex sets ---
     url_regex = build_url_regex()
     ip_patterns, find_ips = build_ip_patterns()
 
@@ -5489,12 +5487,11 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
         UBLOCK_REGEX, ZIP_JOIN, CHAINED_JOIN, B64_LITERAL,
     ]
 
-    # Extract compiled regex objects for join
     ip_pattern_list = []
     for p in ip_patterns:
         if isinstance(p, (list, tuple)) and len(p) >= 1:
             ip_pattern_list.append(p[0])
-        elif hasattr(p, "pattern"):  # already compiled regex
+        elif hasattr(p, "pattern"):
             ip_pattern_list.append(p)
 
     combined_preserve = re.compile(
@@ -5511,12 +5508,13 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
         re.MULTILINE
     )
 
+    imports_top = []   # <--- store imports separately
     tokens = []
     extracted_links = []
 
     for line in source_code.splitlines():
         if import_pattern.match(line):
-            tokens.append(line)
+            imports_top.append(line.strip())
             continue
 
         start = 0
@@ -5544,10 +5542,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
     i, n = 0, len(tokens)
     while i < n:
         t = tokens[i]
-        if import_pattern.match(t):
-            merged_tokens.append(t)
-            i += 1
-        elif t == 'u':
+        if t == 'u':
             if i + 1 < n:
                 next_token = tokens[i + 1]
                 if next_token.startswith(('"', "'", 'http')):
@@ -5563,8 +5558,16 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
             merged_tokens.append(t)
             i += 1
 
-    final_code_content = "\n".join(merged_tokens)
-    final_lines = [t.strip() for t in merged_tokens if t.strip()]
+    # Place imports at the top
+    final_lines = []
+    if imports_top:
+        final_lines.append("# --- Auto-collected imports ---")
+        final_lines.extend(sorted(set(imports_top)))  # deduplicate + sorted for neatness
+        final_lines.append("\n")
+
+    final_lines.extend(t.strip() for t in merged_tokens if t.strip())
+
+    final_code_content = "\n".join(final_lines)
 
     # --- Save reconstructed code ---
     full_path = None
@@ -5579,7 +5582,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
 
         logger.info(f"Stage 2 reconstruction saved: {full_path}")
 
-    # --- Automatically trigger link scanning ---
+    # --- Auto link scanning ---
     try:
         if 'scan_code_for_links' in globals():
             logger.info("Running post-reconstruction link scan (nuitka_flag=True)...")
