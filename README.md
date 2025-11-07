@@ -299,7 +299,7 @@ This document describes the output directories used by the HydraDragon analysis 
 * `vmprotect_unpacked/` — VMProtect unpacked directories.
 * `python_deobfuscated/` — Deobfuscated Python sources.
 * `python_deobfuscated_marshal_pyc/` — Deobfuscated .pyc from marshal blobs.
-* `pycdas_extracted/` — pycdas / Decompyle++ extracted Python sources.
+* `pycdas_extracted/` — pycdas / Decompyle++ extracted Python sources. ( 21-Oct-2025)
 * `python_source_code/` — Extracted and organized Python project sources.
 * `nuitka_source_code/` — Nuitka reversed-engineered source tree.
 * `html_extracted/` — HTML and web page resources captured during analysis.
