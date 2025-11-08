@@ -109,7 +109,8 @@ def _setup_lib_prototypes(lib, libfile):
 # --- loader ---
 def load_clamav(libpath, try_add_dll_dir=True):
     """
-    Robust loader: add DLL dir, try CDLL then WinDLL, set prototypes safely.
+    Robust loader: changes CWD, adds DLL dir, tries CDLL then WinDLL,
+    sets prototypes safely, and restores CWD.
     Returns the loaded lib object or None on failure.
     """
     if not libpath or not os.path.exists(libpath):
@@ -117,51 +118,58 @@ def load_clamav(libpath, try_add_dll_dir=True):
         return None
 
     dll_dir = os.path.dirname(os.path.abspath(libpath))
+    original_cwd = os.getcwd()  # --- Store the original working directory ---
 
-    # add DLL directory so dependencies resolve
-    if try_add_dll_dir:
-        try:
-            logger.debug(f"Adding DLL directory: {dll_dir}")
-            os.add_dll_directory(dll_dir)
-        except Exception as e:
-            logger.warning(f"os.add_dll_directory failed: {e}")
+    try:
+        # --- CRITICAL: Temporarily change the CWD to the DLL's directory ---
+        logger.debug(f"Temporarily changing CWD to: {dll_dir}")
+        os.chdir(dll_dir)
 
-    last_err = None
-    for loader_name, loader in (('CDLL', CDLL), ('WinDLL', WinDLL)):
-        lib = None
-        try:
-            logger.debug(f"Attempting to load {libpath} using {loader_name}")
-            lib = loader(libpath)
-            logger.debug(f"{loader_name} loaded OK - verifying prototypes")
-            ok = _setup_lib_prototypes(lib, libpath)
-            if not ok:
-                # prototypes failed - unload by deleting reference and try next loader
-                logger.error(f"Prototype setup failed for {libpath} using {loader_name}")
-                # attempt to explicitly free reference
-                try:
-                    del lib
-                except Exception:
-                    pass
-                last_err = RuntimeError("Prototype setup failure")
-                continue
+        # add DLL directory so dependencies resolve (still good practice)
+        if try_add_dll_dir:
+            try:
+                logger.debug(f"Adding DLL directory: {dll_dir}")
+                os.add_dll_directory(dll_dir)
+            except Exception as e:
+                logger.warning(f"os.add_dll_directory failed: {e}")
 
-            logger.info(f"Loaded libclamav ({loader_name}): {libpath}")
-            return lib
+        last_err = None
+        for loader_name, loader in (('CDLL', CDLL), ('WinDLL', WinDLL)):
+            lib = None
+            try:
+                logger.debug(f"Attempting to load {libpath} using {loader_name}")
+                lib = loader(libpath)
+                logger.debug(f"{loader_name} loaded OK - verifying prototypes")
+                ok = _setup_lib_prototypes(lib, libpath)
+                if not ok:
+                    logger.error(f"Prototype setup failed for {libpath} using {loader_name}")
+                    try:
+                        del lib
+                    except Exception:
+                        pass
+                    last_err = RuntimeError("Prototype setup failure")
+                    continue
 
-        except Exception as e:
-            logger.exception(f"Failed to load {libpath} with {loader_name}: {e}")
-            last_err = e
-            # try next loader
-        finally:
-            # defensive cleanup if lib was created but we are not returning it
-            if lib is not None and ok is False:
-                try:
-                    del lib
-                except Exception:
-                    pass
+                logger.info(f"Loaded libclamav ({loader_name}): {libpath}")
+                return lib
 
-    logger.error(f"Could not load libclamav (tried CDLL and WinDLL). Last error: {last_err}")
-    return None
+            except Exception as e:
+                logger.exception(f"Failed to load {libpath} with {loader_name}: {e}")
+                last_err = e
+            finally:
+                if lib is not None and ok is False:
+                    try:
+                        del lib
+                    except Exception:
+                        pass
+
+        logger.error(f"Could not load libclamav (tried CDLL and WinDLL). Last error: {last_err}")
+        return None
+
+    finally:
+        # --- ESSENTIAL: Restore the original working directory ---
+        logger.debug(f"Restoring original CWD to: {original_cwd}")
+        os.chdir(original_cwd)
 
 # --- Scanner class with ASYNC initialization ---
 class Scanner:
