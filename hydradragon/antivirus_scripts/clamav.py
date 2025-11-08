@@ -135,7 +135,7 @@ def load_clamav(libpath, try_add_dll_dir=True):
             logger.debug(f"{loader_name} loaded OK - verifying prototypes")
             ok = _setup_lib_prototypes(lib, libpath)
             if not ok:
-                # prototypes failed — unload by deleting reference and try next loader
+                # prototypes failed - unload by deleting reference and try next loader
                 logger.error(f"Prototype setup failed for {libpath} using {loader_name}")
                 # attempt to explicitly free reference
                 try:
@@ -270,6 +270,59 @@ class Scanner:
         except asyncio.CancelledError:
             pass
 
+    def _load_library_only(self, libclamav_path):
+        """Step 1: Load the DLL only"""
+        try:
+            if not os.path.exists(libclamav_path):
+                self._init_error = f"Library path does not exist: {libclamav_path}"
+                return False
+
+            self.libclamav = load_clamav(libclamav_path)
+            if not self.libclamav:
+                self._init_error = "Failed to load libclamav DLL"
+                return False
+            
+            return True
+        except Exception as e:
+            self._init_error = f"Library load exception: {e}"
+            return False
+
+    def _init_clamav_only(self):
+        """Step 2: Initialize ClamAV only"""
+        try:
+            res = self.libclamav.cl_init(0)
+            if res != CL_SUCCESS:
+                self._init_error = f"cl_init failed with code {res}"
+                return False
+            return True
+        except Exception as e:
+            self._init_error = f"cl_init exception: {e}"
+            return False
+
+    def _load_db_only(self, dbpath):
+        """Step 3: Load database only"""
+        try:
+            # Resolve DB path
+            if not os.path.isabs(dbpath):
+                dll_dir = os.path.dirname(os.path.abspath(self.libclamav_path))
+                dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
+
+            if not os.path.isdir(dbpath):
+                self._init_error = f"Database path invalid: {dbpath}"
+                return False
+
+            self.dbpath = dbpath
+            
+            # This is the slow part - but we're already in a thread
+            if not self.loadDB():
+                self._init_error = "Failed to load database"
+                return False
+            
+            return True
+        except Exception as e:
+            self._init_error = f"DB load exception: {e}"
+            return False
+
     async def _init_async_task(self, libclamav_path, dbpath):
         """Internal task to run blocking init in a thread and set ready event."""
         try:
@@ -277,25 +330,62 @@ class Scanner:
             self._init_stage = "Loading library"
 
             # Run the synchronous init method in a thread without timeout
-            # Using a dedicated thread instead of thread pool to avoid blocking other tasks
+            # Split into smaller chunks to prevent slow callback warnings
             loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(
-                None,  # Uses default ThreadPoolExecutor
-                self._init_sync,
-                libclamav_path,
+            
+            # Step 1: Load library (quick)
+            self._init_stage = "Loading DLL"
+            success_step1 = await loop.run_in_executor(
+                None,
+                self._load_library_only,
+                libclamav_path
+            )
+            
+            if not success_step1:
+                logger.error("ClamAV library loading failed (background)")
+                self._init_success = False
+                self._init_error = "Library loading failed"
+                self._init_stage = "Failed at library load"
+                return
+            
+            # Small yield to event loop
+            await asyncio.sleep(0.01)
+            
+            # Step 2: Initialize ClamAV (quick)
+            self._init_stage = "Initializing ClamAV"
+            success_step2 = await loop.run_in_executor(
+                None,
+                self._init_clamav_only
+            )
+            
+            if not success_step2:
+                logger.error("ClamAV initialization failed (background)")
+                self._init_success = False
+                self._init_error = "ClamAV init failed"
+                self._init_stage = "Failed at cl_init"
+                return
+            
+            # Small yield to event loop
+            await asyncio.sleep(0.01)
+            
+            # Step 3: Load database (SLOW - but chunked)
+            self._init_stage = "Loading signatures"
+            success_step3 = await loop.run_in_executor(
+                None,
+                self._load_db_only,
                 dbpath
             )
 
-            if success:
+            if success_step3:
                 logger.info("ClamAV scanner initialized successfully (background)")
                 self._init_success = True
                 self._is_ready = True
                 self._init_stage = "Complete"
             else:
-                logger.error("ClamAV initialization failed (background)")
+                logger.error("ClamAV database loading failed (background)")
                 self._init_success = False
-                self._init_error = "Initialization returned False"
-                self._init_stage = "Failed"
+                self._init_error = "Database loading failed"
+                self._init_stage = "Failed at database load"
 
         except Exception as e:
             logger.error(f"ClamAV async initialization error (background): {e}")
