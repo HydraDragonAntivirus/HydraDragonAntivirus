@@ -285,6 +285,12 @@ class Scanner:
                 self._init_error = f"Library path does not exist: {libclamav_path}"
                 return False
 
+            dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
+            
+            # Change CWD to DLL directory and keep it for subsequent steps
+            logger.debug(f"Changing CWD to: {dll_dir}")
+            os.chdir(dll_dir)
+
             self.libclamav = load_clamav(libclamav_path)
             if not self.libclamav:
                 self._init_error = "Failed to load libclamav DLL"
@@ -296,7 +302,7 @@ class Scanner:
             return False
 
     def _init_clamav_only(self):
-        """Step 2: Initialize ClamAV only"""
+        """Step 2: Initialize ClamAV only (CWD already set by _load_library_only)"""
         try:
             res = self.libclamav.cl_init(0)
             if res != CL_SUCCESS:
@@ -308,11 +314,12 @@ class Scanner:
             return False
 
     def _load_db_only(self, dbpath):
-        """Step 3: Load database only"""
+        """Step 3: Load database only (CWD already set by _load_library_only)"""
         try:
+            dll_dir = os.path.dirname(os.path.abspath(self.libclamav_path))
+            
             # Resolve DB path
             if not os.path.isabs(dbpath):
-                dll_dir = os.path.dirname(os.path.abspath(self.libclamav_path))
                 dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
 
             if not os.path.isdir(dbpath):
@@ -333,15 +340,15 @@ class Scanner:
 
     async def _init_async_task(self, libclamav_path, dbpath):
         """Internal task to run blocking init in a thread and set ready event."""
+        original_cwd = os.getcwd()
+        
         try:
             logger.debug("Running background initialization (no timeout)...")
             self._init_stage = "Loading library"
 
-            # Run the synchronous init method in a thread without timeout
-            # Split into smaller chunks to prevent slow callback warnings
             loop = asyncio.get_event_loop()
             
-            # Step 1: Load library (quick)
+            # Step 1: Load library (changes CWD to DLL directory)
             self._init_stage = "Loading DLL"
             success_step1 = await loop.run_in_executor(
                 None,
@@ -352,14 +359,14 @@ class Scanner:
             if not success_step1:
                 logger.error("ClamAV library loading failed (background)")
                 self._init_success = False
-                self._init_error = "Library loading failed"
+                self._init_error = self._init_error or "Library loading failed"
                 self._init_stage = "Failed at library load"
                 return
             
             # Small yield to event loop
             await asyncio.sleep(0.01)
             
-            # Step 2: Initialize ClamAV (quick)
+            # Step 2: Initialize ClamAV (CWD already correct from step 1)
             self._init_stage = "Initializing ClamAV"
             success_step2 = await loop.run_in_executor(
                 None,
@@ -369,14 +376,14 @@ class Scanner:
             if not success_step2:
                 logger.error("ClamAV initialization failed (background)")
                 self._init_success = False
-                self._init_error = "ClamAV init failed"
+                self._init_error = self._init_error or "ClamAV init failed"
                 self._init_stage = "Failed at cl_init"
                 return
             
             # Small yield to event loop
             await asyncio.sleep(0.01)
             
-            # Step 3: Load database (SLOW - but chunked)
+            # Step 3: Load database (CWD still correct from step 1)
             self._init_stage = "Loading signatures"
             success_step3 = await loop.run_in_executor(
                 None,
@@ -392,7 +399,7 @@ class Scanner:
             else:
                 logger.error("ClamAV database loading failed (background)")
                 self._init_success = False
-                self._init_error = "Database loading failed"
+                self._init_error = self._init_error or "Database loading failed"
                 self._init_stage = "Failed at database load"
 
         except Exception as e:
@@ -401,6 +408,10 @@ class Scanner:
             self._init_error = str(e)
             self._init_stage = f"Error: {e}"
         finally:
+            # CRITICAL: Restore original CWD after ALL initialization is done
+            os.chdir(original_cwd)
+            logger.debug(f"Restored CWD to {original_cwd}")
+            
             # Signal that initialization (or attempt) is complete
             self._init_in_progress = False
             self.ready_event.set()
@@ -413,6 +424,8 @@ class Scanner:
 
     # --- _init_sync safety ---
     def _init_sync(self, libclamav_path, dbpath):
+        original_cwd = os.getcwd()
+        
         try:
             self._init_stage = "Checking library path"
             if not os.path.exists(libclamav_path):
@@ -420,6 +433,12 @@ class Scanner:
                 self._init_error = f"Library path does not exist: {libclamav_path}"
                 self.ready_event.set()
                 return False
+
+            dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
+            
+            # Change CWD to DLL directory for entire sync init
+            logger.debug(f"Changing CWD to {dll_dir} for sync initialization")
+            os.chdir(dll_dir)
 
             self.libclamav = load_clamav(libclamav_path)
             if not self.libclamav:
@@ -437,7 +456,6 @@ class Scanner:
 
             # Resolve DB path
             if not os.path.isabs(dbpath):
-                dll_dir = os.path.dirname(os.path.abspath(libclamav_path))
                 dbpath = os.path.normpath(os.path.join(dll_dir, dbpath))
 
             if not os.path.isdir(dbpath):
@@ -463,6 +481,10 @@ class Scanner:
             self._init_error = str(e)
             self.ready_event.set()
             return False
+        finally:
+            # Restore original CWD
+            os.chdir(original_cwd)
+            logger.debug(f"Restored CWD to {original_cwd}")
 
     @staticmethod
     def def_engine_options():
