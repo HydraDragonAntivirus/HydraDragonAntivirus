@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ServiceProcess;
 
 namespace HydraDragonAntivirusLauncher
 {
@@ -12,6 +13,9 @@ namespace HydraDragonAntivirusLauncher
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
         private readonly int _maxBackoffMs = 30000;
+
+        // Service monitoring interval
+        private readonly int _serviceCheckIntervalMs = 30000; // Check every 30 seconds
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -39,6 +43,11 @@ namespace HydraDragonAntivirusLauncher
             {
                 _logger.LogWarning(ex, "Failed during sanctum initialization sequence.");
             }
+
+            // --------------------------------------------------
+            // Start background service monitoring task
+            // --------------------------------------------------
+            var serviceMonitorTask = Task.Run(async () => await MonitorServicesAsync(stoppingToken), stoppingToken);
 
             // --------------------------------------------------
             // HydraDragon supervision loop
@@ -105,6 +114,104 @@ namespace HydraDragonAntivirusLauncher
             }
 
             _logger.LogInformation("Worker stopping at: {time}", DateTimeOffset.Now);
+        }
+
+        // ------------------------------------------------------------
+        // Service monitoring task
+        // ------------------------------------------------------------
+        private async Task MonitorServicesAsync(CancellationToken ct)
+        {
+            _logger.LogInformation("Service monitoring task started.");
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(_serviceCheckIntervalMs, ct);
+
+                    // Check OwlyShield Service
+                    await CheckAndRestartServiceAsync("OwlyShield Service", ct);
+
+                    // Check sanctum_ppl_runner
+                    await CheckAndRestartServiceAsync("sanctum_ppl_runner", ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in service monitoring task.");
+                    await Task.Delay(5000, ct); // Wait before retrying
+                }
+            }
+
+            _logger.LogInformation("Service monitoring task stopped.");
+        }
+
+        private async Task CheckAndRestartServiceAsync(string serviceName, CancellationToken ct)
+        {
+            try
+            {
+                using var service = new ServiceController(serviceName);
+
+                // Refresh to get current status
+                service.Refresh();
+
+                if (service.Status != ServiceControllerStatus.Running)
+                {
+                    _logger.LogWarning("Service '{service}' is not running (Status: {status}). Attempting to start...",
+                        serviceName, service.Status);
+
+                    // Try to start the service
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "sc",
+                            Arguments = $"start \"{serviceName}\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            StandardOutputEncoding = System.Text.Encoding.UTF8,
+                            StandardErrorEncoding = System.Text.Encoding.UTF8
+                        };
+
+                        var proc = Process.Start(psi);
+                        await Task.Delay(2000, ct); // Wait for service to start
+
+                        // Check if it started successfully
+                        service.Refresh();
+                        if (service.Status == ServiceControllerStatus.Running)
+                        {
+                            _logger.LogInformation("Successfully restarted service '{service}'.", serviceName);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Service '{service}' status after restart attempt: {status}",
+                                serviceName, service.Status);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to restart service '{service}'.", serviceName);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("Service '{service}' is running normally.", serviceName);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Service doesn't exist
+                _logger.LogDebug("Service '{service}' not found on system.", serviceName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking service '{service}' status.", serviceName);
+            }
         }
 
         // ------------------------------------------------------------
