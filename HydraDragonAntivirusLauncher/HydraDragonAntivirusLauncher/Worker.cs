@@ -174,6 +174,29 @@ namespace HydraDragonAntivirusLauncher
                 _logger.LogWarning(ex, "Failed to start sanctum_ppl_runner via 'sc start'.");
             }
 
+            // 2b) OwlyShield Service: attempt service start
+            try
+            {
+                _logger.LogInformation("Starting OwlyShield Service...");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "sc",
+                    Arguments = "start \"OwlyShield Service\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                };
+                Process.Start(psi);
+                await Task.Delay(1500, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start OwlyShield Service via 'sc start'.");
+            }
+
             // 3) um_engine.exe
             await RunExeAsync(umPath);
 
