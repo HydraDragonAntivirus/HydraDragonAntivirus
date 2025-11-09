@@ -7,8 +7,10 @@ import asyncio
 import psutil
 import time
 import traceback
+import threading
 import concurrent.futures
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 # Ensure the script's directory is the working directory
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,12 +66,153 @@ def handle_task_exception(loop, context):
     # This prevents one failed task from crashing the entire application
 
 
-# 2. Bounded Thread Pool (prevents thread exhaustion)
-_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(
+# ==============================================================================
+# Thread Pool Monitoring System
+# ==============================================================================
+
+class ThreadPoolMonitor:
+    """
+    Monitors thread pool operations to detect hung/deadlocked threads.
+    Tracks when threads enter/exit blocking operations.
+    """
+    
+    def __init__(self):
+        self.active_operations = {}  # thread_id -> (operation_name, start_time)
+        self.lock = threading.Lock()
+        self.operation_timeouts = defaultdict(lambda: 300)  # 5 minute default
+        logger.info("[THREAD-MONITOR] Initialized")
+    
+    def set_timeout(self, operation_name: str, timeout_seconds: int):
+        """Set custom timeout for specific operation types"""
+        self.operation_timeouts[operation_name] = timeout_seconds
+        logger.debug(f"[THREAD-MONITOR] Set timeout for {operation_name}: {timeout_seconds}s")
+    
+    def enter_operation(self, operation_name: str):
+        """Call this when entering a blocking operation"""
+        thread_id = threading.get_ident()
+        with self.lock:
+            self.active_operations[thread_id] = (operation_name, time.time())
+            logger.debug(f"[THREAD-MONITOR] Thread {thread_id} entered: {operation_name}")
+    
+    def exit_operation(self):
+        """Call this when exiting a blocking operation"""
+        thread_id = threading.get_ident()
+        with self.lock:
+            if thread_id in self.active_operations:
+                operation_name, start_time = self.active_operations.pop(thread_id)
+                duration = time.time() - start_time
+                if duration > 10:  # Log operations taking more than 10 seconds
+                    logger.info(f"[THREAD-MONITOR] Thread {thread_id} completed: {operation_name} (took {duration:.2f}s)")
+                else:
+                    logger.debug(f"[THREAD-MONITOR] Thread {thread_id} completed: {operation_name} (took {duration:.2f}s)")
+    
+    def check_hung_threads(self) -> list:
+        """
+        Check for threads that have been in operations too long.
+        Returns list of (thread_id, operation_name, duration) tuples.
+        """
+        hung_threads = []
+        current_time = time.time()
+        
+        with self.lock:
+            for thread_id, (operation_name, start_time) in self.active_operations.items():
+                duration = current_time - start_time
+                timeout = self.operation_timeouts[operation_name]
+                
+                if duration > timeout:
+                    hung_threads.append((thread_id, operation_name, duration))
+        
+        return hung_threads
+    
+    def get_active_operations(self) -> dict:
+        """Get copy of active operations for monitoring"""
+        with self.lock:
+            return dict(self.active_operations)
+
+
+# Global thread pool monitor instance
+thread_monitor = ThreadPoolMonitor()
+
+# Set custom timeouts for known long-running operations
+thread_monitor.set_timeout("ML_LOADING", 120)  # 2 minutes max for ML
+thread_monitor.set_timeout("CLAMAV_INIT", 180)  # 3 minutes max for ClamAV
+thread_monitor.set_timeout("FILE_SCAN", 60)  # 1 minute max for single file scan
+thread_monitor.set_timeout("DATABASE_RELOAD", 120)  # 2 minutes for DB reload
+thread_monitor.set_timeout("FRESHCLAM_UPDATE", 1800)  # 30 minutes for updates
+thread_monitor.set_timeout("BLOCKING_OP", 300)  # 5 minutes default
+
+
+# ==============================================================================
+# Monitored Thread Pool Executor
+# ==============================================================================
+
+class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
+    """
+    Thread pool executor that automatically monitors all operations.
+    Wraps submitted functions to track enter/exit.
+    """
+    
+    def submit(self, fn, *args, operation_name="UNKNOWN", **kwargs):
+        """Override submit to add monitoring"""
+        
+        def monitored_fn(*args, **kwargs):
+            thread_monitor.enter_operation(operation_name)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                thread_monitor.exit_operation()
+        
+        return super().submit(monitored_fn, *args, **kwargs)
+
+
+# 2. Bounded Thread Pool with Monitoring (prevents thread exhaustion)
+_THREAD_POOL = MonitoredThreadPoolExecutor(
     max_workers=50,  # Limit concurrent blocking operations
     thread_name_prefix="hydra-worker"
 )
-logger.info(f"[INIT] Thread pool created with max_workers=50")
+logger.info(f"[INIT] Monitored thread pool created with max_workers=50")
+
+
+# ==============================================================================
+# Helper Function: Run Blocking Code with Monitoring
+# ==============================================================================
+
+async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", timeout=None):
+    """
+    Run blocking function in thread pool with automatic monitoring.
+    
+    Args:
+        func: Blocking function to run
+        *args: Arguments to pass to func
+        operation_name: Name for monitoring/logging
+        timeout: Optional timeout in seconds
+    
+    Returns:
+        Result of func(*args)
+    
+    Raises:
+        asyncio.TimeoutError: If operation exceeds timeout
+    """
+    loop = asyncio.get_running_loop()
+    
+    def monitored_func():
+        thread_monitor.enter_operation(operation_name)
+        try:
+            return func(*args)
+        finally:
+            thread_monitor.exit_operation()
+    
+    try:
+        if timeout:
+            return await asyncio.wait_for(
+                loop.run_in_executor(_THREAD_POOL, monitored_func),
+                timeout=timeout
+            )
+        else:
+            return await loop.run_in_executor(_THREAD_POOL, monitored_func)
+    except asyncio.TimeoutError:
+        logger.error(f"[EXECUTOR] ❌ Operation '{operation_name}' timed out after {timeout}s")
+        raise
 
 
 # 3. Safe Task Creation Helper
@@ -95,11 +238,12 @@ def create_safe_task(coro, *, name=None):
     return asyncio.create_task(wrapped(), name=name)
 
 
-# 4. Application Monitor
+# 4. Application Monitor (Enhanced with Thread Monitoring)
 class ApplicationMonitor:
     """
     Monitors application health: tasks, memory, CPU, threads.
     Detects hung tasks and resource issues.
+    NOW INCLUDES THREAD POOL MONITORING!
     """
     
     def __init__(self):
@@ -145,7 +289,7 @@ class ApplicationMonitor:
     async def monitor_loop(self):
         """
         Main monitoring loop - runs every 30 seconds.
-        Checks for hung tasks, memory leaks, thread exhaustion.
+        Checks for hung tasks, hung threads, memory leaks, thread exhaustion.
         """
         logger.info("[MONITOR] Starting system monitor loop...")
         
@@ -156,7 +300,7 @@ class ApplicationMonitor:
                 current_time = time.time()
                 uptime_hours = (current_time - self.start_time) / 3600
                 
-                # Check for hung tasks (no heartbeat for 5 minutes)
+                # === 1. Check for hung ASYNC TASKS ===
                 hung_tasks = []
                 for name, last_beat in self.last_heartbeat.items():
                     age = current_time - last_beat
@@ -165,12 +309,38 @@ class ApplicationMonitor:
                 
                 if hung_tasks:
                     logger.critical("=" * 80)
-                    logger.critical("[MONITOR] ⚠️  HUNG TASKS DETECTED:")
+                    logger.critical("[MONITOR] ⚠️  HUNG ASYNC TASKS DETECTED:")
                     for task_name, age in hung_tasks:
                         logger.critical(f"  - {task_name}: no heartbeat for {age:.0f} seconds")
                     logger.critical("=" * 80)
                 
-                # Get system resource usage
+                # === 2. Check for hung THREADS (NEW!) ===
+                hung_threads = thread_monitor.check_hung_threads()
+                
+                if hung_threads:
+                    logger.critical("=" * 80)
+                    logger.critical("[MONITOR] ⚠️  HUNG THREADS DETECTED:")
+                    for thread_id, operation_name, duration in hung_threads:
+                        logger.critical(
+                            f"  - Thread {thread_id}: {operation_name} "
+                            f"running for {duration:.0f} seconds (DEADLOCKED?)"
+                        )
+                    logger.critical("=" * 80)
+                    
+                    # Optionally dump thread stack traces
+                    try:
+                        logger.critical("[MONITOR] Thread stack traces:")
+                        for thread_id, operation_name, duration in hung_threads:
+                            if thread_id in sys._current_frames():
+                                frame = sys._current_frames()[thread_id]
+                                logger.critical(f"\n=== Thread {thread_id} ({operation_name}) ===")
+                                stack_lines = traceback.format_stack(frame)
+                                for line in stack_lines[-10:]:  # Last 10 frames
+                                    logger.critical(line.strip())
+                    except Exception as e:
+                        logger.error(f"[MONITOR] Could not dump thread stacks: {e}")
+                
+                # === 3. System resource checks ===
                 process = psutil.Process()
                 memory_mb = process.memory_info().rss / 1024 / 1024
                 cpu_percent = process.cpu_percent(interval=1)
@@ -180,6 +350,10 @@ class ApplicationMonitor:
                 all_tasks = asyncio.all_tasks()
                 active_tasks = [t for t in all_tasks if not t.done()]
                 
+                # Get active thread pool operations
+                active_ops = thread_monitor.get_active_operations()
+                active_ops_count = len(active_ops)
+                
                 # Log system status
                 logger.info(
                     f"[MONITOR] "
@@ -187,12 +361,20 @@ class ApplicationMonitor:
                     f"Memory: {memory_mb:.1f}MB | "
                     f"CPU: {cpu_percent:.1f}% | "
                     f"Threads: {thread_count} | "
-                    f"Tasks: {len(active_tasks)}/{len(all_tasks)}"
+                    f"Tasks: {len(active_tasks)}/{len(all_tasks)} | "
+                    f"ThreadOps: {active_ops_count}/50"
                 )
+                
+                # Log active thread operations if any
+                if active_ops_count > 0:
+                    logger.debug(f"[MONITOR] Active thread operations:")
+                    for thread_id, (op_name, start_time) in list(active_ops.items())[:5]:
+                        duration = current_time - start_time
+                        logger.debug(f"  - Thread {thread_id}: {op_name} ({duration:.1f}s)")
                 
                 # Resource warnings
                 if memory_mb > 2000:
-                    logger.warning(f"[MONITOR] ⚠️  HIGH MEMORY USAGE: {memory_mb:.1f}MB (>2GB)")
+                    logger.warning(f"[MONITOR] ⚠️  HIGH MEMORY: {memory_mb:.1f}MB (>2GB)")
                 
                 if thread_count > 200:
                     logger.warning(f"[MONITOR] ⚠️  HIGH THREAD COUNT: {thread_count} (>200)")
@@ -200,10 +382,8 @@ class ApplicationMonitor:
                 if len(active_tasks) > 500:
                     logger.warning(f"[MONITOR] ⚠️  HIGH TASK COUNT: {len(active_tasks)} (>500)")
                 
-                # Check if too many threads in pool
-                pool_stats = _THREAD_POOL._threads if hasattr(_THREAD_POOL, '_threads') else None
-                if pool_stats:
-                    logger.debug(f"[MONITOR] Thread pool: {len(pool_stats)} threads active")
+                if active_ops_count > 40:
+                    logger.warning(f"[MONITOR] ⚠️  HIGH THREAD POOL USAGE: {active_ops_count}/50")
                 
                 # Check event loop health
                 loop = asyncio.get_running_loop()
@@ -274,6 +454,15 @@ async def log_active_tasks():
             
             if failed_tasks:
                 logger.warning(f"[TASK-LOGGER] Tasks with exceptions: {', '.join(failed_tasks[:5])}")
+            
+            # Log thread pool status
+            active_ops = thread_monitor.get_active_operations()
+            if active_ops:
+                logger.info(f"[TASK-LOGGER] Active thread operations: {len(active_ops)}")
+                current_time = time.time()
+                for thread_id, (op_name, start_time) in list(active_ops.items())[:5]:
+                    duration = current_time - start_time
+                    logger.info(f"  - {op_name}: {duration:.1f}s")
             
             logger.info("=" * 80)
                 
@@ -348,7 +537,14 @@ async def update_definitions_clamav_async():
 
                 if process.returncode == 0:
                     logger.info("[UPDATES] Reloading ClamAV database...")
-                    reload_clamav_database()
+                    
+                    # Use monitored executor for database reload
+                    await run_in_executor_monitored(
+                        reload_clamav_database,
+                        operation_name="DATABASE_RELOAD",
+                        timeout=120
+                    )
+                    
                     logger.info("[UPDATES] ✓ ClamAV definitions updated successfully")
                     return True
                 else:
@@ -650,6 +846,20 @@ def main():
                 logger.critical(f"{i}. {task.get_name()}: done={task.done()}, cancelled={task.cancelled()}")
         except Exception as task_dump_error:
             logger.error(f"[DEBUG] Could not dump tasks: {task_dump_error}")
+        
+        # Dump thread pool status
+        try:
+            logger.critical("\n[DEBUG] Thread pool operations:")
+            active_ops = thread_monitor.get_active_operations()
+            if active_ops:
+                current_time = time.time()
+                for thread_id, (op_name, start_time) in active_ops.items():
+                    duration = current_time - start_time
+                    logger.critical(f"  Thread {thread_id}: {op_name} ({duration:.1f}s)")
+            else:
+                logger.critical("  No active thread operations")
+        except Exception as pool_dump_error:
+            logger.error(f"[DEBUG] Could not dump thread pool: {pool_dump_error}")
         
         sys.exit(1)
 
