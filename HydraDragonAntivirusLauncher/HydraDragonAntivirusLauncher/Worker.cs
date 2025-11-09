@@ -12,10 +12,7 @@ namespace HydraDragonAntivirusLauncher
         // Restart supervision settings
         private readonly bool _restartOnCrash = true;
         private readonly int _initialBackoffMs = 1000;
-        private readonly int _maxBackoffMs = 30000;
-
-        // Service monitoring interval
-        private readonly int _serviceCheckIntervalMs = 30000; // Check every 30 seconds
+        private readonly int _maxBackoffMs = 20000;
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -43,11 +40,6 @@ namespace HydraDragonAntivirusLauncher
             {
                 _logger.LogWarning(ex, "Failed during sanctum initialization sequence.");
             }
-
-            // --------------------------------------------------
-            // Start background service monitoring task
-            // --------------------------------------------------
-            var serviceMonitorTask = Task.Run(async () => await MonitorServicesAsync(stoppingToken), stoppingToken);
 
             // --------------------------------------------------
             // HydraDragon supervision loop
@@ -117,104 +109,6 @@ namespace HydraDragonAntivirusLauncher
         }
 
         // ------------------------------------------------------------
-        // Service monitoring task
-        // ------------------------------------------------------------
-        private async Task MonitorServicesAsync(CancellationToken ct)
-        {
-            _logger.LogInformation("Service monitoring task started.");
-
-            while (!ct.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(_serviceCheckIntervalMs, ct);
-
-                    // Check OwlyShield Service
-                    await CheckAndRestartServiceAsync("OwlyShield Service", ct);
-
-                    // Check sanctum_ppl_runner
-                    await CheckAndRestartServiceAsync("sanctum_ppl_runner", ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in service monitoring task.");
-                    await Task.Delay(5000, ct); // Wait before retrying
-                }
-            }
-
-            _logger.LogInformation("Service monitoring task stopped.");
-        }
-
-        private async Task CheckAndRestartServiceAsync(string serviceName, CancellationToken ct)
-        {
-            try
-            {
-                using var service = new ServiceController(serviceName);
-
-                // Refresh to get current status
-                service.Refresh();
-
-                if (service.Status != ServiceControllerStatus.Running)
-                {
-                    _logger.LogWarning("Service '{service}' is not running (Status: {status}). Attempting to start...",
-                        serviceName, service.Status);
-
-                    // Try to start the service
-                    try
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = "sc",
-                            Arguments = $"start \"{serviceName}\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            StandardOutputEncoding = System.Text.Encoding.UTF8,
-                            StandardErrorEncoding = System.Text.Encoding.UTF8
-                        };
-
-                        var proc = Process.Start(psi);
-                        await Task.Delay(2000, ct); // Wait for service to start
-
-                        // Check if it started successfully
-                        service.Refresh();
-                        if (service.Status == ServiceControllerStatus.Running)
-                        {
-                            _logger.LogInformation("Successfully restarted service '{service}'.", serviceName);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Service '{service}' status after restart attempt: {status}",
-                                serviceName, service.Status);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to restart service '{service}'.", serviceName);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("Service '{service}' is running normally.", serviceName);
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                // Service doesn't exist
-                _logger.LogDebug("Service '{service}' not found on system.", serviceName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error checking service '{service}' status.", serviceName);
-            }
-        }
-
-        // ------------------------------------------------------------
         // Sanctum sequence
         // ------------------------------------------------------------
         private async Task RunSanctumSequenceAsync(string sanctumDir, CancellationToken ct)
@@ -281,28 +175,8 @@ namespace HydraDragonAntivirusLauncher
                 _logger.LogWarning(ex, "Failed to start sanctum_ppl_runner via 'sc start'.");
             }
 
-            // 2b) OwlyShield Service: attempt service start
-            try
-            {
-                _logger.LogInformation("Starting OwlyShield Service...");
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "sc",
-                    Arguments = "start \"OwlyShield Service\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-                Process.Start(psi);
-                await Task.Delay(1500, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to start OwlyShield Service via 'sc start'.");
-            }
+            // 2b) OwlyShield Service: Start and monitor for up to 30 seconds
+            await MonitorAndStartServiceAsync("OwlyShield Service", TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), ct);
 
             // 3) um_engine.exe
             await RunExeAsync(umPath);
@@ -310,6 +184,69 @@ namespace HydraDragonAntivirusLauncher
             // 4) app.exe
             await RunExeAsync(appPath);
         }
+
+        // ------------------------------------------------------------
+        // Service Monitoring
+        // ------------------------------------------------------------
+        private async Task MonitorAndStartServiceAsync(string serviceName, TimeSpan timeout, TimeSpan checkInterval, CancellationToken ct)
+        {
+            _logger.LogInformation("Starting monitoring for service '{service}' for a maximum of {seconds} seconds.", serviceName, timeout.TotalSeconds);
+            var stopwatch = Stopwatch.StartNew();
+
+            while (stopwatch.Elapsed < timeout && !ct.IsCancellationRequested)
+            {
+                bool isRunning = false;
+                try
+                {
+                    using var sc = new ServiceController(serviceName);
+                    isRunning = (sc.Status == ServiceControllerStatus.Running);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Service is not installed
+                    _logger.LogWarning("Service '{service}' is not installed. Stopping monitoring.", serviceName);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error checking status of service '{service}'.", serviceName);
+                }
+
+                if (isRunning)
+                {
+                    _logger.LogInformation("Service '{service}' is running. Monitoring stopped.", serviceName);
+                    return;
+                }
+                else
+                {
+                    _logger.LogInformation("Service '{service}' is not running. Attempting to start...", serviceName);
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "sc",
+                            Arguments = $"start \"{serviceName}\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        Process.Start(psi);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to issue 'sc start' for service '{service}'.", serviceName);
+                    }
+                }
+
+                // Wait for the next check interval
+                await Task.Delay(checkInterval, ct);
+            }
+
+            if (stopwatch.Elapsed >= timeout)
+            {
+                _logger.LogWarning("Stopped monitoring for service '{service}' after timeout of {seconds} seconds.", serviceName, timeout.TotalSeconds);
+            }
+        }
+
 
         // ------------------------------------------------------------
         // HydraDragon supervision methods

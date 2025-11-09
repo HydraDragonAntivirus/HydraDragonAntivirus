@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-HydraDragonAntivirusLauncher-f2dbb41f-9c18-456d-8982-e1c3c37b3b53</UserSecretsId>
@@ -16,5 +16,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.10" />
   </ItemGroup>
 </Project>
