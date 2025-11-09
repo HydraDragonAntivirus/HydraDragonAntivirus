@@ -152,8 +152,18 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     Wraps submitted functions to track enter/exit.
     """
     
-    def submit(self, fn, *args, operation_name="UNKNOWN", **kwargs):
-        """Override submit to add monitoring"""
+    def submit(self, fn, *args, **kwargs):
+        """Override submit to add monitoring - extracts operation_name if present"""
+        
+        # Extract operation_name from kwargs if present
+        operation_name = kwargs.pop('operation_name', None)
+        
+        # Try to infer operation name from function if not provided
+        if operation_name is None:
+            if hasattr(fn, '__name__'):
+                operation_name = fn.__name__.upper()
+            else:
+                operation_name = "UNKNOWN"
         
         def monitored_fn(*args, **kwargs):
             thread_monitor.enter_operation(operation_name)
@@ -213,6 +223,45 @@ async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", t
     except asyncio.TimeoutError:
         logger.error(f"[EXECUTOR] ❌ Operation '{operation_name}' timed out after {timeout}s")
         raise
+
+
+# ==============================================================================
+# Patch asyncio event loop to auto-monitor all executor calls
+# ==============================================================================
+
+def patch_event_loop_executor():
+    """
+    Monkey-patch the event loop's run_in_executor to automatically monitor operations.
+    This makes ALL executor calls monitored without code changes.
+    """
+    import asyncio
+    
+    original_run_in_executor = asyncio.AbstractEventLoop.run_in_executor
+    
+    def monitored_run_in_executor(self, executor, func, *args):
+        """Wrapped version that adds monitoring"""
+        if executor is None or executor is _THREAD_POOL:
+            # Infer operation name from function
+            operation_name = getattr(func, '__name__', 'UNKNOWN').upper()
+            
+            def monitored_func():
+                thread_monitor.enter_operation(operation_name)
+                try:
+                    return func(*args)
+                finally:
+                    thread_monitor.exit_operation()
+            
+            return original_run_in_executor(self, executor, monitored_func)
+        else:
+            # Different executor, don't monitor
+            return original_run_in_executor(self, executor, func, *args)
+    
+    asyncio.AbstractEventLoop.run_in_executor = monitored_run_in_executor
+    logger.info("[INIT] Event loop executor patched for automatic monitoring")
+
+
+# Apply the patch at import time
+patch_event_loop_executor()
 
 
 # 3. Safe Task Creation Helper
