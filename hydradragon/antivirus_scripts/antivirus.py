@@ -11792,7 +11792,7 @@ async def run_hayabusa_live_async():
                 "--profile", "standard",
                 "--min-level", "critical",
                 "--live-analysis",
-                "--time-offset", "40s",  # Only scan events from last 40 seconds
+                "--time-offset", "60s",  # Only scan events from last 60 seconds
                 "--quiet"  # Reduce output noise
             ]
             logger.info(f"Starting Hayabusa scan: {' '.join(cmd)}")
