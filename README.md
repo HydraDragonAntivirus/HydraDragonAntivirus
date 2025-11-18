@@ -151,7 +151,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Also you need run "spacy download en_core_web_md"
 
 **Note 8:**
-- Inno Setup version 6.5.4
+- Inno Setup version 6.6.0
 
 ## Tips
 
