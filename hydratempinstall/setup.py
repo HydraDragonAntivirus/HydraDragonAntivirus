@@ -105,44 +105,6 @@ SANCTUM_APPDATA_PATH = HYDRADRAGON_PATH / "Sanctum" / "appdata"
 SANCTUM_ROOT_PATH = HYDRADRAGON_PATH / "Sanctum"
 ROAMING_SANCTUM = Path(os.environ.get("APPDATA", "")) / "Sanctum"
 
-def comment_out_urlhaus(config_path):
-    """Comment out the URLhaus database line due to SSL issues"""
-    with open(config_path, 'r') as f:
-        lines = f.readlines()
-    
-    with open(config_path, 'w') as f:
-        for line in lines:
-            if 'urlhaus.abuse.ch' in line and not line.strip().startswith('#'):
-                # Comment out the line and add explanation
-                f.write(f"# {line}")
-                f.write("# ^ Commented out due to SSL certificate validation issues\n")
-            else:
-                f.write(line)
-    
-    log.info(f"Commented out URLhaus line in {config_path}")
-
-def uncomment_urlhaus(config_path):
-    """Uncomment the URLhaus database line"""
-    with open(config_path, 'r') as f:
-        lines = f.readlines()
-    
-    with open(config_path, 'w') as f:
-        skip_next = False
-        for line in lines:
-            if skip_next:
-                skip_next = False
-                continue
-            
-            if '# DatabaseCustomURL https://urlhaus.abuse.ch' in line:
-                # Uncomment the line
-                f.write(line.replace('# DatabaseCustomURL', 'DatabaseCustomURL'))
-                # Skip the explanation comment line
-                skip_next = True
-            else:
-                f.write(line)
-
-    log.info(f"Uncommented URLhaus line in %s", config_path)
-
 def _get_folder_path(csidl: int) -> str:
     """Return a Unicode folder path for the given CSIDL using SHGetFolderPathW."""
     buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
@@ -554,11 +516,7 @@ def main():
             errors.append(("database copy", rc))
     else:
         log.info("database directory not found.")
-
-    # Before running freshclam, comment out problematic URLhaus
-    if CONFIG_FILE.exists():
-        comment_out_urlhaus(CONFIG_FILE)
-        
+ 
     # 6. Update ClamAV virus definitions with retry
     freshclam = CLAMAV_DIR / "freshclam.exe"
     if freshclam.exists():
@@ -578,10 +536,6 @@ def main():
         finally:
             os.chdir(original_cwd)
             log.info(f"Restored directory to: {original_cwd}")
-            
-            # After freshclam completes, add URLhaus back to config for next time
-            if CONFIG_FILE.exists():
-                uncomment_urlhaus(CONFIG_FILE)
     else:
         log.warning("freshclam.exe not found at %s", freshclam)
 
