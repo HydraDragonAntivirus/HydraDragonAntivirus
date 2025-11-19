@@ -18,8 +18,8 @@ except ImportError:
         RESET_ALL = ""
 
 
-from detect import detect_process
-from runtime import RuntimeInfo
+from .detect import detect_process
+from .runtime import RuntimeInfo
 from hydradragon.antivirus_scripts.antivirus import logger
 
 

@@ -1,7 +1,7 @@
 import hashlib
 from hydradragon.antivirus_scripts.antivirus import logger
 
-from util import dword, bytes_sub
+from .util import dword, bytes_sub
 
 
 GLOBAL_CERT = bytes.fromhex("""

@@ -1,4 +1,4 @@
-import logging
+from hydradragon.antivirus_scripts.antivirus import logger
 import os
 from typing import List, Tuple, Union
 
@@ -117,7 +117,6 @@ def nuitka_package(
             )
         cur += module_len
     if result:
-        logger = logging.getLogger("detect")
         logger.info(f"Found data in Nuitka package: {relative_path}")
         return result
     return None
@@ -130,7 +129,6 @@ def detect_process(
     Returns a list of (relative_path, bytes_raw) tuples, or None.
     Do not raise exceptions.
     """
-    logger = logging.getLogger("detect")
 
     try:
         with open(file_path, "rb") as f:
