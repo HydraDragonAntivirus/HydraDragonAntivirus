@@ -341,3 +341,132 @@ def get_platform_executable(specified: str) -> str:
         f"{Fore.RED}Executable {platform_default} not found, please build it first or download on https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot/releases {Style.RESET_ALL}"
     )
     exit(1)
+
+def main():
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)-8s %(asctime)-28s %(message)s",
+    )
+    logger = logging.getLogger("shot")
+
+    if not args.no_banner:
+        print(rf"""{Fore.CYAN}
+ ____                                                                     ____ 
+( __ )                                                                   ( __ )
+ |  |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|  | 
+ |  |   ____                                      _ ___  _          _     |  | 
+ |  |  |  _ \ _  _  __ _ _ __ _ _ __   ___  _ _  / / __|| |_   ___ | |_   |  | 
+ |  |  | |_) | || |/ _` | '__| ' `  \ / _ \| '_| | \__ \| ' \ / _ \| __|  |  | 
+ |  |  |  __/| || | (_| | |  | || || | (_) | |   | |__) | || | (_) | |_   |  | 
+ |  |  |_|    \_, |\__,_|_|  |_||_||_|\___/|_|   |_|___/|_||_|\___/ \__|  |  | 
+ |  |         |__/                                                        |  | 
+ |__|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|__| 
+(____)                                                        v0.2.2     (____)
+
+              For technology exchange only. Use at your own risk.
+        GitHub: https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
+{Style.RESET_ALL}""")
+
+    if args.runtime:
+        specified_runtime = RuntimeInfo(args.runtime)
+        print(specified_runtime)
+        runtimes = {specified_runtime.serial_number: specified_runtime}
+    else:
+        specified_runtime = None
+        runtimes = {"000000": RuntimeInfo.default()}
+
+    if args.output_dir and not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    if args.output_dir and not os.path.isdir(args.output_dir):
+        logger.error(
+            f"{Fore.RED}Cannot use {repr(args.output_dir)} as output directory{Style.RESET_ALL}"
+        )
+        return
+
+    # Note for path handling:
+    # args.output_dir: is either None or an existing directory path, can be absolute or relative
+    # args.directory: before calling `decrypt_process`, it is an existing directory path, can be absolute or relative
+    # paths in `sequences`: must be relative file paths, without trailing slashes, can exist or not
+
+    if os.path.isfile(args.directory):
+        single_file_path = os.path.abspath(args.directory)
+        args.directory = os.path.dirname(single_file_path)
+        relative_path = os.path.basename(single_file_path)
+        if specified_runtime is None:
+            logger.error(
+                f"{Fore.RED}Please specify `pyarmor_runtime` file by `-r` if input is a file{Style.RESET_ALL}"
+            )
+            return
+        logger.info(f"{Fore.CYAN}Single file mode{Style.RESET_ALL}")
+        single_file_sequences = detect_process(single_file_path, relative_path)
+        if single_file_sequences is None:
+            logger.error(f"{Fore.RED}No armored data found{Style.RESET_ALL}")
+            return
+        decrypt_process(runtimes, single_file_sequences, args)
+        return  # single file mode ends here
+
+    sequences: List[Tuple[str, bytes]] = []
+
+    dir_path: str
+    dirs: List[str]
+    files: List[str]
+    for dir_path, dirs, files in os.walk(args.directory, followlinks=False):
+        if ".no1shot" in files:
+            logger.info(
+                f"{Fore.YELLOW}Skipping {dir_path} because of `.no1shot`{Style.RESET_ALL}"
+            )
+            dirs.clear()
+            files.clear()
+            continue
+        for d in ["__pycache__", "site-packages"]:
+            if d in dirs:
+                dirs.remove(d)
+        for file_name in files:
+            if ".1shot." in file_name:
+                continue
+
+            file_path = os.path.join(dir_path, file_name)
+            relative_path = os.path.relpath(file_path, args.directory)
+
+            if file_name.endswith(".pyz"):
+                with open(file_path, "rb") as f:
+                    head = f.read(16 * 1024 * 1024)
+                if b"PY00" in head and (
+                    not os.path.exists(file_path + "_extracted")
+                    or len(os.listdir(file_path + "_extracted")) == 0
+                ):
+                    logger.error(
+                        f"{Fore.RED}A PYZ file containing armored data is detected, but the PYZ file has not been extracted by other tools. This error is not a problem with this tool. If the folder is extracted by Pyinstxtractor, please read the output information of Pyinstxtractor carefully. ({relative_path}){Style.RESET_ALL}"
+                    )
+                continue
+
+            # is pyarmor_runtime?
+            if (
+                specified_runtime is None
+                and file_name.startswith("pyarmor_runtime")
+                and file_name.endswith((".pyd", ".so", ".dylib"))
+            ):
+                try:
+                    new_runtime = RuntimeInfo(file_path)
+                    runtimes[new_runtime.serial_number] = new_runtime
+                    logger.info(
+                        f"{Fore.GREEN}Found new runtime: {new_runtime.serial_number} ({file_path}){Style.RESET_ALL}"
+                    )
+                    print(new_runtime)
+                    continue
+                except Exception:
+                    pass
+
+            result = detect_process(file_path, relative_path)
+            if result is not None:
+                sequences.extend(result)
+
+    if not runtimes:
+        logger.error(f"{Fore.RED}No `pyarmor_runtime` file found{Style.RESET_ALL}")
+        return
+    if not sequences:
+        logger.error(f"{Fore.RED}No armored data found{Style.RESET_ALL}")
+        return
+    decrypt_process(runtimes, sequences, args)
