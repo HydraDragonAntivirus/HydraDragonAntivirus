@@ -1,19 +1,27 @@
+from Crypto.Cipher import AES
 import os
 import asyncio
-import logging
 import traceback
 from typing import Dict, List, Tuple
-from Crypto.Cipher import AES
 
 try:
-    from colorama import init, Fore, Style
+    from colorama import init, Fore, Style  # type: ignore
 except ImportError:
-    def init(**kwargs): pass
-    class Fore: CYAN = RED = YELLOW = GREEN = ''
-    class Style: RESET_ALL = ''
 
-from .detect import detect_process
-from .runtime import RuntimeInfo
+    def init(**kwargs):
+        pass
+
+    class Fore:
+        CYAN = RED = YELLOW = GREEN = ""
+
+    class Style:
+        RESET_ALL = ""
+
+
+from detect import detect_process
+from runtime import RuntimeInfo
+from hydradragon.antivirus_scripts.antivirus import logger
+
 
 # Initialize colorama
 init(autoreset=True)
@@ -29,7 +37,6 @@ async def process_file_python(path: str, data: bytes, runtime: RuntimeInfo,
     """
     Decrypt a single file purely in Python, without calling external executable.
     """
-    logger = logging.getLogger('shot')
     try:
         serial_number = data[2:8].decode('utf-8')
         logger.info(f'{Fore.CYAN}Decrypting: {serial_number} ({path}){Style.RESET_ALL}')
@@ -58,7 +65,7 @@ async def process_file_python(path: str, data: bytes, runtime: RuntimeInfo,
                 arch_id = int.from_bytes(bcc_aes_decrypted[8:12], 'little')
                 next_offset = int.from_bytes(bcc_aes_decrypted[12:16], 'little')
                 arch = arch_map.get(arch_id, f'0x{arch_id:x}')
-                bcc_file_path = f'{dest_path}.1shot.bcc.{arch}.elf'
+                bcc_file_path = f'{dest_path}.1shot.bcc.{arch}.so'
                 with open(bcc_file_path, 'wb') as f:
                     f.write(bcc_aes_decrypted[offset:offset + length])
                 logger.info(f'{Fore.GREEN}Extracted BCC native: {bcc_file_path}{Style.RESET_ALL}')
@@ -76,7 +83,7 @@ async def process_file_python(path: str, data: bytes, runtime: RuntimeInfo,
         )
 
         # Save final Python output
-        final_path = dest_path + '.1shot.dec'
+        final_path = dest_path + '.1shot.seq'
         with open(final_path, 'wb') as f:
             f.write(data[:cipher_text_offset] + decrypted + data[cipher_text_offset + cipher_text_length:])
         logger.info(f'{Fore.GREEN}Decrypted file saved: {final_path}{Style.RESET_ALL}')
@@ -88,6 +95,9 @@ async def process_file_python(path: str, data: bytes, runtime: RuntimeInfo,
 
 async def decrypt_all_python(runtimes: Dict[str, RuntimeInfo], sequences: List[Tuple[str, bytes]],
                              output_dir: str = None, concurrent: int = 4):
+    """
+    Decrypt all sequences purely in Python, without calling external executable.
+    """
     semaphore = asyncio.Semaphore(concurrent)
     async def sem_task(path, data):
         async with semaphore:
@@ -102,9 +112,6 @@ def run_oneshot_python(directory: str, runtime_paths: List[str], output_dir: str
     """
     Pure-Python entry point: scans directory, loads runtimes, and decrypts all sequences.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)-8s %(asctime)-28s %(message)s')
-    logger = logging.getLogger('shot')
-
     runtimes: Dict[str, RuntimeInfo] = {}
     for path in runtime_paths:
         rt = RuntimeInfo(path)
