@@ -5972,23 +5972,21 @@ files = [
 
 [[package]]
 name = "xdis"
-version = "6.1.4"
+version = "6.1.8"
 description = "Python cross-version byte-code disassembler and marshal routines"
 optional = false
 python-versions = "<3.13,>=3.6"
 groups = ["main"]
 files = [
-    {file = "xdis-6.1.4-py310-none-any.whl", hash = "sha256:fe0c07b82d4e2b9cbc28b19aa3d74ecfed8e3c9448d08fe91495d756350668f6"},
-    {file = "xdis-6.1.4-py311-none-any.whl", hash = "sha256:b767726edb151ea60a081ad4acf673f5ac171882bf28dadf829110259b7646f7"},
-    {file = "xdis-6.1.4-py312-none-any.whl", hash = "sha256:b58ddf1698d9c22e573c7c97b7d1917162ceddc5c14b5a12c8d5042b3d3fb803"},
-    {file = "xdis-6.1.4-py313-none-any.whl", hash = "sha256:fac7b8e67c070102ba534f2630a39498afefe5bfc7d27741518f2b2b27c0d207"},
-    {file = "xdis-6.1.4-py34-none-any.whl", hash = "sha256:0a6e393aa659f4003a9455a4d32c3b8a24cc02ab87863bfe17dbe43f0c29e354"},
-    {file = "xdis-6.1.4-py35-none-any.whl", hash = "sha256:2b030cbda54107a2b379f0ee76ad656b8799ebec72a3118d2d0b006c577e16f1"},
-    {file = "xdis-6.1.4-py36-none-any.whl", hash = "sha256:64980c9e92e8134fc6d912af106249da2ae1209ee0cb4e127e0a6a74ee508b8f"},
-    {file = "xdis-6.1.4-py37-none-any.whl", hash = "sha256:fc929a900ba5806cbc5efa0d50b33be4b906fa03301bf5e6e2f06c8b11347d17"},
-    {file = "xdis-6.1.4-py38-none-any.whl", hash = "sha256:b36dd09186eefe955347ba546735163b8e56f878c5702ec73ead4b6b45c5a309"},
-    {file = "xdis-6.1.4-py39-none-any.whl", hash = "sha256:b98fc10371a7ba3036ae5f8958ec8da3ec8c45115da2404e1fb561abeec323ac"},
-    {file = "xdis-6.1.4.tar.gz", hash = "sha256:6e749661ac114c7b66edf4bd200e95066963c14ea039119651eb081a8da08ce6"},
+    {file = "xdis-6.1.8-py310-none-any.whl", hash = "sha256:b91a784627f18154e2607784ceafdc78b32f5ee235fa33d2ee1b0d00c89edf27"},
+    {file = "xdis-6.1.8-py311-none-any.whl", hash = "sha256:33c297a0951f3b81de62f27169607a9e1d2b560d488ef4cb6cecc119cfb72ded"},
+    {file = "xdis-6.1.8-py312-none-any.whl", hash = "sha256:0e5579fd715a1df6bc2e1e828879d8751d16910eae967d0f4f518cad4f0723ba"},
+    {file = "xdis-6.1.8-py313-none-any.whl", hash = "sha256:496349d62623a8bb77b33c44dfcf68860c1d1db5b43d7f729a241c73168d3e8f"},
+    {file = "xdis-6.1.8-py36-none-any.whl", hash = "sha256:255c5a5f147c49c15a953afc8852b68e471a23897e5f8595949c1b581263606d"},
+    {file = "xdis-6.1.8-py37-none-any.whl", hash = "sha256:d03ad44ee7a3faf3d75ff83498dee023f2da06fdabbe8252e29400ddbee405f2"},
+    {file = "xdis-6.1.8-py38-none-any.whl", hash = "sha256:e487b3a0a8631f3f74828d157acf68250fec0cbe383cddfacade3ae639281483"},
+    {file = "xdis-6.1.8-py39-none-any.whl", hash = "sha256:d52c6890646eed3b5f2cdfe93ee98da639286dcaa20ceb1fbef6e05c3600da12"},
+    {file = "xdis-6.1.8.tar.gz", hash = "sha256:a070c390f814395d672a8732b8b5e8e09cdeeaac1b32497e8061c24f126f6d69"},
 ]
 
 [package.dependencies]
