@@ -1194,14 +1194,14 @@ vision = ["Pillow (>=9.4.0)"]
 
 [[package]]
 name = "debloat"
-version = "1.6.4"
+version = "1.6.5"
 description = "Debloat is an tool to remove excess garbage from bloated executables."
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "debloat-1.6.4-py3-none-any.whl", hash = "sha256:9e34ff1e60787c9aa7a38a7bbca9fa0bf351ed8f76b9f3567ca7dcad8c99b585"},
-    {file = "debloat-1.6.4.tar.gz", hash = "sha256:34c7c06a2c046d60bab6bb611f8945cd4b5cecba985606bb3510ab39831c1b60"},
+    {file = "debloat-1.6.5-py3-none-any.whl", hash = "sha256:e6bccea58e9665dc0c986334a354703a75c64de4de99d283381a7df63798a1d5"},
+    {file = "debloat-1.6.5.tar.gz", hash = "sha256:23b585806db823687e59918589816e4ace8544497c148cccbf58fb55bf80b58d"},
 ]
 
 [package.dependencies]
