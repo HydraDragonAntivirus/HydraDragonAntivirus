@@ -1,20 +1,27 @@
-name: Update Poetry Lock
+name: Rebuild Poetry Lock
 
 on:
-  workflow_dispatch:      # Elle çalıştırmak için
+  workflow_dispatch:
   push:
     branches:
-      - main              # veya default branch'in neyse
+      - main
     paths:
-      - "pyproject.toml"  # sadece pyproject değiştiğinde tetikler
+      - "pyproject.toml"
 
 jobs:
-  update-lock:
+  rebuild-lock:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Remove old lockfile
+        run: |
+          if [ -f poetry.lock ]; then
+            echo "Removing old poetry.lock..."
+            rm poetry.lock
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,21 +32,21 @@ jobs:
         run: |
           pip install poetry
 
-      - name: Install dependencies
+      - name: Install dependencies (creates new lockfile)
         run: |
           poetry install --no-root
 
-      - name: Update lockfile
+      - name: Generate new lockfile
         run: |
           poetry lock
 
-      - name: Commit changes
+      - name: Commit new lockfile
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
             git add poetry.lock
-            git commit -m "Update poetry.lock (auto)"
+            git commit -m "Rebuild poetry.lock (auto)"
             git push
           else
             echo "No changes in lockfile."
