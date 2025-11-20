@@ -1,27 +1,17 @@
-name: Rebuild Poetry Lock
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "pyproject.toml"
-
 jobs:
   rebuild-lock:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Remove old lockfile
+        shell: pwsh
         run: |
-          if [ -f poetry.lock ]; then
-            echo "Removing old poetry.lock..."
-            rm poetry.lock
-          fi
+          if (Test-Path poetry.lock) {
+              Write-Host "Removing old poetry.lock..."
+              Remove-Item poetry.lock
+          }
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,25 +19,23 @@ jobs:
           python-version: "3.12"
 
       - name: Install Poetry
-        run: |
-          pip install poetry
+        run: pip install poetry
 
-      - name: Install dependencies (creates new lockfile)
-        run: |
-          poetry install --no-root
+      - name: Install dependencies
+        run: poetry install --no-root
 
       - name: Generate new lockfile
-        run: |
-          poetry lock
+        run: poetry lock
 
-      - name: Commit new lockfile
+      - name: Commit changes
+        shell: pwsh
         run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add poetry.lock
-            git commit -m "Rebuild poetry.lock (auto)"
-            git push
-          else
-            echo "No changes in lockfile."
-          fi
+          if (-not (git diff --quiet)) {
+              git config user.name "github-actions"
+              git config user.email "github-actions@github.com"
+              git add poetry.lock
+              git commit -m "Rebuild poetry.lock (auto)"
+              git push
+          } else {
+              Write-Host "No changes in lockfile."
+          }
