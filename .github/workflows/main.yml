@@ -1,4 +1,4 @@
-name: Rebuild Poetry Lock (Windows Only)
+name: Rebuild Poetry Lock
 
 on:
   workflow_dispatch:      # Manual trigger
