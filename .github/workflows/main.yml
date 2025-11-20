@@ -1,17 +1,23 @@
+name: Rebuild Poetry Lock
+
+on:
+  workflow_dispatch:    # Elle tetikleme
+  push:
+    branches:
+      - main
+    paths:
+      - "pyproject.toml"
+
 jobs:
   rebuild-lock:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Remove old lockfile
-        shell: pwsh
-        run: |
-          if (Test-Path poetry.lock) {
-              Write-Host "Removing old poetry.lock..."
-              Remove-Item poetry.lock
-          }
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,21 +27,40 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
 
-      - name: Install dependencies
+      - name: Remove old lockfile
+        shell: ${{ matrix.os == 'windows-latest' && 'pwsh' || 'bash' }}
+        run: |
+          if (${{ matrix.os == 'windows-latest' }}) {
+              if (Test-Path poetry.lock) { Remove-Item poetry.lock }
+          } else {
+              if [ -f poetry.lock ]; then rm poetry.lock; fi
+          }
+
+      - name: Install dependencies (create new lockfile)
         run: poetry install --no-root
 
       - name: Generate new lockfile
         run: poetry lock
 
       - name: Commit changes
-        shell: pwsh
+        shell: ${{ matrix.os == 'windows-latest' && 'pwsh' || 'bash' }}
         run: |
-          if (-not (git diff --quiet)) {
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
-              git add poetry.lock
-              git commit -m "Rebuild poetry.lock (auto)"
-              git push
+          if (${{ matrix.os == 'windows-latest' }}) {
+              if (-not (git diff --quiet)) {
+                  git config user.name "github-actions"
+                  git config user.email "github-actions@github.com"
+                  git add poetry.lock
+                  git commit -m "Rebuild poetry.lock (auto)"
+                  git push
+              } else { Write-Host "No changes in lockfile." }
           } else {
-              Write-Host "No changes in lockfile."
+              if ! git diff --quiet; then
+                  git config user.name "github-actions"
+                  git config user.email "github-actions@github.com"
+                  git add poetry.lock
+                  git commit -m "Rebuild poetry.lock (auto)"
+                  git push
+              else
+                  echo "No changes in lockfile."
+              fi
           }
