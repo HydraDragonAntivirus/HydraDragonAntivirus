@@ -1,5 +1,8 @@
 name: Rebuild Poetry Lock
 
+permissions:
+  contents: write   # Allow workflow to push changes
+
 on:
   workflow_dispatch:      # Manual trigger
   push:
@@ -15,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true  # Allow git push with GITHUB_TOKEN
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,7 +43,7 @@ jobs:
       - name: Generate new lockfile
         run: poetry lock
 
-      - name: Commit changes
+      - name: Commit and push changes
         shell: pwsh
         run: |
           if (-not (git diff --quiet)) {
