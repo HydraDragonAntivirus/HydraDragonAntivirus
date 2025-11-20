@@ -268,6 +268,18 @@ files = [
 ]
 
 [[package]]
+name = "aplib"
+version = "0.6"
+description = "Module for decompressing aPLib compressed data"
+optional = false
+python-versions = ">=2.7"
+groups = ["main"]
+files = [
+    {file = "aplib-0.6-py3-none-any.whl", hash = "sha256:a9074c993a60e6fa875a942ef24c2a9371a19e7610d9ed1c16c0039cdc18a33b"},
+    {file = "aplib-0.6.tar.gz", hash = "sha256:421ea1a4b2a9d0f3864acf1f97937152a5cd226c07956f6d763b9aee9653c518"},
+]
+
+[[package]]
 name = "asn1crypto"
 version = "1.5.1"
 description = "Fast ASN.1 parser and serializer with definitions for private keys, public keys, certificates, CRL, OCSP, CMS, PKCS#3, PKCS#7, PKCS#8, PKCS#12, PKCS#5, X.509 and TSP"
@@ -1238,17 +1250,18 @@ files = [
 
 [[package]]
 name = "evbunpack"
-version = "0.2.5"
+version = "0.2.6"
 description = "Enigma Virtual Box Unpacker / 解包工具"
 optional = false
 python-versions = ">=3.0"
 groups = ["main"]
 files = [
-    {file = "evbunpack-0.2.5-py3-none-any.whl", hash = "sha256:07e5ce81bd5bfb9c25f00840c5e4cab0cf815d4605d1135bc2c2cefa14bce368"},
-    {file = "evbunpack-0.2.5.tar.gz", hash = "sha256:3bceb6772294f1efd61a97582230e0624cae9300317c786950f819f29c07b6f4"},
+    {file = "evbunpack-0.2.6-py3-none-any.whl", hash = "sha256:d68cd017d10960ff41e7ee1dc1140b13516522ed7dfbfed8ce70a4107afb726e"},
+    {file = "evbunpack-0.2.6.tar.gz", hash = "sha256:fb02b84050799eae78dfdfd3f371e84effb36505c043c8dccfe52bf58031bbec"},
 ]
 
 [package.dependencies]
+aplib = "*"
 pefile = "*"
 
 [[package]]
