@@ -1,0 +1,12 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "pip"        # Poetry projeleri için "pip" kullanılır
+    directory: "/"                  # pyproject.toml ve poetry.lock kök dizinde
+    schedule:
+      interval: "weekly"            # weekly | daily | monthly
+    open-pull-requests-limit: 5
+    # opsiyonel: sadece lockfile güncellemeleri isteğe bağlı kurallar:
+    # rebase-strategy: "auto"       # (isteğe bağlı) otomatik rebase denemesi
+    # allow:
+    #   - dependency-type: "direct" # sadece direct veya all
