@@ -1,7 +1,7 @@
 name: Rebuild Poetry Lock
 
 on:
-  workflow_dispatch:    # Elle tetikleme
+  workflow_dispatch:
   push:
     branches:
       - main
