@@ -1,12 +1,12 @@
 name: Rebuild Poetry Lock
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:      # Manual trigger
   push:
     branches:
       - main
     paths:
-      - "pyproject.toml"
+      - "pyproject.toml"  # Automatically triggers when pyproject.toml changes
 
 jobs:
   rebuild-lock:
