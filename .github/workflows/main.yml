@@ -1,0 +1,46 @@
+name: Update Poetry Lock
+
+on:
+  workflow_dispatch:      # Elle çalıştırmak için
+  push:
+    branches:
+      - main              # veya default branch'in neyse
+    paths:
+      - "pyproject.toml"  # sadece pyproject değiştiğinde tetikler
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry install --no-root
+
+      - name: Update lockfile
+        run: |
+          poetry lock
+
+      - name: Commit changes
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add poetry.lock
+            git commit -m "Update poetry.lock (auto)"
+            git push
+          else
+            echo "No changes in lockfile."
+          fi
