@@ -331,11 +331,15 @@ async def _process_mbr_alert(data: bytes):
 
 async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
     logger.info(f"Starting MBR alert listener from MBRFilter.sys on: {pipe_name}")
-    while True:
-        pipe = None
-        try:
-            pipe = await asyncio.to_thread(
-                lambda: win32pipe.CreateNamedPipe(
+
+    loop = asyncio.get_running_loop()
+
+    def pipe_worker():
+        """Worker in dedicated thread"""
+        while True:
+            pipe = None
+            try:
+                pipe = win32pipe.CreateNamedPipe(
                     pipe_name,
                     win32pipe.PIPE_ACCESS_INBOUND,
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
@@ -345,33 +349,40 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                     0,
                     None,
                 )
-            )
-            logger.info("Waiting for MBRFilter.sys to send alerts...")
-            await asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None))
-            logger.info("MBRFilter.sys connected to MBR alert pipe.")
+                logger.info("Waiting for MBRFilter.sys to send alerts...")
+                win32pipe.ConnectNamedPipe(pipe, None)
+                logger.info("MBRFilter.sys connected to MBR alert pipe.")
 
-            try:
-                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
+                try:
+                    hr, data = win32file.ReadFile(pipe, 4096)
+                except pywintypes.error as e:
+                    logger.debug(f"ReadFile error in MBR listener: {e}")
+                    data = None
+
+                if data:
+                    asyncio.run_coroutine_threadsafe(
+                        _process_mbr_alert(data),
+                        loop
+                    )
+
             except pywintypes.error as e:
-                logger.debug(f"ReadFile raised in MBR listener: {e}")
-                data = None
+                if e.winerror in [109, 232]:
+                    logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
+                else:
+                    logger.error(f"Windows API Error in MBR listener: {e}")
+            except Exception as e:
+                logger.exception(f"Unexpected error in MBR alert listener: {e}")
+            finally:
+                if pipe:
+                    try:
+                        win32pipe.DisconnectNamedPipe(pipe)
+                        win32file.CloseHandle(pipe)
+                    except:
+                        pass
 
-            if data:
-                # process with lock to avoid reentrancy
-                async with asyncio.Lock():
-                    await _process_mbr_alert(data)
-
-        except pywintypes.error as e:
-            if e.winerror in [109, 232]:
-                logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
-            else:
-                logger.error(f"Windows API Error in MBR listener: {e}")
-        except Exception as e:
-            logger.exception(f"Unexpected error in MBR alert listener: {e}")
-        finally:
-            if pipe:
-                await asyncio.to_thread(lambda: win32pipe.DisconnectNamedPipe(pipe))
-                await asyncio.to_thread(_sync_close_handle, pipe)
+    thread = threading.Thread(target=pipe_worker, daemon=True, name="MBRAlertPipe")
+    thread.start()
+    logger.info("[MBR] Listener started in dedicated thread")
 
 
 # ============================================================================#
@@ -445,11 +456,15 @@ async def _process_self_defense_alert(data: bytes):
 
 async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_ALERT):
     logger.info(f"Starting self-defense alert listener on: {pipe_name}")
-    while True:
-        pipe = None
-        try:
-            pipe = await asyncio.to_thread(
-                lambda: win32pipe.CreateNamedPipe(
+
+    loop = asyncio.get_running_loop()
+
+    def pipe_worker():
+        """Worker in dedicated thread"""
+        while True:
+            pipe = None
+            try:
+                pipe = win32pipe.CreateNamedPipe(
                     pipe_name,
                     win32pipe.PIPE_ACCESS_INBOUND,
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
@@ -459,33 +474,40 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                     0,
                     None,
                 )
-            )
+                logger.info("Waiting for self-defense drivers to send alerts...")
+                win32pipe.ConnectNamedPipe(pipe, None)
+                logger.debug("Self-defense driver connected to alert pipe.")
 
-            logger.info("Waiting for self-defense drivers to send alerts...")
-            await asyncio.to_thread(lambda: win32pipe.ConnectNamedPipe(pipe, None))
-            logger.debug("Self-defense driver connected to alert pipe.")
+                try:
+                    hr, data = win32file.ReadFile(pipe, 4096)
+                except pywintypes.error as e:
+                    logger.debug(f"ReadFile error in self-defense listener: {e}")
+                    data = None
 
-            try:
-                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, 4096))
+                if data:
+                    asyncio.run_coroutine_threadsafe(
+                        _process_self_defense_alert(data),
+                        loop
+                    )
+
             except pywintypes.error as e:
-                logger.debug(f"ReadFile raised in self-defense listener: {e}")
-                data = None
+                if e.winerror in [109, 232]:
+                    logger.debug("Self-defense driver disconnected from alert pipe.")
+                else:
+                    logger.error(f"Windows API Error in self-defense listener: {e}")
+            except Exception as e:
+                logger.exception(f"Unexpected error in self-defense alert listener: {e}")
+            finally:
+                if pipe:
+                    try:
+                        win32pipe.DisconnectNamedPipe(pipe)
+                        win32file.CloseHandle(pipe)
+                    except:
+                        pass
 
-            if data:
-                async with asyncio.Lock():
-                    await _process_self_defense_alert(data)
-
-        except pywintypes.error as e:
-            if e.winerror in [109, 232]:
-                logger.debug("Self-defense driver disconnected from alert pipe.")
-            else:
-                logger.error(f"Windows API Error in self-defense listener: {e}")
-        except Exception as e:
-            logger.exception(f"Unexpected error in self-defense alert listener: {e}")
-        finally:
-            if pipe:
-                await asyncio.to_thread(lambda: win32pipe.DisconnectNamedPipe(pipe))
-                await asyncio.to_thread(_sync_close_handle, pipe)
+    thread = threading.Thread(target=pipe_worker, daemon=True, name="SelfDefensePipe")
+    thread.start()
+    logger.info("[Self-Defense] Listener started in dedicated thread")
 
 
 # ============================================================================#
