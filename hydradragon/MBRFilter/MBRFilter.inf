@@ -5,7 +5,7 @@ Signature = "$Windows NT$"
 Class     = DiskDrive
 ClassGUID = {4d36e967-e325-11ce-bfc1-08002be10318}
 Provider  = %csco%
-DriverVer = 10/19/2025,23.55.24.328
+DriverVer = 11/21/2025,17.13.36.326
 CatalogFile=MBRFilter.cat
 PnpLockdown=1
 
