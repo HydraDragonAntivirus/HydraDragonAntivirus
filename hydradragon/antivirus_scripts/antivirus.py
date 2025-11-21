@@ -2710,18 +2710,22 @@ class RealTimeWebProtectionObserver:
         """Async sniffing wrapper"""
         filter_expression = "(tcp or udp)"
         try:
-            # Run scapy's blocking sniff in a thread
-            await asyncio.to_thread(
-                sniff,
-                filter=filter_expression,
-                prn=self.handler.sync_packet_handler,
-                store=0
-            )
+            # Create a dedicated thread for the infinite sniff loop
+            def sniff_worker():
+                sniff(
+                    filter=filter_expression,
+                    prn=self.handler.sync_packet_handler,
+                    store=0
+                )
+
+            # Run in a dedicated thread, not the thread pool
+            thread = threading.Thread(target=sniff_worker, daemon=True, name="SniffWorker")
+            thread.start()
+            logger.info("Packet sniffing started in dedicated thread")
+
+            # Don't await - let it run in background
         except Exception as ex:
-            if "Operation not permitted" in str(ex) or "Socket error" in str(ex):
-                logger.error("Sniffing failed: Must be run as root or with network permissions.")
-            else:
-                logger.error(f"An error occurred while sniffing packets: {ex}")
+            logger.error(f"An error occurred while starting sniffing: {ex}")
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
