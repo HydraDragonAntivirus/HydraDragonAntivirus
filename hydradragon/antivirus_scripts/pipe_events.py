@@ -538,9 +538,20 @@ async def start_all_pipe_listeners():
     loop = asyncio.get_running_loop()
     logger.info("[PIPE-START] Creating AV->EDR listener task...")
     task1 = loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener")
+    logger.info(f"[PIPE-START] Task1 created: {task1}")
+
     logger.info("[PIPE-START] Creating MBR listener task...")
     task2 = loop.create_task(monitor_mbr_alerts_from_kernel(), name="MBR-Alert-Listener")
+    logger.info(f"[PIPE-START] Task2 created: {task2}")
+
     logger.info("[PIPE-START] Creating Self-Defense listener task...")
     task3 = loop.create_task(monitor_self_defense_alerts_from_kernel(), name="Self-Defense-Alert-Listener")
+    logger.info(f"[PIPE-START] Task3 created: {task3}")
+
     logger.info("[PIPE-START] All pipe listeners started successfully (AV->EDR, MBR, Self-Defense).")
+
+    # Force event loop to process tasks
+    await asyncio.sleep(0)
+    logger.info(f"[PIPE-START] After yield - Task states: task1.done()={task1.done()}, task2.done()={task2.done()}, task3.done()={task3.done()}")
+
     return [task1, task2, task3]
