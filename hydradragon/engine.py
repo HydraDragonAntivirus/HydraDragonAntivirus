@@ -306,8 +306,9 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
 
 # 2. Bounded Thread Pool with Monitoring (prevents thread exhaustion)
 _THREAD_POOL = MonitoredThreadPoolExecutor(
-    max_workers=50,  # Limit concurrent blocking operations
-    thread_name_prefix="hydra-worker"
+    max_workers=50,
+    thread_name_prefix="hydra-worker",
+    debug_naming=True  # Change to True for detailed logging
 )
 logger.info(f"[INIT] Monitored thread pool created with max_workers=50")
 
