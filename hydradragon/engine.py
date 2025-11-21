@@ -155,6 +155,11 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     NOW WITH BETTER LAMBDA AND PARTIAL DETECTION!
     """
     
+    def __init__(self, max_workers=None, thread_name_prefix='', debug_naming=False):
+        """Initialize with optional debug naming"""
+        super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
+        self.debug_naming = debug_naming
+    
     def submit(self, fn, *args, **kwargs):
         """Override submit to add monitoring - extracts operation_name if present"""
         
