@@ -196,13 +196,19 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
                 logger.debug(f"[NAME-INFERENCE] Partial args: {fn.args}")
                 logger.debug(f"[NAME-INFERENCE] Partial kwargs: {fn.keywords}")
             
-            # If the base is generic (like CONTEXT.RUN), try to get more info from partial args
-            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER'] and fn.args:
+            # If the base is generic asyncio plumbing (like CONTEXT.RUN), unwrap to show the real operation
+            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER', '_WORK'] and fn.args:
                 # Check if first arg is a callable with a name
                 if len(fn.args) > 0 and callable(fn.args[0]):
                     inner_func = fn.args[0]
                     inner_name = self._infer_operation_name(inner_func, ())
-                    result = f"{inner_name}_IN_{base_name}"
+                    
+                    # For asyncio internals, just show the inner operation name
+                    if base_name == 'CONTEXT.RUN':
+                        result = inner_name  # Skip the "IN_CONTEXT.RUN" suffix - it's noise
+                    else:
+                        result = f"{inner_name}_VIA_{base_name}"
+                    
                     if self.debug_naming:
                         logger.debug(f"[NAME-INFERENCE] Unwrapped inner function: {result}")
                     return result
@@ -213,7 +219,14 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
         if hasattr(fn, '__self__') and hasattr(fn, '__name__'):
             class_name = fn.__self__.__class__.__name__
             method_name = fn.__name__
-            result = f"{class_name}.{method_name}".upper()
+            
+            # Filter out asyncio/contextvars internal classes to reduce noise
+            if class_name in ['Context', '_RunCallbackHandle', 'Handle', 'TimerHandle']:
+                # These are asyncio internals, just use method name
+                result = method_name.upper()
+            else:
+                result = f"{class_name}.{method_name}".upper()
+            
             if self.debug_naming:
                 logger.debug(f"[NAME-INFERENCE] Bound method: {result}")
             return result
@@ -415,12 +428,16 @@ def patch_event_loop_executor():
         if isinstance(func, functools.partial):
             base_name = _infer_operation_name_from_func(func.func)
             
-            # If the base is generic, try to get more info from partial args
-            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER'] and func.args:
+            # If the base is generic asyncio plumbing, unwrap to show the real operation
+            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER', '_WORK'] and func.args:
                 if len(func.args) > 0 and callable(func.args[0]):
                     inner_func = func.args[0]
                     inner_name = _infer_operation_name_from_func(inner_func)
-                    return f"{inner_name}_IN_{base_name}"
+                    # For asyncio internals, just show the inner operation
+                    if base_name == 'CONTEXT.RUN':
+                        return inner_name  # Skip noise
+                    else:
+                        return f"{inner_name}_VIA_{base_name}"
             
             return base_name  # Return base name without _PARTIAL suffix
         
@@ -428,6 +445,11 @@ def patch_event_loop_executor():
         if hasattr(func, '__self__') and hasattr(func, '__name__'):
             class_name = func.__self__.__class__.__name__
             method_name = func.__name__
+            
+            # Filter asyncio internals
+            if class_name in ['Context', '_RunCallbackHandle', 'Handle', 'TimerHandle']:
+                return method_name.upper()
+            
             return f"{class_name}.{method_name}".upper()
         
         # Check for regular function name
