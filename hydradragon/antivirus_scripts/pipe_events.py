@@ -339,6 +339,7 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
         while True:
             pipe = None
             try:
+                logger.debug(f"[MBR] Attempting to create pipe: {pipe_name}")
                 pipe = win32pipe.CreateNamedPipe(
                     pipe_name,
                     win32pipe.PIPE_ACCESS_INBOUND,
@@ -366,12 +367,19 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                     )
 
             except pywintypes.error as e:
-                if e.winerror in [109, 232]:
+                winerror = getattr(e, 'winerror', None)
+                if winerror in [109, 232]:
                     logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
+                elif winerror == -2147483643:  # STATUS_OBJECT_NAME_NOT_FOUND
+                    logger.error(f"[MBR] Failed to create pipe '{pipe_name}': STATUS_OBJECT_NAME_NOT_FOUND - Check pipe name format and permissions")
+                    import time
+                    time.sleep(5)  # Wait before retrying
                 else:
-                    logger.error(f"Windows API Error in MBR listener: {e}")
+                    logger.error(f"[MBR] Windows API Error (winerror={winerror}): {e}")
             except Exception as e:
-                logger.exception(f"Unexpected error in MBR alert listener: {e}")
+                logger.exception(f"[MBR] Unexpected error in MBR alert listener: {e}")
+                import time
+                time.sleep(5)  # Wait before retrying
             finally:
                 if pipe:
                     try:
@@ -464,6 +472,7 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
         while True:
             pipe = None
             try:
+                logger.debug(f"[Self-Defense] Attempting to create pipe: {pipe_name}")
                 pipe = win32pipe.CreateNamedPipe(
                     pipe_name,
                     win32pipe.PIPE_ACCESS_INBOUND,
@@ -491,12 +500,19 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                     )
 
             except pywintypes.error as e:
-                if e.winerror in [109, 232]:
+                winerror = getattr(e, 'winerror', None)
+                if winerror in [109, 232]:
                     logger.debug("Self-defense driver disconnected from alert pipe.")
+                elif winerror == -2147483643:  # STATUS_OBJECT_NAME_NOT_FOUND
+                    logger.error(f"[Self-Defense] Failed to create pipe '{pipe_name}': STATUS_OBJECT_NAME_NOT_FOUND - Check pipe name format and permissions")
+                    import time
+                    time.sleep(5)  # Wait before retrying
                 else:
-                    logger.error(f"Windows API Error in self-defense listener: {e}")
+                    logger.error(f"[Self-Defense] Windows API Error (winerror={winerror}): {e}")
             except Exception as e:
-                logger.exception(f"Unexpected error in self-defense alert listener: {e}")
+                logger.exception(f"[Self-Defense] Unexpected error in self-defense alert listener: {e}")
+                import time
+                time.sleep(5)  # Wait before retrying
             finally:
                 if pipe:
                     try:
@@ -520,10 +536,11 @@ async def start_all_pipe_listeners():
     Returns task list for monitoring.
     """
     loop = asyncio.get_running_loop()
-    tasks = [
-        loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener"),
-        loop.create_task(monitor_mbr_alerts_from_kernel(), name="MBR-Alert-Listener"),
-        loop.create_task(monitor_self_defense_alerts_from_kernel(), name="Self-Defense-Alert-Listener"),
-    ]
-    logger.info("All pipe listeners started successfully (AV->EDR, Owlyshield, MBR, Self-Defense).")
-    return tasks
+    logger.info("[PIPE-START] Creating AV->EDR listener task...")
+    task1 = loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener")
+    logger.info("[PIPE-START] Creating MBR listener task...")
+    task2 = loop.create_task(monitor_mbr_alerts_from_kernel(), name="MBR-Alert-Listener")
+    logger.info("[PIPE-START] Creating Self-Defense listener task...")
+    task3 = loop.create_task(monitor_self_defense_alerts_from_kernel(), name="Self-Defense-Alert-Listener")
+    logger.info("[PIPE-START] All pipe listeners started successfully (AV->EDR, MBR, Self-Defense).")
+    return [task1, task2, task3]
