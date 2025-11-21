@@ -179,19 +179,46 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
         Infer a meaningful operation name from the function.
         Handles lambdas, partials, bound methods, and nested functions.
         """
-        # 1. Check if it's a functools.partial
+        if self.debug_naming:
+            logger.debug(f"[NAME-INFERENCE] Starting inference for: {type(fn).__name__}")
+        
+        # 1. Check if it's a functools.partial - UNWRAP IT
         if isinstance(fn, functools.partial):
-            return self._infer_operation_name(fn.func, args) + "_PARTIAL"
+            base_name = self._infer_operation_name(fn.func, args)
+            
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Partial detected - base: {base_name}")
+                logger.debug(f"[NAME-INFERENCE] Partial args: {fn.args}")
+                logger.debug(f"[NAME-INFERENCE] Partial kwargs: {fn.keywords}")
+            
+            # If the base is generic (like CONTEXT.RUN), try to get more info from partial args
+            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER'] and fn.args:
+                # Check if first arg is a callable with a name
+                if len(fn.args) > 0 and callable(fn.args[0]):
+                    inner_func = fn.args[0]
+                    inner_name = self._infer_operation_name(inner_func, ())
+                    result = f"{inner_name}_IN_{base_name}"
+                    if self.debug_naming:
+                        logger.debug(f"[NAME-INFERENCE] Unwrapped inner function: {result}")
+                    return result
+            
+            return base_name  # Don't add _PARTIAL suffix, it's noise
         
         # 2. Check if it's a bound method
         if hasattr(fn, '__self__') and hasattr(fn, '__name__'):
             class_name = fn.__self__.__class__.__name__
             method_name = fn.__name__
-            return f"{class_name}.{method_name}".upper()
+            result = f"{class_name}.{method_name}".upper()
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Bound method: {result}")
+            return result
         
         # 3. Check for regular function name
         if hasattr(fn, '__name__'):
             name = fn.__name__
+            
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Function __name__: {name}")
             
             # Detect lambdas
             if name == '<lambda>':
@@ -203,31 +230,56 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
                     
                     if source_file:
                         filename = os.path.basename(source_file)
-                        return f"LAMBDA_{filename}:L{source_line}"
+                        result = f"LAMBDA_{filename}:L{source_line}"
+                        if self.debug_naming:
+                            logger.debug(f"[NAME-INFERENCE] Lambda with location: {result}")
+                        return result
                     else:
+                        if self.debug_naming:
+                            logger.debug(f"[NAME-INFERENCE] Lambda without source file")
                         return "LAMBDA_UNKNOWN"
                 except:
+                    if self.debug_naming:
+                        logger.debug(f"[NAME-INFERENCE] Lambda source inspection failed")
                     return "LAMBDA_ANONYMOUS"
             
             # Check if it's a nested/local function
             if hasattr(fn, '__qualname__'):
                 qualname = fn.__qualname__
+                if self.debug_naming:
+                    logger.debug(f"[NAME-INFERENCE] __qualname__: {qualname}")
+                
                 if '.<locals>.' in qualname:
                     # It's a nested function, use qualified name
-                    return qualname.replace('.<locals>.', '_').upper()
+                    result = qualname.replace('.<locals>.', '_').upper()
+                    if self.debug_naming:
+                        logger.debug(f"[NAME-INFERENCE] Nested function: {result}")
+                    return result
                 elif qualname != name:
                     # It's a method or nested class method
-                    return qualname.upper()
+                    result = qualname.upper()
+                    if self.debug_naming:
+                        logger.debug(f"[NAME-INFERENCE] Qualified name: {result}")
+                    return result
             
-            return name.upper()
+            result = name.upper()
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Simple name: {result}")
+            return result
         
         # 4. Check for callable objects (classes with __call__)
         if hasattr(fn, '__call__') and hasattr(fn.__class__, '__name__'):
-            return f"{fn.__class__.__name__}_CALL".upper()
+            result = f"{fn.__class__.__name__}_CALL".upper()
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Callable object: {result}")
+            return result
         
         # 5. Last resort - try to get repr
         try:
             repr_str = repr(fn)
+            if self.debug_naming:
+                logger.debug(f"[NAME-INFERENCE] Using repr: {repr_str[:100]}")
+            
             if 'lambda' in repr_str:
                 return "LAMBDA_INFERRED"
             elif 'function' in repr_str:
@@ -235,13 +287,17 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
                 import re
                 match = re.search(r'function (\w+)', repr_str)
                 if match:
-                    return match.group(1).upper()
+                    result = match.group(1).upper()
+                    if self.debug_naming:
+                        logger.debug(f"[NAME-INFERENCE] Extracted from repr: {result}")
+                    return result
         except:
             pass
         
         # 6. Absolute fallback
+        if self.debug_naming:
+            logger.debug(f"[NAME-INFERENCE] Fallback to CALLABLE_UNKNOWN")
         return "CALLABLE_UNKNOWN"
-
 
 # 2. Bounded Thread Pool with Monitoring (prevents thread exhaustion)
 _THREAD_POOL = MonitoredThreadPoolExecutor(
@@ -282,8 +338,19 @@ async def run_in_executor_monitored(func, *args, operation_name=None, timeout=No
         else:
             # Use the same inference logic
             if isinstance(func, functools.partial):
-                base_name = getattr(func.func, '__name__', 'PARTIAL_FUNC')
-                operation_name = f"{base_name}_PARTIAL".upper()
+                base_func = func.func
+                base_name = getattr(base_func, '__name__', 'PARTIAL_FUNC')
+                
+                # Try to unwrap if base is generic
+                if base_name in ['run', 'call', 'wrapper'] and func.args:
+                    if len(func.args) > 0 and callable(func.args[0]):
+                        inner_func = func.args[0]
+                        inner_name = getattr(inner_func, '__name__', 'INNER')
+                        operation_name = f"{inner_name}_IN_{base_name}".upper()
+                    else:
+                        operation_name = f"{base_name}".upper()
+                else:
+                    operation_name = base_name.upper()
             elif hasattr(func, '__self__') and hasattr(func, '__name__'):
                 class_name = func.__self__.__class__.__name__
                 method_name = func.__name__
@@ -332,15 +399,24 @@ def patch_event_loop_executor():
     Monkey-patch the event loop's run_in_executor to automatically monitor operations.
     NOW WITH BETTER NAME INFERENCE!
     """
+    import asyncio
     
     original_run_in_executor = asyncio.AbstractEventLoop.run_in_executor
     
     def _infer_operation_name_from_func(func):
         """Helper to infer operation name (same logic as MonitoredThreadPoolExecutor)"""
-        # Check for functools.partial
+        # Check for functools.partial - UNWRAP IT
         if isinstance(func, functools.partial):
             base_name = _infer_operation_name_from_func(func.func)
-            return f"{base_name}_PARTIAL"
+            
+            # If the base is generic, try to get more info from partial args
+            if base_name in ['CONTEXT.RUN', 'RUN', 'CALL', 'WRAPPER'] and func.args:
+                if len(func.args) > 0 and callable(func.args[0]):
+                    inner_func = func.args[0]
+                    inner_name = _infer_operation_name_from_func(inner_func)
+                    return f"{inner_name}_IN_{base_name}"
+            
+            return base_name  # Return base name without _PARTIAL suffix
         
         # Check for bound method
         if hasattr(func, '__self__') and hasattr(func, '__name__'):
