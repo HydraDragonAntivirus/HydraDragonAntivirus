@@ -148,10 +148,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
 **Note 7:**
-- I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragon you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
-- Also you need run "spacy download en_core_web_md"
-
-**Note 8:**
 - Inno Setup version 6.6.0
 
 ## Tips
