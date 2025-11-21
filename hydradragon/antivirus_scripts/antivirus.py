@@ -4777,7 +4777,7 @@ async def monitor_suricata_log_async():
     log_path = eve_log_path
 
     # wait for file
-    while not await asyncio.to_thread(os.path.exists, log_path):
+    while not os.path.exists(log_path):
         logger.info("Waiting for log file to be created: %s", log_path)
         await asyncio.sleep(1)
 
