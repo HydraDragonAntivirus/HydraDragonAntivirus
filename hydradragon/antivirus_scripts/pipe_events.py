@@ -5,6 +5,7 @@ import json
 import os
 import ctypes
 import asyncio
+import threading
 import win32file
 import win32pipe
 import win32api
@@ -229,19 +230,22 @@ async def _process_threat_event(event: Any) -> None:
 async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None:
     """
     EDR-side server: create a named pipe and read threat events from AV.
-    This function implements a robust create/connect/read/cleanup loop and dispatches
-    parsed events to _process_threat_event(event_dict).
+    Runs in a dedicated thread to avoid blocking the thread pool.
     """
     logger.info(f"[EDR] Waiting for AV to connect on {pipe_name}")
 
-    while True:
-        pipe = None
-        try:
-            # Create server pipe (server will READ; AV client WRITES)
-            def _create_pipe():
-                return win32pipe.CreateNamedPipe(
+    # Get event loop reference for scheduling coroutines from worker thread
+    loop = asyncio.get_running_loop()
+
+    def pipe_worker():
+        """Worker that runs in dedicated thread"""
+        while True:
+            pipe = None
+            try:
+                # Create server pipe
+                pipe = win32pipe.CreateNamedPipe(
                     pipe_name,
-                    win32pipe.PIPE_ACCESS_INBOUND,  # server reads only for this pipe
+                    win32pipe.PIPE_ACCESS_INBOUND,
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                     win32pipe.PIPE_UNLIMITED_INSTANCES,
                     READ_BUFFER_SIZE,
@@ -249,94 +253,63 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
                     0,
                     None,
                 )
+                logger.debug("[EDR] Pipe created, calling ConnectNamedPipe...")
 
-            pipe = await asyncio.to_thread(_create_pipe)
-            logger.debug("[EDR] Pipe created, calling ConnectNamedPipe...")
-
-            # ConnectNamedPipe can raise pywintypes.error;
-            # if a client connects between CreateNamedPipe and ConnectNamedPipe,
-            # GetLastError may be ERROR_PIPE_CONNECTED (535) — treat as success.
-            connected = False
-            try:
-                await asyncio.to_thread(win32pipe.ConnectNamedPipe, pipe, None)
-                connected = True
-            except pywintypes.error as e:
-                winerr = getattr(e, "winerror", None)
-                if winerr == 535:  # ERROR_PIPE_CONNECTED
-                    logger.debug("[EDR] ConnectNamedPipe: client had already connected (ERROR_PIPE_CONNECTED). Proceeding.")
-                    connected = True
-                else:
-                    logger.debug(f"[EDR] ConnectNamedPipe raised: winerror={winerr}; {e}")
-                    connected = False
-            except Exception as e:
-                logger.exception(f"[EDR] ConnectNamedPipe unexpected error: {e}")
+                # Wait for client (blocking is OK in dedicated thread)
                 connected = False
-
-            if not connected:
-                # Cleanup and restart loop
                 try:
-                    # safe disconnect/close
+                    win32pipe.ConnectNamedPipe(pipe, None)
+                    connected = True
+                except pywintypes.error as e:
+                    winerr = getattr(e, "winerror", None)
+                    if winerr == 535:  # ERROR_PIPE_CONNECTED
+                        logger.debug("[EDR] Client already connected")
+                        connected = True
+                    else:
+                        logger.debug(f"[EDR] ConnectNamedPipe error: {e}")
+
+                if not connected:
                     win32pipe.DisconnectNamedPipe(pipe)
-                except Exception:
-                    pass
-                try:
                     win32file.CloseHandle(pipe)
-                except Exception:
-                    pass
-                continue
+                    continue
 
-            logger.info("[EDR] AV client connected to AV->EDR pipe")
+                logger.info("[EDR] AV client connected to AV->EDR pipe")
 
-            # Read the message on a thread so we don't block the event loop.
-            try:
-                # win32file.ReadFile returns (hr, data)
-                hr, data = await asyncio.to_thread(lambda: win32file.ReadFile(pipe, READ_BUFFER_SIZE))
-            except pywintypes.error as e:
-                winerr = getattr(e, "winerror", None)
-                logger.debug(f"[EDR] ReadFile raised while reading from AV pipe: winerror={winerr}; {e}")
-                data = None
-            except Exception as e:
-                logger.exception(f"[EDR] Unexpected error during ReadFile: {e}")
-                data = None
-
-            if not data:
-                # None or empty bytes indicates no payload / disconnect
-                logger.debug("[EDR] No data read from AV client (None or empty). Treating as disconnect.")
-                continue
-
-            # decode and parse JSON (do it once, pass dict to processor)
-            try:
-                message = data.decode("utf-8", errors="replace")
-                event = json.loads(message)
-            except json.JSONDecodeError as e:
-                logger.error(f"[EDR] Invalid threat event JSON: {e} -- raw: {data[:RAW_PREVIEW_LEN]!r}")
-                continue
-            except Exception as e:
-                logger.exception(f"[EDR] Failed to decode/parse threat event: {e}")
-                continue
-
-            logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
-            # Dispatch processing asynchronously (no double JSON parsing)
-            try:
-                asyncio.create_task(_process_threat_event(event))
-            except Exception:
-                # If create_task fails (rare), process synchronously to avoid dropping the event
-                logger.exception("[EDR] Failed to create task for _process_threat_event; processing inline.")
-                await _process_threat_event(event)
-
-        except Exception as e:
-            logger.exception(f"[EDR] Pipe error in AV->EDR listener: {e}")
-        finally:
-            # always tidy up the pipe handle if present
-            if pipe:
+                # Read message
                 try:
-                    win32pipe.DisconnectNamedPipe(pipe)
-                except Exception:
-                    pass
-                try:
-                    win32file.CloseHandle(pipe)
-                except Exception:
-                    pass
+                    hr, data = win32file.ReadFile(pipe, READ_BUFFER_SIZE)
+                except pywintypes.error as e:
+                    logger.debug(f"[EDR] ReadFile error: {e}")
+                    data = None
+
+                if data:
+                    try:
+                        message = data.decode("utf-8", errors="replace")
+                        event = json.loads(message)
+                        logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
+
+                        # Schedule processing on event loop
+                        asyncio.run_coroutine_threadsafe(
+                            _process_threat_event(event),
+                            loop
+                        )
+                    except Exception as e:
+                        logger.error(f"[EDR] Error processing threat event: {e}")
+
+            except Exception as e:
+                logger.exception(f"[EDR] Pipe error in AV->EDR listener: {e}")
+            finally:
+                if pipe:
+                    try:
+                        win32pipe.DisconnectNamedPipe(pipe)
+                        win32file.CloseHandle(pipe)
+                    except:
+                        pass
+
+    # Start in dedicated thread
+    thread = threading.Thread(target=pipe_worker, daemon=True, name="AVToEDRPipe")
+    thread.start()
+    logger.info("[EDR] AV->EDR pipe listener started in dedicated thread")
 
 # ============================================================================#
 # MBR alert processing
