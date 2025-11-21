@@ -8,6 +8,8 @@ import psutil
 import time
 import traceback
 import threading
+import inspect
+import functools
 import concurrent.futures
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -150,6 +152,7 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     """
     Thread pool executor that automatically monitors all operations.
     Wraps submitted functions to track enter/exit.
+    NOW WITH BETTER LAMBDA AND PARTIAL DETECTION!
     """
     
     def submit(self, fn, *args, **kwargs):
@@ -160,10 +163,7 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
         
         # Try to infer operation name from function if not provided
         if operation_name is None:
-            if hasattr(fn, '__name__'):
-                operation_name = fn.__name__.upper()
-            else:
-                operation_name = "UNKNOWN"
+            operation_name = self._infer_operation_name(fn, args)
         
         def monitored_fn(*args, **kwargs):
             thread_monitor.enter_operation(operation_name)
@@ -173,6 +173,74 @@ class MonitoredThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
                 thread_monitor.exit_operation()
         
         return super().submit(monitored_fn, *args, **kwargs)
+    
+    def _infer_operation_name(self, fn, args):
+        """
+        Infer a meaningful operation name from the function.
+        Handles lambdas, partials, bound methods, and nested functions.
+        """
+        # 1. Check if it's a functools.partial
+        if isinstance(fn, functools.partial):
+            return self._infer_operation_name(fn.func, args) + "_PARTIAL"
+        
+        # 2. Check if it's a bound method
+        if hasattr(fn, '__self__') and hasattr(fn, '__name__'):
+            class_name = fn.__self__.__class__.__name__
+            method_name = fn.__name__
+            return f"{class_name}.{method_name}".upper()
+        
+        # 3. Check for regular function name
+        if hasattr(fn, '__name__'):
+            name = fn.__name__
+            
+            # Detect lambdas
+            if name == '<lambda>':
+                # Try to get more context from the lambda
+                try:
+                    # Get source code location
+                    source_file = inspect.getsourcefile(fn)
+                    source_line = inspect.getsourcelines(fn)[1]
+                    
+                    if source_file:
+                        filename = os.path.basename(source_file)
+                        return f"LAMBDA_{filename}:L{source_line}"
+                    else:
+                        return "LAMBDA_UNKNOWN"
+                except:
+                    return "LAMBDA_ANONYMOUS"
+            
+            # Check if it's a nested/local function
+            if hasattr(fn, '__qualname__'):
+                qualname = fn.__qualname__
+                if '.<locals>.' in qualname:
+                    # It's a nested function, use qualified name
+                    return qualname.replace('.<locals>.', '_').upper()
+                elif qualname != name:
+                    # It's a method or nested class method
+                    return qualname.upper()
+            
+            return name.upper()
+        
+        # 4. Check for callable objects (classes with __call__)
+        if hasattr(fn, '__call__') and hasattr(fn.__class__, '__name__'):
+            return f"{fn.__class__.__name__}_CALL".upper()
+        
+        # 5. Last resort - try to get repr
+        try:
+            repr_str = repr(fn)
+            if 'lambda' in repr_str:
+                return "LAMBDA_INFERRED"
+            elif 'function' in repr_str:
+                # Extract function name from repr
+                import re
+                match = re.search(r'function (\w+)', repr_str)
+                if match:
+                    return match.group(1).upper()
+        except:
+            pass
+        
+        # 6. Absolute fallback
+        return "CALLABLE_UNKNOWN"
 
 
 # 2. Bounded Thread Pool with Monitoring (prevents thread exhaustion)
@@ -187,14 +255,15 @@ logger.info(f"[INIT] Monitored thread pool created with max_workers=50")
 # Helper Function: Run Blocking Code with Monitoring
 # ==============================================================================
 
-async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", timeout=None):
+async def run_in_executor_monitored(func, *args, operation_name=None, timeout=None):
     """
     Run blocking function in thread pool with automatic monitoring.
+    NOW WITH AUTOMATIC NAME INFERENCE IF operation_name NOT PROVIDED!
     
     Args:
         func: Blocking function to run
         *args: Arguments to pass to func
-        operation_name: Name for monitoring/logging
+        operation_name: Name for monitoring/logging (auto-inferred if None)
         timeout: Optional timeout in seconds
     
     Returns:
@@ -204,6 +273,36 @@ async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", t
         asyncio.TimeoutError: If operation exceeds timeout
     """
     loop = asyncio.get_running_loop()
+    
+    # Auto-infer operation name if not provided
+    if operation_name is None:
+        # Check if function has explicit _operation_name attribute
+        if hasattr(func, '_operation_name'):
+            operation_name = func._operation_name
+        else:
+            # Use the same inference logic
+            if isinstance(func, functools.partial):
+                base_name = getattr(func.func, '__name__', 'PARTIAL_FUNC')
+                operation_name = f"{base_name}_PARTIAL".upper()
+            elif hasattr(func, '__self__') and hasattr(func, '__name__'):
+                class_name = func.__self__.__class__.__name__
+                method_name = func.__name__
+                operation_name = f"{class_name}.{method_name}".upper()
+            elif hasattr(func, '__name__'):
+                name = func.__name__
+                if name == '<lambda>':
+                    try:
+                        source_line = inspect.getsourcelines(func)[1]
+                        operation_name = f"LAMBDA_L{source_line}"
+                    except:
+                        operation_name = "LAMBDA_ANONYMOUS"
+                else:
+                    if hasattr(func, '__qualname__'):
+                        operation_name = func.__qualname__.replace('.<locals>.', '_').upper()
+                    else:
+                        operation_name = name.upper()
+            else:
+                operation_name = "BLOCKING_OP"
     
     def monitored_func():
         thread_monitor.enter_operation(operation_name)
@@ -224,7 +323,6 @@ async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", t
         logger.error(f"[EXECUTOR] ❌ Operation '{operation_name}' timed out after {timeout}s")
         raise
 
-
 # ==============================================================================
 # Patch asyncio event loop to auto-monitor all executor calls
 # ==============================================================================
@@ -232,17 +330,61 @@ async def run_in_executor_monitored(func, *args, operation_name="BLOCKING_OP", t
 def patch_event_loop_executor():
     """
     Monkey-patch the event loop's run_in_executor to automatically monitor operations.
-    This makes ALL executor calls monitored without code changes.
+    NOW WITH BETTER NAME INFERENCE!
     """
-    import asyncio
     
     original_run_in_executor = asyncio.AbstractEventLoop.run_in_executor
     
+    def _infer_operation_name_from_func(func):
+        """Helper to infer operation name (same logic as MonitoredThreadPoolExecutor)"""
+        # Check for functools.partial
+        if isinstance(func, functools.partial):
+            base_name = _infer_operation_name_from_func(func.func)
+            return f"{base_name}_PARTIAL"
+        
+        # Check for bound method
+        if hasattr(func, '__self__') and hasattr(func, '__name__'):
+            class_name = func.__self__.__class__.__name__
+            method_name = func.__name__
+            return f"{class_name}.{method_name}".upper()
+        
+        # Check for regular function name
+        if hasattr(func, '__name__'):
+            name = func.__name__
+            
+            # Handle lambdas
+            if name == '<lambda>':
+                try:
+                    source_file = inspect.getsourcefile(func)
+                    source_line = inspect.getsourcelines(func)[1]
+                    if source_file:
+                        filename = os.path.basename(source_file)
+                        return f"LAMBDA_{filename}:L{source_line}"
+                except:
+                    pass
+                return "LAMBDA_ANONYMOUS"
+            
+            # Handle nested functions
+            if hasattr(func, '__qualname__'):
+                qualname = func.__qualname__
+                if '.<locals>.' in qualname:
+                    return qualname.replace('.<locals>.', '_').upper()
+                elif qualname != name:
+                    return qualname.upper()
+            
+            return name.upper()
+        
+        # Callable objects
+        if hasattr(func, '__call__') and hasattr(func.__class__, '__name__'):
+            return f"{func.__class__.__name__}_CALL".upper()
+        
+        return "CALLABLE_UNKNOWN"
+    
     def monitored_run_in_executor(self, executor, func, *args):
-        """Wrapped version that adds monitoring"""
+        """Wrapped version that adds monitoring with better name inference"""
         if executor is None or executor is _THREAD_POOL:
-            # Infer operation name from function
-            operation_name = getattr(func, '__name__', 'UNKNOWN').upper()
+            # Use enhanced name inference
+            operation_name = _infer_operation_name_from_func(func)
             
             def monitored_func():
                 thread_monitor.enter_operation(operation_name)
@@ -257,7 +399,7 @@ def patch_event_loop_executor():
             return original_run_in_executor(self, executor, func, *args)
     
     asyncio.AbstractEventLoop.run_in_executor = monitored_run_in_executor
-    logger.info("[INIT] Event loop executor patched for automatic monitoring")
+    logger.info("[INIT] Event loop executor patched with enhanced name inference")
 
 
 # Apply the patch at import time
