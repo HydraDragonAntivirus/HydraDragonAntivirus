@@ -153,7 +153,6 @@ def run_cmd(
         success_codes = set(success_exit_codes)
 
     last_rc = 1
-    prefer_enc = locale.getpreferredencoding(False) or "utf-8"
     use_shell = isinstance(cmd, str)
     cmd_str_for_log = cmd if use_shell else " ".join(cmd)
 
@@ -163,35 +162,23 @@ def run_cmd(
             log.info("DRY RUN - would run: %s", cmd_str_for_log)
             return 0
         try:
+            # Use text=True with explicit encoding and error handling
+            # This prevents subprocess from using cp1254 encoding internally
             proc = subprocess.run(
                 cmd, 
                 check=False, 
                 shell=use_shell,
-                capture_output=True
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
             )
             last_rc = proc.returncode
             
-            # Decode stdout
-            raw_out = proc.stdout or b""
-            out = None
-            try:
-                out = raw_out.decode(prefer_enc, errors="strict")
-            except Exception:
-                try:
-                    out = raw_out.decode("utf-8", errors="strict")
-                except Exception:
-                    out = raw_out.decode("latin-1", errors="replace")
-            
-            # Decode stderr
-            raw_err = proc.stderr or b""
-            err = None
-            try:
-                err = raw_err.decode(prefer_enc, errors="strict")
-            except Exception:
-                try:
-                    err = raw_err.decode("utf-8", errors="strict")
-                except Exception:
-                    err = raw_err.decode("latin-1", errors="replace")
+            # stdout and stderr are already decoded strings
+            out = proc.stdout or ""
+            err = proc.stderr or ""
             
             # Combine output for logging
             combined_output = ""
@@ -223,7 +210,13 @@ def run_cmd(
                     log.info("Clearing npm cache (force) before retry.")
                     npm_exe = shutil.which("npm.cmd") or shutil.which("npm")
                     if npm_exe and not DRY_RUN:
-                        subprocess.run([npm_exe, "cache", "clean", "--force"], check=False)
+                        subprocess.run(
+                            [npm_exe, "cache", "clean", "--force"], 
+                            check=False,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace'
+                        )
                 except Exception:
                     log.exception("npm cache clear failed (ignored).")
             log.info("Waiting %d seconds before retry...", retry_delay)
