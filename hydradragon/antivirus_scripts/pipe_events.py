@@ -289,9 +289,14 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
                         logger.info(f"[EDR] Received threat event: {event.get('file_path')}")
 
                         # Schedule processing on event loop
-                        asyncio.run_coroutine_threadsafe(
+                        future = asyncio.run_coroutine_threadsafe(
                             _process_threat_event(event),
                             loop
+                        )
+                        # Don't wait for result to avoid blocking, but add callback for errors
+                        future.add_done_callback(lambda f:
+                            logger.error(f"Error in _process_threat_event: {f.exception()}")
+                            if f.exception() else None
                         )
                     except Exception as e:
                         logger.error(f"[EDR] Error processing threat event: {e}")
@@ -361,10 +366,18 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                     data = None
 
                 if data:
-                    asyncio.run_coroutine_threadsafe(
-                        _process_mbr_alert(data),
-                        loop
-                    )
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            _process_mbr_alert(data),
+                            loop
+                        )
+                        # Don't wait for result to avoid blocking, but add callback for errors
+                        future.add_done_callback(lambda f:
+                            logger.error(f"Error in _process_mbr_alert: {f.exception()}")
+                            if f.exception() else None
+                        )
+                    except Exception as schedule_error:
+                        logger.error(f"Failed to schedule MBR alert processing: {schedule_error}")
 
             except pywintypes.error as e:
                 winerror = getattr(e, 'winerror', None)
@@ -398,6 +411,7 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
 # ============================================================================#
 
 async def _process_self_defense_alert(data: bytes):
+    """Process self-defense alerts with comprehensive error handling to prevent crashes."""
     try:
         # Decode the raw message
         message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
@@ -494,10 +508,18 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                     data = None
 
                 if data:
-                    asyncio.run_coroutine_threadsafe(
-                        _process_self_defense_alert(data),
-                        loop
-                    )
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            _process_self_defense_alert(data),
+                            loop
+                        )
+                        # Don't wait for result to avoid blocking, but add callback for errors
+                        future.add_done_callback(lambda f:
+                            logger.error(f"Error in _process_self_defense_alert: {f.exception()}")
+                            if f.exception() else None
+                        )
+                    except Exception as schedule_error:
+                        logger.error(f"Failed to schedule self-defense alert processing: {schedule_error}")
 
             except pywintypes.error as e:
                 winerror = getattr(e, 'winerror', None)
