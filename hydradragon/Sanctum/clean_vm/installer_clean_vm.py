@@ -30,8 +30,8 @@ try:
 except Exception:
     # Fallback: replace stdout/stderr with UTF-8 versions
     import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'ignore')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'ignore')
 
 # ----------------------
 # Administrator check
@@ -111,8 +111,11 @@ def configure_bcd():
         try:
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
+                encoding='utf-8',      # ← FIXED: explicit UTF-8 encoding
+                errors='ignore',
                 check=False
             )
             if result.returncode == 0:
