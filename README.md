@@ -18,6 +18,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
+- You must uninstall it manually; the auto-uninstaller won’t work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - I make everything open source in this project but didn't make my best tool fully open source because it's horrifying, you can crack or extract source code of ANY application which has dependencies and source code of language and compiler (for example Nuitka) because ultra modern advanced dynamic analysis is killer. For anyone wonder this please contact me at discord.
 - Disable Secure Boot if the driver installation fails.
