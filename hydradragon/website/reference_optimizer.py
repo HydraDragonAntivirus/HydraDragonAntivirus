@@ -114,12 +114,10 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     total_refs = len(registry.id_to_ref)
     print(f"Collected {total_refs} unique references.")
 
-    # Save references list (human readable) and binary hrff
+    # Save references list (human readable)
     refs_txt = out_dir / "references.txt"
-    refs_hrf = out_dir / "references.hrf"
     registry.save_text(refs_txt)
-    registry.save(refs_hrf)
-    print(f"Wrote {refs_txt} and {refs_hrf}")
+    print(f"Wrote {refs_txt}")
 
     # Second pass: rewrite files to .optimized.csv replacing refs with IDs
     print("Rewriting files with reference IDs...")
