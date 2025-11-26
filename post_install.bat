@@ -57,35 +57,16 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 6) Install ProcessRegeditFileProtection driver as a service
+:: 6) Install ProcessRegeditFileProtection driver
 :: --------------------------------------------------------
-set "PROCESS_REG_FILE_PROT_SYS=%~dp0hydradragon\ProcessRegeditFileProtection\SimplePYASProtection.sys"
-set "PROCESS_REG_FILE_PROT_SERVICE=SimplePYASProtection"
-
-if exist "%PROCESS_REG_FILE_PROT_SYS%" (
-    echo [*] Creating ProcessRegeditFileProtection service...
-    
-    :: Delete service if it exists
-    sc query "%PROCESS_REG_FILE_PROT_SERVICE%" >nul 2>&1
-    if %errorlevel% equ 0 (
-        echo [*] Existing service found, deleting...
-        sc delete "%PROCESS_REG_FILE_PROT_SERVICE%"
-        timeout /t 2 >nul
-    )
-
-    :: Create the service
-    sc create "%PROCESS_REG_FILE_PROT_SERVICE%" binPath= "%PROCESS_REG_FILE_PROT_SYS%" type= kernel start= auto error= normal
-
-    if %errorlevel% neq 0 (
-        echo [!] Failed to create ProcessRegeditFileProtection service.
-        pause
-        exit /b
-    ) else (
-        echo [+] ProcessRegeditFileProtection service created.
-    )
-) else (
-    echo [!] SimplePYASProtection.sys not found at "%PROCESS_REG_FILE_PROT_SYS%".
+echo Installing ProcessRegeditFileProtection driver INF...
+pnputil /add-driver "%~dp0hydradragon\ProcessRegeditFileProtection\SimplePYASProtection.inf" /install
+if %errorlevel% neq 0 (
+    echo [!] ProcessRegeditFileProtection driver install failed.
+    pause
+    exit /b
 )
+echo [+] ProcessRegeditFileProtection driver installed.
 
 :: --------------------------------------------------------
 :: 7) Install OwlyShield anti-ransom service (auto)
