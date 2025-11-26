@@ -65,6 +65,11 @@ def parse_threat_line(line: str) -> Tuple[Optional[str], List[str]]:
         return None, []
     parts = s.split(",", 1)
     domain = parts[0].strip().lower()
+
+    # Skip CSV header lines
+    if domain in {"entry", "domain", "threat", "indicator"}:
+        return None, []
+
     refs: List[str] = []
     if len(parts) > 1:
         refs_part = parts[1]
