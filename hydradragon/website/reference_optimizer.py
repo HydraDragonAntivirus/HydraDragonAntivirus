@@ -52,23 +52,37 @@ class ReferenceRegistry:
 # -----------------------
 # CSV parsing helpers
 # -----------------------
-def parse_threat_line(line: str) -> Tuple[Optional[str], List[str]]:
+def parse_threat_line(line: str, is_first_line: bool = False) -> Tuple[Optional[str], List[str]]:
     """
     Parse a line like:
       domain,ref1 | ref2 | ref3
     Return (domain or None, [reference strings...])
+
+    Args:
+        line: The line to parse
+        is_first_line: If True, check if this looks like a CSV header and skip it
     """
     if not line:
         return None, []
     s = line.strip()
     if not s or s.startswith("#"):
         return None, []
+
+    # Skip CSV header line if it's the first line and looks like a header
+    if is_first_line and "," in s:
+        parts = s.split(",", 1)
+        first_col = parts[0].strip().lower()
+        # Check if first column looks like a header name
+        if first_col in {"entry", "domain", "threat", "indicator", "ip", "address"}:
+            return None, []
+        # Also check if second column looks like a header
+        if len(parts) > 1:
+            second_col = parts[1].strip().lower()
+            if second_col in {"reference", "references", "source", "description"}:
+                return None, []
+
     parts = s.split(",", 1)
     domain = parts[0].strip().lower()
-
-    # Skip CSV header lines
-    if domain in {"entry", "domain", "threat", "indicator"}:
-        return None, []
 
     refs: List[str] = []
     if len(parts) > 1:
@@ -109,8 +123,8 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
     print(f"Scanning {len(files)} file(s) for references...")
     for p in files:
         with p.open("r", encoding="utf-8", errors="ignore") as f:
-            for raw in f:
-                domain, refs = parse_threat_line(raw)
+            for line_num, raw in enumerate(f):
+                domain, refs = parse_threat_line(raw, is_first_line=(line_num == 0))
                 if not domain:
                     continue
                 for r in refs:
@@ -130,8 +144,8 @@ def build_registry_and_rewrite(input_dir: Path, out_dir: Path):
         outp = out_dir / (p.stem + ".optimized.csv")
         with p.open("r", encoding="utf-8", errors="ignore") as fin, \
              outp.open("w", encoding="utf-8") as fout:
-            for raw in fin:
-                domain, refs = parse_threat_line(raw)
+            for line_num, raw in enumerate(fin):
+                domain, refs = parse_threat_line(raw, is_first_line=(line_num == 0))
                 if not domain:
                     fout.write("\n")  # preserve blank/comment lines as blank
                     continue
