@@ -7,12 +7,11 @@ Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 11/28/2025,14.28.7.922
+DriverVer = 11/28/2025,14.33.8.104
 PnpLockdown=1
 
 [DestinationDirs]
 DefaultDestDir = 12
-SimplePYASProtection_Device_CoInstaller_CopyFiles = 11
 
 ; ================= Class section =====================
 
@@ -21,8 +20,6 @@ SimplePYASProtection_Device_CoInstaller_CopyFiles = 11
 
 [SourceDisksFiles]
 SimplePYASProtection.sys = 1,,
-;
-
 
 ;*****************************************
 ; Install Section
@@ -49,25 +46,6 @@ ServiceType = 1 ; SERVICE_KERNEL_DRIVER
 StartType = 1   ; SERVICE_SYSTEM_START
 ErrorControl = 1 ; SERVICE_ERROR_NORMAL
 ServiceBinary = %12%\SimplePYASProtection.sys
-
-;--- Device Coinstaller installation ---
-[SimplePYASProtection_Device.NT.CoInstallers]
-AddReg=SimplePYASProtection_Device_CoInstaller_AddReg
-CopyFiles=SimplePYASProtection_Device_CoInstaller_CopyFiles
-
-[SimplePYASProtection_Device_CoInstaller_AddReg]
-;
-
-
-[SimplePYASProtection_Device_CoInstaller_CopyFiles]
-;
-
-
-[SimplePYASProtection_Device.NT.Wdf]
-KmdfService = SimplePYASProtection, SimplePYASProtection_wdfsect
-
-[SimplePYASProtection_wdfsect]
-KmdfLibraryVersion = 1.15
 
 [Strings]
 SPSVCINST_ASSOCSERVICE= 0x00000002
