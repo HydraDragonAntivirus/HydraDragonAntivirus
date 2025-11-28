@@ -1,5 +1,5 @@
 ; SimplePYASProtection.inf
-;
+; Legacy kernel driver installation
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -7,13 +7,11 @@ Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%ManufacturerName%
 CatalogFile=SimplePYASProtection.cat
-DriverVer = 11/28/2025,14.33.8.104
+DriverVer = 11/28/2025,14.36.42.344
 PnpLockdown=1
 
 [DestinationDirs]
 DefaultDestDir = 12
-
-; ================= Class section =====================
 
 [SourceDisksNames]
 1 = %DiskName%,,,""
@@ -21,24 +19,14 @@ DefaultDestDir = 12
 [SourceDisksFiles]
 SimplePYASProtection.sys = 1,,
 
-;*****************************************
-; Install Section
-;*****************************************
-[Manufacturer]
-%ManufacturerName%=Standard,NTamd64
-
-[Standard.NTamd64]
-%SimplePYASProtection.DeviceDesc%=SimplePYASProtection_Device, Root\HydraDragonAntivirus
-
-[SimplePYASProtection_Device.NT]
+[DefaultInstall.NTamd64]
 CopyFiles=Drivers_Dir
+
+[DefaultInstall.NTamd64.Services]
+AddService = SimplePYASProtection,0x00000002, SimplePYASProtection_Service_Inst
 
 [Drivers_Dir]
 SimplePYASProtection.sys
-
-;-------------- Service installation --------------
-[SimplePYASProtection_Device.NT.Services]
-AddService = SimplePYASProtection,%SPSVCINST_ASSOCSERVICE%, SimplePYASProtection_Service_Inst
 
 [SimplePYASProtection_Service_Inst]
 DisplayName = %SimplePYASProtection.SVCDESC%
@@ -48,9 +36,6 @@ ErrorControl = 1 ; SERVICE_ERROR_NORMAL
 ServiceBinary = %12%\SimplePYASProtection.sys
 
 [Strings]
-SPSVCINST_ASSOCSERVICE= 0x00000002
-ManufacturerName="HydraDragon"
-ClassName="Samples"
-DiskName = "HydraDragonAntivirus Installation Disk"
-SimplePYASProtection.DeviceDesc = "HydraDragonAntivirus Device"
+ManufacturerName="SimplePYAS"
+DiskName = "SimplePYASProtection Installation Disk"
 SimplePYASProtection.SVCDESC = "SimplePYASProtection Kernel Driver"
