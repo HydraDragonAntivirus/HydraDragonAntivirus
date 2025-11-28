@@ -159,7 +159,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Tip 2:**
 
-- Use VSCode, VSCodium, or another editor to see live changes to .log files if you're on Windows 10, because Windows 11 Notepad automatically detects changes.
+- Use VSCode, VSCodium, or another editor to see live changes to .log files.
 
 **Tip 3:**
 
