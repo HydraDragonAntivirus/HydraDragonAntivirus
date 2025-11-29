@@ -59,33 +59,9 @@ async def async_to_thread(func, *args, operation_name="UNKNOWN", timeout=300, **
 # Exception Handling
 # ==============================================================================
 
-def handle_task_exception(loop, context):
-    """Global handler for uncaught task exceptions."""
-    exception = context.get('exception')
-    message = context.get('message', 'No message')
-    task = context.get('task')
 
-    logger.error("=" * 60)
-    logger.error(f"[TASK EXCEPTION] {message}")
-    if task:
-        logger.error(f"[TASK] {task.get_name()}: done={task.done()}, cancelled={task.cancelled()}")
-    if exception:
-        logger.exception("Exception details:", exc_info=exception)
-    logger.error("=" * 60)
 
-def create_safe_task(coro, *, name=None):
-    """Create task with automatic exception logging."""
-    async def wrapped():
-        try:
-            return await coro
-        except asyncio.CancelledError:
-            logger.info(f"[TASK] Cancelled: {name or 'unnamed'}")
-            raise
-        except Exception as e:
-            logger.exception(f"[TASK] Failed: {name or 'unnamed'} - {e}")
-            raise
 
-    return asyncio.create_task(wrapped(), name=name)
 
 
 # ==============================================================================
@@ -282,15 +258,15 @@ async def main_async():
 
     # Configure event loop
     loop.set_debug(False)  # Disable debug mode in production
-    loop.set_exception_handler(handle_task_exception)
+
     loop.set_default_executor(_THREAD_POOL)
 
     logger.info("[INIT] Event loop configured")
 
     # Create main service tasks
     logger.info("[INIT] Creating service tasks...")
-    rtp_task = create_safe_task(start_real_time_protection_async(), name="RealTimeProtection")
-    updates_task = create_safe_task(run_periodic_updates_async(), name="PeriodicUpdates")
+    rtp_task = asyncio.create_task(start_real_time_protection_async(), name="RealTimeProtection")
+    updates_task = asyncio.create_task(run_periodic_updates_async(), name="PeriodicUpdates")
 
     logger.info("=" * 60)
     logger.info("[INIT] ✓ All services started")
