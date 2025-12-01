@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.ServiceProcess;
 
 namespace HydraDragonAntivirusLauncher
 {
@@ -7,7 +6,6 @@ namespace HydraDragonAntivirusLauncher
     {
         private readonly ILogger<Worker> _logger = logger;
         private Process? _childProcess;  // Marked as nullable
-        private Process? _guiProcess;    // Marked as nullable
 
         // Restart supervision settings
         private readonly bool _restartOnCrash = true;
@@ -75,9 +73,6 @@ namespace HydraDragonAntivirusLauncher
                     // Dispose child and consider restart
                     _childProcess.Dispose();
                     _childProcess = null;
-
-                    // Also ensure GUI is stopped when child exits (so restart will re-open it)
-                    await StopGuiIfOwnedAsync();
 
                     if (_restartOnCrash && !stoppingToken.IsCancellationRequested)
                     {
@@ -175,9 +170,6 @@ namespace HydraDragonAntivirusLauncher
                 _logger.LogWarning(ex, "Failed to start sanctum_ppl_runner via 'sc start'.");
             }
 
-            // 2b) OwlyShield Service: Start and monitor for up to 30 seconds
-            await MonitorAndStartServiceAsync("OwlyShield Service", TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(1), ct);
-
             // 3) um_engine.exe
             await RunExeAsync(umPath);
 
@@ -186,114 +178,11 @@ namespace HydraDragonAntivirusLauncher
         }
 
         // ------------------------------------------------------------
-        // Service Monitoring
-        // ------------------------------------------------------------
-        private async Task MonitorAndStartServiceAsync(string serviceName, TimeSpan timeout, TimeSpan checkInterval, CancellationToken ct)
-        {
-            _logger.LogInformation("Starting monitoring for service '{service}' for a maximum of {seconds} seconds.", serviceName, timeout.TotalSeconds);
-            var stopwatch = Stopwatch.StartNew();
-
-            while (stopwatch.Elapsed < timeout && !ct.IsCancellationRequested)
-            {
-                bool isRunning = false;
-                try
-                {
-                    using var sc = new ServiceController(serviceName);
-                    isRunning = (sc.Status == ServiceControllerStatus.Running);
-                }
-                catch (InvalidOperationException)
-                {
-                    // Service is not installed
-                    _logger.LogWarning("Service '{service}' is not installed. Stopping monitoring.", serviceName);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error checking status of service '{service}'.", serviceName);
-                }
-
-                if (isRunning)
-                {
-                    _logger.LogInformation("Service '{service}' is running. Monitoring stopped.", serviceName);
-                    return;
-                }
-                else
-                {
-                    _logger.LogInformation("Service '{service}' is not running. Attempting to start...", serviceName);
-                    try
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = "sc",
-                            Arguments = $"start \"{serviceName}\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
-                        Process.Start(psi);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to issue 'sc start' for service '{service}'.", serviceName);
-                    }
-                }
-
-                // Wait for the next check interval
-                await Task.Delay(checkInterval, ct);
-            }
-
-            if (stopwatch.Elapsed >= timeout)
-            {
-                _logger.LogWarning("Stopped monitoring for service '{service}' after timeout of {seconds} seconds.", serviceName, timeout.TotalSeconds);
-            }
-        }
-
-
-        // ------------------------------------------------------------
         // HydraDragon supervision methods
         // ------------------------------------------------------------
         private void StartHydraDragon()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            // ------------------------
-            // Try to start the GUI (Moved to top per request)
-            // ------------------------
-            try
-            {
-                // Path relative to service base folder
-                string guiRelative = Path.Combine("HydraDragonAntivirusGUI", "HydraDragonAntivirusGUI.exe");
-                string guiFull = Path.Combine(baseDir, guiRelative);
-
-                if (File.Exists(guiFull))
-                {
-                    // If another instance already running, skip launching another
-                    bool alreadyRunning = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(guiFull)).Length > 0;
-                    if (!alreadyRunning)
-                    {
-                        var guiPsi = new ProcessStartInfo
-                        {
-                            FileName = guiFull,
-                            WorkingDirectory = Path.GetDirectoryName(guiFull) ?? baseDir,  // Null-coalescing added
-                            UseShellExecute = true, // run with normal shell so GUI appears on desktop
-                        };
-
-                        _guiProcess = Process.Start(guiPsi);
-                        _logger.LogInformation("Launched GUI at {path} (pid {pid})", guiFull, _guiProcess?.Id);
-                    }
-                    else
-                    {
-                        _logger.LogInformation("GUI already running, will not start a second instance: {exe}", guiFull);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("GUI executable not found at: {path}", guiFull);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to start GUI executable.");
-            }
 
             // ------------------------
             // Start HydraDragon Core
@@ -418,54 +307,8 @@ namespace HydraDragonAntivirusLauncher
                 _childProcess = null;
             }
 
-            // Ensure GUI is stopped as well if we started it
-            await StopGuiIfOwnedAsync();
-
             // small grace delay
             await Task.Delay(50);
-        }
-
-        private async Task StopGuiIfOwnedAsync()
-        {
-            if (_guiProcess == null) return;
-
-            try
-            {
-                // if still running try graceful close first (CloseMainWindow) then kill
-                if (!_guiProcess.HasExited)
-                {
-                    _logger.LogInformation("Stopping GUI process (pid {pid}).", _guiProcess.Id);
-                    try
-                    {
-                        _guiProcess.CloseMainWindow();
-                    }
-                    catch { /* ignore */ }
-
-                    // wait a bit for it to exit
-                    if (!_guiProcess.WaitForExit(2000))
-                    {
-                        try
-                        {
-                            _guiProcess.Kill(true);
-                        }
-                        catch (Exception exKill)
-                        {
-                            _logger.LogWarning(exKill, "Failed to kill GUI process.");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error while stopping GUI process.");
-            }
-            finally
-            {
-                try { _guiProcess?.Dispose(); } catch { }
-                _guiProcess = null;
-            }
-
-            await Task.CompletedTask;
         }
     }
 }
