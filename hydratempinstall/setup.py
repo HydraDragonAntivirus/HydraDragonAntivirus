@@ -440,20 +440,20 @@ def main():
     errors: List[tuple] = []
     log.info("Starting setup (DRY_RUN=%s)", DRY_RUN)
 
-    # 1. Copy clamavconfig
-    clamavconf_src = HYDRADRAGON_PATH / "clamavconfig"
+    # 1. Copy clamav_config
+    clamavconf_src = HYDRADRAGON_PATH / "clamav_config"
     if clamavconf_src.exists():
-        log.info("Copying clamavconfig -> %s", CLAMAV_DIR)
+        log.info("Copying clamav_config -> %s", CLAMAV_DIR)
         rc = safe_copy_dir(clamavconf_src, CLAMAV_DIR)
         if rc == 0:
             rc_del = safe_delete_dir(clamavconf_src)
             if rc_del != 0:
-                log.warning("Failed to remove clamavconfig after copy. rc=%d", rc_del)
-                errors.append(("clamavconfig delete", rc_del))
+                log.warning("Failed to remove clamav_config after copy. rc=%d", rc_del)
+                errors.append(("clamav_config delete", rc_del))
         else:
-            errors.append(("clamavconfig copy", rc))
+            errors.append(("clamav_config copy", rc))
     else:
-        log.info("clamavconfig directory not found.")
+        log.info("clamav_config directory not found.")
 
     # 2-3. Copy suricata.yaml & threshold.config
     hipsconfig = HYDRADRAGON_PATH / "hipsconfig"
