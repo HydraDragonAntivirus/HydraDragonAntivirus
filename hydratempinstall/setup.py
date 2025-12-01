@@ -414,6 +414,104 @@ def verify_node_accessible():
         log.error("node.exe not found in PATH")
         return False
 
+def install_owlyshield_service() -> int:
+    """
+    Install OwlyShield anti-ransom service.
+    Returns 0 on success, non-zero on failure.
+    """
+    OWLY_TARGET_EXE = HYDRADRAGON_PATH / "Owlyshield" / "Owlyshield Service" / "owlyshield_ransom.exe"
+    OWLY_SERVICE_NAME = "OwlyShield Service"
+    
+    log.info("Preparing OwlyShield anti-ransom service...")
+    
+    if not OWLY_TARGET_EXE.exists():
+        log.warning("OwlyShield target executable not found at %s; service not created.", OWLY_TARGET_EXE)
+        return 1
+    
+    # Check if service already exists
+    try:
+        query_result = subprocess.run(
+            ["sc", "query", OWLY_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if query_result.returncode == 0:
+            log.info("Existing service '%s' found, deleting it first...", OWLY_SERVICE_NAME)
+            if not DRY_RUN:
+                delete_result = subprocess.run(
+                    ["sc", "delete", OWLY_SERVICE_NAME],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if delete_result.returncode != 0:
+                    log.warning("Failed to delete existing service: %s", delete_result.stderr)
+                else:
+                    log.info("Existing service deleted successfully")
+                    time.sleep(2)  # Wait for service deletion to complete
+            else:
+                log.info("DRY RUN - would delete existing service")
+    except Exception as e:
+        log.warning("Error checking for existing service: %s", e)
+    
+    # Create the service
+    log.info("Creating service '%s' pointing to '%s'...", OWLY_SERVICE_NAME, OWLY_TARGET_EXE)
+    
+    if DRY_RUN:
+        log.info("DRY RUN - would create OwlyShield service")
+        return 0
+    
+    try:
+        # Note: sc create requires exact format with spaces after binPath= and start=
+        create_cmd = [
+            "sc", "create", OWLY_SERVICE_NAME,
+            "binPath=", f'"{OWLY_TARGET_EXE}"',
+            "start=", "demand"
+        ]
+        
+        create_result = subprocess.run(
+            create_cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False
+        )
+        
+        if create_result.returncode != 0:
+            log.error("Failed to create OwlyShield service. Error: %s", create_result.stderr)
+            return create_result.returncode
+        else:
+            log.info("OwlyShield service '%s' created successfully.", OWLY_SERVICE_NAME)
+            
+            # Set service description
+            desc_cmd = [
+                "sc", "description", OWLY_SERVICE_NAME,
+                "OwlyShield anti-ransom service (HydraDragon)"
+            ]
+            
+            desc_result = subprocess.run(
+                desc_cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                check=False
+            )
+            
+            if desc_result.returncode != 0:
+                log.warning("Failed to set service description: %s", desc_result.stderr)
+            else:
+                log.info("Service description set successfully")
+            
+            return 0
+            
+    except Exception as e:
+        log.exception("Exception while creating OwlyShield service: %s", e)
+        return 1
+
 # ----------------------
 # Main workflow
 # ----------------------
@@ -619,6 +717,14 @@ def main():
             errors.append(("sanctum root copy", rc))
     else:
         log.info("Sanctum folder not found. Skipping.")
+
+    # ------------------------------
+    # OwlyShield Service Installation
+    # ------------------------------
+    log.info("Installing OwlyShield anti-ransom service...")
+    rc = install_owlyshield_service()
+    if rc != 0:
+        errors.append(("owlyshield service install", rc))
 
     # ------------------------------
     # Python / Development environment setup
