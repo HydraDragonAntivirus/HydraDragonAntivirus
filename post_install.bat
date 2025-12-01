@@ -126,7 +126,31 @@ if %errorlevel% neq 0 (
 echo [+] ProcessRegeditFileProtection driver installed.
 
 :: --------------------------------------------------------
-:: 8) Cleanup and restart
+:: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
+:: --------------------------------------------------------
+set "HD_TASK_EXE=%~dp0HydraDragonTaskScheduler.exe"
+
+if exist "%HD_TASK_EXE%" (
+    echo Checking for existing HydraDragonAntivirus scheduled task...
+    schtasks /query /tn "HydraDragonAntivirus" >nul 2>&1
+)
+
+if %errorlevel%==0 (
+    echo Existing task found, deleting...
+    schtasks /delete /tn "HydraDragonAntivirus" /f >nul 2>&1
+)
+
+echo Creating HydraDragonAntivirus auto-start task (user interactive)...
+schtasks /create /tn "HydraDragonAntivirus" /tr "\"%HD_TASK_EXE%\"" /sc ONLOGON /rl HIGHEST /f
+
+if %errorlevel% neq 0 (
+    echo [!] Failed to create HydraDragonAntivirus auto-start task.
+) else (
+    echo [+] HydraDragonAntivirus auto-start task created successfully.
+)
+
+:: --------------------------------------------------------
+:: 7) Cleanup and restart
 :: --------------------------------------------------------
 echo Cleaning up installer script and restarting system in 10 seconds...
 shutdown -r -t 10
