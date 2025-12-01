@@ -128,7 +128,7 @@ echo [+] ProcessRegeditFileProtection driver installed.
 :: --------------------------------------------------------
 :: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
 :: --------------------------------------------------------
-set "HD_TASK_EXE=%~dp0Service\HydraDragonTaskScheduler.exe"
+set "HD_TASK_EXE=%~dp0Service\HydraDragonAntivirusTaskScheduler.exe"
 
 if exist "%HD_TASK_EXE%" (
     echo Checking for existing HydraDragonAntivirus scheduled task...
