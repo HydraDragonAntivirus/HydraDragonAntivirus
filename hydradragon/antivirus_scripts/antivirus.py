@@ -6092,9 +6092,12 @@ class PyInstArchive:
 
                 try:
                     # for Python > 3.3 some keys are bytes object some are str object
-                    fileName = fileName.decode("utf-8")
+                    fileName = fileName.__str__()
                 except:
-                    pass
+                    try:
+                        fileName = fileName.decode("utf-8")
+                    except:
+                        pass
 
                 # Prevent writing outside dirName
                 fileName = fileName.replace("..", "__").replace(".", os.path.sep)
