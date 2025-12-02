@@ -44,19 +44,8 @@ namespace HydraDragonAntivirusTaskScheduler
                 _logger.LogWarning(ex, "Failed during sanctum initialization sequence.");
             }
 
-            // --------------------------------------------------
-            // Main worker loop
-            // --------------------------------------------------
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                if (_logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
-                }
-                await Task.Delay(1000, stoppingToken);
-            }
-
-            _logger.LogInformation("TaskScheduler Worker stopping at: {time}", DateTimeOffset.Now);
+            // Keep service running until cancellation
+            await Task.Delay(Timeout.Infinite, stoppingToken);
         }
 
         // ------------------------------------------------------------
