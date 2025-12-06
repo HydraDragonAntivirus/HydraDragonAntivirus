@@ -110,8 +110,15 @@ namespace HydraDragonAntivirusTaskScheduler
             string umPath = Path.Combine(sanctumDir, "um_engine.exe");
             string appPath = Path.Combine(sanctumDir, "app.exe");
 
+            // HydraDragonAntivirus paths
+            string hydraDragonLauncherPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "HydraDragonAntivirus",
+                "HydraDragonAntivirusLauncher.exe"
+            );
+
             // helper for launching exe
-            async Task RunExeAsync(string exePath, string args = "")
+            async Task RunExeAsync(string exePath, string args = "", bool fireAndForget = false)
             {
                 if (!File.Exists(exePath))
                 {
@@ -133,8 +140,19 @@ namespace HydraDragonAntivirusTaskScheduler
                         StandardErrorEncoding = System.Text.Encoding.UTF8
                     };
                     var p = Process.Start(psi);
-                    _logger.LogInformation("Started: {exe} (pid {pid})", exePath, p?.Id);
-                    await Task.Delay(2000, ct); // small delay for sequential order
+                    if (p != null)
+                    {
+                        _logger.LogInformation("Started: {exe} (pid {pid})", exePath, p.Id);
+
+                        if (!fireAndForget)
+                        {
+                            await Task.Delay(2000, ct); // small delay for sequential order
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to start {exe} - Process.Start returned null", exePath);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -160,7 +178,12 @@ namespace HydraDragonAntivirusTaskScheduler
                     StandardOutputEncoding = System.Text.Encoding.UTF8,
                     StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
-                Process.Start(psi);
+                var scProcess = Process.Start(psi);
+                if (scProcess != null)
+                {
+                    await scProcess.WaitForExitAsync(ct);
+                    _logger.LogInformation("sc start sanctum_ppl_runner exited with code: {code}", scProcess.ExitCode);
+                }
                 await Task.Delay(1500, ct);
             }
             catch (Exception ex)
@@ -168,11 +191,17 @@ namespace HydraDragonAntivirusTaskScheduler
                 _logger.LogWarning(ex, "Failed to start sanctum_ppl_runner via 'sc start'.");
             }
 
-            // 3) um_engine.exe
+            // 3) HydraDragonAntivirusLauncher.exe (fire and forget - it's a service host)
+            _logger.LogInformation("Starting HydraDragonAntivirusLauncher...");
+            await RunExeAsync(hydraDragonLauncherPath, fireAndForget: true);
+
+            // 4) um_engine.exe
             await RunExeAsync(umPath);
 
-            // 4) app.exe
+            // 5) app.exe
             await RunExeAsync(appPath);
+
+            _logger.LogInformation("Sanctum sequence completed.");
         }
     }
 }
