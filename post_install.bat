@@ -114,16 +114,16 @@ if %errorlevel% neq 0 (
 echo [+] MBRFilter driver installed.
 
 :: --------------------------------------------------------
-:: 7) Install ProcessRegeditFileProtection driver
+:: 7) Install SimplePYASProtection driver
 :: --------------------------------------------------------
-echo Installing ProcessRegeditFileProtection driver INF...
-pnputil /add-driver "%~dp0hydradragon\ProcessRegeditFileProtection\SimplePYASProtection.inf" /install
+echo Installing SimplePYASProtection driver INF...
+pnputil /add-driver "%~dp0hydradragon\SimplePYASProtection\SimplePYASProtection.inf" /install
 if %errorlevel% neq 0 (
-    echo [!] ProcessRegeditFileProtection driver install failed.
+    echo [!] SimplePYASProtection driver install failed.
     pause
     exit /b
 )
-echo [+] ProcessRegeditFileProtection driver installed.
+echo [+] SimplePYASProtection driver installed.
 
 :: --------------------------------------------------------
 :: 8) Register HydraDragonAntivirus scheduled task (autostart after reboot)
