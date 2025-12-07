@@ -4,7 +4,18 @@ import time
 import shutil
 import hashlib
 import pefile
+import ctypes
 from pathlib import Path
+
+
+def is_admin():
+    """
+    Check if the script is running with administrator privileges.
+    """
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
 
 def is_pe_file(file_path):
@@ -141,16 +152,30 @@ def save_results(found, out_file="pe_scan_results.txt"):
 
 def copy_to_folder(found, dest):
     """
-    Copy unique files to destination folder.
+    Copy unique files to destination folder, renaming if file name already exists.
     """
     os.makedirs(dest, exist_ok=True)
 
     count = 0
     for e in found:
         try:
-            shutil.copy2(e['path'], dest)
+            src_path = e['path']
+            filename = os.path.basename(src_path)
+            dest_path = os.path.join(dest, filename)
+            
+            # If file name exists, rename with incrementing number
+            if os.path.exists(dest_path):
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dest_path):
+                    new_filename = f"{base}_{counter}{ext}"
+                    dest_path = os.path.join(dest, new_filename)
+                    counter += 1
+                print(f"Renaming to avoid conflict: {filename} -> {os.path.basename(dest_path)}")
+            
+            shutil.copy2(src_path, dest_path)
             count += 1
-            print(f"Copied: {e['path']} -> {dest}")
+            print(f"Copied: {src_path} -> {dest_path}")
         except (OSError, PermissionError) as ex:
             continue
         except Exception as ex:
@@ -160,6 +185,16 @@ def copy_to_folder(found, dest):
 
 
 def main():
+    # Check for admin privileges
+    if not is_admin():
+        print("WARNING: Not running as administrator!")
+        print("Some system directories may be inaccessible.")
+        choice = input("Continue anyway? (y/n): ").lower()
+        if choice not in ('y', 'yes'):
+            print("Exiting. Please run as administrator for full access.")
+            sys.exit(1)
+        print()
+
     root = input("Directory to scan for PE files: ").strip()
     if not os.path.isdir(root):
         print("Invalid directory.")
