@@ -87,11 +87,14 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
     start = time.time()
 
     for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
-        # skip system or hidden directories
-        dirs[:] = [d for d in dirs if not d.startswith('$')]
         for fname in files:
             full = os.path.join(dirpath, fname)
             total_scanned += 1
+            
+            # Show progress every 1000 files
+            if total_scanned % 1000 == 0:
+                print(f"[Progress] Scanned {total_scanned} files, found {len(found)} new PE files so far...")
+            
             try:
                 size = os.path.getsize(full)
             except (OSError, PermissionError):
@@ -124,7 +127,7 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
                 'md5': md5
             }
             found.append(entry)
-            print(f"[NEW] {full} ({entry['size_mb']} MB) MD5={md5}")
+            print(f"({len(found)}) [NEW] {full} ({entry['size_mb']} MB) MD5={md5}")
 
     elapsed = time.time() - start
     print(f"\nScan complete:")
@@ -163,12 +166,12 @@ def copy_to_folder(found, dest):
             filename = os.path.basename(src_path)
             dest_path = os.path.join(dest, filename)
             
-            # If file name exists, rename with incrementing number
+            # If file name exists, rename with incrementing number in format (1), (2), etc.
             if os.path.exists(dest_path):
                 base, ext = os.path.splitext(filename)
                 counter = 1
                 while os.path.exists(dest_path):
-                    new_filename = f"{base}_{counter}{ext}"
+                    new_filename = f"{base} ({counter}){ext}"
                     dest_path = os.path.join(dest, new_filename)
                     counter += 1
                 print(f"Renaming to avoid conflict: {filename} -> {os.path.basename(dest_path)}")
