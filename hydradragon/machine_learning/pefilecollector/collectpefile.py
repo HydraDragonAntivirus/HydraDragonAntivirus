@@ -34,18 +34,45 @@ def compute_md5(file_path, chunk_size=8192):
         return None
 
 
-def scan_directory(root_dir, max_size_mb=10):
+def load_existing_hashes(folder):
+    """
+    Load MD5 hashes of all files in the specified folder.
+    Returns a set of MD5 hashes.
+    """
+    existing = set()
+    if not os.path.isdir(folder):
+        return existing
+    
+    print(f"Loading existing files from '{folder}'...")
+    count = 0
+    for fp in Path(folder).rglob('*'):
+        if not fp.is_file():
+            continue
+        h = compute_md5(str(fp))
+        if h:
+            existing.add(h)
+            count += 1
+    
+    print(f"Loaded {count} existing file hashes from '{folder}'")
+    return existing
+
+
+def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
     """
     Recursively scan the directory for unique PE files under a size threshold,
-    ignoring access-denied errors.
+    ignoring access-denied errors and files that already exist in data2.
     Returns a list of dicts with path, size(bytes), size_mb, md5.
     """
+    if existing_hashes is None:
+        existing_hashes = set()
+    
     max_size = max_size_mb * 1024 * 1024
     found = []
     seen_hashes = set()
     total_scanned = 0
+    skipped_duplicates = 0
 
-    print(f"Scanning '{root_dir}' for PE files <= {max_size_mb}MB (ignoring access errors)...")
+    print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (ignoring access errors)...")
     start = time.time()
 
     for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
@@ -66,7 +93,16 @@ def scan_directory(root_dir, max_size_mb=10):
                 continue
 
             md5 = compute_md5(full)
-            if not md5 or md5 in seen_hashes:
+            if not md5:
+                continue
+            
+            # Check if already exists in data2
+            if md5 in existing_hashes:
+                skipped_duplicates += 1
+                continue
+            
+            # Check if we've already found this in current scan
+            if md5 in seen_hashes:
                 continue
 
             seen_hashes.add(md5)
@@ -77,10 +113,13 @@ def scan_directory(root_dir, max_size_mb=10):
                 'md5': md5
             }
             found.append(entry)
-            print(f"[FOUND] {full} ({entry['size_mb']} MB) MD5={md5}")
+            print(f"[NEW] {full} ({entry['size_mb']} MB) MD5={md5}")
 
     elapsed = time.time() - start
-    print(f"\nScan complete: {len(found)} unique PE files found in {total_scanned} files scanned ({elapsed:.2f}s)")
+    print(f"\nScan complete:")
+    print(f"  - {len(found)} new unique PE files found")
+    print(f"  - {skipped_duplicates} duplicates skipped (already in data2)")
+    print(f"  - {total_scanned} total files scanned ({elapsed:.2f}s)")
     return found
 
 
@@ -90,7 +129,7 @@ def save_results(found, out_file="pe_scan_results.txt"):
     """
     try:
         with open(out_file, 'w', encoding='utf-8') as f:
-            f.write("PE Files Found:\n")
+            f.write("PE Files Found (New, not in data2):\n")
             f.write("="*40 + "\n")
             for e in found:
                 f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB ({e['size']} bytes)\nMD5: {e['md5']}\n")
@@ -102,26 +141,14 @@ def save_results(found, out_file="pe_scan_results.txt"):
 
 def copy_to_folder(found, dest):
     """
-    Copy unique files to destination folder, skipping duplicates and ignoring access errors.
+    Copy unique files to destination folder.
     """
     os.makedirs(dest, exist_ok=True)
-    existing = set()
-    for fp in Path(dest).rglob('*'):
-        if not fp.is_file():
-            continue
-        h = compute_md5(str(fp))
-        if h:
-            existing.add(h)
 
     count = 0
     for e in found:
-        md5 = e['md5']
-        if md5 in existing:
-            print(f"Skipping duplicate in dest: {e['path']}")
-            continue
         try:
             shutil.copy2(e['path'], dest)
-            existing.add(md5)
             count += 1
             print(f"Copied: {e['path']} -> {dest}")
         except (OSError, PermissionError) as ex:
@@ -144,15 +171,20 @@ def main():
     except ValueError:
         max_mb = 10
 
-    found = scan_directory(root, max_mb)
+    # Load existing hashes from data2 folder
+    dest = os.path.join(os.getcwd(), "data2")
+    existing_hashes = load_existing_hashes(dest)
+
+    # Scan directory, excluding files already in data2
+    found = scan_directory(root, max_mb, existing_hashes)
+    
     if not found:
+        print("\nNo new PE files found (all are duplicates or none match criteria).")
         sys.exit(0)
 
     save_results(found)
 
-    # Use 'data2' as the destination folder
-    dest = os.path.join(os.getcwd(), "data2")
-    choice = input(f"Copy files to '{dest}'? (y/n): ").lower()
+    choice = input(f"\nCopy {len(found)} new files to '{dest}'? (y/n): ").lower()
     if choice in ('y','yes'):
         copy_to_folder(found, dest)
     else:
