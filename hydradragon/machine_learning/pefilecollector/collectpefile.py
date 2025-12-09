@@ -9,6 +9,17 @@ import json
 from pathlib import Path
 
 
+def safe_print(text):
+    """
+    Print text with Unicode error handling.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # Replace problematic characters with safe representation
+        print(text.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
+
+
 def is_admin():
     """
     Check if the script is running with administrator privileges.
@@ -55,7 +66,7 @@ def load_existing_hashes(folder):
     if not os.path.isdir(folder):
         return existing
     
-    print(f"Loading existing files from '{folder}'...")
+    safe_print(f"Loading existing files from '{folder}'...")
     count = 0
     for fp in Path(folder).rglob('*'):
         if not fp.is_file():
@@ -65,7 +76,7 @@ def load_existing_hashes(folder):
             existing.add(h)
             count += 1
     
-    print(f"Loaded {count} existing file hashes from '{folder}'")
+    safe_print(f"Loaded {count} existing file hashes from '{folder}'")
     return existing
 
 
@@ -76,16 +87,16 @@ def load_md5_from_cache(cache_file="md5_cache.json"):
     """
     existing = set()
     if not os.path.isfile(cache_file):
-        print(f"Cache file '{cache_file}' not found.")
+        safe_print(f"Cache file '{cache_file}' not found.")
         return existing
     
     try:
         with open(cache_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             existing = set(data.get('hashes', []))
-        print(f"Loaded {len(existing)} hashes from cache file '{cache_file}'")
+        safe_print(f"Loaded {len(existing)} hashes from cache file '{cache_file}'")
     except Exception as e:
-        print(f"Error loading cache file: {e}")
+        safe_print(f"Error loading cache file: {e}")
     
     return existing
 
@@ -97,9 +108,9 @@ def save_md5_cache(hashes, cache_file="md5_cache.json"):
     try:
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump({'hashes': list(hashes)}, f, indent=2)
-        print(f"Saved {len(hashes)} hashes to cache file '{cache_file}'")
+        safe_print(f"Saved {len(hashes)} hashes to cache file '{cache_file}'")
     except Exception as e:
-        print(f"Error saving cache file: {e}")
+        safe_print(f"Error saving cache file: {e}")
 
 
 def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
@@ -117,7 +128,7 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
     total_scanned = 0
     skipped_duplicates = 0
 
-    print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (ignoring access errors)...")
+    safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (ignoring access errors)...")
     start = time.time()
 
     for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
@@ -127,7 +138,7 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
             
             # Show progress every 1000 files
             if total_scanned % 1000 == 0:
-                print(f"[Progress] Scanned {total_scanned} files, found {len(found)} new PE files so far...")
+                safe_print(f"[Progress] Scanned {total_scanned} files, found {len(found)} new PE files so far...")
             
             try:
                 size = os.path.getsize(full)
@@ -161,13 +172,13 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None):
                 'md5': md5
             }
             found.append(entry)
-            print(f"({len(found)}) [NEW] {full} ({entry['size_mb']} MB) MD5={md5}")
+            safe_print(f"({len(found)}) [NEW] {full} ({entry['size_mb']} MB) MD5={md5}")
 
     elapsed = time.time() - start
-    print(f"\nScan complete:")
-    print(f"  - {len(found)} new unique PE files found")
-    print(f"  - {skipped_duplicates} duplicates skipped (already in data2)")
-    print(f"  - {total_scanned} total files scanned ({elapsed:.2f}s)")
+    safe_print(f"\nScan complete:")
+    safe_print(f"  - {len(found)} new unique PE files found")
+    safe_print(f"  - {skipped_duplicates} duplicates skipped (already in data2)")
+    safe_print(f"  - {total_scanned} total files scanned ({elapsed:.2f}s)")
     return found
 
 
@@ -176,15 +187,15 @@ def save_results(found, out_file="pe_scan_results.txt"):
     Save scan results to a text file.
     """
     try:
-        with open(out_file, 'w', encoding='utf-8') as f:
+        with open(out_file, 'w', encoding='utf-8', errors='replace') as f:
             f.write("PE Files Found (New, not in data2):\n")
             f.write("="*40 + "\n")
             for e in found:
                 f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB ({e['size']} bytes)\nMD5: {e['md5']}\n")
                 f.write("-"*20 + "\n")
-        print(f"Results saved to '{out_file}'")
+        safe_print(f"Results saved to '{out_file}'")
     except Exception as e:
-        print(f"Failed to save results: {e}")
+        safe_print(f"Failed to save results: {e}")
 
 
 def copy_to_folder(found, dest):
@@ -208,24 +219,24 @@ def copy_to_folder(found, dest):
                     new_filename = f"{base} ({counter}){ext}"
                     dest_path = os.path.join(dest, new_filename)
                     counter += 1
-                print(f"Renaming to avoid conflict: {filename} -> {os.path.basename(dest_path)}")
+                safe_print(f"Renaming to avoid conflict: {filename} -> {os.path.basename(dest_path)}")
             
             shutil.copy2(src_path, dest_path)
             count += 1
-            print(f"Copied: {src_path} -> {dest_path}")
+            safe_print(f"Copied: {src_path} -> {dest_path}")
         except (OSError, PermissionError) as ex:
             continue
         except Exception as ex:
-            print(f"Error copying {e['path']}: {ex}")
+            safe_print(f"Error copying {e['path']}: {ex}")
 
-    print(f"\nCopied {count} new files to '{dest}'")
+    safe_print(f"\nCopied {count} new files to '{dest}'")
 
 
 def mode_1_recalc_and_scan():
     """
     Mode 1: Recalculate MD5 from data2 folder and scan a specific folder
     """
-    print("\n=== MODE 1: Recalculate MD5 and Scan Specific Folder ===\n")
+    safe_print("\n=== MODE 1: Recalculate MD5 and Scan Specific Folder ===\n")
     
     # Get data2 folder location
     dest = input("Enter data2 folder path [./data2]: ").strip() or "./data2"
@@ -241,7 +252,7 @@ def mode_1_recalc_and_scan():
     # Get folder to scan
     root = input("\nDirectory to scan for PE files: ").strip()
     if not os.path.isdir(root):
-        print("Invalid directory.")
+        safe_print("Invalid directory.")
         return
     
     max_mb = input("Max file size in MB [10]: ").strip() or "10"
@@ -254,7 +265,7 @@ def mode_1_recalc_and_scan():
     found = scan_directory(root, max_mb, existing_hashes)
     
     if not found:
-        print("\nNo new PE files found (all are duplicates or none match criteria).")
+        safe_print("\nNo new PE files found (all are duplicates or none match criteria).")
         return
     
     save_results(found)
@@ -263,21 +274,21 @@ def mode_1_recalc_and_scan():
     if choice in ('y', 'yes'):
         copy_to_folder(found, dest)
     else:
-        print("Copy skipped.")
+        safe_print("Copy skipped.")
 
 
 def mode_2_recalc_only():
     """
     Mode 2: Only recalculate MD5 from data2 folder and save to cache
     """
-    print("\n=== MODE 2: Recalculate MD5 Only ===\n")
+    safe_print("\n=== MODE 2: Recalculate MD5 Only ===\n")
     
     # Get data2 folder location
     dest = input("Enter data2 folder path [./data2]: ").strip() or "./data2"
     dest = os.path.abspath(dest)
     
     if not os.path.isdir(dest):
-        print(f"Directory '{dest}' does not exist.")
+        safe_print(f"Directory '{dest}' does not exist.")
         return
     
     # Recalculate MD5 hashes from data2
@@ -287,27 +298,27 @@ def mode_2_recalc_only():
     cache_file = input("Enter cache file name [md5_cache.json]: ").strip() or "md5_cache.json"
     save_md5_cache(existing_hashes, cache_file)
     
-    print("\nMD5 recalculation complete!")
+    safe_print("\nMD5 recalculation complete!")
 
 
 def mode_3_use_cache():
     """
     Mode 3: Use existing MD5 list from cache and scan system
     """
-    print("\n=== MODE 3: Use Existing MD5 List and Scan System ===\n")
+    safe_print("\n=== MODE 3: Use Existing MD5 List and Scan System ===\n")
     
     # Load MD5 hashes from cache
     cache_file = input("Enter cache file name [md5_cache.json]: ").strip() or "md5_cache.json"
     existing_hashes = load_md5_from_cache(cache_file)
     
     if not existing_hashes:
-        print("No hashes loaded. Please run Mode 2 first to create a cache file.")
+        safe_print("No hashes loaded. Please run Mode 2 first to create a cache file.")
         return
     
     # Get folder to scan
     root = input("\nDirectory to scan for PE files: ").strip()
     if not os.path.isdir(root):
-        print("Invalid directory.")
+        safe_print("Invalid directory.")
         return
     
     max_mb = input("Max file size in MB [10]: ").strip() or "10"
@@ -320,7 +331,7 @@ def mode_3_use_cache():
     found = scan_directory(root, max_mb, existing_hashes)
     
     if not found:
-        print("\nNo new PE files found (all are duplicates or none match criteria).")
+        safe_print("\nNo new PE files found (all are duplicates or none match criteria).")
         return
     
     save_results(found)
@@ -339,30 +350,30 @@ def mode_3_use_cache():
             new_hashes = {e['md5'] for e in found}
             existing_hashes.update(new_hashes)
             save_md5_cache(existing_hashes, cache_file)
-            print("Cache updated with new hashes.")
+            safe_print("Cache updated with new hashes.")
     else:
-        print("Copy skipped.")
+        safe_print("Copy skipped.")
 
 
 def main():
     # Check for admin privileges
     if not is_admin():
-        print("WARNING: Not running as administrator!")
-        print("Some system directories may be inaccessible.")
+        safe_print("WARNING: Not running as administrator!")
+        safe_print("Some system directories may be inaccessible.")
         choice = input("Continue anyway? (y/n): ").lower()
         if choice not in ('y', 'yes'):
-            print("Exiting. Please run as administrator for full access.")
+            safe_print("Exiting. Please run as administrator for full access.")
             sys.exit(1)
-        print()
+        safe_print("")
     
-    print("=" * 60)
-    print("PE File Scanner - Multi-Mode Operation")
-    print("=" * 60)
-    print("\nSelect Mode:")
-    print("1) Recalculate MD5 from data2 folder and scan specific folder")
-    print("2) Recalculate MD5 from data2 folder only (save to cache)")
-    print("3) Use existing MD5 cache and scan system")
-    print()
+    safe_print("=" * 60)
+    safe_print("PE File Scanner - Multi-Mode Operation")
+    safe_print("=" * 60)
+    safe_print("\nSelect Mode:")
+    safe_print("1) Recalculate MD5 from data2 folder and scan specific folder")
+    safe_print("2) Recalculate MD5 from data2 folder only (save to cache)")
+    safe_print("3) Use existing MD5 cache and scan system")
+    safe_print("")
     
     mode = input("Enter mode (1/2/3): ").strip()
     
@@ -373,7 +384,7 @@ def main():
     elif mode == '3':
         mode_3_use_cache()
     else:
-        print("Invalid mode selection.")
+        safe_print("Invalid mode selection.")
         sys.exit(1)
 
 
