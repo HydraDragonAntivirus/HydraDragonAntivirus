@@ -70,47 +70,48 @@ def process_batch_for_hash(file_paths):
 
 
 def load_existing_hashes(folder, max_workers=None):
-    """Load MD5 hashes using ProcessPoolExecutor for true parallelism."""
+    """Load MD5 hashes using a streaming approach with ProcessPoolExecutor."""
     existing = set()
     if not os.path.isdir(folder):
         return existing
     
-    safe_print(f"Loading existing files from '{folder}' (multiprocessing mode)...")
-    
-    # Collect all file paths
-    file_paths = [str(fp) for fp in Path(folder).rglob('*') if fp.is_file()]
-    
-    if not file_paths:
-        safe_print("No files found in folder.")
-        return existing
-    
+    safe_print(f"Loading existing files from '{folder}' (streaming mode)...")
+    start_time = time.time()
+
     if max_workers is None:
         max_workers = cpu_count()
     
-    safe_print(f"Processing {len(file_paths)} files with {max_workers} processes...")
+    safe_print(f"Using {max_workers} processes...")
     
-    # Split files into batches for better performance
-    batch_size = max(1, len(file_paths) // (max_workers * 4))
-    batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
-    
-    start_time = time.time()
-    processed = 0
-    
+    batch_size = 1000
+    total_processed = 0
+    total_files = 0
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_batch_for_hash, batch): batch for batch in batches}
+        # Submit batches for hashing as they are generated
+        future_to_batch = {
+            executor.submit(process_batch_for_hash, batch): batch
+            for batch in get_file_batches(folder, batch_size)
+        }
         
-        for future in as_completed(futures):
+        total_files = sum(len(b) for b in future_to_batch.values())
+        safe_print(f"Discovered {total_files} files to process in total...")
+
+        for future in as_completed(future_to_batch):
             hashes = future.result()
             existing.update(hashes)
-            processed += len(futures[future])
             
-            if processed % 500 == 0 or processed == len(file_paths):
+            batch = future_to_batch[future]
+            total_processed += len(batch)
+
+            if total_processed % (batch_size * 2) == 0:
                 elapsed = time.time() - start_time
-                rate = processed / elapsed if elapsed > 0 else 0
-                safe_print(f"Progress: {processed}/{len(file_paths)} files ({rate:.1f} files/sec)")
+                rate = total_processed / elapsed if elapsed > 0 else 0
+                safe_print(f"Progress: {total_processed}/{total_files if total_files > 0 else '...'} files ({rate:.1f} files/sec)")
     
     elapsed = time.time() - start_time
-    safe_print(f"Loaded {len(existing)} hashes in {elapsed:.2f}s ({len(existing)/elapsed:.1f} files/sec)")
+    rate = total_processed / elapsed if elapsed > 0 else 0
+    safe_print(f"Loaded {len(existing)} hashes in {elapsed:.2f}s ({rate:.1f} files/sec)")
     return existing
 
 
@@ -172,44 +173,60 @@ def process_file_batch(args):
     return results
 
 
+def get_file_batches(root_dir, batch_size=1000):
+    """Yields batches of file paths from a directory to avoid loading all paths into memory."""
+    batch = []
+    try:
+        for path in Path(root_dir).rglob('*'):
+            if path.is_file():
+                batch.append(str(path))
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
+    except PermissionError:
+        safe_print(f"Permission denied scanning in {root_dir}. Some files may be skipped.")
+    except Exception as e:
+        safe_print(f"An error occurred during file collection: {e}")
+    
+    if batch:
+        yield batch
+
+
 def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=None):
-    """Scan directory using ProcessPoolExecutor for CPU-intensive PE validation."""
+    """Scan directory using a streaming approach with ProcessPoolExecutor."""
     if existing_hashes is None:
         existing_hashes = set()
     
     max_size = max_size_mb * 1024 * 1024
     
-    safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (multiprocessing)...")
-    start = time.time()
+    safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (streaming)...")
+    start_time = time.time()
 
-    # Collect all file paths
-    safe_print("Collecting file list...")
-    file_paths = []
-    for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
-        for fname in files:
-            file_paths.append(os.path.join(dirpath, fname))
-    
-    safe_print(f"Found {len(file_paths)} files to scan...")
-    
     if max_workers is None:
         max_workers = cpu_count()
     
     safe_print(f"Using {max_workers} processes...")
     
-    # Split into batches
-    batch_size = max(1, len(file_paths) // (max_workers * 4))
-    batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
+    batch_size = 1000  # A fixed batch size for the generator
     
     found = []
     seen_hashes = set()
-    processed = 0
-    
+    total_processed = 0
+    total_files = 0  # We can't know the total count beforehand anymore
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_file_batch, (batch, max_size, existing_hashes)): batch 
-                   for batch in batches}
+        # Submit batches as they are generated
+        future_to_batch = {
+            executor.submit(process_file_batch, (batch, max_size, existing_hashes)): batch
+            for batch in get_file_batches(root_dir, batch_size)
+        }
         
-        for future in as_completed(futures):
+        total_files = sum(len(b) for b in future_to_batch.values())
+        safe_print(f"Discovered {total_files} files to scan in total...")
+
+        for future in as_completed(future_to_batch):
             batch_results = future.result()
+            batch = future_to_batch[future]
             
             for entry in batch_results:
                 md5 = entry['md5']
@@ -218,14 +235,14 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=N
                     found.append(entry)
                     safe_print(f"({len(found)}) [NEW] {entry['path']} ({entry['size_mb']} MB)")
             
-            processed += len(futures[future])
-            if processed % 1000 == 0:
-                elapsed = time.time() - start
-                rate = processed / elapsed if elapsed > 0 else 0
-                safe_print(f"[Progress] {processed}/{len(file_paths)} files ({rate:.1f} files/sec)")
+            total_processed += len(batch)
+            if total_processed % (batch_size * 2) == 0:  # Update progress less frequently
+                elapsed = time.time() - start_time
+                rate = total_processed / elapsed if elapsed > 0 else 0
+                safe_print(f"[Progress] {total_processed}/{total_files if total_files > 0 else '...'} files ({rate:.1f} files/sec)")
 
-    elapsed = time.time() - start
-    rate = len(file_paths) / elapsed if elapsed > 0 else 0
+    elapsed = time.time() - start_time
+    rate = total_processed / elapsed if elapsed > 0 else 0
     safe_print(f"\nScan complete: {len(found)} new PE files found in {elapsed:.2f}s ({rate:.1f} files/sec)")
     return found
 

@@ -60,44 +60,48 @@ def process_batch_for_hash(file_paths):
 
 
 def load_existing_hashes(folder, max_workers=None):
-    """Load hashes using multiprocessing."""
+    """Load MD5 hashes using a streaming approach with ProcessPoolExecutor."""
     existing = set()
     if not os.path.isdir(folder):
         return existing
     
-    safe_print(f"Loading files from '{folder}' (multiprocessing)...")
-    
-    file_paths = [str(fp) for fp in Path(folder).rglob('*') if fp.is_file()]
-    if not file_paths:
-        safe_print("No files found.")
-        return existing
-    
+    safe_print(f"Loading existing files from '{folder}' (streaming mode)...")
+    start_time = time.time()
+
     if max_workers is None:
         max_workers = cpu_count()
     
-    safe_print(f"Processing {len(file_paths)} files with {max_workers} processes...")
+    safe_print(f"Using {max_workers} processes...")
     
-    batch_size = max(1, len(file_paths) // (max_workers * 4))
-    batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
-    
-    start_time = time.time()
-    processed = 0
-    
+    batch_size = 1000
+    total_processed = 0
+    total_files = 0
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_batch_for_hash, batch): batch for batch in batches}
+        # Submit batches for hashing as they are generated
+        future_to_batch = {
+            executor.submit(process_batch_for_hash, batch): batch
+            for batch in get_file_batches(folder, batch_size)
+        }
         
-        for future in as_completed(futures):
+        total_files = sum(len(b) for b in future_to_batch.values())
+        safe_print(f"Discovered {total_files} files to process in total...")
+
+        for future in as_completed(future_to_batch):
             hashes = future.result()
             existing.update(hashes)
-            processed += len(futures[future])
             
-            if processed % 500 == 0 or processed == len(file_paths):
+            batch = future_to_batch[future]
+            total_processed += len(batch)
+
+            if total_processed % (batch_size * 2) == 0:
                 elapsed = time.time() - start_time
-                rate = processed / elapsed if elapsed > 0 else 0
-                safe_print(f"Progress: {processed}/{len(file_paths)} ({rate:.1f} files/sec)")
+                rate = total_processed / elapsed if elapsed > 0 else 0
+                safe_print(f"Progress: {total_processed}/{total_files if total_files > 0 else '...'} files ({rate:.1f} files/sec)")
     
     elapsed = time.time() - start_time
-    safe_print(f"Loaded {len(existing)} hashes in {elapsed:.2f}s ({len(existing)/elapsed:.1f} files/sec)")
+    rate = total_processed / elapsed if elapsed > 0 else 0
+    safe_print(f"Loaded {len(existing)} hashes in {elapsed:.2f}s ({rate:.1f} files/sec)")
     return existing
 
 
