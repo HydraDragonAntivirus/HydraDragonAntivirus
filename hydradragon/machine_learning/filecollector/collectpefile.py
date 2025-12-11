@@ -7,31 +7,21 @@ import pefile
 import ctypes
 import json
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from multiprocessing import Manager, cpu_count
 from typing import Set, List, Dict, Optional
 
 
-# Thread-safe locks
-print_lock = Lock()
-progress_lock = Lock()
-
-
 def safe_print(text):
-    """
-    Thread-safe print with Unicode error handling.
-    """
-    with print_lock:
-        try:
-            print(text)
-        except UnicodeEncodeError:
-            print(text.encode('utf-8', errors='replace').decode('utf-8', errors='replace'))
+    """Print text with Unicode error handling."""
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        print(text.encode('utf-8', errors='replace').decode('utf-8', errors='replace'), flush=True)
 
 
 def is_admin():
-    """
-    Check if the script is running with administrator privileges.
-    """
+    """Check if the script is running with administrator privileges."""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
@@ -39,99 +29,93 @@ def is_admin():
 
 
 def is_pe_file(file_path):
-    """
-    Check if the file at the specified path is a valid Portable Executable (PE) file.
-    """
+    """Check if the file is a valid PE file."""
     try:
         pefile.PE(file_path, fast_load=True)
         return True
-    except pefile.PEFormatError:
-        return False
-    except Exception:
+    except:
         return False
 
 
-def compute_md5(file_path, chunk_size=8192):
-    """
-    Compute and return the MD5 hash of the given file.
-    """
+def compute_md5(file_path, chunk_size=65536):
+    """Compute MD5 hash with larger chunk size for better performance."""
     hash_md5 = hashlib.md5()
     try:
         with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(chunk_size), b""):
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
     except Exception:
         return None
 
 
-def process_file_for_hash(file_path: str) -> Optional[str]:
-    """
-    Process a single file to compute its MD5 hash.
-    Returns the MD5 hash or None if failed.
-    """
+def process_file_for_hash(file_path):
+    """Process single file for hash - worker function for ProcessPool."""
     if not os.path.isfile(file_path):
         return None
     return compute_md5(file_path)
 
 
-def load_existing_hashes(folder, max_workers=500):
-    """
-    Load MD5 hashes of all files in the specified folder using parallel processing.
-    Returns a set of MD5 hashes.
-    """
+def process_batch_for_hash(file_paths):
+    """Process batch of files for hash computation."""
+    results = []
+    for fp in file_paths:
+        h = compute_md5(fp)
+        if h:
+            results.append(h)
+    return results
+
+
+def load_existing_hashes(folder, max_workers=None):
+    """Load MD5 hashes using ProcessPoolExecutor for true parallelism."""
     existing = set()
     if not os.path.isdir(folder):
         return existing
     
-    safe_print(f"Loading existing files from '{folder}' (parallel mode)...")
+    safe_print(f"Loading existing files from '{folder}' (multiprocessing mode)...")
     
-    # Collect all file paths first
-    file_paths = []
-    for fp in Path(folder).rglob('*'):
-        if fp.is_file():
-            file_paths.append(str(fp))
+    # Collect all file paths
+    file_paths = [str(fp) for fp in Path(folder).rglob('*') if fp.is_file()]
     
     if not file_paths:
         safe_print("No files found in folder.")
         return existing
     
-    # Determine optimal number of workers
     if max_workers is None:
-        max_workers = min(32, (os.cpu_count() or 1) * 4)
+        max_workers = cpu_count()
     
-    safe_print(f"Processing {len(file_paths)} files with {max_workers} workers...")
+    safe_print(f"Processing {len(file_paths)} files with {max_workers} processes...")
     
-    count = 0
+    # Split files into batches for better performance
+    batch_size = max(1, len(file_paths) // (max_workers * 4))
+    batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
+    
     start_time = time.time()
+    processed = 0
     
-    # Process files in parallel
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path = {executor.submit(process_file_for_hash, fp): fp 
-                          for fp in file_paths}
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_batch_for_hash, batch): batch for batch in batches}
         
-        for future in as_completed(future_to_path):
-            h = future.result()
-            if h:
-                existing.add(h)
-                count += 1
-                
-                # Progress update every 100 files
-                if count % 100 == 0:
-                    elapsed = time.time() - start_time
-                    rate = count / elapsed if elapsed > 0 else 0
-                    safe_print(f"Progress: {count}/{len(file_paths)} files ({rate:.1f} files/sec)")
+        for future in as_completed(futures):
+            hashes = future.result()
+            existing.update(hashes)
+            processed += len(futures[future])
+            
+            if processed % 500 == 0 or processed == len(file_paths):
+                elapsed = time.time() - start_time
+                rate = processed / elapsed if elapsed > 0 else 0
+                safe_print(f"Progress: {processed}/{len(file_paths)} files ({rate:.1f} files/sec)")
     
     elapsed = time.time() - start_time
-    safe_print(f"Loaded {count} existing file hashes from '{folder}' in {elapsed:.2f}s")
+    safe_print(f"Loaded {len(existing)} hashes in {elapsed:.2f}s ({len(existing)/elapsed:.1f} files/sec)")
     return existing
 
 
 def load_md5_from_cache(cache_file="md5_cache.json"):
-    """
-    Load MD5 hashes from a JSON cache file.
-    Returns a set of MD5 hashes.
-    """
+    """Load MD5 hashes from cache file."""
     existing = set()
     if not os.path.isfile(cache_file):
         safe_print(f"Cache file '{cache_file}' not found.")
@@ -141,351 +125,247 @@ def load_md5_from_cache(cache_file="md5_cache.json"):
         with open(cache_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             existing = set(data.get('hashes', []))
-        safe_print(f"Loaded {len(existing)} hashes from cache file '{cache_file}'")
+        safe_print(f"Loaded {len(existing)} hashes from cache")
     except Exception as e:
-        safe_print(f"Error loading cache file: {e}")
+        safe_print(f"Error loading cache: {e}")
     
     return existing
 
 
 def save_md5_cache(hashes, cache_file="md5_cache.json"):
-    """
-    Save MD5 hashes to a JSON cache file.
-    """
+    """Save MD5 hashes to cache file."""
     try:
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump({'hashes': list(hashes)}, f, indent=2)
-        safe_print(f"Saved {len(hashes)} hashes to cache file '{cache_file}'")
+        safe_print(f"Saved {len(hashes)} hashes to cache")
     except Exception as e:
-        safe_print(f"Error saving cache file: {e}")
+        safe_print(f"Error saving cache: {e}")
 
 
-def process_single_file(args) -> Optional[Dict]:
-    """
-    Process a single file: check if it's a PE file, compute hash, etc.
-    Returns a dict with file info if it's a new PE file, None otherwise.
-    """
-    full_path, max_size, existing_hashes, seen_hashes = args
+def process_file_batch(args):
+    """Process a batch of files - worker for ProcessPool."""
+    file_batch, max_size, existing_hashes = args
+    results = []
     
-    try:
-        size = os.path.getsize(full_path)
-    except (OSError, PermissionError):
-        return None
-
-    if size == 0 or size > max_size:
-        return None
-
-    if not is_pe_file(full_path):
-        return None
-
-    md5 = compute_md5(full_path)
-    if not md5:
-        return None
+    for full_path in file_batch:
+        try:
+            size = os.path.getsize(full_path)
+            if size == 0 or size > max_size:
+                continue
+            
+            if not is_pe_file(full_path):
+                continue
+            
+            md5 = compute_md5(full_path)
+            if not md5 or md5 in existing_hashes:
+                continue
+            
+            results.append({
+                'path': full_path,
+                'size': size,
+                'size_mb': round(size / (1024*1024), 2),
+                'md5': md5
+            })
+        except:
+            continue
     
-    # Check if already exists in data2 or already seen
-    if md5 in existing_hashes or md5 in seen_hashes:
-        return {'duplicate': True, 'md5': md5}
-    
-    entry = {
-        'path': full_path,
-        'size': size,
-        'size_mb': round(size / (1024*1024), 2),
-        'md5': md5,
-        'duplicate': False
-    }
-    return entry
+    return results
 
 
-def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=500):
-    """
-    Recursively scan the directory for unique PE files using parallel processing.
-    Returns a list of dicts with path, size(bytes), size_mb, md5.
-    """
+def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=None):
+    """Scan directory using ProcessPoolExecutor for CPU-intensive PE validation."""
     if existing_hashes is None:
         existing_hashes = set()
     
     max_size = max_size_mb * 1024 * 1024
-    found = []
-    seen_hashes = set()
-    seen_lock = Lock()
-    total_scanned = 0
-    skipped_duplicates = 0
-
-    safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (parallel mode)...")
+    
+    safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (multiprocessing)...")
     start = time.time()
 
-    # Collect all file paths first
-    file_paths = []
+    # Collect all file paths
     safe_print("Collecting file list...")
+    file_paths = []
     for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
         for fname in files:
-            full = os.path.join(dirpath, fname)
-            file_paths.append(full)
+            file_paths.append(os.path.join(dirpath, fname))
     
     safe_print(f"Found {len(file_paths)} files to scan...")
     
-    # Determine optimal number of workers
     if max_workers is None:
-        max_workers = min(32, (os.cpu_count() or 1) * 4)
+        max_workers = cpu_count()
     
-    safe_print(f"Using {max_workers} worker threads...")
+    safe_print(f"Using {max_workers} processes...")
     
-    # Process files in parallel
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_path = {}
-        for fp in file_paths:
-            args = (fp, max_size, existing_hashes, seen_hashes)
-            future = executor.submit(process_single_file, args)
-            future_to_path[future] = fp
+    # Split into batches
+    batch_size = max(1, len(file_paths) // (max_workers * 4))
+    batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
+    
+    found = []
+    seen_hashes = set()
+    processed = 0
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_file_batch, (batch, max_size, existing_hashes)): batch 
+                   for batch in batches}
         
-        # Process results as they complete
-        for future in as_completed(future_to_path):
-            total_scanned += 1
+        for future in as_completed(futures):
+            batch_results = future.result()
             
-            # Show progress every 500 files
-            if total_scanned % 500 == 0:
-                elapsed = time.time() - start
-                rate = total_scanned / elapsed if elapsed > 0 else 0
-                safe_print(f"[Progress] Scanned {total_scanned}/{len(file_paths)} files, "
-                          f"found {len(found)} new PE files ({rate:.1f} files/sec)")
-            
-            result = future.result()
-            if result is None:
-                continue
-            
-            if result.get('duplicate'):
-                skipped_duplicates += 1
-                continue
-            
-            # Thread-safe addition to results
-            with seen_lock:
-                md5 = result['md5']
+            for entry in batch_results:
+                md5 = entry['md5']
                 if md5 not in seen_hashes:
                     seen_hashes.add(md5)
-                    found.append(result)
-                    safe_print(f"({len(found)}) [NEW] {result['path']} "
-                              f"({result['size_mb']} MB) MD5={md5}")
+                    found.append(entry)
+                    safe_print(f"({len(found)}) [NEW] {entry['path']} ({entry['size_mb']} MB)")
+            
+            processed += len(futures[future])
+            if processed % 1000 == 0:
+                elapsed = time.time() - start
+                rate = processed / elapsed if elapsed > 0 else 0
+                safe_print(f"[Progress] {processed}/{len(file_paths)} files ({rate:.1f} files/sec)")
 
     elapsed = time.time() - start
-    rate = total_scanned / elapsed if elapsed > 0 else 0
-    safe_print(f"\nScan complete:")
-    safe_print(f"  - {len(found)} new unique PE files found")
-    safe_print(f"  - {skipped_duplicates} duplicates skipped (already in data2)")
-    safe_print(f"  - {total_scanned} total files scanned in {elapsed:.2f}s ({rate:.1f} files/sec)")
+    rate = len(file_paths) / elapsed if elapsed > 0 else 0
+    safe_print(f"\nScan complete: {len(found)} new PE files found in {elapsed:.2f}s ({rate:.1f} files/sec)")
     return found
 
 
 def save_results(found, out_file="pe_scan_results.txt"):
-    """
-    Save scan results to a text file.
-    """
+    """Save scan results to file."""
     try:
         with open(out_file, 'w', encoding='utf-8', errors='replace') as f:
-            f.write("PE Files Found (New, not in data2):\n")
-            f.write("="*40 + "\n")
+            f.write("PE Files Found (New):\n" + "="*40 + "\n")
             for e in found:
-                f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB ({e['size']} bytes)\nMD5: {e['md5']}\n")
-                f.write("-"*20 + "\n")
+                f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB\nMD5: {e['md5']}\n" + "-"*20 + "\n")
         safe_print(f"Results saved to '{out_file}'")
     except Exception as e:
         safe_print(f"Failed to save results: {e}")
 
 
-def copy_single_file(args):
-    """
-    Copy a single file to destination with conflict handling.
-    Returns tuple: (success: bool, message: str)
-    """
-    entry, dest = args
-    try:
-        src_path = entry['path']
-        filename = os.path.basename(src_path)
-        dest_path = os.path.join(dest, filename)
-        
-        # If file name exists, rename with incrementing number
-        if os.path.exists(dest_path):
-            base, ext = os.path.splitext(filename)
-            counter = 1
-            while os.path.exists(dest_path):
-                new_filename = f"{base} ({counter}){ext}"
-                dest_path = os.path.join(dest, new_filename)
-                counter += 1
-            msg = f"Renamed: {filename} -> {os.path.basename(dest_path)}"
-        else:
-            msg = f"Copied: {src_path} -> {dest_path}"
-        
-        shutil.copy2(src_path, dest_path)
-        return (True, msg)
-    except (OSError, PermissionError):
-        return (False, f"Permission denied: {entry['path']}")
-    except Exception as ex:
-        return (False, f"Error copying {entry['path']}: {ex}")
-
-
-def copy_to_folder(found, dest, max_workers=500):
-    """
-    Copy unique files to destination folder in parallel.
-    """
+def copy_to_folder(found, dest):
+    """Copy files using ThreadPoolExecutor (I/O bound)."""
     os.makedirs(dest, exist_ok=True)
-
-    if max_workers is None:
-        max_workers = min(16, (os.cpu_count() or 1) * 2)
     
-    safe_print(f"\nCopying files with {max_workers} worker threads...")
+    max_workers = min(16, cpu_count() * 2)
+    safe_print(f"\nCopying files with {max_workers} threads...")
+    
+    def copy_file(entry):
+        try:
+            src = entry['path']
+            filename = os.path.basename(src)
+            dest_path = os.path.join(dest, filename)
+            
+            if os.path.exists(dest_path):
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dest_path):
+                    dest_path = os.path.join(dest, f"{base} ({counter}){ext}")
+                    counter += 1
+            
+            shutil.copy2(src, dest_path)
+            return (True, f"Copied: {filename}")
+        except Exception as ex:
+            return (False, f"Error: {filename}")
     
     count = 0
-    start_time = time.time()
-    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_entry = {executor.submit(copy_single_file, (e, dest)): e 
-                          for e in found}
-        
-        for future in as_completed(future_to_entry):
+        futures = [executor.submit(copy_file, e) for e in found]
+        for future in as_completed(futures):
             success, msg = future.result()
             if success:
                 count += 1
-                safe_print(msg)
-            
-            # Progress update
-            if count % 10 == 0:
-                safe_print(f"Progress: {count}/{len(found)} files copied...")
+                if count % 10 == 0:
+                    safe_print(f"Copied {count}/{len(found)} files...")
     
-    elapsed = time.time() - start_time
-    safe_print(f"\nCopied {count}/{len(found)} files to '{dest}' in {elapsed:.2f}s")
+    safe_print(f"\nCopied {count} files to '{dest}'")
 
 
 def mode_1_recalc_and_scan():
-    """
-    Mode 1: Recalculate MD5 from data2 folder and scan a specific folder
-    """
-    safe_print("\n=== MODE 1: Recalculate MD5 and Scan Specific Folder ===\n")
-    
-    dest = input("Enter data2 folder path [./data2]: ").strip() or "./data2"
+    safe_print("\n=== MODE 1: Recalculate MD5 and Scan ===\n")
+    dest = input("Enter data2 folder [./data2]: ").strip() or "./data2"
     dest = os.path.abspath(dest)
     
     existing_hashes = load_existing_hashes(dest)
+    save_md5_cache(existing_hashes)
     
-    cache_file = "md5_cache.json"
-    save_md5_cache(existing_hashes, cache_file)
-    
-    root = input("\nDirectory to scan for PE files: ").strip()
+    root = input("\nDirectory to scan: ").strip()
     if not os.path.isdir(root):
         safe_print("Invalid directory.")
         return
     
-    max_mb = input("Max file size in MB [10]: ").strip() or "10"
-    try:
-        max_mb = int(max_mb)
-    except ValueError:
-        max_mb = 10
-    
+    max_mb = int(input("Max file size in MB [10]: ").strip() or "10")
     found = scan_directory(root, max_mb, existing_hashes)
     
     if not found:
-        safe_print("\nNo new PE files found (all are duplicates or none match criteria).")
+        safe_print("\nNo new PE files found.")
         return
     
     save_results(found)
-    
-    choice = input(f"\nCopy {len(found)} new files to '{dest}'? (y/n): ").lower()
-    if choice in ('y', 'yes'):
+    if input(f"\nCopy {len(found)} files to '{dest}'? (y/n): ").lower() in ('y', 'yes'):
         copy_to_folder(found, dest)
-    else:
-        safe_print("Copy skipped.")
 
 
 def mode_2_recalc_only():
-    """
-    Mode 2: Only recalculate MD5 from data2 folder and save to cache
-    """
     safe_print("\n=== MODE 2: Recalculate MD5 Only ===\n")
-    
-    dest = input("Enter data2 folder path [./data2]: ").strip() or "./data2"
+    dest = input("Enter data2 folder [./data2]: ").strip() or "./data2"
     dest = os.path.abspath(dest)
     
     if not os.path.isdir(dest):
-        safe_print(f"Directory '{dest}' does not exist.")
+        safe_print("Directory does not exist.")
         return
     
     existing_hashes = load_existing_hashes(dest)
-    
-    cache_file = input("Enter cache file name [md5_cache.json]: ").strip() or "md5_cache.json"
+    cache_file = input("Cache file name [md5_cache.json]: ").strip() or "md5_cache.json"
     save_md5_cache(existing_hashes, cache_file)
-    
-    safe_print("\nMD5 recalculation complete!")
+    safe_print("\nComplete!")
 
 
 def mode_3_use_cache():
-    """
-    Mode 3: Use existing MD5 list from cache and scan system
-    """
-    safe_print("\n=== MODE 3: Use Existing MD5 List and Scan System ===\n")
-    
-    cache_file = input("Enter cache file name [md5_cache.json]: ").strip() or "md5_cache.json"
+    safe_print("\n=== MODE 3: Use MD5 Cache and Scan ===\n")
+    cache_file = input("Cache file [md5_cache.json]: ").strip() or "md5_cache.json"
     existing_hashes = load_md5_from_cache(cache_file)
     
     if not existing_hashes:
-        safe_print("No hashes loaded. Please run Mode 2 first to create a cache file.")
+        safe_print("No hashes loaded. Run Mode 2 first.")
         return
     
-    root = input("\nDirectory to scan for PE files: ").strip()
+    root = input("\nDirectory to scan: ").strip()
     if not os.path.isdir(root):
         safe_print("Invalid directory.")
         return
     
-    max_mb = input("Max file size in MB [10]: ").strip() or "10"
-    try:
-        max_mb = int(max_mb)
-    except ValueError:
-        max_mb = 10
-    
+    max_mb = int(input("Max size in MB [10]: ").strip() or "10")
     found = scan_directory(root, max_mb, existing_hashes)
     
     if not found:
-        safe_print("\nNo new PE files found (all are duplicates or none match criteria).")
+        safe_print("\nNo new PE files found.")
         return
     
     save_results(found)
+    dest = input("\nDestination folder [./data2]: ").strip() or "./data2"
     
-    dest = input("\nEnter destination folder for new files [./data2]: ").strip() or "./data2"
-    dest = os.path.abspath(dest)
-    
-    choice = input(f"\nCopy {len(found)} new files to '{dest}'? (y/n): ").lower()
-    if choice in ('y', 'yes'):
+    if input(f"Copy {len(found)} files to '{dest}'? (y/n): ").lower() in ('y', 'yes'):
         copy_to_folder(found, dest)
-        
-        update_cache = input("\nUpdate cache file with new hashes? (y/n): ").lower()
-        if update_cache in ('y', 'yes'):
-            new_hashes = {e['md5'] for e in found}
-            existing_hashes.update(new_hashes)
+        if input("\nUpdate cache? (y/n): ").lower() in ('y', 'yes'):
+            existing_hashes.update(e['md5'] for e in found)
             save_md5_cache(existing_hashes, cache_file)
-            safe_print("Cache updated with new hashes.")
-    else:
-        safe_print("Copy skipped.")
 
 
 def main():
     if not is_admin():
         safe_print("WARNING: Not running as administrator!")
-        safe_print("Some system directories may be inaccessible.")
-        choice = input("Continue anyway? (y/n): ").lower()
-        if choice not in ('y', 'yes'):
-            safe_print("Exiting. Please run as administrator for full access.")
+        if input("Continue? (y/n): ").lower() not in ('y', 'yes'):
             sys.exit(1)
-        safe_print("")
     
     safe_print("=" * 60)
-    safe_print("PE File Scanner - Multi-Mode Operation (PARALLEL)")
+    safe_print("PE Scanner - Multiprocessing Mode")
     safe_print("=" * 60)
-    safe_print(f"Using up to {min(32, (os.cpu_count() or 1) * 4)} threads for I/O operations")
-    safe_print("\nSelect Mode:")
-    safe_print("1) Recalculate MD5 from data2 folder and scan specific folder")
-    safe_print("2) Recalculate MD5 from data2 folder only (save to cache)")
-    safe_print("3) Use existing MD5 cache and scan system")
-    safe_print("")
+    safe_print(f"Using {cpu_count()} CPU cores\n")
+    safe_print("1) Recalculate MD5 and scan")
+    safe_print("2) Recalculate MD5 only")
+    safe_print("3) Use cache and scan\n")
     
-    mode = input("Enter mode (1/2/3): ").strip()
+    mode = input("Mode (1/2/3): ").strip()
     
     if mode == '1':
         mode_1_recalc_and_scan()
@@ -494,8 +374,7 @@ def main():
     elif mode == '3':
         mode_3_use_cache()
     else:
-        safe_print("Invalid mode selection.")
-        sys.exit(1)
+        safe_print("Invalid mode.")
 
 
 if __name__ == '__main__':
