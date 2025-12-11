@@ -182,8 +182,12 @@ def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=N
     safe_print(f"\nScanning '{root_dir}' for PE files <= {max_size_mb}MB (multiprocessing)...")
     start = time.time()
 
+    # Collect all file paths
     safe_print("Collecting file list...")
-    file_paths = [str(p) for p in Path(root_dir).rglob('*') if p.is_file()]
+    file_paths = []
+    for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
+        for fname in files:
+            file_paths.append(os.path.join(dirpath, fname))
     
     safe_print(f"Found {len(file_paths)} files to scan...")
     
