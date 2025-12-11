@@ -3,26 +3,26 @@ import sys
 import time
 import shutil
 import hashlib
-import pefile
-import ctypes
 import json
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+import ctypes
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, Manager
 
-# --- CONFIGURATION FOR MAXIMUM AGGRESSION ---
-# Launch 2x workers per core to mask I/O latency
-FORCE_WORKER_COUNT = int(cpu_count() * 2)  
-# Read 8MB at a time to keep CPU busy hashing
-HASH_CHUNK_SIZE = 8 * 1024 * 1024  
-# Batch size for process submission
-BATCH_SIZE = 2000
+# Try to import external libs; warn if missing
+try:
+    import pefile
+except ImportError:
+    print("Error: 'pefile' is missing. Install it: pip install pefile")
+    sys.exit(1)
 
-def safe_print(text):
-    """Print text with Unicode error handling."""
-    try:
-        print(text, flush=True)
-    except UnicodeEncodeError:
-        print(text.encode('utf-8', errors='replace').decode('utf-8', errors='replace'), flush=True)
+try:
+    from tqdm import tqdm
+except ImportError:
+    print("Error: 'tqdm' is missing. Install it: pip install tqdm")
+    sys.exit(1)
+
+# --- CONFIGURATION ---
+chunk_size = 1024 * 1024  # 1MB Buffer (Sweet spot for speed/stability)
 
 def is_admin():
     try:
@@ -32,282 +32,273 @@ def is_admin():
 
 # --- OPTIMIZED WORKER FUNCTIONS ---
 
-def compute_md5_aggressive(file_path):
-    """
-    Highly optimized MD5 hasher.
-    Reads large chunks to maximize CPU time vs Disk Seek time.
-    """
+def get_md5_fast(path):
+    """Compute MD5 with efficient buffering."""
     hash_md5 = hashlib.md5()
     try:
-        # 8MB Buffer size forces CPU to work harder per read
-        with open(file_path, 'rb', buffering=HASH_CHUNK_SIZE) as f:
-            while True:
-                chunk = f.read(HASH_CHUNK_SIZE)
-                if not chunk:
-                    break
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(chunk_size), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
-    except Exception:
+    except:
         return None
 
-def is_pe_file_fast(file_path):
-    """Check if valid PE file (CPU Intensive parsing)."""
+def fast_pe_check(path):
+    """
+    1. Checks file size.
+    2. Checks first 2 bytes for 'MZ' header (Instant).
+    3. Only THEN loads pefile (Slow).
+    """
     try:
-        # Fast load only reads headers, but it still burns CPU parsing structures
-        pe = pefile.PE(file_path, fast_load=True)
+        # 1. Byte check (Extremely fast filter)
+        with open(path, 'rb') as f:
+            if f.read(2) != b'MZ':
+                return False
+        
+        # 2. Structure check
+        pe = pefile.PE(path, fast_load=True)
         pe.close()
         return True
     except:
         return False
 
-def worker_process_batch(file_batch, max_size, existing_hashes):
+def worker_scan_file(args):
     """
-    Worker process designed to burn CPU.
-    Iterates through a batch of files, checks PE, and Hashes.
+    The worker process. 
+    Receives: (filepath, max_size_bytes, existing_hashes_set)
     """
-    results = []
+    path, max_bytes, existing_hashes = args
+    result = None
     
-    for full_path in file_batch:
-        try:
-            # 1. Quick size check (OS stat is fast)
-            stat = os.stat(full_path)
-            size = stat.st_size
-            if size == 0 or size > max_size:
-                continue
+    try:
+        # Fast OS stat
+        stat = os.stat(path)
+        size = stat.st_size
+        
+        # Filter Size
+        if size == 0 or size > max_bytes:
+            return None
+
+        # Filter: Is it a PE file?
+        if not fast_pe_check(path):
+            return None
+
+        # Filter: Hash Check
+        md5 = get_md5_fast(path)
+        if not md5:
+            return None
             
-            # 2. PE Check (CPU Bound)
-            if not is_pe_file_fast(full_path):
-                continue
-            
-            # 3. MD5 Hash (CPU + I/O Bound)
-            # We do this AFTER PE check to avoid wasting I/O on text files
-            md5 = compute_md5_aggressive(full_path)
-            
-            if not md5 or md5 in existing_hashes:
-                continue
-            
-            results.append({
-                'path': full_path,
-                'size': size,
-                'size_mb': round(size / (1024*1024), 2),
-                'md5': md5
-            })
-        except Exception:
-            continue
+        if md5 in existing_hashes:
+            return None
+
+        # If we get here, it's a new file
+        result = {
+            'path': path,
+            'size_mb': round(size / (1024 * 1024), 2),
+            'md5': md5
+        }
+    except Exception:
+        return None
+        
+    return result
+
+def worker_load_hash(path):
+    """Worker just for calculating hash of existing files."""
+    return get_md5_fast(path)
+
+# --- FILE ENUMERATION ---
+
+def discover_files(root_dir):
+    """
+    Fastest way to list all files using os.scandir recursively.
+    Returns a list of all file paths.
+    """
+    file_paths = []
+    print(f"Index: Scanning file system structure of '{root_dir}'...")
     
-    return results
+    # os.walk is robust and efficient enough for listing
+    for root, _, files in os.walk(root_dir):
+        for file in files:
+            file_paths.append(os.path.join(root, file))
+            
+    print(f"Index: Found {len(file_paths)} files total.")
+    return file_paths
 
-def worker_hash_only(file_batch):
-    """Worker for just hashing (Mode 2/Initialization)."""
-    hashes = []
-    for fp in file_batch:
-        h = compute_md5_aggressive(fp)
-        if h:
-            hashes.append(h)
-    return hashes
+# --- MAIN LOGIC BLOCKS ---
 
-# --- AGGRESSIVE FILE DISCOVERY ---
-
-def get_files_fast(root_dir):
-    """
-    Generator that uses os.walk (faster than pathlib) and yields batches.
-    """
-    batch = []
-    for root, dirs, files in os.walk(root_dir):
-        for name in files:
-            batch.append(os.path.join(root, name))
-            if len(batch) >= BATCH_SIZE:
-                yield batch
-                batch = []
-    if batch:
-        yield batch
-
-# --- MAIN LOGIC ---
-
-def load_existing_hashes_aggressive(folder):
+def load_existing_hashes_tqdm(folder):
     existing = set()
     if not os.path.isdir(folder):
         return existing
-    
-    safe_print(f"Loading existing files from '{folder}' using {FORCE_WORKER_COUNT} processes...")
-    start_time = time.time()
-    
-    total_processed = 0
 
-    with ProcessPoolExecutor(max_workers=FORCE_WORKER_COUNT) as executor:
-        futures = []
-        # Quickly dispatch all batches
-        for batch in get_files_fast(folder):
-            futures.append(executor.submit(worker_hash_only, batch))
+    files = discover_files(folder)
+    if not files:
+        return existing
+
+    print("Hashing existing files...")
+    # Using ample workers for hashing as it's CPU intensive
+    max_workers = cpu_count()
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Map returns an iterator that maintains order, but we use tqdm on it
+        results = list(tqdm(executor.map(worker_load_hash, files), total=len(files), unit="file"))
         
-        safe_print(f"Queued {len(futures)} batches. Waiting for workers...")
-        
-        for future in as_completed(futures):
-            batch_hashes = future.result()
-            existing.update(batch_hashes)
-            total_processed += len(batch_hashes)
+    # Filter out Nones
+    for h in results:
+        if h:
+            existing.add(h)
             
-            # Minimal printing to reduce I/O lock
-            if len(futures) > 100 and total_processed % 10000 == 0:
-                 print(f"Processed {total_processed} files...", end='\r')
-
-    elapsed = time.time() - start_time
-    safe_print(f"\nLoaded {len(existing)} hashes in {elapsed:.2f}s")
+    print(f"Loaded {len(existing)} unique hashes.")
     return existing
 
-def scan_directory_aggressive(root_dir, max_size_mb, existing_hashes):
-    max_size = max_size_mb * 1024 * 1024
-    safe_print(f"\nScanning '{root_dir}' (AGGRESSIVE MODE)")
-    safe_print(f"Workers: {FORCE_WORKER_COUNT} | Batch Size: {BATCH_SIZE} | Read Buffer: {HASH_CHUNK_SIZE//1024}KB")
+def scan_with_tqdm(root_dir, max_mb, existing_hashes):
+    max_bytes = max_mb * 1024 * 1024
     
-    start_time = time.time()
-    found = []
-    seen_hashes = set()
-    total_processed = 0
+    # 1. Get list of files first (Fast)
+    all_files = discover_files(root_dir)
     
-    # We load existing_hashes into a Manager dict? No, passing large sets to processes is slow (pickling).
-    # Since existing_hashes is read-only, passing it as an arg is standard, 
-    # but for massive sets, the IPC overhead is high.
-    # We will pass it normally; OS copy-on-write (Linux) helps, Windows copies it.
+    if not all_files:
+        print("No files found to scan.")
+        return []
+
+    found_entries = []
     
-    with ProcessPoolExecutor(max_workers=FORCE_WORKER_COUNT) as executor:
-        futures = {}
+    # 2. Prepare arguments for workers
+    # We pass existing_hashes. Note: If this set is HUGE (millions), 
+    # passing it to every worker is slow. But for <100k files, it's fine.
+    # We pack arguments into tuples.
+    tasks = [(f, max_bytes, existing_hashes) for f in all_files]
+
+    print(f"Scanning content with {cpu_count()} cores...")
+    
+    # 3. Execute with Progress Bar
+    with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
+        # Submit all tasks
+        futures = [executor.submit(worker_scan_file, t) for t in tasks]
         
-        # 1. FILL THE QUEUE FAST
-        print("Discovering files and dispatching workers...")
-        batch_count = 0
-        for batch in get_files_fast(root_dir):
-            future = executor.submit(worker_process_batch, batch, max_size, existing_hashes)
-            futures[future] = len(batch)
-            batch_count += 1
-            if batch_count % 100 == 0:
-                print(f"Queued {batch_count} batches...", end='\r')
+        # Monitor with TQDM
+        for future in tqdm(as_completed(futures), total=len(futures), unit="file"):
+            res = future.result()
+            if res:
+                found_entries.append(res)
+                # Optional: Live print found files (can mess up progress bar visual)
+                # tqdm.write(f"Found: {res['path']}")
 
-        print(f"\nAll {batch_count} batches queued. Workers are crunching...")
-        
-        # 2. COLLECT RESULTS
-        for future in as_completed(futures):
-            results = future.result()
-            count = futures[future]
-            total_processed += count
-            
-            for entry in results:
-                if entry['md5'] not in seen_hashes:
-                    seen_hashes.add(entry['md5'])
-                    found.append(entry)
-                    print(f"[FOUND] {entry['path']} ({entry['size_mb']} MB)")
-            
-            if total_processed % 5000 == 0:
-                 print(f"Progress: {total_processed} files scanned...", end='\r')
+    print(f"\nScan Complete. Found {len(found_entries)} new PE files.")
+    return found_entries
 
-    elapsed = time.time() - start_time
-    safe_print(f"\nScan complete: {len(found)} new PE files in {elapsed:.2f}s")
-    return found
+# --- UTILITIES ---
 
-# --- UTILS ---
-
-def save_results(found, out_file="pe_scan_results.txt"):
+def save_cache(hashes, filename="md5_cache.json"):
     try:
-        with open(out_file, 'w', encoding='utf-8') as f:
-            f.write(f"PE Files Found (New) - {time.ctime()}\n" + "="*40 + "\n")
-            for e in found:
-                f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB\nMD5: {e['md5']}\n" + "-"*20 + "\n")
-        safe_print(f"Results saved to '{out_file}'")
+        with open(filename, 'w') as f:
+            json.dump({'hashes': list(hashes)}, f)
+        print("Cache saved.")
     except Exception as e:
-        safe_print(f"Failed save: {e}")
+        print(f"Error saving cache: {e}")
 
-def copy_to_folder(found, dest):
-    if not found: return
-    os.makedirs(dest, exist_ok=True)
-    # I/O bound, so use threads, but aggressive count
-    max_workers = 32 
-    safe_print(f"\nCopying files with {max_workers} threads...")
+def load_cache(filename="md5_cache.json"):
+    if not os.path.exists(filename):
+        return set()
+    try:
+        with open(filename, 'r') as f:
+            return set(json.load(f).get('hashes', []))
+    except:
+        return set()
+
+def save_report(found, filename="scan_results.txt"):
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"Scan Results - {time.ctime()}\n============================\n")
+            for entry in found:
+                f.write(f"{entry['md5']} | {entry['size_mb']}MB | {entry['path']}\n")
+        print(f"Report saved to {filename}")
+    except Exception as e:
+        print(f"Error saving report: {e}")
+
+def copy_files_tqdm(found_entries, dest_folder):
+    if not found_entries:
+        return
+
+    os.makedirs(dest_folder, exist_ok=True)
+    print(f"Copying {len(found_entries)} files to {dest_folder}...")
+
+    # Copying is Disk I/O bound, standard loop or ThreadPool is fine. 
+    # ProcessPool is bad for copying.
     
-    def copy_task(entry):
+    count = 0
+    for entry in tqdm(found_entries, unit="copy"):
         try:
             src = entry['path']
-            fname = os.path.basename(src)
-            dst = os.path.join(dest, fname)
-            if os.path.exists(dst):
-                base, ext = os.path.splitext(fname)
+            filename = os.path.basename(src)
+            dest_path = os.path.join(dest_folder, filename)
+            
+            # Handle duplicates
+            if os.path.exists(dest_path):
+                name, ext = os.path.splitext(filename)
                 c = 1
-                while os.path.exists(dst):
-                    dst = os.path.join(dest, f"{base} ({c}){ext}")
+                while os.path.exists(dest_path):
+                    dest_path = os.path.join(dest_folder, f"{name}_{c}{ext}")
                     c += 1
-            shutil.copy2(src, dst)
-            return True
-        except:
-            return False
-
-    count = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = [ex.submit(copy_task, e) for e in found]
-        for f in as_completed(futures):
-            if f.result(): count += 1
-            if count % 50 == 0: print(f"Copied {count}...", end='\r')
-    safe_print(f"\nCopied {count} files.")
-
-# --- CACHE UTILS ---
-def load_cache(f="md5_cache.json"):
-    if os.path.exists(f):
-        try:
-            with open(f) as fp: return set(json.load(fp)['hashes'])
-        except: pass
-    return set()
-
-def save_cache(hashes, f="md5_cache.json"):
-    try:
-        with open(f, 'w') as fp: json.dump({'hashes': list(hashes)}, fp)
-    except: pass
+            
+            shutil.copy2(src, dest_path)
+            count += 1
+        except Exception as e:
+            tqdm.write(f"Error copying {src}: {e}")
 
 # --- MENUS ---
 
-def run():
+def main():
     if not is_admin():
-        print("WARNING: Not Admin. Some files may be skipped.")
-    
-    print(f"=== ULTRA AGGRESSIVE PE SCANNER ===")
-    print(f"Physical Cores: {cpu_count()}")
-    print(f"Forced Workers: {FORCE_WORKER_COUNT}")
-    print("===================================\n")
-    
-    print("1. Scan & Copy (Full)")
-    print("2. Recalc Only")
-    print("3. Use Cache & Scan")
-    
-    m = input("Mode: ").strip()
-    
-    if m == '1':
-        d2 = input("Data2 (Destination): ").strip() or "./data2"
-        root = input("Scan Dir: ").strip()
-        mx = int(input("Max MB [10]: ").strip() or "10")
-        
-        exist = load_existing_hashes_aggressive(d2)
-        save_cache(exist)
-        found = scan_directory_aggressive(root, mx, exist)
-        save_results(found)
-        if found: copy_to_folder(found, d2)
-        
-    elif m == '2':
-        d2 = input("Data2: ").strip() or "./data2"
-        exist = load_existing_hashes_aggressive(d2)
-        save_cache(exist)
-        print("Cache updated.")
-        
-    elif m == '3':
-        root = input("Scan Dir: ").strip()
-        mx = int(input("Max MB [10]: ").strip() or "10")
-        exist = load_cache()
-        if not exist:
-            print("Cache empty. Run mode 2.")
-            return
-        
-        found = scan_directory_aggressive(root, mx, exist)
-        save_results(found)
-        if found:
-            d2 = input("Copy to: ").strip() or "./data2"
-            copy_to_folder(found, d2)
+        print("WARNING: Not running as Admin. System files will be skipped.")
+        time.sleep(2)
 
-if __name__ == "__main__":
-    # Required for Windows Multiprocessing
-    run()
+    while True:
+        print("\n=== STABLE PE SCANNER (TQDM) ===")
+        print("1. Recalculate Hashes & Scan & Copy")
+        print("2. Recalculate Hashes Only (Update Cache)")
+        print("3. Use Cache & Scan")
+        print("4. Exit")
+        
+        mode = input("\nSelect Mode: ").strip()
+
+        if mode == '1':
+            data2 = input("Enter Data2 folder path: ").strip()
+            scan_dir = input("Enter Directory to Scan: ").strip()
+            
+            existing = load_existing_hashes_tqdm(data2)
+            save_cache(existing)
+            
+            found = scan_with_tqdm(scan_dir, 10, existing)
+            save_report(found)
+            
+            if found:
+                if input("Copy files? (y/n): ").lower() == 'y':
+                    copy_files_tqdm(found, data2)
+
+        elif mode == '2':
+            data2 = input("Enter Data2 folder path: ").strip()
+            existing = load_existing_hashes_tqdm(data2)
+            save_cache(existing)
+
+        elif mode == '3':
+            scan_dir = input("Enter Directory to Scan: ").strip()
+            existing = load_cache()
+            
+            if not existing:
+                print("Cache empty. Run Mode 2 first.")
+                continue
+                
+            found = scan_with_tqdm(scan_dir, 10, existing)
+            save_report(found)
+            
+            if found:
+                data2 = input("Copy to where? (Enter path): ").strip()
+                if input("Copy files? (y/n): ").lower() == 'y':
+                    copy_files_tqdm(found, data2)
+                    
+        elif mode == '4':
+            sys.exit()
+
+if __name__ == '__main__':
+    main()
