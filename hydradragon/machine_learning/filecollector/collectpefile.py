@@ -75,7 +75,7 @@ def process_file_for_hash(file_path: str) -> Optional[str]:
     return compute_md5(file_path)
 
 
-def load_existing_hashes(folder, max_workers=None):
+def load_existing_hashes(folder, max_workers=500):
     """
     Load MD5 hashes of all files in the specified folder using parallel processing.
     Returns a set of MD5 hashes.
@@ -196,7 +196,7 @@ def process_single_file(args) -> Optional[Dict]:
     return entry
 
 
-def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=None):
+def scan_directory(root_dir, max_size_mb=10, existing_hashes=None, max_workers=500):
     """
     Recursively scan the directory for unique PE files using parallel processing.
     Returns a list of dicts with path, size(bytes), size_mb, md5.
@@ -323,7 +323,7 @@ def copy_single_file(args):
         return (False, f"Error copying {entry['path']}: {ex}")
 
 
-def copy_to_folder(found, dest, max_workers=None):
+def copy_to_folder(found, dest, max_workers=500):
     """
     Copy unique files to destination folder in parallel.
     """
