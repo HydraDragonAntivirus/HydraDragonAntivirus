@@ -112,7 +112,7 @@ class PEFeatureExtractor:
             analysis['overall_analysis']['total_instructions'] = grand_total_instructions
             analysis['overall_analysis']['add_count'] = total_add_count
             analysis['overall_analysis']['mov_count'] = total_mov_count
-            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instWructions > 0 else False
+            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
 
         except Exception as e:
             logger.error(f"Capstone disassembly failed: {e}")
