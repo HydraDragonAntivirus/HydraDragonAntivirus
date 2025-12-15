@@ -178,7 +178,7 @@ def load_existing_hashes_parallel(folder):
     return existing
 
 
-def scan_with_parallel(root_dir, max_mb, existing_hashes):
+def scan_with_parallel(root_dir, max_mb, existing_hashes, start_batch=0):
     """Scan directory for MZ files using parallel processing."""
     max_bytes = max_mb * 1024 * 1024
     
@@ -195,27 +195,34 @@ def scan_with_parallel(root_dir, max_mb, existing_hashes):
     
     # 3. Use optimal worker count
     max_workers = max(1, os.cpu_count() - 1)
-    logger.info(f"Scanning with {max_workers} worker processes...")
-    logger.info(f"Processing {len(tasks)} files (max size: {max_mb}MB)...")
-    
-    # 4. Execute with Progress Bar - Process in batches to avoid memory issues
     batch_size = 10000  # Process 10k files at a time
     
+    total_batches = (len(tasks) // batch_size) + 1
+    logger.info(f"Scanning with {max_workers} worker processes...")
+    logger.info(f"Processing {len(tasks)} files (max size: {max_mb}MB)...")
+    logger.info(f"Total batches: {total_batches}, Starting from batch: {start_batch + 1}")
+    
+    # 4. Execute with Progress Bar - Process in batches to avoid memory issues
     try:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            for i in range(0, len(tasks), batch_size):
+            for batch_num in range(start_batch, total_batches):
+                i = batch_num * batch_size
                 batch = tasks[i:i + batch_size]
-                logger.info(f"Processing batch {i//batch_size + 1}/{(len(tasks)//batch_size) + 1}")
+                
+                if not batch:
+                    break
+                    
+                logger.info(f"Processing batch {batch_num + 1}/{total_batches} (Files: {i} to {i + len(batch)})")
                 
                 # Submit batch
                 futures = [executor.submit(worker_scan_file, t) for t in batch]
                 
                 # Monitor with TQDM
-                for future in tqdm(as_completed(futures), total=len(futures), unit="file", desc=f"Batch {i//batch_size + 1}"):
+                for future in tqdm(as_completed(futures), total=len(futures), unit="file", desc=f"Batch {batch_num + 1}/{total_batches}"):
                     try:
-                        res = future.result(timeout=1200)  # 1200 second timeout per file
+                        res = future.result(timeout=30)  # 30 second timeout per file
                         if res:
-                            # Filter by hash in main process (avoids passing large set to workers)
+                            # Filter by hash in main process
                             if res['md5'] not in existing_hashes:
                                 found_entries.append(res)
                                 tqdm.write(f"✓ Found: {res['path']}")
@@ -223,14 +230,25 @@ def scan_with_parallel(root_dir, max_mb, existing_hashes):
                         logger.warning(f"Worker timeout - file took too long")
                         continue
                     except Exception as e:
-                        # Log individual file errors but continue
                         logger.debug(f"Worker error: {e}")
                         continue
+                
+                # Save progress after each batch
+                if found_entries and batch_num % 10 == 0:  # Every 10 batches
+                    save_report(found_entries, f"scan_results_batch_{batch_num}.txt")
+                    logger.info(f"Progress saved: {len(found_entries)} files found so far")
+                
     except KeyboardInterrupt:
         logger.warning("Scan interrupted by user.")
+        logger.info(f"Stopped at batch {batch_num + 1}. To resume, use start_batch={batch_num + 1}")
+        return found_entries
+    except MemoryError:
+        logger.error(f"OUT OF MEMORY at batch {batch_num + 1}!")
+        logger.info(f"To resume, restart and use start_batch={batch_num + 1}")
         return found_entries
     except Exception as e:
-        logger.error(f"Error during scan: {e}", exc_info=True)
+        logger.error(f"Error at batch {batch_num + 1}: {e}", exc_info=True)
+        logger.info(f"To resume, use start_batch={batch_num + 1}")
         return found_entries
     
     logger.info(f"Scan complete. Found {len(found_entries)} new MZ files.")
@@ -412,7 +430,18 @@ def main():
                     continue
                 
                 scan_dir = get_valid_path("Enter directory to scan: ")
-                found = scan_with_parallel(scan_dir, MAX_FILE_SIZE_MB, existing)
+                
+                # Ask if resuming from a batch
+                resume = input("Resume from a specific batch? (y/n): ").strip().lower()
+                start_batch = 0
+                if resume == 'y':
+                    try:
+                        start_batch = int(input("Enter batch number to start from (e.g., 180): ").strip())
+                        logger.info(f"Resuming from batch {start_batch}")
+                    except ValueError:
+                        logger.warning("Invalid batch number, starting from 0")
+                
+                found = scan_with_parallel(scan_dir, MAX_FILE_SIZE_MB, existing, start_batch)
                 save_report(found)
                 
                 if found:
