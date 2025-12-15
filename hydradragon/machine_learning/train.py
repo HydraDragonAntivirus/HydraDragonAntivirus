@@ -101,7 +101,6 @@ class PEFeatureExtractor:
 
                 # Per-section packing analysis
                 analysis['sections'][section_name] = {
-                    'instruction_counts': instruction_counts,
                     'total_instructions': total_instructions_in_section,
                     'add_count': add_count,
                     'mov_count': mov_count,
