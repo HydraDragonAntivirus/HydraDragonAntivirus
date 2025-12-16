@@ -701,7 +701,8 @@ class DataProcessor:
                  out_dir_prefix: str = 'pe_features',
                  bin_path: str = 'ml_vectors.bin',
                  index_path: str = 'ml_index.jsonl',
-                 pickle_path: str = 'results.pkl',
+                 malicious_pickle_path: str = 'malicious_features.pkl',
+                 benign_pickle_path: str = 'benign_features.pkl',
                  reset: bool = False):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
@@ -711,13 +712,14 @@ class DataProcessor:
         self.output_dir = Path(f"{out_dir_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         self.bin_path = Path(bin_path)
         self.index_path = Path(index_path)
-        self.pickle_path = Path(pickle_path)
+        self.malicious_pickle_path = Path(malicious_pickle_path)
+        self.benign_pickle_path = Path(benign_pickle_path)
         self.reset = reset # Store the reset flag
 
         # If reset is true, remove existing files before processing
         if self.reset:
             logger.info("Reset flag is True. Deleting existing binary store, index, and pickle files.")
-            for p in [self.bin_path, self.index_path, self.pickle_path]:
+            for p in [self.bin_path, self.index_path, self.malicious_pickle_path, self.benign_pickle_path]:
                 if p.exists():
                     try:
                         p.unlink()
@@ -732,43 +734,6 @@ class DataProcessor:
         self._init_store()
         self.seen = self._load_seen_md5s()
 
-    def consolidate_pickle_for_ml(self, output_path: str = 'ml_definitions.pkl'):
-        """
-        Read all streaming pickle entries and consolidate them into separate
-        malicious and benign pickle files to avoid loading everything into memory.
-        The original output_path will be used as a prefix.
-        """
-        malicious_path = self.pickle_path.parent / f"{Path(output_path).stem}_malicious.pkl"
-        benign_path = self.pickle_path.parent / f"{Path(output_path).stem}_benign.pkl"
-        
-        malicious_count = 0
-        benign_count = 0
-        
-        logger.info(f"Streaming consolidation from {self.pickle_path} to separate files...")
-        
-        # Ensure the files are empty before writing
-        malicious_path.write_bytes(b'')
-        benign_path.write_bytes(b'')
-
-        with open(malicious_path, 'ab') as mf, open(benign_path, 'ab') as bf:
-            for features in self.load_all_pickled():
-                try:
-                    if features.get('file_info', {}).get('is_malicious'):
-                        pickle.dump(features, mf, protocol=pickle.HIGHEST_PROTOCOL)
-                        malicious_count += 1
-                    else:
-                        pickle.dump(features, bf, protocol=pickle.HIGHEST_PROTOCOL)
-                        benign_count += 1
-                except Exception as e:
-                    logger.error(f"Error processing a feature during consolidation: {e}")
-                    continue
-        
-        logger.info(f"Consolidated {malicious_count} malicious entries to {malicious_path}")
-        logger.info(f"Consolidated {benign_count} benign entries to {benign_path}")
-        
-        # To maintain a similar return signature, we can return the paths
-        return str(malicious_path), str(benign_path)
-
     # --------------------------
     # Storage init / index helpers
     # --------------------------
@@ -781,9 +746,10 @@ class DataProcessor:
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
             self.index_path.write_text('', encoding='utf-8')
         # ensure pickle exists (create empty file if missing)
-        if not self.pickle_path.exists():
-            self.pickle_path.parent.mkdir(parents=True, exist_ok=True)
-            self.pickle_path.write_bytes(b'')
+        for p in [self.malicious_pickle_path, self.benign_pickle_path]:
+            if not p.exists():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b'')
 
     def _load_seen_md5s(self) -> set:
         seen = set()
@@ -1069,7 +1035,8 @@ class DataProcessor:
         filename = fi.get('filename')
         path = fi.get('path')
         size = fi.get('size')
-        label = "malicious" if fi.get('is_malicious') else "benign"
+        is_malicious = fi.get('is_malicious')
+        label = "malicious" if is_malicious else "benign"
 
         vec = self.features_to_numeric(features)
         vec_bytes = vec.tobytes()
@@ -1098,9 +1065,10 @@ class DataProcessor:
         with open(self.index_path, 'a', encoding='utf-8') as idxf:
             idxf.write(json.dumps(index_entry, ensure_ascii=False) + '\n')
 
-        # additionally append full features dict to results.pkl (streaming)
+        # additionally append full features dict to the correct pickle file
+        pickle_path = self.malicious_pickle_path if is_malicious else self.benign_pickle_path
         try:
-            with open(self.pickle_path, 'ab') as pf:
+            with open(pickle_path, 'ab') as pf:
                 # write the raw features dict as one pickle record
                 pickle.dump(features, pf, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as e:
@@ -1166,35 +1134,15 @@ class DataProcessor:
             'benign_count': benign_count,
             'bin_path': str(self.bin_path),
             'index_path': str(self.index_path),
-            'pickle_path': str(self.pickle_path)
+            'malicious_pickle_path': str(self.malicious_pickle_path),
+            'benign_pickle_path': str(self.benign_pickle_path)
         }
 
         output_file = self.output_dir / 'summary.json'
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, pickle at {self.pickle_path}")
-
-    # --------------------------
-    # Helper: stream-read all pickled records (if needed)
-    # --------------------------
-    def load_all_pickled(self):
-        """
-        Stream-read results.pkl and yield each features dict.
-        Use this to avoid loading entire pickle into memory at once.
-        """
-        if not self.pickle_path.exists():
-            return
-        with open(self.pickle_path, 'rb') as pf:
-            while True:
-                try:
-                    obj = pickle.load(pf)
-                    yield obj
-                except EOFError:
-                    break
-                except Exception:
-                    logger.exception("Error reading pickled file; stopping.")
-                    break
+        logger.info(f"Saved summary to {output_file}. Binary store at {self.bin_path}, index at {self.index_path}, malicious pickle at {self.malicious_pickle_path}, benign pickle at {self.benign_pickle_path}")
 
 def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
@@ -1205,8 +1153,6 @@ def main():
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
     processor.process_dataset()
-
-    processor.consolidate_pickle_for_ml('ml_definitions.pkl')
 
 if __name__ == "__main__":
     main()
