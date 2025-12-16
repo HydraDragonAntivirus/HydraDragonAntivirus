@@ -4986,7 +4986,6 @@ def load_ml_definitions_pickle(base_filepath: str) -> bool:
     benign_file_names = []
 
     def _load_stream(filepath: Path, is_malicious_type: bool):
-        nonlocal malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
         if not filepath.exists():
             logger.warning(f"ML definitions file not found: {filepath}. Skipping.")
             return
@@ -7515,7 +7514,7 @@ async def process_decompiled_code(output_file: str, main_file_path: Optional[str
             await asyncio.to_thread(_append_deob, str(deobfuscated))
             logger.info(f"Appended deobfuscated path to deobfuscated_saved_paths: {deobfuscated}")
 
-            # NOTIFIER IS ASYNC — await it directly
+            # NOTIFIER IS ASYNC - await it directly
             try:
                 await notify_user_for_malicious_source_code(
                     str(deobfuscated),

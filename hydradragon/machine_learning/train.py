@@ -701,8 +701,8 @@ class DataProcessor:
                  out_dir_prefix: str = 'pe_features',
                  bin_path: str = 'ml_vectors.bin',
                  index_path: str = 'ml_index.jsonl',
-                 malicious_pickle_path: str = 'malicious_features.pkl',
-                 benign_pickle_path: str = 'benign_features.pkl',
+                 malicious_pickle_path: str = 'ml_definitions_malicious.pkl',
+                 benign_pickle_path: str = 'ml_definitions_benign.pkl',
                  reset: bool = False):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
