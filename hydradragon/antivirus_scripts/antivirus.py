@@ -4970,49 +4970,50 @@ def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
     filename = (entry.get("file_info", {}) or {}).get("filename", "unknown")
     return numeric, filename
 
-# ---------------------------
-# Pickle-based loader
-# ---------------------------
-def load_ml_definitions_pickle(filepath: str) -> bool:
+def load_ml_definitions_pickle(base_filepath: str) -> bool:
     """
-    Load ML definitions from a pickle file.
-    Expected format: a dict with keys 'malicious' and 'benign', each containing a list of entries.
-    Each entry is a dict compatible with `entry_to_numeric()`.
+    Load ML definitions from separate malicious and benign pickle files.
+    Each file contains a stream of pickled feature dictionaries.
     """
     global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
 
-    if not os.path.exists(filepath):
-        logger.error(f"Pickle ML definitions file not found: {filepath}. ML scanning will be disabled.")
-        return False
+    malicious_path = Path(base_filepath).parent / f"{Path(base_filepath).stem}_malicious.pkl"
+    benign_path = Path(base_filepath).parent / f"{Path(base_filepath).stem}_benign.pkl"
 
     malicious_numeric_features = []
     malicious_file_names = []
     benign_numeric_features = []
     benign_file_names = []
 
-    try:
+    def _load_stream(filepath: Path, is_malicious_type: bool):
+        nonlocal malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
+        if not filepath.exists():
+            logger.warning(f"ML definitions file not found: {filepath}. Skipping.")
+            return
+
         with open(filepath, 'rb') as f:
-            data = pickle.load(f)  # Expecting dict: {'malicious': [...], 'benign': [...]}
+            while True:
+                try:
+                    entry = pickle.load(f)
+                    numeric, filename = entry_to_numeric(entry)
+                    if is_malicious_type:
+                        malicious_numeric_features.append(numeric)
+                        malicious_file_names.append(filename)
+                    else:
+                        benign_numeric_features.append(numeric)
+                        benign_file_names.append(filename)
+                except EOFError:
+                    break
+                except Exception:
+                    logger.debug(f"Skipped a malformed entry in {filepath}.", exc_info=True)
+                    continue
 
-        # Load malicious entries
-        for entry in data.get('malicious', []):
-            try:
-                numeric, filename = entry_to_numeric(entry)
-                malicious_numeric_features.append(numeric)
-                malicious_file_names.append(filename)
-            except Exception:
-                logger.debug("Skipped a malformed malicious entry during pickle loader.", exc_info=True)
-                continue
+    try:
+        logger.info(f"Loading malicious ML definitions from: {malicious_path}")
+        _load_stream(malicious_path, True)
 
-        # Load benign entries
-        for entry in data.get('benign', []):
-            try:
-                numeric, filename = entry_to_numeric(entry)
-                benign_numeric_features.append(numeric)
-                benign_file_names.append(filename)
-            except Exception:
-                logger.debug("Skipped a malformed benign entry during pickle loader.", exc_info=True)
-                continue
+        logger.info(f"Loading benign ML definitions from: {benign_path}")
+        _load_stream(benign_path, False)
 
         if malicious_numeric_features:
             vec_len = len(malicious_numeric_features[0])
@@ -5025,7 +5026,7 @@ def load_ml_definitions_pickle(filepath: str) -> bool:
         return True
 
     except Exception as e:
-        logger.exception(f"Failed to load ML definitions from pickle: {e}")
+        logger.exception(f"Failed to load ML definitions: {e}")
         return False
 
 def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False):
