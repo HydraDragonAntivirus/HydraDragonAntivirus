@@ -734,30 +734,40 @@ class DataProcessor:
 
     def consolidate_pickle_for_ml(self, output_path: str = 'ml_definitions.pkl'):
         """
-        Read all streaming pickle entries and consolidate into a single
-        dict with 'malicious' and 'benign' lists for ML loading.
+        Read all streaming pickle entries and consolidate them into separate
+        malicious and benign pickle files to avoid loading everything into memory.
+        The original output_path will be used as a prefix.
         """
-        malicious_entries = []
-        benign_entries = []
+        malicious_path = self.pickle_path.parent / f"{Path(output_path).stem}_malicious.pkl"
+        benign_path = self.pickle_path.parent / f"{Path(output_path).stem}_benign.pkl"
         
-        logger.info(f"Consolidating pickle from {self.pickle_path}...")
+        malicious_count = 0
+        benign_count = 0
         
-        for features in self.load_all_pickled():
-            if features.get('file_info', {}).get('is_malicious'):
-                malicious_entries.append(features)
-            else:
-                benign_entries.append(features)
+        logger.info(f"Streaming consolidation from {self.pickle_path} to separate files...")
         
-        consolidated = {
-            'malicious': malicious_entries,
-            'benign': benign_entries
-        }
+        # Ensure the files are empty before writing
+        malicious_path.write_bytes(b'')
+        benign_path.write_bytes(b'')
+
+        with open(malicious_path, 'ab') as mf, open(benign_path, 'ab') as bf:
+            for features in self.load_all_pickled():
+                try:
+                    if features.get('file_info', {}).get('is_malicious'):
+                        pickle.dump(features, mf, protocol=pickle.HIGHEST_PROTOCOL)
+                        malicious_count += 1
+                    else:
+                        pickle.dump(features, bf, protocol=pickle.HIGHEST_PROTOCOL)
+                        benign_count += 1
+                except Exception as e:
+                    logger.error(f"Error processing a feature during consolidation: {e}")
+                    continue
         
-        with open(output_path, 'wb') as f:
-            pickle.dump(consolidated, f, protocol=pickle.HIGHEST_PROTOCOL)
+        logger.info(f"Consolidated {malicious_count} malicious entries to {malicious_path}")
+        logger.info(f"Consolidated {benign_count} benign entries to {benign_path}")
         
-        logger.info(f"Consolidated {len(malicious_entries)} malicious and {len(benign_entries)} benign entries to {output_path}")
-        return output_path
+        # To maintain a similar return signature, we can return the paths
+        return str(malicious_path), str(benign_path)
 
     # --------------------------
     # Storage init / index helpers
