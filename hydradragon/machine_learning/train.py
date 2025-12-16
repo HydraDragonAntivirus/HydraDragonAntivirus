@@ -76,7 +76,7 @@ class PEFeatureExtractor:
 
                 if not code:
                     analysis['sections'][section_name] = {
-                        'instruction_counts': {},
+                      # 'instruction_counts': {}, # too heavy to train
                         'total_instructions': 0,
                         'add_count': 0,
                         'mov_count': 0,
