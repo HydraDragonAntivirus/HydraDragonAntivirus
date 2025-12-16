@@ -701,7 +701,8 @@ class DataProcessor:
                  out_dir_prefix: str = 'pe_features',
                  bin_path: str = 'ml_vectors.bin',
                  index_path: str = 'ml_index.jsonl',
-                 pickle_path: str = 'results.pkl'):
+                 pickle_path: str = 'results.pkl',
+                 reset: bool = False):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
         self.pe_extractor = PEFeatureExtractor()
@@ -711,6 +712,18 @@ class DataProcessor:
         self.bin_path = Path(bin_path)
         self.index_path = Path(index_path)
         self.pickle_path = Path(pickle_path)
+        self.reset = reset # Store the reset flag
+
+        # If reset is true, remove existing files before processing
+        if self.reset:
+            logger.info("Reset flag is True. Deleting existing binary store, index, and pickle files.")
+            for p in [self.bin_path, self.index_path, self.pickle_path]:
+                if p.exists():
+                    try:
+                        p.unlink()
+                        logger.info(f"Deleted existing file: {p}")
+                    except OSError as e:
+                        logger.error(f"Error deleting {p}: {e}")
 
         for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
@@ -1177,9 +1190,10 @@ def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
     parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
     parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
+    parser.add_argument('--reset', action='store_true', help='If set, reset the binary store and index files before processing.')
     args = parser.parse_args()
 
-    processor = DataProcessor(args.malicious_dir, args.benign_dir)
+    processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
     processor.process_dataset()
 
     processor.consolidate_pickle_for_ml('ml_definitions.pkl')
