@@ -39,6 +39,7 @@ from .path_and_variables import (
     cx_freeze_extracted_dir,
     ghidra_logs_dir,
     ghidra_scripts_dir,
+    ghidra_projects_dir,
     FernFlower_decompiled_dir,
     jar_extracted_dir,
     dotnet_dir,
@@ -5302,8 +5303,6 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         logger.info(f"Decompiling file: {norm_path} (initiator: {main_file_path})")
 
         analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
-        project_location = os.path.join(script_dir, 'ghidra_projects')
-        os.makedirs(project_location, exist_ok=True)
 
         # Generate project name
         try:
@@ -5322,7 +5321,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         # Prepare command
         command = [
             analyze_headless_path,
-            project_location,
+            ghidra_projects_dir,
             project_name,
             '-import', norm_path,
             '-postScript', 'DecompileAndSave.java',
@@ -5362,7 +5361,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
         # --- Find candidate artifact files ---
         candidate_roots = [
             os.path.join(script_dir, "decompiled"),
-            project_location,
+            ghidra_projects_dir,
             os.getcwd(),
             ghidra_scripts_dir
         ]
@@ -5405,7 +5404,7 @@ def decompile_file(file_path, main_file_path=None, timeout=1500):
 
         # Fallback: any recent file under project_location or script_dir
         if not candidates:
-            for root in (project_location, script_dir):
+            for root in (ghidra_projects_dir, script_dir):
                 if not os.path.exists(root):
                     continue
                 for r, _, files in os.walk(root):

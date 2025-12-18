@@ -126,8 +126,12 @@ public class DecompileAndSave extends GhidraScript {
         String programName = program.getName();
         String safeProgramName = sanitizeFileName(programName);
 
-        Path currentDirPath = Paths.get(System.getProperty("user.dir"));
-        Path outputDir = currentDirPath.resolve("decompiled");
+        String programDataDir = System.getenv("ProgramData");
+        if (programDataDir == null || programDataDir.isEmpty()) {
+            println("Warning: 'ProgramData' environment variable not set. Falling back to C:\\ProgramData.");
+            programDataDir = "C:\\ProgramData";
+        }
+        Path outputDir = Paths.get(programDataDir, "HydraDragonAntivirus", "decompiled");
 
         try {
             if (!Files.exists(outputDir)) {
