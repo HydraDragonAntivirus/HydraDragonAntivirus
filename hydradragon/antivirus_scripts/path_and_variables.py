@@ -184,7 +184,7 @@ running_processes = {}
 started_interfaces = []  # using list instead of set
 
 APP_NAME = "HydraDragon Antivirus"
-APP_VERSION = "v0.1 (Beta 6)"
+APP_VERSION = "v0.1 (pre-release)"
 WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
 
 # File paths and configurations
