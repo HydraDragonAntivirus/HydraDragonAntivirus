@@ -28,7 +28,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - So we ignore files looks like junk data (fully unknown)
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
-- Please allow a minimum of two hours (local time) for the antivirus to fully decompile the file and complete its analysis. Otherwise, it cannot achieve a 90%+ detection rate against fresh samples with fewer false positives.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
