@@ -1,6 +1,6 @@
 from .hydra_logger import logger
 
-import string
+import math
 import re
 import struct
 from typing import Union, Optional, Tuple
@@ -688,44 +688,64 @@ def is_java_class_from_output(die_output):
         return True
     return False
 
-def is_plain_text(data: bytes,
-                  null_byte_threshold: float = 0.01,
-                  printable_threshold: float = 0.95) -> bool:
-    """
-    Heuristic: data is plain text if
-      1. It contains very few null bytes,
-      2. A high fraction of bytes are printable or common whitespace,
-      3. And it decodes cleanly in some text encoding (e.g. UTF-8, Latin-1).
+def shannon_entropy(data: bytes) -> float:
+    if not data:
+        return 0.0
 
-    :param data:       raw file bytes
-    :param null_byte_threshold:
-                       max fraction of bytes that can be zero (0x00)
-    :param printable_threshold:
-                       min fraction of bytes in printable + whitespace set
-    """
+    freq = [0] * 256
+    for b in data:
+        freq[b] += 1
+
+    entropy = 0.0
+    for c in freq:
+        if c:
+            p = c / len(data)
+            entropy -= p * math.log2(p)
+
+    return entropy
+
+def is_plain_text(
+    data: bytes,
+    null_byte_threshold: float = 0.01,
+    max_control_ratio: float = 0.05,
+    max_entropy: float = 7.9,   # binary often > 7.9
+) -> bool:
     if not data:
         return True
 
-    # 1) Null byte check
-    nulls = data.count(0)
-    if nulls / len(data) > null_byte_threshold:
+    # 1) Null bytes → almost always binary
+    if data.count(0) / len(data) > null_byte_threshold:
         return False
 
-    # 2) Printable char check
-    printable = set(bytes(string.printable, 'ascii'))
-    count_printable = sum(b in printable for b in data)
-    if count_printable / len(data) < printable_threshold:
-        return False
-
-    # 3) Try a text decoding
-    #    Use chardet to guess encoding
+    # 2) Decode first (most important)
     guess = chardet.detect(data)
-    enc = guess.get('encoding') or 'utf-8'
-    try:
-        data.decode(enc)
-        return True
-    except (UnicodeDecodeError, LookupError):
+    enc = guess.get("encoding")
+
+    decoded = None
+    if enc:
+        try:
+            decoded = data.decode(enc)
+        except Exception:
+            pass
+
+    if decoded is None:
+        # fallback: latin-1 always decodes
+        decoded = data.decode("latin-1")
+
+    # 3) Control character ratio (except whitespace)
+    control_chars = sum(
+        (ord(c) < 32 and c not in "\n\r\t\f\b")
+        for c in decoded
+    )
+
+    if control_chars / len(decoded) > max_control_ratio:
         return False
+
+    # 4) Entropy check (distinguish compressed/encrypted)
+    if shannon_entropy(data) > max_entropy:
+        return False
+
+    return True
 
 def is_plain_text_file_from_output(die_output):
     """
