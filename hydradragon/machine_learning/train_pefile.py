@@ -987,39 +987,47 @@ class DataProcessor:
         Ensures mmap is closed and problematic files moved best-effort.
         """
         file_path, rank, is_malicious = args
-        mm = None
-        try:
-            # memory-map once
-            with open(file_path, 'rb') as f:
-                mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                md5 = hashlib.md5(mm).hexdigest()
-
-                # Call the extractor (which now closes its pefile handle in a finally block)
-                features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
-                if features:
-                    features['file_info'] = {
-                        'filename': Path(file_path).name,
-                        'path': str(file_path),
-                        'md5': md5,
-                        'size': len(mm),
-                        'is_malicious': bool(is_malicious)
-                    }
-
-                return features
-        except Exception as e:
-            logger.error(f"Error processing {file_path}: {e}", exc_info=True)
+        
+        MAX_RETRIES = 5
+        for attempt in range(1, MAX_RETRIES + 1):
+            mm = None
             try:
-                self._move(Path(file_path), self.problematic_dir)
-            except Exception as ex_move:
-                logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
-            return None
-        finally:
-            # always close the mmap if created
-            try:
-                if mm is not None:
-                    mm.close()
-            except Exception:
-                logger.debug(f"Failed to close mmap for {file_path}", exc_info=True)
+                # memory-map once
+                with open(file_path, 'rb') as f:
+                    mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                    md5 = hashlib.md5(mm).hexdigest()
+
+                    # Call the extractor (which now closes its pefile handle in a finally block)
+                    features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
+                    if features:
+                        features['file_info'] = {
+                            'filename': Path(file_path).name,
+                            'path': str(file_path),
+                            'md5': md5,
+                            'size': len(mm),
+                            'is_malicious': bool(is_malicious)
+                        }
+                    return features # Success, break out of retry loop
+
+            except Exception as e:
+                logger.error(f"Error processing {file_path} (attempt {attempt}/{MAX_RETRIES}): {e}", exc_info=True)
+                if attempt < MAX_RETRIES:
+                    time.sleep(1 * attempt) # Exponential backoff
+                else:
+                    logger.error(f"Failed to process {file_path} after {MAX_RETRIES} attempts. Moving to problematic_files.")
+                    try:
+                        self._move(Path(file_path), self.problematic_dir)
+                    except Exception as ex_move:
+                        logger.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
+                    return None # All retries failed
+            finally:
+                # always close the mmap if created
+                try:
+                    if mm is not None:
+                        mm.close()
+                except Exception:
+                    logger.debug(f"Failed to close mmap for {file_path}", exc_info=True)
+
 
     # --------------------------
     # Append vector bytes + index line + pickle the full features dict
