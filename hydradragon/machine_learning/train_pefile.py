@@ -703,7 +703,10 @@ class DataProcessor:
                  index_path: str = 'ml_index.jsonl',
                  malicious_pickle_path: str = 'ml_definitions_malicious.pkl',
                  benign_pickle_path: str = 'ml_definitions_benign.pkl',
-                 reset: bool = False):
+                 reset: bool = False,
+                 max_workers: int = None):
+        # Default to CPU count for max speed
+        self.max_workers = max_workers if max_workers else os.cpu_count() or 4
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
         self.pe_extractor = PEFeatureExtractor()
@@ -1086,7 +1089,8 @@ class DataProcessor:
 
         inserted = 0
         # use a pool for CPU-bound extraction (workers produce feature dicts)
-        with ProcessPoolExecutor() as exe:
+        # Use configured max_workers for parallel processing
+        with ProcessPoolExecutor(max_workers=self.max_workers) as exe:
             for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks),
                               desc=f"Processing {'malicious' if is_malicious else 'benign'}"):
                 if not feats:
@@ -1149,9 +1153,11 @@ def main():
     parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
     parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
     parser.add_argument('--reset', action='store_true', help='If set, reset the binary store and index files before processing.')
+    parser.add_argument('--workers', type=int, default=None, help=f'Number of parallel workers (default: CPU count = {os.cpu_count()}). Reduce if you get memory errors.')
     args = parser.parse_args()
 
-    processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
+    logger.info(f"Using {args.workers or os.cpu_count()} worker processes")
+    processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset, max_workers=args.workers)
     processor.process_dataset()
 
 if __name__ == "__main__":
