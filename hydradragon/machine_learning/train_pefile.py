@@ -703,10 +703,7 @@ class DataProcessor:
                  index_path: str = 'ml_index.jsonl',
                  malicious_pickle_path: str = 'ml_definitions_malicious.pkl',
                  benign_pickle_path: str = 'ml_definitions_benign.pkl',
-                 reset: bool = False,
-                 max_workers: int = None):
-        # Default to CPU count for max speed
-        self.max_workers = max_workers if max_workers else os.cpu_count() or 4
+                 reset: bool = False):
         self.malicious_dir = malicious_dir
         self.benign_dir = benign_dir
         self.pe_extractor = PEFeatureExtractor()
@@ -1083,17 +1080,30 @@ class DataProcessor:
     # process_dir: uses ProcessPoolExecutor; writes binary store + pickle stream
     # --------------------------
     def process_dir(self, directory: Path, is_malicious: bool):
-        # collect all files regardless of extension
+        label = 'malicious' if is_malicious else 'benign'
+        
+        # Stage 1: Discover files (parallel directory walk)
+        logger.info(f"[{label}] Stage 1/3: Discovering files in {directory}...")
         files = [f for f in directory.rglob('*') if f.is_file()]
+        total_files = len(files)
+        logger.info(f"[{label}] Found {total_files:,} files")
+        
+        # Stage 2: Prepare tasks
+        logger.info(f"[{label}] Stage 2/3: Preparing {total_files:,} tasks...")
         tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
+        logger.info(f"[{label}] Tasks ready. Already seen: {len(self.seen):,} MD5s")
 
         inserted = 0
-        # use a pool for CPU-bound extraction (workers produce feature dicts)
-        # Use configured max_workers for parallel processing
-        with ProcessPoolExecutor(max_workers=self.max_workers) as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks),
-                              desc=f"Processing {'malicious' if is_malicious else 'benign'}"):
+        skipped = 0
+        failed = 0
+        
+        # Stage 3: Process with ProcessPoolExecutor (no max_workers = auto CPU count)
+        logger.info(f"[{label}] Stage 3/3: Processing with ProcessPoolExecutor (workers=auto, CPU count={os.cpu_count()})...")
+        with ProcessPoolExecutor() as exe:
+            for feats in tqdm(exe.map(self._process_one, tasks), total=total_files,
+                              desc=f"Processing {label}"):
                 if not feats:
+                    failed += 1
                     continue
 
                 md5 = feats['file_info']['md5']
@@ -1102,6 +1112,7 @@ class DataProcessor:
                         self._move(Path(feats['file_info']['path']), self.duplicates_dir)
                     except Exception as e:
                         logger.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
+                    skipped += 1
                     continue
 
                 # mark as seen
@@ -1113,13 +1124,13 @@ class DataProcessor:
                     inserted += 1
                 except Exception as e:
                     logger.exception(f"Failed to append vector for {feats['file_info'].get('path')}: {e}")
-                    # optionally move to problematic_dir
+                    failed += 1
                     try:
                         self._move(Path(feats['file_info']['path']), self.problematic_dir)
                     except Exception:
                         pass
 
-        logger.info(f"Finished processing {directory}: inserted {inserted} unique records into binary store and pickle.")
+        logger.info(f"[{label}] Finished: {inserted:,} inserted, {skipped:,} duplicates, {failed:,} failed (total: {total_files:,})")
         return inserted
 
     # --------------------------
@@ -1153,11 +1164,9 @@ def main():
     parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
     parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
     parser.add_argument('--reset', action='store_true', help='If set, reset the binary store and index files before processing.')
-    parser.add_argument('--workers', type=int, default=None, help=f'Number of parallel workers (default: CPU count = {os.cpu_count()}). Reduce if you get memory errors.')
     args = parser.parse_args()
 
-    logger.info(f"Using {args.workers or os.cpu_count()} worker processes")
-    processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset, max_workers=args.workers)
+    processor = DataProcessor(args.malicious_dir, args.benign_dir, reset=args.reset)
     processor.process_dataset()
 
 if __name__ == "__main__":
