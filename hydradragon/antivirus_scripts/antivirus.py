@@ -10080,38 +10080,46 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                         logger.info(f"Returning .exe found in root of dump folder: {full_path}")
                         return full_path
 
-            # 2) If none in root, search subfolders that look like 'vdump' (non-recursive)
+            # 2) If none in root, search subfolders that look like 'vdump_*' or 'rawdump_*' (non-recursive)
             if os.path.exists(pid_hydra_dir):
-                vdump_dirs = []
+                dump_dirs = []
                 for fname in os.listdir(pid_hydra_dir):
                     sub_path = os.path.join(pid_hydra_dir, fname)
                     if os.path.isdir(sub_path):
                         lname = fname.lower()
-                        if lname.startswith('vdump_'):  # includes names like 'vdump_1'
-                            vdump_dirs.append(sub_path)
+                        if lname.startswith('vdump_') or lname.startswith('rawdump_'):
+                            dump_dirs.append(sub_path)
 
-                for d in vdump_dirs:
+                for d in dump_dirs:
                     try:
-                        vdump_pref = None
+                        preferred = None
                         fallback = None
+
+                        dump_prefix = os.path.basename(d).lower().split('_')[0]  # vdump or rawdump
+
                         for sf in os.listdir(d):
                             sf_full = os.path.join(d, sf)
                             if not os.path.isfile(sf_full):
                                 continue
+
                             sl = sf.lower()
-                            if sl.startswith('vdump_') and sl.endswith('.exe'):
-                                vdump_pref = sf_full
+                            if sl.startswith(dump_prefix + '_') and sl.endswith('.exe'):
+                                preferred = sf_full
                                 break
+
                             if fallback is None and sl.endswith('.exe'):
                                 fallback = sf_full
-                        if vdump_pref:
-                            logger.info(f"Returning prioritized vdump exe from {d}: {vdump_pref}")
-                            return vdump_pref
+
+                        if preferred:
+                            logger.info(f"Returning prioritized {dump_prefix} exe from {d}: {preferred}")
+                            return preferred
+
                         if fallback:
-                            logger.info(f"Returning first .exe from vdump folder {d}: {fallback}")
+                            logger.info(f"Returning first .exe from {dump_prefix} folder {d}: {fallback}")
                             return fallback
+
                     except Exception as e:
-                        logger.error(f"Error scanning vdump folder {d}: {e}")
+                        logger.error(f"Error scanning dump folder {d}: {e}")
                         continue
 
             # 3) Nothing found
