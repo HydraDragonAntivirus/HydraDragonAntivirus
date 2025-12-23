@@ -15,6 +15,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 from urllib.request import urlretrieve
 from urllib.error import URLError
@@ -177,12 +178,40 @@ def main():
         
         if not download_file(url, dest, local_name):
             errors.append(f"Download {local_name}")
+
+    # 4. Dynamic System32 Deployment (EDR DLL)
+    print("\nDeploying EDR component to System32...")
+    # Dynamic source: Relies on repo structure: Sanctum/System32/sanctum.dll
+    base_dir = Path(__file__).parent.absolute()
+    local_dll_source = base_dir / "System32" / "sanctum.dll"
     
-    # 4. Configure BCD settings
+    # Target: Real Windows System32
+    win_system32 = Path(os.environ['SystemRoot']) / "System32"
+    final_dest = win_system32 / "sanctum.dll"
+
+    if local_dll_source.exists():
+        prev_value = ctypes.c_void_p()
+        try:
+            # Disable WOW64 Redirection to ensure we hit 64-bit System32
+            ctypes.windll.kernel32.Wow64DisableWow64FsRedirection(ctypes.byref(prev_value))
+            
+            shutil.copy2(str(local_dll_source), str(final_dest))
+            
+            # Re-enable Redirection
+            ctypes.windll.kernel32.Wow64RevertWow64FsRedirection(prev_value)
+            print(f"✓ Successfully deployed: {final_dest}")
+        except Exception as e:
+            ctypes.windll.kernel32.Wow64RevertWow64FsRedirection(prev_value)
+            print(f"ERROR: Failed to copy to System32: {e}", file=sys.stderr)
+            errors.append("System32 DLL deployment")
+    else:
+        print(f"WARNING: Source DLL not found at {local_dll_source}. Skipping deployment.", file=sys.stderr)
+
+    # 5. Configure BCD settings
     if not configure_bcd():
         errors.append("BCD configuration")
-    
-    # 5. Summary
+
+    # 6. Summary
     print("\n" + "=" * 70)
     if errors:
         print("⚠ Setup completed with warnings/errors:")
