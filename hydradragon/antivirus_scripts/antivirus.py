@@ -2007,6 +2007,11 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
         # HydraDragonDumper (Mega Dumper CLI) expected arguments:
         #   -pid <PID> -o <output_dir>
         # If the Hydra CLI has different switches, update accordingly.
+
+        # Prepare environment with COMPlus setting
+        env = os.environ.copy()
+        env["COMPlus_legacyCorruptedStateExceptionsPolicy"] = "1"
+
         subprocess.run(
             [
                 hydra_dragon_dumper_path,
@@ -2015,15 +2020,25 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
                 "--output",
                 output_dir
             ],
-            check=True
+            check=True,
+            env=env
         )
-        logger.info(f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}")
+
+        logger.info(
+            f"HydraDragonDumper extraction complete for PID {pid} into {output_dir}"
+        )
         return True
+
     except subprocess.CalledProcessError as e:
-        logger.error(f"HydraDragonDumper extraction failed for PID {pid}: {e}")
+        logger.error(
+            f"HydraDragonDumper extraction failed for PID {pid}: {e}"
+        )
         return False
+
     except FileNotFoundError:
-        logger.error(f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}")
+        logger.error(
+            f"HydraDragonDumper executable not found at: {hydra_dragon_dumper_path}"
+        )
         return False
 
 def extract_with_unipacker(file_path):
