@@ -10072,7 +10072,7 @@ def analyze_specific_process(process_name_or_path: str) -> Optional[str]:
                     sub_path = os.path.join(pid_hydra_dir, fname)
                     if os.path.isdir(sub_path):
                         lname = fname.lower()
-                        if 'vdump' in lname:  # includes names like 'vdump', 'vdump_1', 'something_vdump'
+                        if lname.startswith('vdump_'):  # includes names like 'vdump_1'
                             vdump_dirs.append(sub_path)
 
                 for d in vdump_dirs:
