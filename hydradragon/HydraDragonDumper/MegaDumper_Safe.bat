@@ -6,4 +6,4 @@ REM before the .NET runtime starts, enabling AccessViolationException to be caug
 set COMPlus_legacyCorruptedStateExceptionsPolicy=1
 
 REM Start MegaDumper
-"%~dp0HydraDragonDumper.exe" %*
+"%~dp0MegaDumper.exe" %*

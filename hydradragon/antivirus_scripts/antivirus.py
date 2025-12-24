@@ -90,7 +90,7 @@ from .path_and_variables import (
     ungarbler_string_dir,
     excluded_rules_path,
     html_extracted_dir,
-    website_rules_dir,
+    registry_path,
     spam_email_365_path,
     ipv4_addresses_path,
     ipv4_addresses_spam_path,
@@ -1240,7 +1240,6 @@ async def load_website_data_async():
 
     # Save registry
     try:
-        registry_path = Path(website_rules_dir) / "references.txt"
         await asyncio.to_thread(registry.save_text, registry_path)
         logger.info(f"Reference registry saved ({len(registry.id_to_ref)} entries)")
     except Exception as e:
