@@ -5,7 +5,6 @@ updates:
     directory: "/"                  # pyproject.toml ve poetry.lock kök dizinde
     schedule:
       interval: "weekly"            # weekly | daily | monthly
-    open-pull-requests-limit: 5
     # opsiyonel: sadece lockfile güncellemeleri isteğe bağlı kurallar:
     # rebase-strategy: "auto"       # (isteğe bağlı) otomatik rebase denemesi
     # allow:
