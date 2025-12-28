@@ -1,0 +1,81 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>MegaDumper</RootNamespace>
+    <AssemblyName>MegaDumper</AssemblyName>
+    <ApplicationIcon>..\SND Blue Square.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>preview</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Platforms>x86;x64</Platforms>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+    <Optimize>true</Optimize>
+    <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)'=='x86'">
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)'=='x64'">
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="AboutForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="DetectAntidumps.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="EnumAppDomains.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="FrmModules.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="GenerateDmp.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="HeapView.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="EmptyForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="InstalledFramework.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="MainForm.cs" />
+    <Compile Update="ViewWindowsHoocks.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="VirtualMemoryView.cs">
+      <SubType>Form</SubType>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Properties\" />
+  </ItemGroup>
+</Project>

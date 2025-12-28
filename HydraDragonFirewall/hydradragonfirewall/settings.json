@@ -1,0 +1,14 @@
+{
+    "whitelisted_ips": [],
+    "whitelisted_domains": [],
+    "whitelisted_ports": [
+        8080
+    ],
+    "app_decisions": {
+        "system": "Allow",
+        "c:\\windows\\system32\\svchost.exe": "Allow",
+        "c:\\windows\\syswow64\\svchost.exe": "Allow",
+        "c:\\windows\\explorer.exe": "Allow",
+        "hydradragonfirewall.exe": "Allow"
+    }
+}

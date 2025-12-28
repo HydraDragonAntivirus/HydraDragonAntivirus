@@ -1,0 +1,12 @@
+EXPORTS
+   ScyllaDumpCurrentProcessW   @1
+   ScyllaDumpCurrentProcessA   @2
+   ScyllaDumpProcessW   @3
+   ScyllaDumpProcessA   @4
+   ScyllaRebuildFileW   @5
+   ScyllaRebuildFileA   @6
+   ScyllaVersionInformationW   @7
+   ScyllaVersionInformationA   @8
+   ScyllaStartGui   @9
+   ScyllaIatSearch   @10
+   ScyllaIatFixAutoW   @11

@@ -1,0 +1,40 @@
+name: Build Scylla
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build for ${{ matrix.architecture }} (${{ matrix.build_type }})
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, Win32]
+        build_type: [Release, Debug]
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Configure CMake
+        shell: bash
+        run: cmake -B build -A ${{ matrix.architecture }} -DSCYLLA_PYTHON=OFF
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config "${{ matrix.build_type }}"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: scylla_${{ matrix.architecture }}_${{ matrix.build_type }}
+          path: |
+            .\build\src\${{ matrix.build_type }}\Scylla.dll
+            .\build\src\${{ matrix.build_type }}\ScyllaExe.exe
+          retention-days: 3

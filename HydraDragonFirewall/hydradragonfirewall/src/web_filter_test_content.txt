@@ -1,0 +1,45 @@
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_real_file_loading_and_priority() {
+        let filter = WebFilter::new();
+        
+        let base_path = PathBuf::from("../../everything/website"); 
+        let whitelist_path = base_path.join("WhiteListDomains.optimized.csv");
+        let malware_path = base_path.join("MalwareDomains.optimized.csv");
+
+        if !whitelist_path.exists() || !malware_path.exists() {
+            eprintln!("Skipping real data test: files not found at {:?}", base_path);
+            return;
+        }
+
+        println!("Loading Whitelist: {:?}", whitelist_path);
+        // load_csv is private, but visible here in sub-module
+        let _ = filter.load_csv(&whitelist_path).expect("Failed to load whitelist");
+        
+        println!("Loading Malware: {:?}", malware_path);
+        let _ = filter.load_csv(&malware_path).expect("Failed to load malware list");
+
+        // 1. Test Blocklist
+        let blocked = filter.check_hostname("zzzzzzzz.su");
+        assert!(blocked.is_some(), "Expected 'zzzzzzzz.su' to be BLOCKED");
+        println!("Block Check Passed: 'zzzzzzzz.su' is blocked.");
+
+        // 2. Test Whitelist
+        let allowed = filter.check_hostname("zzzzzzzzz.info");
+        assert!(allowed.is_none(), "Expected 'zzzzzzzzz.info' to be ALLOWED (Whitelisted)");
+        println!("Whitelist Check Passed: 'zzzzzzzzz.info' is allowed.");
+
+        // 3. Test Priority
+        filter.domain_blocklist.write().unwrap().insert("test-conflict.com".to_string());
+        filter.whitelist_domains.write().unwrap().insert("test-conflict.com".to_string());
+        
+        let priority_check = filter.check_hostname("test-conflict.com");
+        assert!(priority_check.is_none(), "Expected Whitelist to override Blocklist");
+        println!("Priority Check Passed: Whitelist won.");
+    }
+}

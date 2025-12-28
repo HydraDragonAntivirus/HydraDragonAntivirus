@@ -1,0 +1,36 @@
+{
+    "$schema": "../gen/schemas/config-schema.json",
+    "productName": "hydradragonfirewall",
+    "version": "0.1.0",
+    "identifier": "com.hydradragon.firewall",
+    "build": {
+        "beforeDevCommand": "",
+        "beforeBuildCommand": "",
+        "frontendDist": "ui/dist"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "label": "main",
+                "title": "HydraDragon Firewall",
+                "url": "index.html",
+                "width": 1200,
+                "height": 800
+            }
+        ],
+        "security": {
+            "capabilities": [
+                "app-default"
+            ],
+            "csp": "default-src 'self' tauri: http://localhost:8080; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' tauri: ipc: http://localhost:8080 ws://localhost:8080;"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "icon": [
+            "icons/icon.ico"
+        ]
+    }
+}

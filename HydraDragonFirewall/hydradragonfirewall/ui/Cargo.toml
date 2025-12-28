@@ -1,0 +1,36 @@
+[package]
+name = "hydradragon-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+leptos = { version = "0.6", features = ["csr"] }
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "HtmlElement", 
+    "Window", 
+    "Document", 
+    "Event", 
+    "SubmitEvent", 
+    "HtmlInputElement", 
+    "HtmlInputElement", 
+    "HtmlSelectElement",
+    "EventTarget",
+    "console"
+] }
+
+[package.metadata.leptos]
+# Project name
+name = "hydradragon-ui"
+# The site root folder is where cargo-leptos generate all output. WARNING: all content of this folder will be erased on a rebuild. Use it in your server setup.
+site-root = "dist"
+# The site-root relative folder where all compiled output (JS, WASM and CSS) is written
+site-pkg-dir = "pkg"
+# [Optional] The source CSS file. If it ends with .sass or .scss then it will be compiled by dart-sass into CSS. The css file is optimized by Lightning CSS before being written to <site-root>/<site-pkg>/app.css
+style-file = "style.css"
+assets-dir = "assets"

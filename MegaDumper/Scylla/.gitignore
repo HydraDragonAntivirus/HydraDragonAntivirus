@@ -1,0 +1,30 @@
+# generic files/directories to ignore
+Win32/
+x64/
+ipch/
+*.opensdf
+*.sdf
+*.aps
+*.suo
+Scylla.vcxproj.user
+Scylla_v*/
+
+# tinyxml ignore + exceptions
+tinyxml/*
+!tinyxml/README
+!tinyxml/tinyxml.vcxproj*
+
+# WTL ignore + exceptions
+WTL/*
+!WTL/README
+.vs/
+
+# Python bindings
+build/
+dist/
+_build/
+_generate/
+*.so
+*.py[cod]
+*.egg-info
+*env*

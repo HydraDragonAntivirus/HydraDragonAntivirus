@@ -1,0 +1,4 @@
+#pragma once
+
+#define APPNAME TEXT(APPNAME_S)
+#define APPVERSION TEXT(APPVERSION_S)

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+    <metadata>
+        <id>wtl</id>
+        <version>10.0.xxxx</version>
+        <title>Windows Template Library</title>
+        <authors>WTL Team</authors>
+        <owners>Microsoft,WTL Team</owners>
+        <licenseUrl>http://opensource.org/licenses/cpl1.0.php</licenseUrl>
+        <projectUrl>https://sourceforge.net/projects/wtl/</projectUrl>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <description>Windows Template Library (WTL) is a C++ library for developing Windows applications and UI components. It extends ATL (Active Template Library) and provides a set of classes for controls, dialogs, frame windows, GDI objects, and more.</description>
+        <summary>This package contains the header files for Windows Template Library.</summary>
+        <releaseNotes>This release is based on WTL 10.0.xxxx (Dev).</releaseNotes>
+        <copyright>Copyright &#174; 2018 Microsoft Corporation, WTL Team. All rights reserved.</copyright>
+        <language>es-US</language>
+        <tags>C++ Native Win32 GUI Window Microsoft</tags>
+    </metadata>
+    <files>
+        <file src="build\native\wtl.targets" target="build\native\wtl.targets" />
+        <file src="..\Include\atlapp.h" target="lib\native\include\atlapp.h" />
+        <file src="..\Include\atlcrack.h" target="lib\native\include\atlcrack.h" />
+        <file src="..\Include\atlctrls.h" target="lib\native\include\atlctrls.h" />
+        <file src="..\Include\atlctrlw.h" target="lib\native\include\atlctrlw.h" />
+        <file src="..\Include\atlctrlx.h" target="lib\native\include\atlctrlx.h" />
+        <file src="..\Include\atlddx.h" target="lib\native\include\atlddx.h" />
+        <file src="..\Include\atldlgs.h" target="lib\native\include\atldlgs.h" />
+        <file src="..\Include\atldwm.h" target="lib\native\include\atldwm.h" />
+        <file src="..\Include\atlfind.h" target="lib\native\include\atlfind.h" />
+        <file src="..\Include\atlframe.h" target="lib\native\include\atlframe.h" />
+        <file src="..\Include\atlgdi.h" target="lib\native\include\atlgdi.h" />
+        <file src="..\Include\atlmisc.h" target="lib\native\include\atlmisc.h" />
+        <file src="..\Include\atlprint.h" target="lib\native\include\atlprint.h" />
+        <file src="..\Include\atlres.h" target="lib\native\include\atlres.h" />
+        <file src="..\Include\atlribbon.h" target="lib\native\include\atlribbon.h" />
+        <file src="..\Include\atlscrl.h" target="lib\native\include\atlscrl.h" />
+        <file src="..\Include\atlsplit.h" target="lib\native\include\atlsplit.h" />
+        <file src="..\Include\atltheme.h" target="lib\native\include\atltheme.h" />
+        <file src="..\Include\atluser.h" target="lib\native\include\atluser.h" />
+        <file src="..\Include\atlwinx.h" target="lib\native\include\atlwinx.h" />
+        <file src="..\AppWizard\Files\HTML\1033\AppType.htm" target="tools\AppWizard\Files\HTML\1033\AppType.htm" />
+        <file src="..\AppWizard\Files\HTML\1033\default.htm" target="tools\AppWizard\Files\HTML\1033\default.htm" />
+        <file src="..\AppWizard\Files\HTML\1033\UIFeatures.htm" target="tools\AppWizard\Files\HTML\1033\UIFeatures.htm" />
+        <file src="..\AppWizard\Files\Images\WTL10AppWiz.png" target="tools\AppWizard\Files\Images\WTL10AppWiz.png" />
+        <file src="..\AppWizard\Files\Images\WTL10AppWiz_Background.png" target="tools\AppWizard\Files\Images\WTL10AppWiz_Background.png" />
+        <file src="..\AppWizard\Files\Images\spacer.gif" target="tools\AppWizard\Files\Images\spacer.gif" />
+        <file src="..\AppWizard\Files\Scripts\1033\default.js" target="tools\AppWizard\Files\Scripts\1033\default.js" />
+        <file src="..\AppWizard\Files\Templates\1033\AboutDlg.cpp" target="tools\AppWizard\Files\Templates\1033\AboutDlg.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\AboutDlg.h" target="tools\AppWizard\Files\Templates\1033\AboutDlg.h" />
+        <file src="..\AppWizard\Files\Templates\1033\ChildFrm.cpp" target="tools\AppWizard\Files\Templates\1033\ChildFrm.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\ChildFrm.h" target="tools\AppWizard\Files\Templates\1033\ChildFrm.h" />
+        <file src="..\AppWizard\Files\Templates\1033\Frame.cpp" target="tools\AppWizard\Files\Templates\1033\Frame.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\Frame.h" target="tools\AppWizard\Files\Templates\1033\Frame.h" />
+        <file src="..\AppWizard\Files\Templates\1033\MainDlg.cpp" target="tools\AppWizard\Files\Templates\1033\MainDlg.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\MainDlg.h" target="tools\AppWizard\Files\Templates\1033\MainDlg.h" />
+        <file src="..\AppWizard\Files\Templates\1033\resource.h" target="tools\AppWizard\Files\Templates\1033\resource.h" />
+        <file src="..\AppWizard\Files\Templates\1033\Ribbon.h" target="tools\AppWizard\Files\Templates\1033\Ribbon.h" />
+        <file src="..\AppWizard\Files\Templates\1033\Ribbon.xml" target="tools\AppWizard\Files\Templates\1033\Ribbon.xml" />
+        <file src="..\AppWizard\Files\Templates\1033\root.cpp" target="tools\AppWizard\Files\Templates\1033\root.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\root.h" target="tools\AppWizard\Files\Templates\1033\root.h" />
+        <file src="..\AppWizard\Files\Templates\1033\root.ico" target="tools\AppWizard\Files\Templates\1033\root.ico" />
+        <file src="..\AppWizard\Files\Templates\1033\root.idl" target="tools\AppWizard\Files\Templates\1033\root.idl" />
+        <file src="..\AppWizard\Files\Templates\1033\root.rc" target="tools\AppWizard\Files\Templates\1033\root.rc" />
+        <file src="..\AppWizard\Files\Templates\1033\root.rgs" target="tools\AppWizard\Files\Templates\1033\root.rgs" />
+        <file src="..\AppWizard\Files\Templates\1033\rootDoc.ico" target="tools\AppWizard\Files\Templates\1033\rootDoc.ico" />
+        <file src="..\AppWizard\Files\Templates\1033\rootidl.h" target="tools\AppWizard\Files\Templates\1033\rootidl.h" />
+        <file src="..\AppWizard\Files\Templates\1033\rootps.def" target="tools\AppWizard\Files\Templates\1033\rootps.def" />
+        <file src="..\AppWizard\Files\Templates\1033\rootps.mk" target="tools\AppWizard\Files\Templates\1033\rootps.mk" />
+        <file src="..\AppWizard\Files\Templates\1033\stdafx.cpp" target="tools\AppWizard\Files\Templates\1033\stdafx.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\stdafx.h" target="tools\AppWizard\Files\Templates\1033\stdafx.h" />
+        <file src="..\AppWizard\Files\Templates\1033\Templates.inf" target="tools\AppWizard\Files\Templates\1033\Templates.inf" />
+        <file src="..\AppWizard\Files\Templates\1033\toolbar.bmp" target="tools\AppWizard\Files\Templates\1033\toolbar.bmp" />
+        <file src="..\AppWizard\Files\Templates\1033\View.cpp" target="tools\AppWizard\Files\Templates\1033\View.cpp" />
+        <file src="..\AppWizard\Files\Templates\1033\View.h" target="tools\AppWizard\Files\Templates\1033\View.h" />
+        <file src="..\AppWizard\Files\WTLAppWiz.ico" target="tools\AppWizard\Files\WTL10AppWiz.ico" />
+        <file src="..\AppWizard\Files\WTLAppWiz.vsdir" target="tools\AppWizard\Files\WTL10AppWiz.vsdir" />
+        <file src="..\AppWizard\Files\WTLAppWiz.vsz" target="tools\AppWizard\Files\WTL10AppWiz.vsz" />
+        <file src="..\AppWizard\Setup.js" target="tools\AppWizard\Setup.js" />
+        <file src="tools\install.ps1" target="tools\install.ps1" />
+    </files>
+</package>

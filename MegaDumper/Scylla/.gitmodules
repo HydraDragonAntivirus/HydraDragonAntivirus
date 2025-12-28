@@ -1,0 +1,12 @@
+[submodule "thirdparty/tinyxml"]
+	path = thirdparty/tinyxml
+	url = https://github.com/vmayoral/tinyxml.git
+[submodule "thirdparty/distorm"]
+	path = thirdparty/distorm
+	url = https://github.com/gdabah/distorm.git
+[submodule "thirdparty/WTL"]
+	path = thirdparty/WTL
+	url = https://git.code.sf.net/p/wtl/git
+[submodule "thirdparty/pybind11"]
+	path = thirdparty/pybind11
+	url = https://github.com/pybind/pybind11.git

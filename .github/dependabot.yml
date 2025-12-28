@@ -1,11 +1,18 @@
-# .github/dependabot.yml
 version: 2
+
 updates:
-  - package-ecosystem: "pip"        # Poetry projeleri için "pip" kullanılır
-    directory: "/"                  # pyproject.toml ve poetry.lock kök dizinde
+  # Python (Poetry / pip)
+  - package-ecosystem: "pip"
+    directory: "/"                 # Location of pyproject.toml / poetry.lock
     schedule:
-      interval: "weekly"            # weekly | daily | monthly
-    # opsiyonel: sadece lockfile güncellemeleri isteğe bağlı kurallar:
-    # rebase-strategy: "auto"       # (isteğe bağlı) otomatik rebase denemesi
+      interval: "weekly"
+    # Optional settings:
+    # rebase-strategy: "auto"
     # allow:
-    #   - dependency-type: "direct" # sadece direct veya all
+    #   - dependency-type: "direct" # "direct" or "all"
+
+  # Rust (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "HydraDragonFirewall/hydradragonfirewall"
+    schedule:
+      interval: "weekly"
