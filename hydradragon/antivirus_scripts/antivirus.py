@@ -8024,7 +8024,7 @@ def find_blobs(code: str) -> list[str]:
     """
     Find all string literals that look like large Base64 blobs.
     """
-    pattern = r"[rb]?'([A-Za-z0-9+/=]{80,})'"
+    pattern = r"[rb]?'([A-Za-z0-9+/_-]{80,}=*)'"
     return re.findall(pattern, code)
 
 
@@ -8055,7 +8055,7 @@ def script_contains_obf(code: str) -> bool:
     """
     Heuristic to detect obfuscation: presence of large Base64 blobs and exec or decompress.
     """
-    if re.search(r"[rb]?'[A-Za-z0-9+/=]{80,}'", code) and \
+    if re.search(r"[rb]?'[A-Za-z0-9+/_-]{80,}=*'", code) and \
        ("exec(" in code or "decompress" in code):
         return True
     return False
