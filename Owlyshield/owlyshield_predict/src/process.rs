@@ -376,7 +376,7 @@ impl ProcessRecord {
         self.extensions_read
             .add_cat_extension(&iomsg.extension);
         self.entropy_read += iomsg.entropy * (iomsg.mem_sized_used as f64);
-        match DriveType::from_filepath(iomsg.filepathstr.clone()) {
+        match DriveType::from_filepath(&iomsg.filepathstr) {
             Removable => self.on_removable_drive_read_count += 1,
             Remote => self.on_shared_drive_read_count += 1,
             CDRom => self.on_removable_drive_read_count += 1,
@@ -405,7 +405,7 @@ impl ProcessRecord {
         self.entropy_written += iomsg.entropy * (iomsg.mem_sized_used as f64);
         self.sort_bytes(iomsg.mem_sized_used);
         self.sort_file_size(iomsg.file_size, &iomsg.filepathstr);
-        match DriveType::from_filepath(iomsg.filepathstr.clone()) {
+        match DriveType::from_filepath(&iomsg.filepathstr) {
             Removable => self.on_removable_drive_write_count += 1,
             Remote => self.on_shared_drive_write_count += 1,
             CDRom => self.on_removable_drive_write_count += 1,
@@ -626,7 +626,7 @@ mod tests {
     use crate::shared_def::RuntimeFeatures;
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
-    use crate::IOMessage;
+    use crate::shared_def::IOMessage;
     use std::collections::HashSet;
     use std::time::SystemTime;
 

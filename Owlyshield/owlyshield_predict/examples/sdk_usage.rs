@@ -83,7 +83,7 @@ fn example_realtime_analysis() {
 
         // Display matched signatures
         for sig_match in &analysis.signatures_matched {
-            println!("  [{}] {}", sig_match.threat_level, sig_match.signature_name);
+            println!("  [{:?}] {}", sig_match.threat_level, sig_match.signature_name);
             println!("    Confidence: {:.2}%", sig_match.confidence * 100.0);
             println!("    Description: {}", sig_match.description);
             println!("    Recommended Action: {}", sig_match.recommended_action);
@@ -159,7 +159,11 @@ fn example_custom_signatures() {
         min_confidence: 0.75,
     };
 
-    sdk.signature_engine.add_signature(custom_signature);
+    if let Some(engine) = sdk.signature_engine.as_mut() {
+        engine.add_signature(custom_signature);
+    } else {
+        println!("Signature engine is disabled; cannot add custom signatures in this configuration.");
+    }
 
     println!("Custom signature added successfully!");
     println!("The SDK will now detect this specific backdoor pattern.");
