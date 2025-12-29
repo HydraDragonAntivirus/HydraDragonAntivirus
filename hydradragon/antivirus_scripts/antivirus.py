@@ -1133,128 +1133,45 @@ async def load_csv_async(file_path, data_name, registry):
 # FIXED: Async Website Data Loading
 # ==========================================
 
+# Web signature data loading is disabled to avoid duplicating the firewall feed.
+# Keep empty defaults so downstream checks simply see no web intelligence on the
+# antivirus side.
+ipv4_addresses_signatures_data = []
+ipv4_addresses_spam_signatures_data = []
+ipv4_addresses_bruteforce_signatures_data = []
+ipv4_addresses_phishing_active_signatures_data = []
+ipv4_addresses_phishing_inactive_signatures_data = []
+ipv4_addresses_ddos_signatures_data = []
+ipv4_whitelist_data = []
+ipv6_addresses_signatures_data = []
+ipv6_addresses_spam_signatures_data = []
+ipv6_addresses_ddos_signatures_data = []
+ipv6_whitelist_data = []
+malware_domains_data = []
+malware_domains_mail_data = []
+phishing_domains_data = []
+abuse_domains_data = []
+mining_domains_data = []
+spam_domains_data = []
+whitelist_domains_data = []
+whitelist_domains_mail_data = []
+malware_sub_domains_data = []
+malware_mail_sub_domains_data = []
+phishing_sub_domains_data = []
+abuse_sub_domains_data = []
+mining_sub_domains_data = []
+spam_sub_domains_data = []
+whitelist_sub_domains_data = []
+whitelist_mail_sub_domains_data = []
+urlhaus_data = []
+spam_email_365_data = []
+registry = ReferenceRegistry()
+
 async def load_website_data_async():
-    """
-    Fully async version of load_website_data that loads all CSVs in parallel.
-    Updates global variables.
-    """
-    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data
-    global ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data
-    global ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data
-    global ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data
-    global ipv6_addresses_ddos_signatures_data, ipv6_whitelist_data
-    global malware_domains_data, malware_domains_mail_data, phishing_domains_data
-    global abuse_domains_data, mining_domains_data, spam_domains_data
-    global whitelist_domains_data, whitelist_domains_mail_data
-    global malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data
-    global abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data
-    global whitelist_sub_domains_data, whitelist_mail_sub_domains_data
-    global urlhaus_data, spam_email_365_data, registry
-
-    logger.info("Starting async website data loading...")
-
-    # Create registry instance
-    registry = ReferenceRegistry()
-
-    # Define all CSV files to load with their names
-    csv_loads = [
-        (ipv4_addresses_path, "IPv4 Malicious Addresses"),
-        (ipv4_addresses_spam_path, "IPv4 Spam Addresses"),
-        (ipv4_addresses_bruteforce_path, "IPv4 BruteForce Addresses"),
-        (ipv4_addresses_phishing_active_path, "IPv4 Active Phishing Addresses"),
-        (ipv4_addresses_phishing_inactive_path, "IPv4 Inactive Phishing Addresses"),
-        (ipv4_addresses_ddos_path, "IPv4 DDoS Addresses"),
-        (ipv4_whitelist_path, "IPv4 Whitelist"),
-        (ipv6_addresses_path, "IPv6 Malicious Addresses"),
-        (ipv6_addresses_spam_path, "IPv6 Spam Addresses"),
-        (ipv6_addresses_ddos_path, "IPv6 DDoS Addresses"),
-        (ipv6_whitelist_path, "IPv6 Whitelist"),
-        (malware_domains_path, "Malware Domains"),
-        (malware_domains_mail_path, "Malware Mail Domains"),
-        (phishing_domains_path, "Phishing Domains"),
-        (abuse_domains_path, "Abuse Domains"),
-        (mining_domains_path, "Mining Domains"),
-        (spam_domains_path, "Spam Domains"),
-        (whitelist_domains_path, "Whitelist Domains"),
-        (whitelist_domains_mail_path, "Whitelist Mail Domains"),
-        (malware_sub_domains_path, "Malware Subdomains"),
-        (malware_mail_sub_domains_path, "Malware Mail Subdomains"),
-        (phishing_sub_domains_path, "Phishing Subdomains"),
-        (abuse_sub_domains_path, "Abuse Subdomains"),
-        (mining_sub_domains_path, "Mining Subdomains"),
-        (spam_sub_domains_path, "Spam Subdomains"),
-        (whitelist_sub_domains_path, "Whitelist Subdomains"),
-        (whitelist_mail_sub_domains_path, "Whitelist Mail Subdomains"),
-    ]
-
-    # Load all CSVs concurrently
-    tasks = [load_csv_async(path, name, registry) for path, name in csv_loads]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Assign results to globals
-    (
-        ipv4_addresses_signatures_data,
-        ipv4_addresses_spam_signatures_data,
-        ipv4_addresses_bruteforce_signatures_data,
-        ipv4_addresses_phishing_active_signatures_data,
-        ipv4_addresses_phishing_inactive_signatures_data,
-        ipv4_addresses_ddos_signatures_data,
-        ipv4_whitelist_data,
-        ipv6_addresses_signatures_data,
-        ipv6_addresses_spam_signatures_data,
-        ipv6_addresses_ddos_signatures_data,
-        ipv6_whitelist_data,
-        malware_domains_data,
-        malware_domains_mail_data,
-        phishing_domains_data,
-        abuse_domains_data,
-        mining_domains_data,
-        spam_domains_data,
-        whitelist_domains_data,
-        whitelist_domains_mail_data,
-        malware_sub_domains_data,
-        malware_mail_sub_domains_data,
-        phishing_sub_domains_data,
-        abuse_sub_domains_data,
-        mining_sub_domains_data,
-        spam_sub_domains_data,
-        whitelist_sub_domains_data,
-        whitelist_mail_sub_domains_data,
-    ) = results
-
-    # Load URLhaus data (special format with DictReader)
-    try:
-        async with aiofiles.open(urlhaus_path, 'r', encoding='utf-8') as f:
-            content = await f.read()
-
-        def parse_urlhaus(content):
-            reader = csv.DictReader(content.splitlines())
-            return list(reader)
-
-        urlhaus_data = await asyncio.to_thread(parse_urlhaus, content)
-        logger.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
-    except Exception as ex:
-        logger.error(f"Error loading URLhaus data: {ex}")
-        urlhaus_data = []
-
-    # Load Spam Email 365 (plain text)
-    try:
-        async with aiofiles.open(spam_email_365_path, 'r', encoding='utf-8') as f:
-            content = await f.read()
-        spam_email_365_data = [line.strip() for line in content.splitlines() if line.strip()]
-        logger.info(f"Spam Email 365 loaded ({len(spam_email_365_data)} entries)")
-    except Exception as e:
-        logger.error(f"Failed to load Spam Email 365: {e}")
-        spam_email_365_data = []
-
-    # Save registry
-    try:
-        await asyncio.to_thread(registry.save_text, registry_path)
-        logger.info(f"Reference registry saved ({len(registry.id_to_ref)} entries)")
-    except Exception as e:
-        logger.error(f"Failed to save reference registry: {e}")
-
-    logger.info("All website data loaded successfully (async).")
+    logger.info(
+        "Skipping website data loading in antivirus; firewall handles web intelligence feeds."
+    )
+    return None
 
 def get_reference_strings(ref_ids):
     """Convert reference IDs to human-readable strings."""
@@ -2751,7 +2668,7 @@ class RealTimeWebProtectionObserver:
         except Exception as ex:
             logger.error(f"An error occurred while starting sniffing: {ex}")
 
-web_protection_observer = RealTimeWebProtectionObserver()
+web_protection_observer = RealTimeWebProtectionObserver() if WEB_PROTECTION_ENABLED else None
 
 # Global variables for rules
 yarGen_rules = None
