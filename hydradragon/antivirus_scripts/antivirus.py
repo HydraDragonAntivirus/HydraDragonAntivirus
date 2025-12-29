@@ -236,13 +236,6 @@ logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import pythoncom
 logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-WEB_PROTECTION_ENABLED = False
-
-# Web protection has been removed from the antivirus. The firewall owns all
-# website and network intelligence, so we intentionally skip the Scapy imports
-# and any packet-level observers here.
-logger.info("Real-time web protection removed; firewall handles web intelligence.")
-
 start_time = time.time()
 import ast
 logger.debug(f"ast module loaded in {time.time() - start_time:.6f} seconds")
@@ -1023,10 +1016,6 @@ def decode_b64_import(match: re.Match) -> str:
     except Exception:
         return match.group(0)
 
-WEB_INTELLIGENCE_MESSAGE = (
-    "Website threat intelligence now lives in the firewall; antivirus web datasets are removed."
-)
-
 # --------------------------------------------------------------------------
 # Main scanner (stops after first detection)
 def scan_code_for_links(decompiled_code, file_path, **flags):
@@ -1035,10 +1024,6 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     IP addresses, and obfuscated URLs. Stops immediately after the first detection.
     Ensures file_path/main_file_path are forwarded to downstream scanners and notifications.
     """
-    logger.info(
-        "Skipping link and webhook scanning for %s; firewall verdicts are trusted.",
-        file_path,
-    )
     return False
 
 def extract_ascii_strings(data):
@@ -1314,10 +1299,6 @@ def restart_service(service_name, stop_only=False):
         logger.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
-# --------------------------------------------------------------------------
-# --- The RealTimeWebProtectionHandler Class ---
-# Web protection is disabled; the firewall handles website intelligence.
-
 class RealTimeWebProtectionHandler:
     """Stub handler kept for compatibility; it performs no work."""
 
@@ -1328,15 +1309,14 @@ class RealTimeWebProtectionHandler:
         self.loop = loop
 
     def sync_packet_handler(self, _packet):
-        logger.debug("Web protection handler is disabled; ignoring packet callback.")
+        return None
 
     async def on_packet_received(self, _packet):
-        logger.debug("Web protection handler is disabled; ignoring packet.")
+        return None
 
     async def scan(self, *_args, **_kwargs):
-        logger.debug("Web protection handler is disabled; skipping scan request.")
+        return None
 
-# ========== ASYNC WEB PROTECTION OBSERVER ==========
 
 class RealTimeWebProtectionObserver:
     """Stub observer to satisfy callers while deferring to the firewall."""
@@ -1345,7 +1325,7 @@ class RealTimeWebProtectionObserver:
         self.handler = RealTimeWebProtectionHandler()
 
     async def begin_observing_async(self):
-        logger.info("Web protection observer disabled; firewall handles traffic monitoring.")
+        return None
 
 web_protection_observer = None
 
@@ -2843,13 +2823,7 @@ async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
         logger.error(f"Unexpected error in convert_ip_to_file: {ex}")
 
 async def process_alert_data(priority, src_ip, dest_ip):
-    """Delegate network alert handling to the firewall pipeline."""
     try:
-        logger.debug(
-            "Skipping antivirus web alert processing for %s -> %s; firewall verdicts are trusted.",
-            src_ip,
-            dest_ip,
-        )
         return False
     except Exception as ex:
         logger.error(f"Error processing alert data: {ex}")
@@ -4921,7 +4895,6 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
         else:
             logger.error("Failed to save the final decrypted source code.")
 
-        logger.info("Skipping webhook scanning; firewall handles Discord/Telegram indicators.")
         return False
 
     except Exception as ex:
@@ -6167,9 +6140,6 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with JADX to {output_dir}")
 
-        logger.info(
-            "JADX: skipping URL/discord scanning; firewall pipeline will score web indicators."
-        )
         return True
 
     except subprocess.TimeoutExpired:
@@ -6208,9 +6178,6 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with Androguard to {output_dir}")
 
-        logger.info(
-            "Androguard: skipping URL/discord scanning; firewall pipeline will score web indicators."
-        )
         return True
 
     except subprocess.TimeoutExpired:
@@ -6243,13 +6210,7 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
         logger.error(f"Error decompiling APK {file_path}: {ex}")
 
 def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
-    """
-    Decompiles a .NET assembly using ILSpy without performing any web intelligence
-    scanning. URL, domain, and webhook verdicts are delegated to the firewall.
-
-    :param file_path: Path to the .NET assembly file.
-    :param main_file_path: The original file path for threat tracing.
-    """
+    """Decompile a .NET assembly using ILSpy."""
     try:
         logger.info(f"Detected .NET assembly: {file_path}")
 
@@ -6268,8 +6229,6 @@ def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
         ]
         subprocess.run(ilspy_command, check=True)
         logger.info(f".NET content decompiled to {dotnet_output_dir}")
-
-        logger.info("Skipping .NET web intel scanning; firewall will provide verdicts.")
 
     except Exception as ex:
         logger.error(f"Error decompiling .NET file {file_path}: {ex}")
@@ -6344,9 +6303,6 @@ def extract_asar_file(file_path):
         subprocess.run(asar_command, check=True)
         logger.info(f"Asar archive extracted to {asar_output_dir}")
 
-        logger.info(
-            "Asar extraction complete; skipping web/link scanning because firewall owns URL verdicts."
-        )
         return asar_output_dir  # Return the extracted folder path
 
     except subprocess.CalledProcessError as ex:
@@ -10184,8 +10140,6 @@ async def load_all_resources_async():
     asyncio.create_task(load_clamav(), name="load_clamav")
     asyncio.create_task(load_ml(), name="load_ml")
     asyncio.create_task(load_excluded(), name="load_excluded")
-
-    logger.info("Website data loading skipped in AV (handled by firewall feed).")
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")
