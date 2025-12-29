@@ -1,3 +1,5 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use bs58;
 use glob::glob;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -17,6 +19,12 @@ lazy_static! {
         Regex::new(r"https://cdn\.discordapp\.com/attachments/\d+/\d+/[A-Za-z0-9._-]+").unwrap();
     static ref TELEGRAM_TOKEN_REGEX: Regex =
         Regex::new(r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}").unwrap();
+
+    // Encoded payload detection
+    static ref BASE64_BLOB_REGEX: Regex =
+        Regex::new(r"(?i)(?:[A-Za-z0-9+/]{24,}={0,2})").unwrap();
+    static ref BASE58_BLOB_REGEX: Regex =
+        Regex::new(r"[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{32,}").unwrap();
 
     // Ported from antivirus.py
     static ref EMAIL_REGEX: Regex =
@@ -365,13 +373,26 @@ impl WebFilter {
         settings: &crate::engine::FirewallSettings,
     ) -> Option<String> {
         // 1. Convert to string (lossy) to check regex
-        // We only check the first 2KB for efficiency
-        let scan_len = std::cmp::min(payload.len(), 4096); // Increased default scan
+        // We only check the first 4KB for efficiency
+        let scan_len = std::cmp::min(payload.len(), 4096);
         if scan_len == 0 {
             return None;
         }
 
         let text = String::from_utf8_lossy(&payload[..scan_len]);
+
+        if let Some(reason) = self.scan_text_for_signatures(&text, settings) {
+            return Some(reason);
+        }
+
+        self.scan_encoded_sections(&text, settings)
+    }
+
+    fn scan_text_for_signatures(
+        &self,
+        text: &str,
+        settings: &crate::engine::FirewallSettings,
+    ) -> Option<String> {
         let text_lower = text.to_lowercase();
 
         // Dynamic Keyword Scan from Settings
@@ -382,19 +403,18 @@ impl WebFilter {
         }
 
         // Check regexes using lazy_static patterns (compiled on first use)
-        // These can be toggled in future updates via settings if needed
-        if DISCORD_WEBHOOK_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Discord Webhook"));
+        if DISCORD_WEBHOOK_REGEX.is_match(text) {
+            return Some("Regex Match: Discord Webhook".to_string());
         }
-        if DISCORD_ATTACHMENT_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Discord Attachment"));
+        if DISCORD_ATTACHMENT_REGEX.is_match(text) {
+            return Some("Regex Match: Discord Attachment".to_string());
         }
-        if TELEGRAM_TOKEN_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Telegram Token"));
+        if TELEGRAM_TOKEN_REGEX.is_match(text) {
+            return Some("Regex Match: Telegram Token".to_string());
         }
 
         // --- Email Scanning ---
-        for cap in EMAIL_REGEX.captures_iter(&text) {
+        for cap in EMAIL_REGEX.captures_iter(text) {
             if let Some(email_match) = cap.get(0) {
                 let email = email_match.as_str().to_lowercase();
                 if self.email_blocklist.read().unwrap().contains(&email) {
@@ -431,6 +451,48 @@ impl WebFilter {
                 for keyword in &settings.blocked_keywords {
                     if host_name.contains(&keyword.to_lowercase()) {
                         return Some(format!("Blocked Host Keyword: {}", keyword));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn scan_encoded_sections(
+        &self,
+        text: &str,
+        settings: &crate::engine::FirewallSettings,
+    ) -> Option<String> {
+        for cap in BASE64_BLOB_REGEX.captures_iter(text).take(3) {
+            if let Some(raw) = cap.get(0) {
+                if raw.as_str().len() > 4096 {
+                    continue;
+                }
+                if let Ok(decoded) = BASE64_STANDARD.decode(raw.as_str()) {
+                    if decoded.is_empty() {
+                        continue;
+                    }
+                    let decoded_text = String::from_utf8_lossy(&decoded);
+                    if let Some(reason) = self.scan_text_for_signatures(&decoded_text, settings) {
+                        return Some(format!("Base64 decoded -> {}", reason));
+                    }
+                }
+            }
+        }
+
+        for cap in BASE58_BLOB_REGEX.captures_iter(text).take(3) {
+            if let Some(raw) = cap.get(0) {
+                if raw.as_str().len() > 4096 {
+                    continue;
+                }
+                if let Ok(decoded) = bs58::decode(raw.as_str()).into_vec() {
+                    if decoded.is_empty() {
+                        continue;
+                    }
+                    let decoded_text = String::from_utf8_lossy(&decoded);
+                    if let Some(reason) = self.scan_text_for_signatures(&decoded_text, settings) {
+                        return Some(format!("Base58 decoded -> {}", reason));
                     }
                 }
             }
@@ -486,5 +548,24 @@ mod tests {
         let _ = fs::remove_file(&whitelist_path);
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
+    }
+
+    #[test]
+    fn test_base64_payload_is_decoded_for_host_blocking() {
+        let filter = WebFilter::new();
+        filter
+            .domain_blocklist
+            .write()
+            .unwrap()
+            .insert("blocked.example".to_string());
+
+        let settings = crate::engine::FirewallSettings::default();
+        let http_request = b"GET / HTTP/1.1\r\nHost: blocked.example\r\n\r\n";
+        let encoded = base64::encode(http_request);
+
+        let result = filter.check_payload(encoded.as_bytes(), &settings);
+        assert!(result
+            .expect("Base64 wrapped payload should decode and be blocked")
+            .contains("Blocked Domain: blocked.example"));
     }
 }
