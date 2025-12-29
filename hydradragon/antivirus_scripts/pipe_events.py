@@ -307,8 +307,8 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
                     try:
                         win32pipe.DisconnectNamedPipe(pipe)
                         win32file.CloseHandle(pipe)
-                    except:
-                        pass
+                    except Exception as disconnect_error:
+                        logger.debug(f"[EDR] Failed to close AV->EDR pipe cleanly: {disconnect_error}")
 
     # Start in dedicated thread
     thread = threading.Thread(target=pipe_worker, daemon=True, name="AVToEDRPipe")
@@ -397,8 +397,8 @@ async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
                     try:
                         win32pipe.DisconnectNamedPipe(pipe)
                         win32file.CloseHandle(pipe)
-                    except:
-                        pass
+                    except Exception as disconnect_error:
+                        logger.debug(f"[MBR] Failed to close MBR alert pipe cleanly: {disconnect_error}")
 
     thread = threading.Thread(target=pipe_worker, daemon=True, name="MBRAlertPipe")
     thread.start()
@@ -539,8 +539,8 @@ async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEF
                     try:
                         win32pipe.DisconnectNamedPipe(pipe)
                         win32file.CloseHandle(pipe)
-                    except:
-                        pass
+                    except Exception as disconnect_error:
+                        logger.debug(f"[Self-Defense] Failed to close self-defense pipe cleanly: {disconnect_error}")
 
     thread = threading.Thread(target=pipe_worker, daemon=True, name="SelfDefensePipe")
     thread.start()

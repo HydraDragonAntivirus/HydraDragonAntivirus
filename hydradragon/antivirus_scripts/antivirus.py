@@ -117,6 +117,7 @@ from .path_and_variables import (
     seven_zip_path,
     libclamav_path,
     clamav_database_directory_path,
+    yarGen_rule_path,
     antivirus_list_path,
 )
 
@@ -4440,16 +4441,16 @@ class PyInstArchive:
         try:
             self.fPtr = open(self.filePath, "rb")
             self.fileSize = os.stat(self.filePath).st_size
-        except:
-            logger.error("Could not open %s", self.filePath)
+        except Exception as open_error:
+            logger.error("Could not open %s: %s", self.filePath, open_error)
             return False
         return True
 
     def close(self):
         try:
             self.fPtr.close()
-        except:
-            pass
+        except Exception as close_error:
+            logger.debug("Failed to close %s cleanly: %s", self.filePath, close_error)
 
     def checkFile(self):
         logger.info("Processing %s", self.filePath)
@@ -4518,8 +4519,8 @@ class PyInstArchive:
                     "!8sIIii64s", self.fPtr.read(self.PYINST21_COOKIE_SIZE)
                 )
 
-        except:
-            logger.error("Error: The file is not a pyinstaller archive")
+        except Exception as parse_error:
+            logger.error("Error: The file is not a pyinstaller archive (%s)", parse_error)
             return False
 
         self.pymaj, self.pymin = (
@@ -4698,11 +4699,15 @@ class PyInstArchive:
             (tocPosition,) = struct.unpack("!i", f.read(4))
             f.seek(tocPosition, os.SEEK_SET)
 
-            try:
-                toc = load_code(f, pycHeader2Magic(pyzPycMagic))
-            except:
-                logger.error("Unmarshalling FAILED. Cannot extract %s. Extracting remaining files.", name)
-                return
+        try:
+            toc = load_code(f, pycHeader2Magic(pyzPycMagic))
+        except Exception as unmarshall_error:
+            logger.error(
+                "Unmarshalling FAILED. Cannot extract %s. Extracting remaining files. Error: %s",
+                name,
+                unmarshall_error,
+            )
+            return
 
             logger.info("Found %d files in PYZ archive", len(toc))
 
@@ -4718,10 +4723,10 @@ class PyInstArchive:
                 try:
                     # for Python > 3.3 some keys are bytes object some are str object
                     fileName = fileName.__str__()
-                except:
+                except Exception:
                     try:
                         fileName = fileName.decode("utf-8")
-                    except:
+                    except Exception:
                         pass
 
                 # Prevent writing outside dirName
@@ -4740,7 +4745,7 @@ class PyInstArchive:
                 try:
                     data = f.read(length)
                     data = zlib.decompress(data)
-                except:
+                except Exception as decompress_error:
                     try:
                         # Automatic decryption
                         # Make a copy
@@ -4749,14 +4754,19 @@ class PyInstArchive:
                         # Try CTR mode, Pyinstaller >= 4.0 uses AES in CTR mode
                         data = self._tryDecrypt(data, "ctr")
                         data = zlib.decompress(data)
-                    except:
+                    except Exception as ctr_error:
                         # Try CFB mode, Pyinstaller < 4.0 uses AES in CFB mode
                         try:
                             data = data_copy
                             data = self._tryDecrypt(data, "cfb")
                             data = zlib.decompress(data)
-                        except:
-                            logger.error("Failed to decrypt & decompress %s. Extracting as is.", filePath)
+                        except Exception as cfb_error:
+                            logger.error(
+                                "Failed to decrypt & decompress %s (CTR: %s, CFB: %s). Extracting as is.",
+                                filePath,
+                                ctr_error,
+                                cfb_error,
+                            )
                             open(filePath + ".encrypted", "wb").write(data_copy)
                             continue
 
@@ -7878,7 +7888,7 @@ class VBADeobfuscator:
                         'decoded': decoded
                     })
                     return f'"{decoded}"'
-            except:
+            except Exception:
                 pass
             return hex_str
 
@@ -7900,7 +7910,7 @@ class VBADeobfuscator:
                         'decoded': decoded
                     })
                     return f'"{decoded}"'
-            except:
+            except Exception:
                 pass
             return match.group(0)
 
@@ -7916,7 +7926,7 @@ class VBADeobfuscator:
                 if 0 <= char_code <= 255:
                     char = chr(char_code)
                     return f'"{char}"'
-            except:
+            except Exception:
                 pass
             return match.group(0)
 
@@ -8023,7 +8033,7 @@ class VBADeobfuscator:
                         'decoded': decoded
                     })
                     return f'"{decoded}"'
-            except:
+            except Exception:
                 pass
             return match.group(0)
 
@@ -8077,7 +8087,7 @@ class VBADeobfuscator:
                 decoded = ''.join(chr(ord(c) ^ key) for c in s)
                 if decoded.isprintable() and ' ' in decoded:
                     return decoded
-        except:
+        except Exception:
             pass
         return None
 
