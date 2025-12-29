@@ -4,6 +4,7 @@
 import os
 import sys
 import time
+import threading
 from datetime import datetime
 from .hydra_logger import (
     logger,
@@ -91,7 +92,6 @@ from .path_and_variables import (
     ungarbler_string_dir,
     excluded_rules_path,
     html_extracted_dir,
-    registry_path,
     unified_pe_cache,
     existing_projects,
     running_processes,
@@ -509,6 +509,10 @@ logger.debug(f"Total time for all imports: {total_duration:.6f} seconds")
 user_startup, common_startup = get_startup_paths()
 
 startup_dirs = [user_startup, common_startup]
+
+# Shared state for tracking saved deobfuscated artifact paths
+deobfuscated_saved_paths: list[str] = []
+deobfuscated_paths_lock = threading.Lock()
 
 def service_exists(service_name):
    """Check if a Windows service exists."""
