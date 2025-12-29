@@ -117,6 +117,7 @@ from .path_and_variables import (
     seven_zip_path,
     libclamav_path,
     clamav_database_directory_path,
+    antivirus_list_path,
 )
 
 # Web whitelist datasets are maintained by the firewall; keep local placeholders
