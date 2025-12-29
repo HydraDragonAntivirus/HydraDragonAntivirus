@@ -16,5 +16,9 @@ impl ThreatHandler for LinuxThreatHandler {
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
         todo!()
     }
+
+    fn kill_and_quarantine(&self, _gid: u64) {
+        // TODO: implement Linux quarantine; currently a stub to satisfy the trait contract
+    }
 }
   
