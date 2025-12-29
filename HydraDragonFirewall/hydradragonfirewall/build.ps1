@@ -4,18 +4,28 @@
 param(
     [switch]$Release,
     [switch]$Run,
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$WinDivertPath
 )
 
 $ErrorActionPreference = "Stop"
 
-# Set WinDivert paths if available (otherwise rely on vendored build)
-$windivertDefault = "c:\Users\victim\Documents\GitHub\HydraDragonFirewall\everything"
-if (Test-Path $windivertDefault) {
-    $env:WINDIVERT_PATH = $windivertDefault
-    $env:WINDIVERT_LIB_DIR = $windivertDefault
+# Set WinDivert paths if provided (otherwise rely on vendored build)
+$configuredPaths = @(
+    $WinDivertPath,
+    $env:WINDIVERT_PATH
+)
+
+$resolvedWinDivert = $configuredPaths |
+    Where-Object { $_ -and (Test-Path $_) } |
+    Select-Object -First 1
+
+if ($resolvedWinDivert) {
+    $env:WINDIVERT_PATH = $resolvedWinDivert
+    $env:WINDIVERT_LIB_DIR = $resolvedWinDivert
+    Write-Host "Using WinDivert binaries at '$resolvedWinDivert'" -ForegroundColor Gray
 } else {
-    Write-Warning "WINDIVERT_PATH not found at '$windivertDefault'; using vendored WinDivert build instead."
+    Write-Warning "No valid WinDivert path provided; using vendored WinDivert build instead."
     Remove-Item Env:WINDIVERT_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:WINDIVERT_LIB_DIR -ErrorAction SilentlyContinue
 }
@@ -55,19 +65,21 @@ Write-Host "      Rust build complete!" -ForegroundColor Green
 # Copy WinDivert files if needed
 $targetDir = if ($Release) { "target\release" } else { "target\debug" }
 $dlls = @("WinDivert.dll", "WinDivert64.sys")
-foreach ($dll in $dlls) {
-    $src = Join-Path $env:WINDIVERT_PATH $dll
-    $dst = Join-Path $targetDir $dll
-    if (Test-Path $src) {
-        Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
-        Copy-Item $src $dst -Force
+if ($env:WINDIVERT_PATH) {
+    foreach ($dll in $dlls) {
+        $src = Join-Path $env:WINDIVERT_PATH $dll
+        $dst = Join-Path $targetDir $dll
+        if (Test-Path $src) {
+            Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
+            Copy-Item $src $dst -Force
+        }
     }
 }
 
 # Also copy exe to 'everything' folder for easy deployment
 $exeSrc = Join-Path $targetDir "hydradragonfirewall.exe"
-$exeDst = Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe"
-if (Test-Path $exeSrc) {
+$exeDst = if ($env:WINDIVERT_PATH) { Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe" } else { $null }
+if ($exeSrc -and (Test-Path $exeSrc) -and $exeDst) {
     Write-Host "      Deploying exe to $env:WINDIVERT_PATH" -ForegroundColor Gray
     Copy-Item $exeSrc $exeDst -Force
 }
