@@ -13,6 +13,7 @@ from .hydra_logger import (
 from .path_and_variables import (
     script_dir,
     PIPE_EDR_TO_AV,
+    PIPE_AV_TO_FIREWALL,
     _WAIT_TIMEOUT_MS,
     _OPEN_RETRIES,
     _RETRY_DELAY,
@@ -1332,21 +1333,53 @@ web_protection_observer = None
 
 # --- Firewall web-scan delegation helpers ---
 
+def _sync_write_firewall_pipe(message: str) -> None:
+    """Synchronous writer that pushes a UTF-8 message to the firewall pipe."""
+    handle = None
+    try:
+        win32pipe.WaitNamedPipe(PIPE_AV_TO_FIREWALL, int(_WAIT_TIMEOUT_MS))
+        handle = win32file.CreateFile(
+            PIPE_AV_TO_FIREWALL,
+            win32file.GENERIC_WRITE,
+            0,
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None,
+        )
+        win32file.WriteFile(handle, message.encode("utf-8"))
+        win32file.FlushFileBuffers(handle)
+    finally:
+        if handle:
+            try:
+                win32file.CloseHandle(handle)
+            except Exception:
+                pass
+
+
+async def _send_firewall_web_payload(paths: List[str], origin: str) -> None:
+    """Serialize extracted artifacts and forward them to the firewall pipe."""
+    payload = {"origin": origin, "paths": paths}
+    try:
+        await asyncio.to_thread(_sync_write_firewall_pipe, json.dumps(payload))
+        logger.info(
+            f"[FirewallPipe] forwarded {len(paths)} artifact(s) from {origin} for web scan"
+        )
+    except pywintypes.error as e:
+        if getattr(e, "winerror", None) == 2:
+            logger.warning("Firewall pipe is unavailable; skipping web-scan forwarding")
+        else:
+            logger.error(f"Failed to send web-scan payload to firewall: {e}")
+    except Exception:
+        logger.exception("Unexpected failure forwarding web candidates to firewall")
+
+
 async def _forward_web_candidates_to_firewall(paths: List[str], origin: str) -> None:
     """
-    Send extracted or deobfuscated files to the firewall/EDR pipeline so web
-    intelligence decisions are centralized there.
+    Send extracted or deobfuscated files to the firewall so web intelligence
+    decisions are centralized there.
     """
-    for candidate in paths:
-        try:
-            await _send_av_event_to_edr(
-                file_path=candidate,
-                virus_name=f"web-scan:{origin}",
-                detection_type="web_scan",
-                action="monitor",
-            )
-        except Exception:
-            logger.exception(f"Failed to forward {candidate} to firewall for web scan")
+    await _send_firewall_web_payload(paths, origin)
 
 
 def _collect_files_under(root_dir: str) -> List[str]:
