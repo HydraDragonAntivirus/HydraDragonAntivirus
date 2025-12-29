@@ -14,32 +14,6 @@ use ebpf_monitor_common::Access::{Read, Write, Unlink, Rmdir, Mkdir, Symlink, Cr
 
 pub type Buf = [u8; 32];
 
-impl DriveType {
-    // pub fn from_filepath(filepath: String) -> DriveType {
-    //     let mut drive_type = 1u32;
-    //     if !filepath.is_empty() {
-    //         let drive_path = &filepath[..(filepath.find('\\').unwrap_or(0) + 1)];
-    //         unsafe {
-    //             drive_type = GetDriveTypeA(PCSTR::from_raw(drive_path.as_ptr()));
-    //         }
-    //     }
-    //     match drive_type {
-    //         0 => Unknown,
-    //         1 => NoRootDir,
-    //         2 => Removable,
-    //         3 => Fixed,
-    //         4 => Remote,
-    //         5 => CDRom,
-    //         6 => RamDisk,
-    //         _ => NoRootDir,
-    //     }
-    // }
-
-    pub fn from_filepath(_filepath: String) -> DriveType {
-        NoRootDir
-    }
-}
-
 impl IOMessage {
     pub fn from(l_drivermsg: &LDriverMsg) -> IOMessage {
         IOMessage {

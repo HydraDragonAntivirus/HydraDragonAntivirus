@@ -103,6 +103,35 @@ pub enum DriveType {
     RamDisk,
 }
 
+impl DriveType {
+    /// Best-effort drive classification based on a file path. This mirrors the
+    /// simple helpers used by the platform-specific driver modules and keeps
+    /// the library build self contained for SDK consumers and examples.
+    pub fn from_filepath(filepath: impl AsRef<str>) -> DriveType {
+        let filepath = filepath.as_ref();
+        if filepath.starts_with("\\\\") {
+            return DriveType::Remote;
+        }
+
+        if filepath.starts_with('/'){ 
+            // Linux-style paths default to fixed/local media
+            return DriveType::Fixed;
+        }
+
+        // Windows-style "X:\" drive letter prefixes
+        if filepath.chars().nth(1) == Some(':') {
+            // Treat removable drive letters explicitly
+            let drive_letter = filepath.chars().next().unwrap_or_default().to_ascii_uppercase();
+            if matches!(drive_letter, 'A' | 'B') {
+                return DriveType::Removable;
+            }
+            return DriveType::Fixed;
+        }
+
+        DriveType::Unknown
+    }
+}
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileId(pub u64);
 
