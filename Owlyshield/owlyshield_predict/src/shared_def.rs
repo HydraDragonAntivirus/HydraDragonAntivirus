@@ -107,7 +107,8 @@ impl DriveType {
     /// Best-effort drive classification based on a file path. This mirrors the
     /// simple helpers used by the platform-specific driver modules and keeps
     /// the library build self contained for SDK consumers and examples.
-    pub fn from_filepath(filepath: String) -> DriveType {
+    pub fn from_filepath(filepath: impl AsRef<str>) -> DriveType {
+        let filepath = filepath.as_ref();
         if filepath.starts_with("\\\\") {
             return DriveType::Remote;
         }

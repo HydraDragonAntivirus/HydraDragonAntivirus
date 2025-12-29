@@ -57,7 +57,8 @@ pub struct Driver {
 }
 
 impl DriveType {
-    pub fn from_filepath(filepath: String) -> DriveType {
+    pub fn from_filepath(filepath: impl AsRef<str>) -> DriveType {
+        let filepath = filepath.as_ref();
         let mut drive_type = 1u32;
         if !filepath.is_empty() {
             let drive_path = &filepath[..(filepath.find('\\').unwrap_or(0) + 1)];
