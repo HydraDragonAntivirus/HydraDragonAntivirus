@@ -496,8 +496,6 @@ from .notify_user import (
     notify_user_startup,
     notify_user_exela_stealer_v2,
     notify_user_hosts,
-    notify_user_for_web,
-    notify_user_for_web_source,
     notify_user_for_detected_hips_file,
     notify_user_duplicate,
     notify_user_for_uefi,
@@ -513,25 +511,12 @@ start_time = time.time()
 from .pattern import (
     IPv4_pattern_standard,
     IPv6_pattern_standard,
-    discord_webhook_pattern,
-    discord_attachment_pattern,
-    discord_canary_webhook_pattern,
-    cdn_attachment_pattern,
-    telegram_token_pattern,
-    telegram_keyword_pattern,
-    discord_webhook_pattern_standard,
-    discord_attachment_pattern_standard,
-    discord_canary_webhook_pattern_standard,
-    cdn_attachment_pattern_standard,
-    telegram_token_pattern_standard,
     UBLOCK_REGEX,
     ZIP_JOIN,
     CHAINED_JOIN,
     B64_LITERAL,
     EMAIL_RE,
-    EMAIL_FULLMATCH_RE,
-    build_url_regex,
-    build_ip_patterns
+    EMAIL_FULLMATCH_RE
 )
 logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -1183,176 +1168,11 @@ async def scan_domain_general(url, file_path, **flags):
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
 async def scan_ip_address_general(ip_address, file_path, **flags):
-    try:
-        # Skip invalid IPs
-        if not is_valid_ip(ip_address):
-            logger.info(f"Skipping non-valid IP address: {ip_address}")
-            return False
-
-        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
-            logger.info(f"IP address {ip_address} has already been scanned.")
-            return False
-
-        def is_ip_in_data_general(ip, data_list):
-            for entry in data_list:
-                if entry.get('address') == ip:
-                    return True, entry.get('ref_ids', [])
-            return False, []
-
-        # IPv6 processing
-        if re.match(IPv6_pattern_standard, ip_address):
-            scanned_ipv6_addresses_general.append(ip_address)
-            logger.info(f"Scanning IPv6 address: {ip_address}")
-
-            # Whitelist
-            is_whitelisted, ref_ids = is_ip_in_data_general(ip_address, ipv6_whitelist_data)
-            if is_whitelisted:
-                ref_strings = get_reference_strings(ref_ids)
-                logger.info(f"IPv6 address {ip_address} is whitelisted. References: {ref_strings}")
-                return False
-
-            # Threat checks
-            ipv6_threats = [
-                (ipv6_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv6"),
-                (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6"),
-                (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6")
-            ]
-
-            for data_list, threat_name, signature_suffix in ipv6_threats:
-                is_threat, ref_ids = is_ip_in_data_general(ip_address, data_list)
-                if is_threat:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.critical(f"{threat_name} IPv6 address detected: {ip_address} (References: {ref_strings})")
-                    await notify_user_for_web_source(ipv6_address=ip_address,
-                                                     detection_type=signature_suffix,
-                                                     file_path=file_path,
-                                                     main_file_path=flags.get('main_file_path'))
-                    return True
-
-            logger.info(f"Unknown IPv6 address scanned (no matches): {ip_address}")
-            return False
-
-        # IPv4 processing
-        elif re.match(IPv4_pattern_standard, ip_address):
-            scanned_ipv4_addresses_general.append(ip_address)
-            logger.info(f"Scanning IPv4 address: {ip_address}")
-
-            # Whitelist
-            is_whitelisted, ref_ids = is_ip_in_data_general(ip_address, ipv4_whitelist_data)
-            if is_whitelisted:
-                ref_strings = get_reference_strings(ref_ids)
-                logger.info(f"IPv4 address {ip_address} is whitelisted. References: {ref_strings}")
-                return False
-
-            # Threat checks
-            ipv4_threats = [
-                (ipv4_addresses_phishing_active_signatures_data, "PhishingActive", "PhishingActive.IPv4"),
-                (ipv4_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv4"),
-                (ipv4_addresses_phishing_inactive_signatures_data, "PhishingInactive", "PhishingInactive.IPv4"),
-                (ipv4_addresses_bruteforce_signatures_data, "BruteForce", "BruteForce.IPv4"),
-                (ipv4_addresses_spam_signatures_data, "Spam", "Spam.IPv4"),
-                (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4")
-            ]
-
-            for data_list, threat_name, signature_suffix in ipv4_threats:
-                is_threat, ref_ids = is_ip_in_data_general(ip_address, data_list)
-                if is_threat:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.critical(f"{threat_name} IPv4 address detected: {ip_address} (References: {ref_strings})")
-                    await notify_user_for_web_source(ipv4_address=ip_address,
-                                                     detection_type=signature_suffix,
-                                                     file_path=file_path,
-                                                     main_file_path=flags.get('main_file_path'))
-                    return True
-
-            logger.info(f"Unknown IPv4 address scanned (no matches): {ip_address}")
-            return False
-
-        else:
-            logger.debug(f"Invalid IP address format detected: {ip_address}")
-            return False
-
-    except Exception as ex:
-        logger.error(f"Error scanning IP address {ip_address}: {ex}")
-        return False
-
-async def _extract_and_verify_emails(text: str) -> tuple[List[str], List[str]]:
-    """
-    Returns (valid_emails, invalid_emails) found in text.
-    Strips surrounding punctuation commonly attached to emails in plain text.
-    """
-    candidates = [m.group(0) for m in EMAIL_RE.finditer(text)]
-    cleaned = [c.strip("()[]<>'\".,;:") for c in candidates]
-    valid: List[str] = []
-    invalid: List[str] = []
-    for e in cleaned:
-        if EMAIL_FULLMATCH_RE.fullmatch(e):
-            valid.append(e)
-        else:
-            invalid.append(e)
-    return valid, invalid
-
-# --------------------------------------------------------------------------
-# Spam Email 365 Scanner (updated)
-async def scan_spam_email_365_general(email_content, file_path, *, treat_invalid_email_as_spam=True, **flags):
-    """
-    Scans email content for spam keywords from StopForum Spam Database and
-    verifies extracted email addresses with EMAIL_RE.
-    If `treat_invalid_email_as_spam` is True, finding invalid email-like tokens
-    will cause the function to treat the message as suspicious.
-    """
-    try:
-        if not email_content:
-            logger.info("No email content provided for spam scanning.")
-            return False
-
-        # normalize for keyword scanning
-        email_content_lower = email_content.lower()
-        detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
-
-        # extract & verify emails
-        valid_emails, invalid_emails = await _extract_and_verify_emails(email_content)
-
-        # Log email verification result (useful for debugging/analysis)
-        if valid_emails:
-            logger.debug(f"Found valid emails: {valid_emails[:5]}")
-        if invalid_emails:
-            logger.warning(f"Found invalid/odd email-like tokens: {invalid_emails[:5]}")
-
-        # Decide whether this counts as spam
-        flagged = False
-        reasons = []
-
-        if detected_spam_words:
-            flagged = True
-            reasons.append(f"Spam words ({len(detected_spam_words)})")
-
-        if treat_invalid_email_as_spam and invalid_emails:
-            flagged = True
-            reasons.append(f"Invalid emails ({len(invalid_emails)})")
-
-        if flagged:
-            # include up to 5 items from each category in logs/notification
-            details = []
-            if detected_spam_words:
-                details.append(f"spam_words: {', '.join(detected_spam_words[:5])}")
-            if invalid_emails:
-                details.append(f"invalid_emails: {', '.join(invalid_emails[:5])}")
-            logger.critical(f"Spam email detected! Reasons: {', '.join(reasons)}. Details: {' | '.join(details)}")
-            await notify_user_for_web_source(
-                domain="EmailContent",
-                detection_type="Spam.Email365d",
-                file_path=file_path,
-                main_file_path=flags.get('main_file_path')
-            )
-            return True
-
-        logger.info("Email content passed spam check - no spam indicators found.")
-        return False
-
-    except Exception as ex:
-        logger.error(f"Error scanning email content for spam: {ex}", exc_info=True)
-        return False
+    logger.info(
+        "Skipping IP intelligence for %s; relying on firewall pipeline results.",
+        ip_address,
+    )
+    return False
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
@@ -1370,65 +1190,10 @@ def scan_html_content(html_content, html_content_file_path, **flags):
     Scan extracted HTML content for potential threats.
     Stops immediately after the first confirmed detection.
     """
-    # MODIFIED: Prioritize main_file_path from flags
-    local_flags = dict(flags) if flags else {}
-    primary_main_file_path = local_flags.get('main_file_path', html_content_file_path)
-
-
-    # --- 1. Discord / Telegram check ---
-    try:
-        if contains_discord_or_telegram_code(html_content, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
-            logger.info(f"Early exit: Discord/Telegram indicator detected in HTML: {html_content_file_path}")
-            return True
-    except Exception as e:
-        logger.error(f"Error scanning HTML for Discord/Telegram: {e}")
-
-    # --- 2. Extract and scan URLs ---
-    try:
-        urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
-        for url in urls:
-            # Scan URL-level indicators
-            try:
-                if scan_url_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Malicious URL detected in HTML: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_url_general for {url}: {e}")
-
-            try:
-                if scan_domain_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Malicious domain detected in HTML: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_domain_general for {url}: {e}")
-
-            try:
-                if scan_spam_email_365_general(url, html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Spam/email indicator detected in HTML: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_spam_email_365_general for {url}: {e}")
-    except Exception as e:
-        logger.error(f"Error scanning URLs in HTML: {e}")
-
-    # --- 3. Extract and scan IP addresses ---
-    ip_patterns = build_ip_patterns()
-
-    for pattern, ip_type in ip_patterns:
-        try:
-            ip_addresses = set(re.findall(pattern, html_content))
-            for ip in ip_addresses:
-                try:
-                    if scan_ip_address_general(ip, file_path=html_content_file_path, main_file_path=primary_main_file_path, **local_flags):
-                        logger.info(f"Early exit: Malicious {ip_type} detected in HTML: {ip}")
-                        return True
-                except Exception as e:
-                    logger.error(f"Error scanning {ip_type} {ip}: {e}")
-                    continue
-        except Exception as e:
-            logger.error(f"Error applying {ip_type} regex: {e}")
-
-    # --- No detections ---
+    logger.info(
+        "Skipping HTML web intelligence for %s; firewall provides all URL/IP verdicts.",
+        html_content_file_path,
+    )
     return False
 
 # --------------------------------------------------------------------------
@@ -1526,146 +1291,10 @@ def scan_code_for_links(decompiled_code, file_path, **flags):
     IP addresses, and obfuscated URLs. Stops immediately after the first detection.
     Ensures file_path/main_file_path are forwarded to downstream scanners and notifications.
     """
-    # MODIFIED: Prioritize main_file_path from flags
-    local_flags = dict(flags) if flags else {}
-    primary_main_file_path = local_flags.get('main_file_path', file_path)
-
-
-    # --- 1. Discord / Telegram check ---
-    try:
-        if contains_discord_or_telegram_code(decompiled_code, file_path, main_file_path=primary_main_file_path, **local_flags):
-            logger.info(f"Early exit: Discord/Telegram indicator detected in {file_path}")
-            return True  # Stop scanning immediately
-    except Exception as e:
-        logger.error(f"Error scanning decompiled content for Discord/Telegram: {e}")
-
-    # --- 2. Regular URLs ---
-    try:
-        url_regex = build_url_regex()
-        urls = set(url_regex.findall(decompiled_code))
-    except Exception as e:
-        logger.error(f"Error building or applying URL regex: {e}")
-        urls = set()
-
-    # --- 3. Obfuscated URLs ---
-    obfuscated_results = []
-    try:
-        obfuscated_results = detect_obfuscated_urls(decompiled_code)
-        logger.info(f"Found {len(obfuscated_results)} obfuscated URLs/domains")
-
-        for result in obfuscated_results:
-            urls.add(result['original'])
-            urls.add(result['decoded'])
-            logger.info(f"Obfuscated {result['type']}: {result['original']} -> {result['decoded']}")
-    except Exception as e:
-        logger.error(f"Error detecting obfuscated URLs: {e}")
-
-    # --- 4. Process URLs ---
-    processed_urls = 0
-    for url in urls:
-        if not url or len(url.strip()) < 7:
-            continue
-
-        try:
-            logger.debug(f"Processing URL: {url}")
-            processed_urls += 1
-
-            # Fetch HTML
-            html_content, html_content_file_path = fetch_html(url, return_file_path=True)
-
-            # --- Scan fetched HTML ---
-            if html_content:
-                try:
-                    if contains_discord_or_telegram_code(
-                        html_content,
-                        html_content_file_path,
-                        main_file_path=primary_main_file_path,
-                        **local_flags
-                    ):
-                        logger.info(f"Early exit: Discord/Telegram detected in HTML from {url}")
-                        return True
-                except Exception as e:
-                    logger.error(f"Error scanning HTML for Discord/Telegram: {e}")
-
-                try:
-                    if scan_html_content(
-                        html_content,
-                        html_content_file_path,
-                        file_path=html_content_file_path,
-                        main_file_path=primary_main_file_path,
-                        **local_flags
-                    ):
-                        logger.info(f"Early exit: Malicious indicator detected in HTML content for {url}")
-                        return True
-                except Exception as e:
-                    logger.error(f"Error scanning fetched HTML content: {e}")
-
-            # --- Scan URL/domain ---
-            try:
-                if scan_url_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Malicious URL detected: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_url_general for {url}: {e}")
-
-            try:
-                if scan_domain_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Malicious domain detected: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_domain_general for {url}: {e}")
-
-            try:
-                if scan_spam_email_365_general(url, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
-                    logger.info(f"Early exit: Spam/email indicator detected: {url}")
-                    return True
-            except Exception as e:
-                logger.error(f"Error in scan_spam_email_365_general for {url}: {e}")
-
-        except Exception as e:
-            logger.error(f"Error processing URL {url}: {e}")
-            continue
-
-    logger.info(f"Processed {processed_urls} URLs (including {len(obfuscated_results)} obfuscated)")
-
-    # --- 5. IP scanning ---
-    processed_ips = 0
-    try:
-        ip_patterns = build_ip_patterns()
-        for pattern, ip_type in ip_patterns:
-            for m in re.finditer(pattern, decompiled_code):
-                ip = m.group(0)
-                try:
-                    if scan_ip_address_general(ip, file_path=file_path, main_file_path=primary_main_file_path, **local_flags):
-                        logger.info(f"Early exit: Malicious IP detected: {ip}")
-                        return True
-                    processed_ips += 1
-                except Exception as e:
-                    logger.error(f"Error processing IP {ip}: {e}")
-                    continue
-    except Exception as e:
-        logger.error(f"Error building or applying IP patterns: {e}")
-
-    logger.info(f"Processed {processed_ips} IP addresses")
-
-    # --- 6. Save obfuscated summary (if no early exit occurred) ---
-    if obfuscated_results and file_path:
-        try:
-            obfuscated_summary_path = file_path.replace('.txt', '_obfuscated_summary.txt')
-            with open(obfuscated_summary_path, 'w', encoding='utf-8') as f:
-                f.write("# Obfuscated URLs/Domains Found\n")
-                f.write(f"# Total found: {len(obfuscated_results)}\n")
-                f.write(f"# Scan date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                for result in obfuscated_results:
-                    f.write(f"Type: {result['type']}\n")
-                    f.write(f"Original: {result['original']}\n")
-                    f.write(f"Decoded:  {result['decoded']}\n")
-                    f.write("-" * 50 + "\n")
-            logger.info(f"Obfuscated URL summary saved to: {obfuscated_summary_path}")
-        except Exception as e:
-            logger.error(f"Error saving obfuscated URL summary: {e}")
-
-    # --- No detections triggered early exit ---
+    logger.info(
+        "Skipping link and webhook scanning for %s; firewall verdicts are trusted.",
+        file_path,
+    )
     return False
 
 def extract_ascii_strings(data):
@@ -4727,30 +4356,7 @@ def split_source_by_u_delimiter(source_code, base_name="initial_code", file_path
     else:
         logger.info("Reconstructing Nuitka source code (Stage 2)...")
 
-    url_regex = build_url_regex()
-    ip_patterns, find_ips = build_ip_patterns()
-
-    preserve_patterns = [
-        discord_webhook_pattern, discord_attachment_pattern, discord_canary_webhook_pattern,
-        cdn_attachment_pattern, telegram_token_pattern, telegram_keyword_pattern,
-        UBLOCK_REGEX, ZIP_JOIN, CHAINED_JOIN, B64_LITERAL,
-    ]
-
-    ip_pattern_list = []
-    for p in ip_patterns:
-        if isinstance(p, (list, tuple)) and len(p) >= 1:
-            ip_pattern_list.append(p[0])
-        elif hasattr(p, "pattern"):
-            ip_pattern_list.append(p)
-
-    combined_preserve = re.compile(
-        '|'.join(
-            [p if isinstance(p, str) else p.pattern for p in preserve_patterns]
-            + [url_regex.pattern]
-            + [r.pattern for r in ip_pattern_list]
-        ),
-        re.IGNORECASE
-    )
+    combined_preserve = re.compile(r"$^")
 
     import_pattern = re.compile(
         r'^\s*(import\s+[\w.,\s]+|from\s+[\w.]+\s+import\s+[\w.,\s*]+)',
@@ -5616,27 +5222,8 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
         else:
             logger.error("Failed to save the final decrypted source code.")
 
-        # Search for webhook URLs
-        webhooks_discord = re.findall(discord_webhook_pattern, final_decrypted_data)
-        webhooks_canary = re.findall(discord_canary_webhook_pattern, final_decrypted_data)
-        webhooks = webhooks_discord + webhooks_canary
-
-        if webhooks:
-            logger.critical(f"[+] Webhook URLs found: {webhooks}")
-            if source_code_path:
-                # NOTIFIER IS ASYNC — await it directly
-                await notify_user_exela_stealer_v2(
-                    source_code_path,
-                    'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen',
-                    main_file_path=main_file_path
-                )
-                return True
-            else:
-                logger.error("Failed to save the final decrypted source code.")
-                return False
-        else:
-            logger.info("[!] No webhook URLs found in Exela v2 payload.")
-            return False
+        logger.info("Skipping webhook scanning; firewall handles Discord/Telegram indicators.")
+        return False
 
     except Exception as ex:
         logger.error(f"Error during Exela v2 payload processing: {ex}")
@@ -11105,8 +10692,6 @@ async def start_real_time_protection_async():
     # Fire-and-forget tasks
     asyncio.create_task(wrap_async_function("EDRMonitor", monitor_scan_requests_from_edr))
     asyncio.create_task(wrap_async_function("SuricataMonitor", monitor_suricata_log_async))
-    if WEB_PROTECTION_ENABLED and web_protection_observer:
-        asyncio.create_task(wrap_async_function("WebProtection", web_protection_observer.begin_observing_async))
     asyncio.create_task(wrap_async_function("PipeListeners", start_all_pipe_listeners))
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
     asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
