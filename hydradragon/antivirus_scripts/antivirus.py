@@ -38,6 +38,7 @@ from .path_and_variables import (
     pyinstaller_extracted_dir,
     pyarmor8_and_9_extracted_dir,
     pyarmor7_extracted_dir,
+    bypass_pyarmor7_path,
     cx_freeze_extracted_dir,
     ghidra_logs_dir,
     ghidra_scripts_dir,
@@ -255,10 +256,6 @@ logger.debug(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds
 start_time = time.time()
 from urllib.parse import urlparse
 logger.debug(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import csv
-logger.debug(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
