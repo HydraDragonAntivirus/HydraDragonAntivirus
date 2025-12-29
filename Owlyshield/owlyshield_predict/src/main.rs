@@ -123,9 +123,18 @@ mod process;
 #[cfg(target_os = "windows")]
 #[path = "windows/run.rs"]
 mod run;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
 #[path = "linux/run.rs"]
 mod run;
+
+#[cfg(all(target_os = "linux", not(feature = "linux-ebpf")))]
+mod run {
+    pub fn run() {
+        // Linux runtime is disabled unless the `linux-ebpf` feature is enabled.
+        // This keeps default builds working even when BPF artifacts are not present.
+        log::info!("Linux runtime skipped (enable `linux-ebpf` to run eBPF monitor)");
+    }
+}
 mod shared_def;
 mod utils;
 mod watchlist;

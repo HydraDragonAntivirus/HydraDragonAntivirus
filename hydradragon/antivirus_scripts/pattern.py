@@ -109,8 +109,8 @@ CHAINED_JOIN = re.compile(
     r"(\(['\"][^'\"]*['\"]\))\.(?:join\([^)]*\))+"
 )
 
-# Pattern for base64 literals inside b64decode
-B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
+# Pattern for base64 literals inside b64decode (standard and URL-safe)
+B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/_-]+={0,2})\1\s*\)")
 
 # Module-level regexes
 EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', re.IGNORECASE)
@@ -123,10 +123,13 @@ def _dec(b64: str) -> str:
     """Decode Base64-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
     # add padding if needed
     pad = (-len(b64)) % 4
-    try:
-        return base64.b64decode(b64 + ('=' * pad)).decode("utf-8", errors="replace")
-    except Exception:
-        return ""  # fail gracefully
+    padded = b64 + ('=' * pad)
+    for decoder in (base64.b64decode, lambda s: base64.b64decode(s, altchars=b"-_")):
+        try:
+            return decoder(padded).decode("utf-8", errors="replace")
+        except Exception:
+            continue
+    return ""  # fail gracefully
 
 def _dec32(b32: str) -> str:
     """Decode Base32-encoded ASCII/UTF-8 text fragments (robust to missing padding)."""
@@ -162,9 +165,9 @@ def build_url_regex():
         r'[a-zA-Z0-9-]+\{(?:\.|dot)\}[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?',
 
         # Base64-obfuscated protocols
-        _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/]*={0,2}",   # https://
-        _dec("aHR0cDovL") + r"[A-Za-z0-9+/]*={0,2}",    # http://
-        _dec("ZnRwOi8v") + r"[A-Za-z0-9+/]*={0,2}",     # ftp://
+        _dec("aHR0cHM6Ly8") + r"[A-Za-z0-9+/_-]*={0,2}",   # https://
+        _dec("aHR0cDovL") + r"[A-Za-z0-9+/_-]*={0,2}",    # http://
+        _dec("ZnRwOi8v") + r"[A-Za-z0-9+/_-]*={0,2}",     # ftp://
 
         # Reversed/obfuscated
         r'//:[a-z]{4,5}sptth',
@@ -225,7 +228,7 @@ def build_ip_patterns():
     compiled_ipv6 = re.compile(IPv6_pattern, re.IGNORECASE)
 
     # patterns for finding encoded candidate blobs (we will attempt to decode them then search inside)
-    base64_candidate = re.compile(r'([A-Za-z0-9+/]{8,64}={0,2})')
+    base64_candidate = re.compile(r'([A-Za-z0-9+/_-]{8,64}={0,2})')
     base32_candidate = re.compile(r'([A-Z2-7]{8,64}={0,6})')
 
     # helper: search for plain matches (returns dicts)
