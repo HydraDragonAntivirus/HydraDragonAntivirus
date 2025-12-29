@@ -1,5 +1,6 @@
 use crate::process::ProcessRecord;
 use crate::worker::threat_handling::ThreatHandler;
+use log::warn;
 
 #[derive(Default)]
 pub struct LinuxThreatHandler {}
@@ -17,8 +18,10 @@ impl ThreatHandler for LinuxThreatHandler {
         todo!()
     }
 
-    fn kill_and_quarantine(&self, _gid: u64) {
-        // TODO: implement Linux quarantine; currently a stub to satisfy the trait contract
+    fn kill_and_quarantine(&self, gid: u64) {
+        warn!(
+            "kill_and_quarantine not supported on Linux; requested kill/quarantine for gid {gid}, ignoring"
+        );
     }
 }
   

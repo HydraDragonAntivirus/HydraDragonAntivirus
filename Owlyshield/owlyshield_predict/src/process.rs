@@ -626,7 +626,7 @@ mod tests {
     use crate::shared_def::RuntimeFeatures;
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
-    use crate::IOMessage;
+    use crate::shared_def::IOMessage;
     use std::collections::HashSet;
     use std::time::SystemTime;
 
