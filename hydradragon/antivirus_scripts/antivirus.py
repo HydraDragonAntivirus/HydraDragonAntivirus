@@ -121,6 +121,8 @@ from .path_and_variables import (
     valhalla_rule_path,
     yarGen_rule_path,
     antivirus_list_path,
+    clean_rules_path,
+    yaraxtr_yrc_path
 )
 
 # Separate log files for different purposes
