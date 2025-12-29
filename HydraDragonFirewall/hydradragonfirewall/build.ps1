@@ -9,9 +9,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Set WinDivert paths
-$env:WINDIVERT_PATH = "c:\Users\victim\Documents\GitHub\HydraDragonFirewall\everything"
-$env:WINDIVERT_LIB_DIR = "c:\Users\victim\Documents\GitHub\HydraDragonFirewall\everything"
+# Set WinDivert paths if available (otherwise rely on vendored build)
+$windivertDefault = "c:\Users\victim\Documents\GitHub\HydraDragonFirewall\everything"
+if (Test-Path $windivertDefault) {
+    $env:WINDIVERT_PATH = $windivertDefault
+    $env:WINDIVERT_LIB_DIR = $windivertDefault
+} else {
+    Write-Warning "WINDIVERT_PATH not found at '$windivertDefault'; using vendored WinDivert build instead."
+    Remove-Item Env:WINDIVERT_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:WINDIVERT_LIB_DIR -ErrorAction SilentlyContinue
+}
 
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "  HydraDragon Firewall Build System" -ForegroundColor Cyan

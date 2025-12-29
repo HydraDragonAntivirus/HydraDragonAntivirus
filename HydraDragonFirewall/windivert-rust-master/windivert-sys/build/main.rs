@@ -1,6 +1,6 @@
 mod compile;
 
-use std::{env, fs};
+use std::{env, fs, path::Path};
 
 pub const LIB_PATH_ARG: &str = "WINDIVERT_PATH";
 pub const DLL_OUTPUT_PATH_ARG: &str = "WINDIVERT_DLL_OUTPUT";
@@ -34,18 +34,29 @@ fn main() {
             "cargo:warning=WinDivert{arch}.sys must be located in the same path as the executable."
         )
     } else if let Ok(lib_path) = env::var(LIB_PATH_ARG) {
-        println!("cargo:rustc-link-search=native={lib_path}");
-        println!("cargo:rustc-link-search=native={out_dir}");
-        println!("cargo:rustc-link-lib=dylib=WinDivert");
-        handle_provided_dll(arch, &out_dir, &lib_path);
+        if !Path::new(&lib_path).is_dir() {
+            println!(
+                "cargo:warning=Provided {LIB_PATH_ARG} path '{lib_path}' does not exist; falling back to vendored build."
+            );
+            vendored(&out_dir);
+        } else {
+            println!("cargo:rustc-link-search=native={lib_path}");
+            println!("cargo:rustc-link-search=native={out_dir}");
+            println!("cargo:rustc-link-lib=dylib=WinDivert");
+            handle_provided_dll(arch, &out_dir, &lib_path);
+        }
     } else if cfg!(feature = "vendored") {
-        println!("cargo:rerun-if-changed=wrapper.h");
-        println!("cargo:rustc-link-search=native={out_dir}");
-        println!("cargo:rustc-link-lib=dylib=WinDivert");
-        compile::dll();
+        vendored(&out_dir);
     } else {
         panic!("Environment variable {LIB_PATH_ARG} not found and feature vendored not enabled, please provide the path to the WinDivert library files or enable the vendored feature to compile from source.");
     }
+}
+
+fn vendored(out_dir: &str) {
+    println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rustc-link-search=native={out_dir}");
+    println!("cargo:rustc-link-lib=dylib=WinDivert");
+    compile::dll();
 }
 
 fn handle_provided_dll(arch: &str, out_dir: &str, lib_path: &str) {
