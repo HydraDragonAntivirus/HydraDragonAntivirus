@@ -380,24 +380,29 @@ from decompilers.advancedInstallerExtractor import AdvancedInstallerReader
 logger.debug(f"decompilers.advancedInstallerExtractor.AdvancedInstallerReader module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from decompilers.vmprotectunpacker import unpack_pe
-logger.debug(f"decompilers.vmprotectunpacker.unpack_pe module loaded in {time.time() - start_time:.6f} seconds")
+from decompilers.vmprotectunpacker import unpack_pe  # noqa: E402
+logger.debug(
+    "decompilers.vmprotectunpacker.unpack_pe module loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
-from .utils_and_helpers import (
-    get_signature,
+from .utils_and_helpers import (  # noqa: E402
     compute_md5_via_text,
     compute_md5,
     _norm
 )
-logger.debug(f"utils_and_helpers functions loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(
+    "utils_and_helpers functions loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
-from . import clamav
+from . import clamav  # noqa: E402
 logger.debug(f"clamav impforted in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .detect_type import (
+from .detect_type import (  # noqa: E402
     is_protector_from_output,
     is_nexe_file_from_output,
     is_go_garble_from_output,
@@ -433,10 +438,13 @@ from .detect_type import (
     is_compiled_autohotkey_file_from_output,
     is_inno_setup_file_from_output
 )
-logger.debug(f"detect_type detection functions loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(
+    "detect_type detection functions loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
-from .notify_user import (
+from .notify_user import (  # noqa: E402
     notify_user,
     notify_user_pua,
     notify_user_for_malicious_source_code,
@@ -448,32 +456,40 @@ from .notify_user import (
     notify_user_invalid,
     notify_user_fake_size,
     notify_user_startup,
-    notify_user_exela_stealer_v2,
     notify_user_hosts,
     notify_user_for_detected_hips_file,
     notify_user_duplicate,
     notify_user_for_uefi,
     notify_user_hayabusa_critical,
-    _send_av_event_to_edr,
 )
-logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(
+    "notify_user functions loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
-from .pipe_events import start_all_pipe_listeners, normalize_nt_path, _is_protected_path, _sync_close_handle
-logger.debug(f"pipe_events functions loaded in {time.time() - start_time:.6f} seconds")
+from .pipe_events import (  # noqa: E402
+    start_all_pipe_listeners,
+    normalize_nt_path,
+    _is_protected_path,
+    _sync_close_handle,
+)
+logger.debug(
+    "pipe_events functions loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
-from .pattern import (
-    IPv4_pattern_standard,
-    IPv6_pattern_standard,
+from .pattern import (  # noqa: E402
     UBLOCK_REGEX,
     ZIP_JOIN,
     CHAINED_JOIN,
     B64_LITERAL,
-    EMAIL_RE,
-    EMAIL_FULLMATCH_RE
 )
-logger.debug(f"pattern functions loaded in {time.time() - start_time:.6f} seconds")
+logger.debug(
+    "pattern functions loaded in "
+    f"{time.time() - start_time:.6f} seconds"
+)
 
 start_time = time.time()
 from .pe_feature_extractor import (
