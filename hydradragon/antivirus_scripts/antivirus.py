@@ -91,46 +91,6 @@ from .path_and_variables import (
     excluded_rules_path,
     html_extracted_dir,
     registry_path,
-    spam_email_365_path,
-    ipv4_addresses_path,
-    ipv4_addresses_spam_path,
-    ipv4_addresses_bruteforce_path,
-    ipv4_addresses_phishing_active_path,
-    ipv4_addresses_phishing_inactive_path,
-    ipv4_whitelist_path,
-    ipv6_addresses_path,
-    ipv6_addresses_spam_path,
-    ipv4_addresses_ddos_path,
-    ipv6_addresses_ddos_path,
-    ipv6_whitelist_path,
-    malware_domains_path,
-    malware_domains_mail_path,
-    phishing_domains_path,
-    abuse_domains_path,
-    mining_domains_path,
-    spam_domains_path,
-    whitelist_domains_path,
-    whitelist_domains_mail_path,
-    malware_sub_domains_path,
-    malware_mail_sub_domains_path,
-    phishing_sub_domains_path,
-    abuse_sub_domains_path,
-    mining_sub_domains_path,
-    spam_sub_domains_path,
-    whitelist_sub_domains_path,
-    whitelist_mail_sub_domains_path,
-    urlhaus_path,
-    antivirus_list_path,
-    yaraxtr_yrc_path,
-    clean_rules_path,
-    yarGen_rule_path,
-    icewater_rule_path,
-    valhalla_rule_path,
-    bypass_pyarmor7_path,
-    scanned_urls_general,
-    scanned_domains_general,
-    scanned_ipv4_addresses_general,
-    scanned_ipv6_addresses_general,
     unified_pe_cache,
     existing_projects,
     running_processes,
@@ -528,7 +488,6 @@ from .pe_feature_extractor import (
 logger.debug(f"pe_feature_extractor functions loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from .reference_registry import ReferenceRegistry
 logger.debug(f"pe_feature_extractor function loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logger.debug total time
@@ -1064,224 +1023,9 @@ def decode_b64_import(match: re.Match) -> str:
     except Exception:
         return match.group(0)
 
-# ==========================================
-# FIXED: Async CSV Loading
-# ==========================================
-
-async def load_csv_async(file_path, data_name, registry):
-    """
-    Async CSV loader with proper error handling.
-    Returns list of dicts with 'address' and 'ref_ids'.
-    """
-    data = []
-    try:
-        # Read file asynchronously
-        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-            content = await f.read()
-
-        # Parse CSV in thread (CPU-bound operation)
-        def parse_csv(content):
-            reader = csv.reader(content.splitlines())
-            parsed = []
-            for row in reader:
-                if not row:
-                    continue
-                address = row[0].strip()
-                refs = row[1:] if len(row) > 1 else []
-                parsed.append({
-                    'address': address,
-                    'ref_ids': [registry.register(r.strip()) for r in refs if r.strip()]
-                })
-            return parsed
-
-        data = await asyncio.to_thread(parse_csv, content)
-        logger.info(f"{data_name} loaded ({len(data)} entries)")
-
-    except Exception as e:
-        logger.error(f"Failed to load {data_name} from {file_path}: {e}")
-
-    return data
-
-
 WEB_INTELLIGENCE_MESSAGE = (
     "Website threat intelligence now lives in the firewall; antivirus web datasets are removed."
 )
-
-# Empty placeholders keep call sites stable while all website intelligence is
-# handled exclusively by the firewall.
-ipv4_addresses_signatures_data = []
-ipv4_addresses_spam_signatures_data = []
-ipv4_addresses_bruteforce_signatures_data = []
-ipv4_addresses_phishing_active_signatures_data = []
-ipv4_addresses_phishing_inactive_signatures_data = []
-ipv4_addresses_ddos_signatures_data = []
-ipv4_whitelist_data = []
-ipv6_addresses_signatures_data = []
-ipv6_addresses_spam_signatures_data = []
-ipv6_addresses_ddos_signatures_data = []
-ipv6_whitelist_data = []
-malware_domains_data = []
-malware_domains_mail_data = []
-phishing_domains_data = []
-abuse_domains_data = []
-mining_domains_data = []
-spam_domains_data = []
-whitelist_domains_data = []
-whitelist_domains_mail_data = []
-malware_sub_domains_data = []
-malware_mail_sub_domains_data = []
-phishing_sub_domains_data = []
-abuse_sub_domains_data = []
-mining_sub_domains_data = []
-spam_sub_domains_data = []
-whitelist_sub_domains_data = []
-whitelist_mail_sub_domains_data = []
-urlhaus_data = []
-spam_email_365_data = []
-antivirus_domains_data = []
-registry = ReferenceRegistry()
-
-async def load_website_data_async():
-    logger.info(WEB_INTELLIGENCE_MESSAGE)
-    return None
-
-# --------------------------------------------------------------------------
-# Check for Discord and Telegram indicators in code
-async def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
-    """Web intelligence is handled by the firewall; skip inline webhook checks."""
-
-    logger.debug(
-        "Skipping Discord/Telegram web intelligence for %s; handled by firewall.",
-        file_path,
-    )
-    return False
-
-# --------------------------------------------------------------------------
-# Generalized scan for domains (CSV format with reference support)
-async def scan_domain_general(url, file_path, **flags):
-    logger.debug(
-        "Skipping domain scan for %s; firewall owns web blocking logic.",
-        url,
-    )
-    return False
-
-# --------------------------------------------------------------------------
-# Generalized scan for IP addresses (CSV format with reference support)
-async def scan_ip_address_general(ip_address, file_path, **flags):
-    logger.info(
-        "Skipping IP intelligence for %s; relying on firewall pipeline results.",
-        ip_address,
-    )
-    return False
-
-# --------------------------------------------------------------------------
-# Generalized scan for URLs
-async def scan_url_general(url, file_path, **flags):
-    logger.debug(
-        "Skipping URL scan for %s; firewall owns web blocking logic.",
-        url,
-    )
-    return False
-
-# --------------------------------------------------------------------------
-# HTML Content Scanner (stops after first detection)
-def scan_html_content(html_content, html_content_file_path, **flags):
-    """
-    Scan extracted HTML content for potential threats.
-    Stops immediately after the first confirmed detection.
-    """
-    logger.info(
-        "Skipping HTML web intelligence for %s; firewall provides all URL/IP verdicts.",
-        html_content_file_path,
-    )
-    return False
-
-# --------------------------------------------------------------------------
-# Build URL regex at runtime
-def detect_obfuscated_urls(text):
-    """
-    Detect and return both original obfuscated URLs and their decoded versions
-    """
-    import re
-
-    if not text:
-        return []
-
-    obfuscated_patterns = {
-        'hxxp': 'http',
-        'hxxps': 'https',
-        'fxp': 'ftp',
-        'h**p': 'http',
-        'h**ps': 'https',
-        'ht*p': 'http',
-        'ht*ps': 'https',
-        'htt*p': 'http',
-        'htt*s': 'https',
-        'h_t_t_p': 'http',
-        'h_t_t_p_s': 'https',
-    }
-
-    bracket_patterns = {
-        '[.]': '.',
-        '[dot]': '.',
-        '(.)': '.',
-        '(dot)': '.',
-        '{.}': '.',
-        '{dot}': '.',
-    }
-
-    results = []
-
-    # Find obfuscated URLs with protocols
-    obfuscated_url_pattern = re.compile(
-        r'(h[tx*_\s]{1,6}ps?|f[tx*_\s]{1,3}p)://[^\s<>"\'{}|\\^`]*',
-        re.IGNORECASE
-    )
-
-    for match in obfuscated_url_pattern.finditer(text):
-        original = match.group(0)
-        decoded = original.lower()
-
-        # Fix protocol
-        for obf, real in obfuscated_patterns.items():
-            if decoded.startswith(obf):
-                decoded = decoded.replace(obf, real, 1)
-                break
-
-        # Fix domain brackets
-        for bracket, dot in bracket_patterns.items():
-            decoded = decoded.replace(bracket, dot)
-
-        # Remove extra spaces and underscores from protocol
-        decoded = re.sub(r'h[\s_]*t[\s_]*t[\s_]*p[\s_]*s?[\s_]*:', 'https:', decoded)
-        decoded = re.sub(r'h[\s_]*t[\s_]*t[\s_]*p[\s_]*:', 'http:', decoded)
-        decoded = re.sub(r'f[\s_]*t[\s_]*p[\s_]*:', 'ftp:', decoded)
-
-        results.append({
-            'original': original,
-            'decoded': decoded,
-            'type': 'obfuscated_url'
-        })
-
-    # Find bracket-obfuscated domains without protocol
-    domain_pattern = re.compile(
-        r'[a-zA-Z0-9-]+(?:\.|\[\.\]|\(\.\)|\{dot\})[a-zA-Z0-9.-]*[a-zA-Z]{2,}(?:/[^\s]*)?'
-    )
-
-    for match in domain_pattern.finditer(text):
-        original = match.group(0)
-        decoded = original
-
-        for bracket, dot in bracket_patterns.items():
-            decoded = decoded.replace(bracket, dot)
-
-        results.append({
-            'original': original,
-            'decoded': decoded,
-            'type': 'obfuscated_domain'
-        })
-
-    return results
 
 # --------------------------------------------------------------------------
 # Main scanner (stops after first detection)
@@ -3099,59 +2843,14 @@ async def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
         logger.error(f"Unexpected error in convert_ip_to_file: {ex}")
 
 async def process_alert_data(priority, src_ip, dest_ip):
-    """Process parsed alert data from EVE JSON format using reference registry"""
+    """Delegate network alert handling to the firewall pipeline."""
     try:
-        # Check if the source IP is in the IPv4 or IPv6 whitelist
-        if any(entry['address'] == src_ip for entry in ipv4_whitelist_data + ipv6_whitelist_data):
-            logger.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
-            return False
-
-        # Default threat type
-        threat_type = "Unknown Threat Detected"
-        ref_ids = []
-
-        # Check IPv4 and IPv6 signature lists
-        for dataset, label in [
-            (ipv4_addresses_signatures_data, "General Threat (IPv4)"),
-            (ipv4_addresses_spam_signatures_data, "Spam"),
-            (ipv4_addresses_bruteforce_signatures_data, "Brute Force"),
-            (ipv4_addresses_phishing_active_signatures_data, "Active Phishing"),
-            (ipv4_addresses_phishing_inactive_signatures_data, "Inactive Phishing"),
-            (ipv4_addresses_ddos_signatures_data, "DDoS"),
-            (ipv6_addresses_signatures_data, "General Threat (IPv6)"),
-            (ipv6_addresses_spam_signatures_data, "Spam"),
-            (ipv6_addresses_ddos_signatures_data, "DDoS"),
-        ]:
-            match = next((entry for entry in dataset if entry['address'] == src_ip), None)
-            if match:
-                threat_type = label
-                ref_ids = match.get('ref_ids', [])
-                break
-
-        # Convert reference IDs to human-readable strings for logging
-        ref_strings = get_reference_strings(ref_ids)
-        ref_str = f" | References: {ref_strings}" if ref_strings else ""
-
-        # Create a formatted line
-        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}{ref_str}"
-
-        # Handle actions based on priority
-        if priority == 1:
-            logger.critical(f"Malicious activity detected: {formatted_line}")
-            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
-            return True
-        elif priority == 2:
-            logger.warning(f"Suspicious activity detected: {formatted_line}")
-            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Suspicious - {threat_type}")
-            return True
-        elif priority == 3:
-            logger.info(f"Info alert: {formatted_line}")
-            await convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Info - {threat_type}")
-            return True
-
-        # No match or ignored
+        logger.debug(
+            "Skipping antivirus web alert processing for %s -> %s; firewall verdicts are trusted.",
+            src_ip,
+            dest_ip,
+        )
         return False
-
     except Exception as ex:
         logger.error(f"Error processing alert data: {ex}")
         return False
@@ -6468,22 +6167,9 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with JADX to {output_dir}")
 
-        # Walk and scan generated .java files
-        files_scanned = 0
-        for root, _, files in os.walk(output_dir):
-            for fname in files:
-                if fname.endswith(".java"):
-                    full_path = os.path.join(root, fname)
-                    logger.info(f"Scanning file: {full_path}")
-                    try:
-                        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                            content = f.read()
-                        scan_code_for_links(content, full_path, androguard_flag=True, main_file_path=main_file_path)
-                        files_scanned += 1
-                    except Exception as ex:
-                        logger.error(f"Error scanning {full_path}: {ex}")
-
-        logger.info(f"JADX: Scanned {files_scanned} files")
+        logger.info(
+            "JADX: skipping URL/discord scanning; firewall pipeline will score web indicators."
+        )
         return True
 
     except subprocess.TimeoutExpired:
@@ -6522,22 +6208,9 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with Androguard to {output_dir}")
 
-        # Walk and scan generated .smali or .java files
-        files_scanned = 0
-        for root, _, files in os.walk(output_dir):
-            for fname in files:
-                if fname.endswith((".smali", ".java")):
-                    full_path = os.path.join(root, fname)
-                    logger.info(f"Scanning file: {full_path}")
-                    try:
-                        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                            content = f.read()
-                        scan_code_for_links(content, full_path, androguard_flag=True, main_file_path=main_file_path)
-                        files_scanned += 1
-                    except Exception as ex:
-                        logger.error(f"Error scanning {full_path}: {ex}")
-
-        logger.info(f"Androguard: Scanned {files_scanned} files")
+        logger.info(
+            "Androguard: skipping URL/discord scanning; firewall pipeline will score web indicators."
+        )
         return True
 
     except subprocess.TimeoutExpired:
@@ -6554,7 +6227,7 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
 def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
     """
     Decompile an Android APK using JADX first, falling back to Androguard if needed.
-    Scans all decompiled files for URLs, IPs, domains, and Discord webhooks.
+    Web intelligence is handled by the firewall, so no URL/domain scanning occurs here.
     """
     try:
         logger.info(f"Detected APK file: {file_path}")
@@ -6571,8 +6244,8 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
 
 def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
     """
-    Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files
-    for URLs, IP addresses, domains, and Discord webhooks.
+    Decompiles a .NET assembly using ILSpy without performing any web intelligence
+    scanning. URL, domain, and webhook verdicts are delegated to the firewall.
 
     :param file_path: Path to the .NET assembly file.
     :param main_file_path: The original file path for threat tracing.
@@ -6596,31 +6269,15 @@ def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
         subprocess.run(ilspy_command, check=True)
         logger.info(f".NET content decompiled to {dotnet_output_dir}")
 
-        # Scan all .cs files in the output directory
-        for root, _, files in os.walk(dotnet_output_dir):
-            for file in files:
-                if file.endswith(".cs"):  # Only process .cs files
-                    cs_file_path = os.path.join(root, file)
-                    logger.info(f"Scanning .cs file: {cs_file_path}")
-
-                    try:
-                        # Read the content of the .cs file
-                        with open(cs_file_path, "r", encoding="utf-8", errors="ignore") as f:
-                            cs_file_content = f.read()
-
-                        # MODIFIED: Pass main_file_path to the scanner
-                        scan_code_for_links(cs_file_content, cs_file_path, dotnet_flag=True, main_file_path=main_file_path)
-
-                    except Exception as ex:
-                        logger.error(f"Error scanning .cs file {cs_file_path}: {ex}")
+        logger.info("Skipping .NET web intel scanning; firewall will provide verdicts.")
 
     except Exception as ex:
         logger.error(f"Error decompiling .NET file {file_path}: {ex}")
 
 def extract_npm_file(file_path):
     """
-    Extracts a pkg-compiled Node.js application using pkg-unpacker
-    and scans all extracted files.
+    Extracts a pkg-compiled Node.js application using pkg-unpacker without
+    performing inline URL/domain scanning. Web verdicts are provided by the firewall.
 
     :param file_path: Path to the .pkg or .exe file
     :return: List of extracted file paths
@@ -6646,19 +6303,11 @@ def extract_npm_file(file_path):
         subprocess.run(unpack_command, cwd=pkg_unpacker_dir, check=True)
         logger.info(f"Pkg binary extracted to {output_dir}")
 
-        # Scan all extracted files
+        # Collect extracted files without inline web scanning (firewall handles URLs)
         for root, _, files in os.walk(output_dir):
             for file in files:
                 file_path_full = os.path.join(root, file)
                 extracted_files.append(file_path_full)
-                logger.info(f"Scanning file: {file_path_full}")
-
-                try:
-                    with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                    scan_code_for_links(content, file_path_full, npm_flag=True)
-                except Exception as ex:
-                    logger.error(f"Error scanning file {file_path_full}: {ex}")
 
     except subprocess.CalledProcessError as ex:
         logger.error(f"pkg-unpacker extraction failed for {file_path}: {ex}")
@@ -6669,9 +6318,8 @@ def extract_npm_file(file_path):
 
 def extract_asar_file(file_path):
     """
-    Extracts an Electron .asar archive using the 'asar' npm CLI
-    and scans all extracted files for URLs, IPs, domains, and Discord webhooks
-    in separate threads.
+    Extracts an Electron .asar archive using the 'asar' npm CLI without performing
+    any inline URL, IP, domain, or webhook scanning. The firewall supplies web verdicts.
 
     :param file_path: Path to the .asar file
     :return: Path to the extracted folder or None if extraction failed
@@ -6696,17 +6344,9 @@ def extract_asar_file(file_path):
         subprocess.run(asar_command, check=True)
         logger.info(f"Asar archive extracted to {asar_output_dir}")
 
-        # Scan all extracted files in separate threads
-        for root, _, files in os.walk(asar_output_dir):
-            for file in files:
-                file_path_full = os.path.join(root, file)
-                logger.info(f"Scanning file: {file_path_full}")
-
-                # Run scan_code_for_links in a thread
-                threading.Thread(daemon=True,
-                    target=lambda fp=file_path_full: scan_code_for_links(fp, asar_flag=True)
-                ).start()
-
+        logger.info(
+            "Asar extraction complete; skipping web/link scanning because firewall owns URL verdicts."
+        )
         return asar_output_dir  # Return the extracted folder path
 
     except subprocess.CalledProcessError as ex:
@@ -6790,26 +6430,10 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
             )
             return extracted_files
 
-        # Collect all extracted file paths
+        # Collect all extracted file paths without inline NSIS web scanning
         for root, _, files in os.walk(output_dir):
             for fname in files:
                 extracted_files.append(os.path.join(root, fname))
-
-        # If nsis_flag is set, scan all .nsi scripts asynchronously
-        if nsis_flag:
-            def _scan_nsi(path):
-                try:
-                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                    links = scan_code_for_links(content, path, nsis_flag=True)
-                    logger.info(f"Scanned NSIS script {path}, found {len(links)} links.")
-                except Exception as e:
-                    logger.error(f"Failed to scan NSIS script {path}: {e}")
-
-            for path in extracted_files:
-                if path.lower().endswith('.nsi'):
-                    t = threading.Thread(daemon=True, target=_scan_nsi, args=(path,))
-                    t.start()
 
         return extracted_files
 
