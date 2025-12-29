@@ -4,6 +4,10 @@ version = "1.1.1"
 edition = "2021"
 license-file = "LICENSE.txt"
 
+[lib]
+name = "owlyshield_ransom"
+path = "src/lib.rs"
+
 [dependencies]
 moonfire-tflite = { path = "moonfire-tflite" }
 slc-paths = { path = "slc-paths" }
@@ -78,3 +82,4 @@ mqtt = []
 novelty = []
 hydradragon = []
 realtime_learning = []  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection
+linux-ebpf = []
