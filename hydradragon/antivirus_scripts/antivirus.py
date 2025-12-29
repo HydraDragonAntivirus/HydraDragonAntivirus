@@ -276,14 +276,23 @@ logger.debug(f"wmi.WMI module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import pythoncom
 logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-start_time = time.time()
+WEB_PROTECTION_ENABLED = False
 
-from scapy.layers.inet import IP, TCP, UDP
-from scapy.layers.inet6 import IPv6
-from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.sendrecv import sniff
+if WEB_PROTECTION_ENABLED:
+    start_time = time.time()
 
-logger.debug(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
+    from scapy.layers.inet import IP, TCP, UDP
+    from scapy.layers.inet6 import IPv6
+    from scapy.layers.dns import DNS, DNSQR, DNSRR
+    from scapy.sendrecv import sniff
+
+    logger.debug(
+        "scapy modules loaded in %.6f seconds",
+        time.time() - start_time,
+    )
+else:
+    IP = IPv6 = TCP = UDP = DNS = DNSQR = DNSRR = sniff = None
+    logger.info("Real-time web protection is disabled; skipping Scapy imports.")
 
 start_time = time.time()
 import ast
@@ -11667,9 +11676,6 @@ async def load_all_resources_async():
         # pass the function object and let load_resource_safe call it.
         return await load_resource_safe("Suricata", suricata_callback, run_in_thread_for_sync=False, timeout=30)
 
-    async def load_website():
-        return await load_resource_safe("Website Data", load_website_data_async, timeout=20)
-
     async def load_antivirus_list():
         global antivirus_domains_data
         try:
@@ -11735,7 +11741,6 @@ async def load_all_resources_async():
 
     # Fire and forget all tasks (pass coroutine objects to create_task)
     asyncio.create_task(load_suricata(), name="load_suricata")
-    asyncio.create_task(load_website(), name="load_website")
     asyncio.create_task(load_antivirus_list(), name="load_antivirus_list")
     asyncio.create_task(load_yargen(), name="load_yargen")
     asyncio.create_task(load_icewater(), name="load_icewater")
@@ -11745,6 +11750,8 @@ async def load_all_resources_async():
     asyncio.create_task(load_clamav(), name="load_clamav")
     asyncio.create_task(load_ml(), name="load_ml")
     asyncio.create_task(load_excluded(), name="load_excluded")
+
+    logger.info("Website data loading skipped in AV (handled by firewall feed).")
 
     logger.info("All resource loading tasks started in background")
     logger.info("Application will continue while resources load...")
@@ -11875,7 +11882,8 @@ async def start_real_time_protection_async():
     # Fire-and-forget tasks
     asyncio.create_task(wrap_async_function("EDRMonitor", monitor_scan_requests_from_edr))
     asyncio.create_task(wrap_async_function("SuricataMonitor", monitor_suricata_log_async))
-    asyncio.create_task(wrap_async_function("WebProtection", web_protection_observer.begin_observing_async))
+    if WEB_PROTECTION_ENABLED and web_protection_observer:
+        asyncio.create_task(wrap_async_function("WebProtection", web_protection_observer.begin_observing_async))
     asyncio.create_task(wrap_async_function("PipeListeners", start_all_pipe_listeners))
     asyncio.create_task(wrap_async_function("ResourceLoader", load_all_resources_async))
     asyncio.create_task(wrap_async_function("HayabusaLive", run_hayabusa_live_task))
