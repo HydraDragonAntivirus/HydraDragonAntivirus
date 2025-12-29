@@ -7,9 +7,8 @@ use sysinfo::{get_current_pid, Pid};
 use wchar::wchar_t;
 use widestring::U16CString;
 
-use windows::core::{Error, PCSTR, PCWSTR};
+use windows::core::{Error, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::Storage::FileSystem::GetDriveTypeA;
 use windows::Win32::Storage::InstallableFileSystems::{
     FilterConnectCommunicationPort, FilterSendMessage,
 };
@@ -25,9 +24,7 @@ use crate::shared_def::{
     DriverComMessageType,
     FileId,
     IOMessage,
-    DriveType::{
-        CDRom, Fixed, NoRootDir, RamDisk, Remote, Removable, Unknown
-    },
+    DriveType::{CDRom, Fixed, NoRootDir, RamDisk, Remote, Removable, Unknown},
     DriveType,
     RuntimeFeatures,
 };
@@ -54,29 +51,6 @@ struct DriverComMessage {
 #[derive(Debug, Copy, Clone)]
 pub struct Driver {
     handle: HANDLE, //Full type name because Intellij raises an error...
-}
-
-impl DriveType {
-    pub fn from_filepath(filepath: impl AsRef<str>) -> DriveType {
-        let filepath = filepath.as_ref();
-        let mut drive_type = 1u32;
-        if !filepath.is_empty() {
-            let drive_path = &filepath[..(filepath.find('\\').unwrap_or(0) + 1)];
-            unsafe {
-                drive_type = GetDriveTypeA(PCSTR::from_raw(drive_path.as_ptr()));
-            }
-        }
-        match drive_type {
-            0 => Unknown,
-            1 => NoRootDir,
-            2 => Removable,
-            3 => Fixed,
-            4 => Remote,
-            5 => CDRom,
-            6 => RamDisk,
-            _ => NoRootDir,
-        }
-    }
 }
 
 impl Driver {
