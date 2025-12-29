@@ -452,7 +452,8 @@ from .notify_user import (
     notify_user_for_detected_hips_file,
     notify_user_duplicate,
     notify_user_for_uefi,
-    notify_user_hayabusa_critical
+    notify_user_hayabusa_critical,
+    _send_av_event_to_edr,
 )
 logger.debug(f"notify_user functions loaded in {time.time() - start_time:.6f} seconds")
 
@@ -1328,6 +1329,49 @@ class RealTimeWebProtectionObserver:
         return None
 
 web_protection_observer = None
+
+# --- Firewall web-scan delegation helpers ---
+
+async def _forward_web_candidates_to_firewall(paths: List[str], origin: str) -> None:
+    """
+    Send extracted or deobfuscated files to the firewall/EDR pipeline so web
+    intelligence decisions are centralized there.
+    """
+    for candidate in paths:
+        try:
+            await _send_av_event_to_edr(
+                file_path=candidate,
+                virus_name=f"web-scan:{origin}",
+                detection_type="web_scan",
+                action="monitor",
+            )
+        except Exception:
+            logger.exception(f"Failed to forward {candidate} to firewall for web scan")
+
+
+def _collect_files_under(root_dir: str) -> List[str]:
+    collected: List[str] = []
+    for walk_root, _, files in os.walk(root_dir):
+        for file in files:
+            collected.append(os.path.join(walk_root, file))
+    return collected
+
+
+def dispatch_firewall_web_scan(paths: List[str], origin: str) -> None:
+    """
+    Fire-and-forget dispatcher that hands paths to the firewall via the pipe
+    bridge. Works whether or not the current thread has an active event loop.
+    """
+    if not paths:
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_forward_web_candidates_to_firewall(paths, origin))
+        return
+
+    loop.create_task(_forward_web_candidates_to_firewall(paths, origin))
 
 # Global variables for rules
 yarGen_rules = None
@@ -4892,6 +4936,8 @@ async def process_exela_v2_payload(output_file: str, main_file_path: Optional[st
                     deobfuscated_saved_paths.append(path)
             await asyncio.to_thread(_append_deobfuscated, source_code_path)
             logger.info(f"Saved final Exela v2 source to {source_code_path} and appended to deobfuscated_saved_paths.")
+
+            dispatch_firewall_web_scan([source_code_path], "exela_payload")
         else:
             logger.error("Failed to save the final decrypted source code.")
 
@@ -6103,7 +6149,7 @@ def extract_and_return_pyarmor(file_path: str, runtime_paths: List[str] = None) 
 
     return pyarmor_files, main_decrypted_output
 
-def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool:
+def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> Optional[str]:
     """
     Attempt to decompile APK using JADX.
     Returns True if successful, False otherwise.
@@ -6140,20 +6186,20 @@ def _try_jadx_decompile(file_path, main_file_path: Optional[str] = None) -> bool
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with JADX to {output_dir}")
 
-        return True
+        return output_dir
 
     except subprocess.TimeoutExpired:
         logger.error("JADX decompilation timed out")
-        return False
+        return None
     except subprocess.CalledProcessError as cpe:
         logger.error(f"JADX subprocess failed: {cpe}")
-        return False
+        return None
     except Exception as ex:
         logger.error(f"JADX decompilation error: {ex}")
-        return False
+        return None
 
 
-def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -> bool:
+def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -> Optional[str]:
     """
     Attempt to decompile APK using Androguard.
     Returns True if successful, False otherwise.
@@ -6178,17 +6224,17 @@ def _try_androguard_decompile(file_path, main_file_path: Optional[str] = None) -
         subprocess.run(cmd, check=True, timeout=300)  # 5 minute timeout
         logger.info(f"APK decompiled with Androguard to {output_dir}")
 
-        return True
+        return output_dir
 
     except subprocess.TimeoutExpired:
         logger.error("Androguard decompilation timed out")
-        return False
+        return None
     except subprocess.CalledProcessError as cpe:
         logger.error(f"Androguard subprocess failed: {cpe}")
-        return False
+        return None
     except Exception as ex:
         logger.error(f"Androguard decompilation error: {ex}")
-        return False
+        return None
 
 
 def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
@@ -6200,11 +6246,14 @@ def decompile_apk_file(file_path, main_file_path: Optional[str] = None):
         logger.info(f"Detected APK file: {file_path}")
 
         # Try JADX first
-        success = _try_jadx_decompile(file_path, main_file_path)
+        output_dir = _try_jadx_decompile(file_path, main_file_path)
 
-        if not success:
+        if not output_dir:
             logger.warning("JADX decompilation failed, falling back to Androguard...")
-            _try_androguard_decompile(file_path, main_file_path)
+            output_dir = _try_androguard_decompile(file_path, main_file_path)
+
+        if output_dir:
+            dispatch_firewall_web_scan(_collect_files_under(output_dir), "apk_decompilation")
 
     except Exception as ex:
         logger.error(f"Error decompiling APK {file_path}: {ex}")
@@ -6229,6 +6278,8 @@ def decompile_dotnet_file(file_path, main_file_path: Optional[str] = None):
         ]
         subprocess.run(ilspy_command, check=True)
         logger.info(f".NET content decompiled to {dotnet_output_dir}")
+
+        dispatch_firewall_web_scan(_collect_files_under(dotnet_output_dir), "dotnet_decompilation")
 
     except Exception as ex:
         logger.error(f"Error decompiling .NET file {file_path}: {ex}")
@@ -6273,6 +6324,8 @@ def extract_npm_file(file_path):
     except Exception as ex:
         logger.error(f"Error processing npm/pkg file {file_path}: {ex}")
 
+    dispatch_firewall_web_scan(extracted_files, "npm_pkg_extract")
+
     return extracted_files
 
 def extract_asar_file(file_path):
@@ -6302,6 +6355,8 @@ def extract_asar_file(file_path):
         ]
         subprocess.run(asar_command, check=True)
         logger.info(f"Asar archive extracted to {asar_output_dir}")
+
+        dispatch_firewall_web_scan(_collect_files_under(asar_output_dir), "asar_extract")
 
         return asar_output_dir  # Return the extracted folder path
 
@@ -6339,6 +6394,8 @@ def deobfuscate_webcrack_js(file_path) -> str:
         ]
         subprocess.run(webcrack_command, check=True)
         logger.info(f"JavaScript deobfuscated to {js_output_dir}")
+
+        dispatch_firewall_web_scan(_collect_files_under(js_output_dir), "webcrack_deobfuscation")
 
         # Return the path for later scanning
         return js_output_dir
