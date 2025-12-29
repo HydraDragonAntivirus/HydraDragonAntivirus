@@ -63,6 +63,8 @@ pub struct PacketInfo {
     pub hostname: Option<String>,
     /// Full URL (HTTP only, HTTPS only has hostname)
     pub full_url: Option<String>,
+    /// Whether the packet looked like a TLS Client Hello (used to trigger HTTPS hooks)
+    pub tls_handshake: bool,
     /// HTTP method when available
     pub http_method: Option<String>,
     /// HTTP path when available
@@ -262,6 +264,10 @@ pub struct FirewallSettings {
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
     pub metadata: HashMap<String, String>,
+    /// Optional DLL that can be injected into processes to enrich HTTPS visibility
+    pub https_hook_dll: String,
+    /// Whether to auto-inject the hook DLL for TLS Client Hello packets with no SNI/URL
+    pub auto_inject_https: bool,
 }
 
 impl Default for FirewallSettings {
@@ -289,6 +295,8 @@ impl Default for FirewallSettings {
             website_path: String::new(),
             rules: Vec::new(),
             metadata,
+            https_hook_dll: String::new(),
+            auto_inject_https: false,
         }
     }
 }
@@ -443,6 +451,7 @@ pub struct AppManager {
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub name_cache: AppNameCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
+    pub injected_pids: RwLock<HashSet<u32>>,      // Avoid repeated injections
 }
 
 impl AppManager {
@@ -454,6 +463,7 @@ impl AppManager {
             port_map: RwLock::new(HashMap::new()),
             name_cache: AppNameCache::new(),
             url_cache: RwLock::new(HashMap::new()),
+            injected_pids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -666,6 +676,8 @@ impl FirewallEngine {
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             metadata: current_settings.metadata.clone(),
+            https_hook_dll: current_settings.https_hook_dll.clone(),
+            auto_inject_https: current_settings.auto_inject_https,
         };
 
         if let Ok(content) = serde_json::to_string_pretty(&settings) {
@@ -1032,6 +1044,53 @@ impl FirewallEngine {
                 }
             }
 
+            let (auto_inject_https, hook_dll) = {
+                let s = settings.read().unwrap();
+                (s.auto_inject_https, s.https_hook_dll.clone())
+            };
+
+            if auto_inject_https
+                && info.tls_handshake
+                && info.hostname.is_none()
+                && info.process_id != 0
+                && !hook_dll.is_empty()
+            {
+                let mut injected = am.injected_pids.write().unwrap();
+                if !injected.contains(&info.process_id) {
+                    match Injector::inject(info.process_id, &hook_dll) {
+                        Ok(()) => {
+                            injected.insert(info.process_id);
+                            let _ = tx.emit(
+                                "log",
+                                LogEntry {
+                                    id: format!("{}-tls-hook", Self::now_ts()),
+                                    timestamp: Self::now_ts(),
+                                    level: LogLevel::Info,
+                                    message: format!(
+                                        "Injected HTTPS hook into PID {} to enrich TLS hostname context",
+                                        info.process_id
+                                    ),
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            let _ = tx.emit(
+                                "log",
+                                LogEntry {
+                                    id: format!("{}-tls-hook-fail", Self::now_ts()),
+                                    timestamp: Self::now_ts(),
+                                    level: LogLevel::Warning,
+                                    message: format!(
+                                        "Failed to inject HTTPS hook into PID {}: {}",
+                                        info.process_id, e
+                                    ),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+
             let is_dns_query = matches!(info.protocol, Protocol::UDP)
                 && (info.src_port == 53 || info.dst_port == 53);
             let dns_domain = info.dns_query.clone();
@@ -1370,6 +1429,7 @@ impl FirewallEngine {
         let mut hostname = None;
         let mut full_url = None;
         let mut dns_query = None;
+        let mut tls_handshake = false;
         let mut http_method = None;
         let mut http_path = None;
         let mut http_user_agent = None;
@@ -1398,7 +1458,13 @@ impl FirewallEngine {
 
                 // Check for HTTPS (port 443) - TLS SNI extraction
                 if dst_port == 443 || src_port == 443 {
-                    hostname = crate::tls_parser::extract_sni(payload);
+                    tls_handshake = crate::tls_parser::is_tls_handshake(payload);
+                    if let Some(sni_host) = crate::tls_parser::extract_sni(payload) {
+                        // Treat HTTPS SNI as a URL root so downstream hostname/url
+                        // checks work the same way they do for HTTP payloads.
+                        full_url.get_or_insert_with(|| format!("https://{}/", sni_host));
+                        hostname.get_or_insert(sni_host);
+                    }
                 }
 
                 // Check for HTTP regardless of port if the payload looks like HTTP traffic
@@ -1476,6 +1542,7 @@ impl FirewallEngine {
             dns_query,
             hostname,
             full_url,
+            tls_handshake,
             http_method,
             http_path,
             http_user_agent,
