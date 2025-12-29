@@ -6,6 +6,7 @@ namespace HydraDragonAntivirusLauncher
     {
         private readonly ILogger<Worker> _logger = logger;
         private Process? _childProcess;  // Marked as nullable
+        private Process? _firewallProcess;
 
         // Restart supervision settings
         private readonly bool _restartOnCrash = true;
@@ -31,6 +32,9 @@ namespace HydraDragonAntivirusLauncher
                     // Try to start the child process (and GUI)
                     StartHydraDragon();
 
+                    // Start firewall alongside the core service
+                    StartFirewall();
+
                     if (_childProcess == null)
                     {
                         _logger.LogError("Child process failed to start. Aborting supervision loop.");
@@ -54,6 +58,9 @@ namespace HydraDragonAntivirusLauncher
                     _childProcess.Dispose();
                     _childProcess = null;
 
+                    // Stop firewall when the core exits
+                    await StopFirewallAsync();
+
                     if (_restartOnCrash && !stoppingToken.IsCancellationRequested)
                     {
                         _logger.LogInformation("Restarting HydraDragon in {ms} ms", backoff);
@@ -70,6 +77,7 @@ namespace HydraDragonAntivirusLauncher
                 {
                     // stoppingToken triggered
                     await StopChildAsync();
+                    await StopFirewallAsync();
                     break;
                 }
                 catch (Exception ex)
@@ -161,6 +169,70 @@ namespace HydraDragonAntivirusLauncher
             }
         }
 
+        private void StartFirewall()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var firewallDir = Path.Combine(baseDir, "HydraDragonFirewall", "hydradragonfirewall");
+            var firewallExe = Path.Combine(firewallDir, "HydraDragonFirewall.exe");
+
+            if (_firewallProcess != null && !_firewallProcess.HasExited)
+            {
+                _logger.LogInformation("Firewall already running (pid {pid}).", _firewallProcess.Id);
+                return;
+            }
+
+            if (!File.Exists(firewallExe))
+            {
+                _logger.LogWarning("Firewall executable not found at: {path}", firewallExe);
+                _firewallProcess = null;
+                return;
+            }
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = firewallExe,
+                    WorkingDirectory = firewallDir,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                };
+
+                _firewallProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
+
+                _firewallProcess.OutputDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("[HydraFirewall] {msg}", e.Data);
+                };
+
+                _firewallProcess.ErrorDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data)) _logger.LogError("[HydraFirewall ERR] {msg}", e.Data);
+                };
+
+                if (!_firewallProcess.Start())
+                {
+                    _logger.LogError("Failed to start firewall process (Process.Start returned false).");
+                    _firewallProcess = null;
+                    return;
+                }
+
+                _firewallProcess.BeginOutputReadLine();
+                _firewallProcess.BeginErrorReadLine();
+
+                _logger.LogInformation("Started HydraDragon Firewall process (pid {pid}) at {exe}", _firewallProcess.Id, firewallExe);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start HydraDragon Firewall process.");
+                _firewallProcess = null;
+            }
+        }
+
         private async Task<bool> WaitForChildExitOrCancellationAsync(Process? child, CancellationToken cancellationToken)
         {
             if (child == null) return true;
@@ -214,6 +286,36 @@ namespace HydraDragonAntivirusLauncher
             }
 
             // small grace delay
+            await Task.Delay(50);
+        }
+
+        private async Task StopFirewallAsync()
+        {
+            if (_firewallProcess == null) return;
+
+            try
+            {
+                if (!_firewallProcess.HasExited)
+                {
+                    _logger.LogInformation("Stopping firewall process (pid {pid}).", _firewallProcess.Id);
+                    _firewallProcess.Kill(true);
+
+                    if (!_firewallProcess.WaitForExit(5000))
+                    {
+                        _logger.LogWarning("Firewall process did not exit within timeout after Kill().");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while stopping firewall process.");
+            }
+            finally
+            {
+                try { _firewallProcess?.Dispose(); } catch { }
+                _firewallProcess = null;
+            }
+
             await Task.Delay(50);
         }
     }
