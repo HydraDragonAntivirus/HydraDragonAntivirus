@@ -278,21 +278,10 @@ import pythoncom
 logger.debug(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
 WEB_PROTECTION_ENABLED = False
 
-if WEB_PROTECTION_ENABLED:
-    start_time = time.time()
-
-    from scapy.layers.inet import IP, TCP, UDP
-    from scapy.layers.inet6 import IPv6
-    from scapy.layers.dns import DNS, DNSQR, DNSRR
-    from scapy.sendrecv import sniff
-
-    logger.debug(
-        "scapy modules loaded in %.6f seconds",
-        time.time() - start_time,
-    )
-else:
-    IP = IPv6 = TCP = UDP = DNS = DNSQR = DNSRR = sniff = None
-    logger.info("Real-time web protection is disabled; skipping Scapy imports.")
+# Web protection has been removed from the antivirus. The firewall owns all
+# website and network intelligence, so we intentionally skip the Scapy imports
+# and any packet-level observers here.
+logger.info("Real-time web protection removed; firewall handles web intelligence.")
 
 start_time = time.time()
 import ast
@@ -1129,13 +1118,12 @@ async def load_csv_async(file_path, data_name, registry):
     return data
 
 
-# ==========================================
-# FIXED: Async Website Data Loading
-# ==========================================
+WEB_INTELLIGENCE_MESSAGE = (
+    "Website threat intelligence now lives in the firewall; antivirus web datasets are removed."
+)
 
-# Web signature data loading is disabled to avoid duplicating the firewall feed.
-# Keep empty defaults so downstream checks simply see no web intelligence on the
-# antivirus side.
+# Empty placeholders keep call sites stable while all website intelligence is
+# handled exclusively by the firewall.
 ipv4_addresses_signatures_data = []
 ipv4_addresses_spam_signatures_data = []
 ipv4_addresses_bruteforce_signatures_data = []
@@ -1165,171 +1153,32 @@ whitelist_sub_domains_data = []
 whitelist_mail_sub_domains_data = []
 urlhaus_data = []
 spam_email_365_data = []
+antivirus_domains_data = []
 registry = ReferenceRegistry()
 
 async def load_website_data_async():
-    logger.info(
-        "Skipping website data loading in antivirus; firewall handles web intelligence feeds."
-    )
+    logger.info(WEB_INTELLIGENCE_MESSAGE)
     return None
-
-def get_reference_strings(ref_ids):
-    """Convert reference IDs to human-readable strings."""
-    if not ref_ids:
-        return ""
-    refs = []
-    for rid in ref_ids:
-        ref_str = registry.id_to_ref.get(rid)
-        if ref_str:
-            refs.append(ref_str)
-        else:
-            refs.append(f"Unknown-{rid}")
-    return ", ".join(refs)
 
 # --------------------------------------------------------------------------
 # Check for Discord and Telegram indicators in code
 async def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
-    """
-    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs,
-    or Telegram bot links. Stop immediately after the first valid detection.
-    """
+    """Web intelligence is handled by the firewall; skip inline webhook checks."""
 
-    detections = [
-        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord webhook URL", "Discord.Webhook"),
-        (re.findall(discord_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord attachment URL", "Discord.Attachment"),
-        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord Canary webhook URL", "Discord.Canary.Webhook"),
-        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
-         "Discord CDN attachment URL", "Discord.CDNAttachment")
-    ]
-
-    # Telegram detection (token + keyword)
-    telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
-    telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
-    if telegram_token_matches and telegram_keyword_matches:
-        detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
-
-    # Stop after first detection
-    for matches, description, signature_base in detections:
-        if matches:
-            signature = await get_signature(signature_base, **flags)
-            logger.critical(f"{description} detected: {file_path} - Matches: {matches}")
-            await notify_user_for_web_source(
-                file_path=file_path,
-                detection_type=signature,
-                main_file_path=flags.get('main_file_path')
-            )
-            return True  # Stop after first detection
-
-    return False  # No detection
+    logger.debug(
+        "Skipping Discord/Telegram web intelligence for %s; handled by firewall.",
+        file_path,
+    )
+    return False
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
 async def scan_domain_general(url, file_path, **flags):
-    try:
-        # Normalize and parse URL
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        parsed_url = urlparse(url)
-        if not parsed_url.netloc:
-            logger.error(f"Invalid URL or domain format: {url}")
-            return False
-
-        full_domain = parsed_url.netloc.lower()
-        domain_parts = full_domain.split('.')
-
-        if len(domain_parts) > 2:
-            main_domain = '.'.join(domain_parts[-2:])
-            subdomain = '.'.join(domain_parts[:-2])
-        else:
-            main_domain = full_domain
-            subdomain = None
-
-        if full_domain in scanned_domains_general:
-            logger.info(f"Domain {full_domain} has already been scanned.")
-            return False
-
-        scanned_domains_general.append(full_domain)
-        logger.info(f"Scanning domain: {full_domain}")
-
-        # Helper to check CSV-like data lists
-        def is_domain_in_data_general(domain, data_list):
-            for entry in data_list:
-                if entry.get('address') == domain:
-                    return True, entry.get('ref_ids', [])
-            return False, []
-
-        # Whitelist checks
-        whitelist_data = [
-            (whitelist_domains_data, "domain"),
-            (whitelist_domains_mail_data, "mail domain"),
-            (whitelist_sub_domains_data, "subdomain"),
-            (whitelist_mail_sub_domains_data, "mail subdomain")
-        ]
-
-        for data_list, whitelist_type in whitelist_data:
-            is_whitelisted, ref_ids = is_domain_in_data_general(full_domain, data_list)
-            if is_whitelisted:
-                ref_strings = get_reference_strings(ref_ids)
-                logger.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). References: {ref_strings}")
-                return False
-
-        # Threat check configurations
-        subdomain_threats = [
-            (spam_sub_domains_data, "Spam", "Spam.SubDomain"),
-            (mining_sub_domains_data, "Mining", "Mining.SubDomain"),
-            (abuse_sub_domains_data, "Abuse", "Abuse.SubDomain"),
-            (phishing_sub_domains_data, "Phishing", "Phishing.SubDomain"),
-            (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain"),
-            (malware_sub_domains_data, "Malware", "Malware.SubDomain")
-        ]
-
-        main_threats = [
-            (spam_domains_data, "Spam", "Spam.Domain"),
-            (mining_domains_data, "Mining", "Mining.Domain"),
-            (abuse_domains_data, "Abuse", "Abuse.Domain"),
-            (phishing_domains_data, "Phishing", "Phishing.Domain"),
-            (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain"),
-            (malware_domains_data, "Malware", "Malware.Domain")
-        ]
-
-        # Check subdomain threats
-        if subdomain:
-            for data_list, threat_name, signature_suffix in subdomain_threats:
-                is_threat, ref_ids = is_domain_in_data_general(full_domain, data_list)
-                if is_threat:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.critical(f"{threat_name} subdomain detected: {full_domain} (References: {ref_strings})")
-                    await notify_user_for_web_source(domain=full_domain,
-                                                     detection_type=signature_suffix,
-                                                     file_path=file_path,
-                                                     main_file_path=flags.get('main_file_path'))
-                    return True
-
-        # Check main domain threats (full domain and main domain)
-        for data_list, threat_name, signature_suffix in main_threats:
-            is_full_threat, full_ref_ids = is_domain_in_data_general(full_domain, data_list)
-            is_main_threat, main_ref_ids = is_domain_in_data_general(main_domain, data_list)
-
-            if is_full_threat or is_main_threat:
-                ref_ids = full_ref_ids if is_full_threat else main_ref_ids
-                ref_strings = get_reference_strings(ref_ids)
-                domain_to_report = full_domain if is_full_threat else main_domain
-                logger.critical(f"{threat_name} domain detected: {domain_to_report} (References: {ref_strings})")
-                await notify_user_for_web_source(domain=domain_to_report,
-                                                 detection_type=signature_suffix,
-                                                 file_path=file_path,
-                                                 main_file_path=flags.get('main_file_path'))
-                return True
-
-        logger.info(f"Domain {full_domain} passed all checks.")
-        return False
-
-    except Exception as ex:
-        logger.error(f"Error scanning domain {url}: {ex}")
-        return False
+    logger.debug(
+        "Skipping domain scan for %s; firewall owns web blocking logic.",
+        url,
+    )
+    return False
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
@@ -1508,99 +1357,11 @@ async def scan_spam_email_365_general(email_content, file_path, *, treat_invalid
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
 async def scan_url_general(url, file_path, **flags):
-    try:
-        if url in scanned_urls_general:
-            logger.info(f"URL {url} has already been scanned.")
-            return False
-
-        scanned_urls_general.append(url)
-        logger.info(f"Scanning URL: {url}")
-
-        # Check against URLhaus signatures
-        for entry in urlhaus_data:
-            # be resilient if entry missing keys
-            entry_url = entry.get('url', '')
-            if entry_url and entry_url in url:
-                message = (f"URL {url} matches the URLhaus signatures.\n"
-                           f"ID: {entry.get('id')}, Date Added: {entry.get('dateadded')}\n"
-                           f"URL Status: {entry.get('url_status')}, Last Online: {entry.get('last_online')}\n"
-                           f"Threat: {entry.get('threat')}, Tags: {entry.get('tags')}\n"
-                           f"URLhaus Link: {entry.get('urlhaus_link')}, Reporter: {entry.get('reporter')}")
-                logger.critical(message)
-                await notify_user_for_web_source(url=url,
-                                                 detection_type="URLhaus.Match",
-                                                 file_path=file_path,
-                                                 main_file_path=flags.get('main_file_path'))
-                return True
-
-        # Heuristic check using uBlock Origin style detection
-        try:
-            if await ublock_detect(url):
-                await notify_user_for_web_source(url=url,
-                                                 detection_type='HEUR:Phish.Steam.Community.gen',
-                                                 file_path=file_path,
-                                                 main_file_path=flags.get('main_file_path'))
-                logger.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
-                return True
-        except Exception as e:
-            logger.error(f"Error running ublock_detect on {url}: {e}")
-
-        logger.info(f"No match found for URL: {url}")
-        return False
-
-    except Exception as ex:
-        logger.error(f"Error scanning URL {url}: {ex}")
-        return False
-
-def ensure_http_prefix(url):
-    parsed = urlparse(url)
-    if not parsed.scheme:
-        return 'http://' + url
-    return url
-
-# a global (or outer-scope) list to collect every saved path
-saved_paths = []
-saved_pyc_paths = []
-deobfuscated_saved_paths = []
-deobfuscated_paths_lock = threading.Lock()
-path_lists = [saved_paths, deobfuscated_saved_paths, saved_pyc_paths]
-
-def _write_file(path, content):
-    """Helper for writing files synchronously"""
-    with open(path, 'w', encoding='utf-8', errors='ignore') as f:
-        f.write(content)
-
-async def fetch_html(url, return_file_path=False):
-    """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
-    try:
-        if not is_valid_ip(url):
-            logger.info(f"Invalid or disallowed IP address in URL: {url}")
-            return ("", None) if return_file_path else ""
-
-        safe_url = ensure_http_prefix(url)
-
-        # Blocking network call'u thread'de çalıştır
-        response = await asyncio.to_thread(requests.get, safe_url, timeout=120)
-
-        if response.status_code == 200:
-            html = response.text
-            parsed = urlparse(safe_url)
-            fname = Path(parsed.path if parsed.path else "index.html").name or "index.html"
-            base_name = Path(fname)
-            out_path = get_unique_output_path(Path(html_extracted_dir), base_name)
-
-            # File write'ı thread'de çalıştır
-            await asyncio.to_thread(_write_file, out_path, html)
-
-            logger.info(f"Saved HTML for {safe_url} to {out_path}")
-            saved_paths.append(out_path)
-            return (html, out_path) if return_file_path else html
-        else:
-            logger.error(f"Non-OK status {response.status_code} for URL: {safe_url}")
-            return ("", None) if return_file_path else ""
-    except Exception as e:
-        logger.error(f"Error fetching HTML content from {url}: {e}")
-        return ("", None) if return_file_path else ""
+    logger.debug(
+        "Skipping URL scan for %s; firewall owns web blocking logic.",
+        url,
+    )
+    return False
 
 # --------------------------------------------------------------------------
 # HTML Content Scanner (stops after first detection)
@@ -2182,493 +1943,38 @@ def restart_service(service_name, stop_only=False):
 
 # --------------------------------------------------------------------------
 # --- The RealTimeWebProtectionHandler Class ---
-# --------------------------------------------------------------------------
+# Web protection is disabled; the firewall handles website intelligence.
 
 class RealTimeWebProtectionHandler:
+    """Stub handler kept for compatibility; it performs no work."""
 
     def __init__(self):
-        self.scanned_domains = []
-        self.scanned_ipv4_addresses = []
-        self.scanned_ipv6_addresses = []
-        self.scanned_urls = []
-        self.domain_ip_to_file_map = {}
         self.loop = None
 
     def set_event_loop(self, loop):
-        """Assign the main asyncio event loop."""
         self.loop = loop
 
-    def map_domain_ip_to_file(self, entity):
-        return self.domain_ip_to_file_map.get(entity)
+    def sync_packet_handler(self, _packet):
+        logger.debug("Web protection handler is disabled; ignoring packet callback.")
 
-    async def handle_detection(self, entity_type, entity_value, detection_type=None):
-        """
-        Handle a detection event for a given entity (domain, IP, URL).
-        Looks up references from global data automatically.
-        """
-        if not entity_value:
-            return
+    async def on_packet_received(self, _packet):
+        logger.debug("Web protection handler is disabled; ignoring packet.")
 
-        # Look up ref_ids from global data based on entity_type and entity_value
-        ref_ids = []
-        reference = ""
-
-        if entity_type == 'domain':
-            # Check all domain datasets
-            for data_list in [malware_domains_data, malware_domains_mail_data, phishing_domains_data,
-                              abuse_domains_data, mining_domains_data, spam_domains_data]:
-                for entry in data_list:
-                    if entry.get('address') == entity_value:
-                        ref_ids = entry.get('ref_ids', [])
-                        break
-                if ref_ids:
-                    break
-
-        elif entity_type == 'subdomain':
-            # Check all subdomain datasets
-            for data_list in [malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data,
-                              abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data]:
-                for entry in data_list:
-                    if entry.get('address') == entity_value:
-                        ref_ids = entry.get('ref_ids', [])
-                        break
-                if ref_ids:
-                    break
-
-        elif entity_type == 'ipv4_address':
-            # Check all IPv4 datasets
-            for data_list in [ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data,
-                              ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data,
-                              ipv4_addresses_phishing_inactive_signatures_data, ipv4_addresses_ddos_signatures_data]:
-                for entry in data_list:
-                    if entry.get('address') == entity_value:
-                        ref_ids = entry.get('ref_ids', [])
-                        break
-                if ref_ids:
-                    break
-
-        elif entity_type == 'ipv6_address':
-            # Check all IPv6 datasets
-            for data_list in [ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data,
-                              ipv6_addresses_ddos_signatures_data]:
-                for entry in data_list:
-                    if entry.get('address') == entity_value:
-                        ref_ids = entry.get('ref_ids', [])
-                        break
-                if ref_ids:
-                    break
-
-        elif entity_type == 'url':
-            # Check URLhaus
-            for entry in urlhaus_data:
-                if entry.get('url') == entity_value:
-                    # URLhaus uses urlhaus_link as reference, not ref_ids
-                    reference = entry.get('urlhaus_link', '')
-                    break
-            else:
-                reference = ""
-
-        # Convert ref_ids to reference strings (except for URLhaus which has direct reference)
-        if entity_type != 'url':
-            reference = get_reference_strings(ref_ids)
-
-        file_path = self.map_domain_ip_to_file(entity_value)
-        notify_info = {
-            'domain': None,
-            'ipv4_address': None,
-            'ipv6_address': None,
-            'url': None,
-            'file_path': None,
-            'detection_type': detection_type,
-            'reference': reference
-        }
-
-        try:
-            if file_path:
-                message = f"{entity_type.capitalize()} {entity_value} {file_path}"
-                if detection_type:
-                    message = f"{detection_type} {message}"
-                if reference:
-                    message += f" Reference: {reference}"
-                logger.critical(message)
-
-                notify_info[entity_type] = entity_value
-                notify_info['file_path'] = file_path
-            else:
-                message = (
-                    f"{entity_type.capitalize()} {entity_value} is not related to critical paths "
-                    "and has no associated file path."
-                )
-                if detection_type:
-                    message = f"{detection_type} {message}"
-                if reference:
-                    message += f" Reference: {reference}"
-                logger.info(message)
-
-            has_data = any(
-                notify_info[field] for field in ['domain', 'ipv4_address', 'ipv6_address', 'url', 'file_path']
-            )
-            if has_data:
-                await notify_user_for_web(**notify_info)
-
-        except Exception as ex:
-            logger.error(f"Error in handle_detection: {ex}")
-
-    def extract_ip_addresses(self, text):
-        """Extract IPv4 and IPv6 addresses from text using regex."""
-        ips = re.findall(IPv4_pattern_standard, text)
-        ips += re.findall(IPv6_pattern_standard, text)
-        return ips
-
-    def extract_urls(self, text):
-        """Extract URLs from text using regex."""
-        url_regex_standard = r'https?://[^\s"<>]+'
-        return re.findall(url_regex_standard, text)
-
-    def extract_domains(self, text):
-        """Extract domain names from text using regex."""
-        domain_regex = r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'
-        return re.findall(domain_regex, text)
-
-    async def scan(self, entity_type, entity_value, detection_type=None):
-        """
-        Unified scan entry-point.
-        Dedupe, detect, fetch, extract, and recurse via this one method.
-        Uses ReferenceRegistry-aware data structures.
-        """
-        # 1) classify entity
-        if entity_type in ('subdomain', 'domain'):
-            kind = 'domain'
-        elif entity_type in ('ipv4_address', 'ipv6_address'):
-            kind = 'ipv6' if ':' in entity_value else 'ipv4'
-        elif entity_type == 'url':
-            kind = 'url'
-        else:
-            return
-
-        # 2) dedupe
-        if kind == 'domain':
-            if entity_value in self.scanned_domains:
-                return
-            self.scanned_domains.append(entity_value)
-        elif kind == 'ipv4':
-            if entity_value in self.scanned_ipv4_addresses:
-                return
-            self.scanned_ipv4_addresses.append(entity_value)
-        elif kind == 'ipv6':
-            if entity_value in self.scanned_ipv6_addresses:
-                return
-            self.scanned_ipv6_addresses.append(entity_value)
-        else:
-            if entity_value in self.scanned_urls:
-                return
-            self.scanned_urls.append(entity_value)
-
-        # 3) detection logic helpers
-        def lookup_domain(domain, data_list):
-            for entry in data_list:
-                if entry.get('address') == domain:
-                    return True, entry.get('ref_ids', [])
-            return False, []
-
-        def lookup_ip(ip, data_list):
-            for entry in data_list:
-                if entry.get('address') == ip:
-                    return True, entry.get('ref_ids', [])
-            return False, []
-
-        # 4) run detection for domains
-        if kind == 'domain':
-            domain = entity_value.lower()
-            if domain.startswith("www."):
-                domain = domain[4:]
-
-            parts = domain.split(".")
-            main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
-
-            # Whitelist check
-            whitelist_checks = [
-                (whitelist_sub_domains_data, "subdomain"),
-                (whitelist_mail_sub_domains_data, "mail subdomain"),
-                (whitelist_domains_data, "domain"),
-                (whitelist_domains_mail_data, "mail domain")
-            ]
-            for data_list, whitelist_type in whitelist_checks:
-                is_whitelisted, ref_ids = lookup_domain(main_domain, data_list)
-                if is_whitelisted:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). References: {ref_strings}")
-                    return
-
-            # Threat checks
-            threat_checks = [
-                (spam_sub_domains_data, 'subdomain', 'SPAM SUBDOMAIN'),
-                (mining_sub_domains_data, 'subdomain', 'MINING SUBDOMAIN'),
-                (abuse_sub_domains_data, 'subdomain', 'ABUSE SUBDOMAIN'),
-                (phishing_sub_domains_data, 'subdomain', 'PHISHING SUBDOMAIN'),
-                (malware_sub_domains_data, 'subdomain', 'MALWARE SUBDOMAIN'),
-                (malware_mail_sub_domains_data, 'subdomain', 'MALWARE MAIL SUBDOMAIN'),
-                (spam_domains_data, 'domain', 'SPAM'),
-                (mining_domains_data, 'domain', 'MINING'),
-                (abuse_domains_data, 'domain', 'ABUSE'),
-                (phishing_domains_data, 'domain', 'PHISHING'),
-                (malware_domains_data, 'domain', 'MALWARE'),
-                (malware_domains_mail_data, 'domain', 'MALWARE MAIL')
-            ]
-            for data_list, etype, d_type in threat_checks:
-                is_threat, ref_ids = lookup_domain(main_domain, data_list)
-                if is_threat:
-                    await self.handle_detection(etype, main_domain, d_type)
-                    return
-
-            # Fetch HTML and recurse
-            html_content = await fetch_html(f"http://{domain}")
-            if html_content:
-                for ip in self.extract_ip_addresses(html_content):
-                    await self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
-                for url in self.extract_urls(html_content):
-                    await self.scan('url', url)
-                for dom in self.extract_domains(html_content):
-                    await self.scan('domain', dom)
-
-        # 5) detection for IP addresses
-        elif kind in ('ipv4', 'ipv6'):
-            ip_address = entity_value
-            if not is_valid_ip(ip_address):
-                logger.info(f"Skipping non-valid IP: {ip_address}")
-                return
-
-            if kind == 'ipv6':
-                logger.info(f"Scanning IPv6 address: {ip_address}")
-                # Whitelist
-                is_whitelisted, ref_ids = lookup_ip(ip_address, ipv6_whitelist_data)
-                if is_whitelisted:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.info(f"IPv6 {ip_address} is whitelisted. References: {ref_strings}")
-                    return
-                # Threats
-                ipv6_threats = [
-                    (ipv6_addresses_ddos_signatures_data, 'DDOS'),
-                    (ipv6_addresses_spam_signatures_data, 'SPAM'),
-                    (ipv6_addresses_signatures_data, 'MALWARE')
-                ]
-                for data_list, d_type in ipv6_threats:
-                    is_threat, ref_ids = lookup_ip(ip_address, data_list)
-                    if is_threat:
-                        await self.handle_detection('ipv6_address', ip_address, d_type)
-                        return
-                logger.info(f"Unknown IPv6 address detected: {ip_address}")
-            else:
-                logger.info(f"Scanning IPv4 address: {ip_address}")
-                is_whitelisted, ref_ids = lookup_ip(ip_address, ipv4_whitelist_data)
-                if is_whitelisted:
-                    ref_strings = get_reference_strings(ref_ids)
-                    logger.info(f"IPv4 {ip_address} is whitelisted. References: {ref_strings}")
-                    return
-                ipv4_threats = [
-                    (ipv4_addresses_phishing_active_signatures_data, 'PHISHING_ACTIVE'),
-                    (ipv4_addresses_phishing_inactive_signatures_data, 'PHISHING_INACTIVE'),
-                    (ipv4_addresses_bruteforce_signatures_data, 'BRUTEFORCE'),
-                    (ipv4_addresses_spam_signatures_data, 'SPAM'),
-                    (ipv4_addresses_signatures_data, 'MALWARE')
-                ]
-                for data_list, d_type in ipv4_threats:
-                    is_threat, ref_ids = lookup_ip(ip_address, data_list)
-                    if is_threat:
-                        await self.handle_detection('ipv4_address', ip_address, d_type)
-                        return
-                logger.info(f"Unknown IPv4 address detected: {ip_address}")
-
-            # Fetch HTML and recurse
-            html_content = await fetch_html(f"http://{ip_address}")
-            if html_content:
-                for dom in self.extract_domains(html_content):
-                    await self.scan('domain', dom)
-                for url in self.extract_urls(html_content):
-                    await self.scan('url', url)
-
-        # 6) detection for URLs
-        elif kind == 'url':
-            url = entity_value
-            html_content = await fetch_html(url)
-            if html_content:
-                for ip in self.extract_ip_addresses(html_content):
-                    await self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
-                for dom in self.extract_domains(html_content):
-                    await self.scan('domain', dom)
-                for u in self.extract_urls(html_content):
-                    await self.scan('url', u)
-
-            # Heuristic Discord/Telegram checks (using patterns from file context)
-            heuristic_patterns = {
-                'HEUR:Discord.Webhook': discord_webhook_pattern_standard,
-                'HEUR:Discord.Attachment': discord_attachment_pattern_standard,
-                'HEUR:Discord.CanaryWebhook': discord_canary_webhook_pattern_standard,
-                'HEUR:Discord.CDNAttachment': cdn_attachment_pattern_standard,
-                'HEUR:Telegram.Token': telegram_token_pattern_standard,
-            }
-            for label, pattern in heuristic_patterns.items():
-                if re.search(pattern, url):
-                    await self.handle_detection('url', url, label)
-                    return
-
-            # URLhaus
-            for entry in urlhaus_data:
-                if entry.get('url', '') in url:
-                    await self.handle_detection('url', url, 'URLhaus Match')
-                    return
-
-            # uBlock heuristic
-            if await ublock_detect(url):
-                await self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
-                return
-
-            logger.info(f"No match found for URL: {url}")
-
-    async def scan_domain(self, domain):
-        await self.scan('domain', domain)
-
-    async def scan_ipv4_address(self, ip_address):
-        await self.scan('ipv4_address', ip_address)
-
-    async def scan_ipv6_address(self, ip_address):
-        await self.scan('ipv6_address', ip_address)
-
-    async def scan_url(self, url):
-        await self.scan('url', url)
-
-    async def handle_ipv4(self, packet):
-        try:
-            if IP in packet:
-                if DNS in packet:
-                    if packet[DNS].qd:
-                        for i in range(packet[DNS].qdcount):
-                            qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                            await self.scan_domain(qn)
-                            logger.info(f"DNS Query (IPv4): {qn}")
-                    if packet[DNS].an:
-                        for i in range(packet[DNS].ancount):
-                            an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                            await self.scan_domain(an)
-                            logger.info(f"DNS Answer (IPv4): {an}")
-
-                await self.scan_ipv4_address(packet[IP].src)
-                await self.scan_ipv4_address(packet[IP].dst)
-        except Exception as ex:
-            logger.error(f"Error handling IPv4 packet: {ex}")
-
-    async def handle_ipv6(self, packet):
-        try:
-            if IPv6 in packet:
-                if DNS in packet:
-                    if packet[DNS].qd:
-                        for i in range(packet[DNS].qdcount):
-                            qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                            await self.scan_domain(qn)
-                            logger.info(f"DNS Query (IPv6): {qn}")
-                    if packet[DNS].an:
-                        for i in range(packet[DNS].ancount):
-                            an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                            await self.scan_domain(an)
-                            logger.info(f"DNS Answer (IPv6): {an}")
-
-                await self.scan_ipv6_address(packet[IPv6].src)
-                await self.scan_ipv6_address(packet[IPv6].dst)
-            else:
-                logger.debug("IPv6 layer not found in the packet.")
-        except Exception as ex:
-            logger.error(f"Error handling IPv6 packet: {ex}")
-
-    def sync_packet_handler(self, packet):
-        """
-        Synchronous bridge function to schedule the async handler
-        on the main event loop from scapy's thread.
-        """
-        if self.loop and self.loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.on_packet_received(packet), self.loop)
-        else:
-            logger.warning("Event loop not available for packet handler.")
-
-    async def on_packet_received(self, packet):
-        """Async packet processing logic."""
-        try:
-            if IP in packet:
-                await self.handle_ipv4(packet)
-                if TCP in packet or UDP in packet:
-                    layer = packet.getlayer(TCP) or packet.getlayer(UDP)
-                    if layer and hasattr(layer, 'dport'):
-                        # Note: This URL logic is simplistic, real HTTP URL extraction is more complex
-                        url = f"{packet[IP].src}:{layer.dport}"
-                        await self.scan_url(url)
-
-            if IPv6 in packet:
-                await self.handle_ipv6(packet)
-
-            # This DNS check might be redundant if already handled in handle_ipv4/ipv6
-            # But we keep it as a fallback
-            if DNS in packet:
-                if packet[DNS].qd:
-                    for i in range(packet[DNS].qdcount):
-                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
-                        await self.scan_domain(qn)
-                        logger.info(f"DNS Query: {qn}")
-                if packet[DNS].an:
-                    for i in range(packet[DNS].ancount):
-                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        await self.scan_domain(an)
-                        logger.info(f"DNS Answer: {an}")
-                if IP in packet:
-                    await self.scan_ipv4_address(packet[IP].src)
-                    await self.scan_ipv4_address(packet[IP].dst)
-                if IPv6 in packet:
-                    await self.scan_ipv6_address(packet[IPv6].src)
-                    await self.scan_ipv6_address(packet[IPv6].dst)
-        except Exception as ex:
-            logger.error(f"Error processing packet: {ex}")
+    async def scan(self, *_args, **_kwargs):
+        logger.debug("Web protection handler is disabled; skipping scan request.")
 
 # ========== ASYNC WEB PROTECTION OBSERVER ==========
 
 class RealTimeWebProtectionObserver:
+    """Stub observer to satisfy callers while deferring to the firewall."""
+
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
-        self.is_started = False
-        self.sniff_task = None
 
     async def begin_observing_async(self):
-        """Async version of begin_observing"""
-        if not self.is_started:
-            try:
-                self.handler.set_event_loop(asyncio.get_event_loop())
-            except RuntimeError:
-                logger.error("Could not get asyncio event loop. Packet handler will fail.")
-                return
+        logger.info("Web protection observer disabled; firewall handles traffic monitoring.")
 
-            self.sniff_task = asyncio.create_task(self._start_sniffing_async())
-            self.is_started = True
-            logger.info("Real-time web protection observer started (async)")
-
-    async def _start_sniffing_async(self):
-        """Async sniffing wrapper"""
-        filter_expression = "(tcp or udp)"
-        try:
-            # Create a dedicated thread for the infinite sniff loop
-            def sniff_worker():
-                sniff(
-                    filter=filter_expression,
-                    prn=self.handler.sync_packet_handler,
-                    store=0
-                )
-
-            # Run in a dedicated thread, not the thread pool
-            thread = threading.Thread(target=sniff_worker, daemon=True, name="SniffWorker")
-            thread.start()
-            logger.info("Packet sniffing started in dedicated thread")
-
-            # Don't await - let it run in background
-        except Exception as ex:
-            logger.error(f"An error occurred while starting sniffing: {ex}")
-
-web_protection_observer = RealTimeWebProtectionObserver() if WEB_PROTECTION_ENABLED else None
+web_protection_observer = None
 
 # Global variables for rules
 yarGen_rules = None
