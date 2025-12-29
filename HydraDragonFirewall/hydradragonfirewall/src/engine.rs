@@ -1398,7 +1398,12 @@ impl FirewallEngine {
 
                 // Check for HTTPS (port 443) - TLS SNI extraction
                 if dst_port == 443 || src_port == 443 {
-                    hostname = crate::tls_parser::extract_sni(payload);
+                    if let Some(sni_host) = crate::tls_parser::extract_sni(payload) {
+                        // Treat HTTPS SNI as a URL root so downstream hostname/url
+                        // checks work the same way they do for HTTP payloads.
+                        full_url.get_or_insert_with(|| format!("https://{}/", sni_host));
+                        hostname.get_or_insert(sni_host);
+                    }
                 }
 
                 // Check for HTTP regardless of port if the payload looks like HTTP traffic
