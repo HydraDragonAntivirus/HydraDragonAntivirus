@@ -235,9 +235,12 @@ impl DirectoriesContent {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// let path = Path::new("/path/to/directory");
-    /// let file_ids = obj.set_recur(&path);
+    /// ```
+    /// use std::path::Path;
+    /// use owlyshield_ransom::novelty::DirectoriesContent;
+    ///
+    /// let content = DirectoriesContent::new();
+    /// let file_ids = content.set_recur(Path::new("/path/to/directory"));
     /// println!("The file ids associated with the directory and its subdirectories are: {:?}", file_ids);
     /// ```
     ///

@@ -365,13 +365,26 @@ impl WebFilter {
         settings: &crate::engine::FirewallSettings,
     ) -> Option<String> {
         // 1. Convert to string (lossy) to check regex
-        // We only check the first 2KB for efficiency
-        let scan_len = std::cmp::min(payload.len(), 4096); // Increased default scan
+        // We only check the first 4KB for efficiency
+        let scan_len = std::cmp::min(payload.len(), 4096);
         if scan_len == 0 {
             return None;
         }
 
         let text = String::from_utf8_lossy(&payload[..scan_len]);
+
+        if let Some(reason) = self.scan_text_for_signatures(&text, settings) {
+            return Some(reason);
+        }
+
+        None
+    }
+
+    fn scan_text_for_signatures(
+        &self,
+        text: &str,
+        settings: &crate::engine::FirewallSettings,
+    ) -> Option<String> {
         let text_lower = text.to_lowercase();
 
         // Dynamic Keyword Scan from Settings
@@ -382,19 +395,18 @@ impl WebFilter {
         }
 
         // Check regexes using lazy_static patterns (compiled on first use)
-        // These can be toggled in future updates via settings if needed
-        if DISCORD_WEBHOOK_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Discord Webhook"));
+        if DISCORD_WEBHOOK_REGEX.is_match(text) {
+            return Some("Regex Match: Discord Webhook".to_string());
         }
-        if DISCORD_ATTACHMENT_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Discord Attachment"));
+        if DISCORD_ATTACHMENT_REGEX.is_match(text) {
+            return Some("Regex Match: Discord Attachment".to_string());
         }
-        if TELEGRAM_TOKEN_REGEX.is_match(&text) {
-            return Some(format!("Regex Match: Telegram Token"));
+        if TELEGRAM_TOKEN_REGEX.is_match(text) {
+            return Some("Regex Match: Telegram Token".to_string());
         }
 
         // --- Email Scanning ---
-        for cap in EMAIL_REGEX.captures_iter(&text) {
+        for cap in EMAIL_REGEX.captures_iter(text) {
             if let Some(email_match) = cap.get(0) {
                 let email = email_match.as_str().to_lowercase();
                 if self.email_blocklist.read().unwrap().contains(&email) {
@@ -438,6 +450,7 @@ impl WebFilter {
 
         None
     }
+
 }
 
 #[cfg(test)]
@@ -487,4 +500,5 @@ mod tests {
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
     }
+
 }

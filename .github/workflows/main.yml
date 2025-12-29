@@ -5,6 +5,8 @@ permissions:
 
 on:
   workflow_dispatch:      # Manual trigger
+  schedule:
+    - cron: "0 6 * * 1"   # Weekly refresh to keep the lockfile current
   push:
     branches:
       - main
@@ -14,6 +16,9 @@ on:
 jobs:
   rebuild-lock:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout repository
@@ -27,31 +32,29 @@ jobs:
           python-version: "3.12"
 
       - name: Install Poetry
-        run: pip install poetry
+        run: pip install "poetry>=2.0.0"
 
-      - name: Remove old lockfile
-        shell: pwsh
+      - name: Configure Poetry
         run: |
-          if (Test-Path poetry.lock) {
-              Write-Host "Removing old poetry.lock..."
-              Remove-Item poetry.lock
-          }
+          poetry config virtualenvs.create false
+          poetry --version
 
-      - name: Install dependencies (create new lockfile)
-        run: poetry install --no-root
+      - name: Rebuild lockfile
+        run: poetry lock --regenerate
 
-      - name: Generate new lockfile
-        run: poetry lock
+      - name: Validate lockfile
+        run: poetry check --lock
 
       - name: Commit and push changes
-        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if (-not (git diff --quiet)) {
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
-              git add poetry.lock
-              git commit -m "Rebuild poetry.lock (auto)"
-              git push
-          } else {
-              Write-Host "No changes in lockfile."
-          }
+          if ! git diff --quiet -- poetry.lock; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add poetry.lock
+            git commit -m "Rebuild poetry.lock (auto)"
+            git push
+          else
+            echo "No changes in lockfile."
+          fi

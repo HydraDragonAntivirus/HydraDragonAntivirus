@@ -22,7 +22,6 @@ from .path_and_variables import (
     PIPE_AV_TO_EDR,
     PIPE_MBR_ALERT,
     PIPE_SELF_DEFENSE_ALERT,
-    RAW_PREVIEW_LEN,
     READ_BUFFER_SIZE,
 )
 
