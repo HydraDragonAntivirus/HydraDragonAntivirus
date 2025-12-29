@@ -17,14 +17,15 @@ $configuredPaths = @(
 )
 
 $resolvedWinDivert = $configuredPaths |
-    Where-Object { $_ -and (Test-Path $_) } |
-    Select-Object -First 1
+Where-Object { $_ -and (Test-Path $_) } |
+Select-Object -First 1
 
 if ($resolvedWinDivert) {
     $env:WINDIVERT_PATH = $resolvedWinDivert
     $env:WINDIVERT_LIB_DIR = $resolvedWinDivert
     Write-Host "Using WinDivert binaries at '$resolvedWinDivert'" -ForegroundColor Gray
-} else {
+}
+else {
     Write-Warning "No valid WinDivert path provided; using vendored WinDivert build instead."
     Remove-Item Env:WINDIVERT_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:WINDIVERT_LIB_DIR -ErrorAction SilentlyContinue
@@ -57,13 +58,26 @@ finally {
 
 # Build Rust backend
 $buildType = if ($Release) { "--release" } else { "" }
+$targetDir = if ($Release) { "target\release" } else { "target\debug" }
+
+# Ensure target directory exists
+if (-not (Test-Path $targetDir)) {
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+}
+
+# Use pre-built WinDivert from 'everything' folder if available (avoids recompiling)
+$everythingPath = Join-Path (Split-Path $PSScriptRoot -Parent) "everything"
+if (-not $env:WINDIVERT_PATH -and (Test-Path (Join-Path $everythingPath "WinDivert.dll"))) {
+    $env:WINDIVERT_PATH = $everythingPath
+    Write-Host "      Using pre-built WinDivert from 'everything' folder" -ForegroundColor Gray
+}
+
 Write-Host "[2/3] Building Rust backend $buildType..." -ForegroundColor Yellow
 cargo build $buildType
 if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }
 Write-Host "      Rust build complete!" -ForegroundColor Green
 
-# Copy WinDivert files if needed
-$targetDir = if ($Release) { "target\release" } else { "target\debug" }
+# Copy WinDivert files if provided externally
 $dlls = @("WinDivert.dll", "WinDivert64.sys")
 if ($env:WINDIVERT_PATH) {
     foreach ($dll in $dlls) {
@@ -72,6 +86,20 @@ if ($env:WINDIVERT_PATH) {
         if (Test-Path $src) {
             Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
             Copy-Item $src $dst -Force
+        }
+    }
+}
+else {
+    # For vendored build, copy WinDivert64.sys from 'everything' folder if not already in target
+    $sysPath = Join-Path $targetDir "WinDivert64.sys"
+    if (-not (Test-Path $sysPath)) {
+        $everythingPath = Join-Path (Split-Path $PSScriptRoot -Parent) "everything\WinDivert64.sys"
+        if (Test-Path $everythingPath) {
+            Write-Host "      Copying WinDivert64.sys from 'everything' folder" -ForegroundColor Gray
+            Copy-Item $everythingPath $sysPath -Force
+        }
+        else {
+            Write-Warning "WinDivert64.sys not found. Download from https://reqrypt.org/windivert.html and place in target directory."
         }
     }
 }

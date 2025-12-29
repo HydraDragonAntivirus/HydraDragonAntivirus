@@ -62,7 +62,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.85.exe"; DestDir: "{
 Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-7.0.12-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u471-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.18-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.22-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.9-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Node.js 22.18.0 (x64) MSI
 Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -107,8 +107,8 @@ Filename: "{tmp}\7z2501-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilte
 ; .NET Runtime 9.0.9 (silent, no restart)
 Filename: "{tmp}\windowsdesktop-runtime-9.0.9-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
-; .NET Desktop Runtime 8.0.18 (silent, no restart)
-Filename: "{tmp}\windowsdesktop-runtime-8.0.18-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
+; .NET Desktop Runtime 8.0.22 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-8.0.22-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
