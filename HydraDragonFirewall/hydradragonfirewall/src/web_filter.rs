@@ -1,6 +1,4 @@
 use glob::glob;
-use lazy_static::lazy_static;
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
@@ -346,7 +344,6 @@ impl WebFilter {
         }
     }
 
-
     fn scan_text_for_signatures(
         &self,
         text: &str,
@@ -356,7 +353,6 @@ impl WebFilter {
         // The engine now relies on SDK-registered signatures.
         None
     }
-
 }
 
 #[cfg(test)]
@@ -406,5 +402,4 @@ mod tests {
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
     }
-
 }

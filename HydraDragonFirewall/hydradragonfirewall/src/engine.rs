@@ -11,8 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::dpi::{PhysicalPosition, PhysicalSize};
-use tauri::{AppHandle, Emitter, Manager, Position, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windivert::prelude::*;
 
 lazy_static! {
@@ -635,11 +634,7 @@ impl FirewallEngine {
         let app_manager = Arc::new(AppManager::new(app_decisions));
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
         let settings = Arc::new(RwLock::new(settings_data));
-        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::new()));
-        {
-            let mut sdk_write = sdk.write().unwrap();
-            sdk_write.register_signature(Arc::new(crate::sdk::DiscordWebhookSignature));
-        }
+        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
 
         Self {
             stats,
@@ -1009,7 +1004,8 @@ impl FirewallEngine {
                         if tx_monitor.get_webview_window("firewall-alert").is_none() {
                             println!("DEBUG: Spawning Firewall Alert Window...");
 
-                            let toast_size = PhysicalSize::new(420.0, 260.0);
+                            let toast_width = 420.0;
+                            let toast_height = 260.0;
                             let position =
                                 tx_monitor
                                     .primary_monitor()
@@ -1019,11 +1015,10 @@ impl FirewallEngine {
                                         let scale = monitor.scale_factor();
                                         let size = monitor.size();
 
-                                        let x = size.width as f64 / scale - toast_size.width - 24.0;
-                                        let y =
-                                            size.height as f64 / scale - toast_size.height - 24.0;
+                                        let x = size.width as f64 / scale - toast_width - 24.0;
+                                        let y = size.height as f64 / scale - toast_height - 24.0;
 
-                                        Some(Position::Physical(PhysicalPosition::new(x, y)))
+                                        Some((x, y))
                                     });
 
                             let mut builder = WebviewWindowBuilder::new(
@@ -1032,14 +1027,14 @@ impl FirewallEngine {
                                 WebviewUrl::App("index.html?mode=alert".into()),
                             )
                             .title("Firewall Alert")
-                            .inner_size(toast_size.width, toast_size.height)
+                            .inner_size(toast_width, toast_height)
                             .resizable(false)
                             .always_on_top(true)
                             .decorations(false)
                             .skip_taskbar(true);
 
-                            if let Some(pos) = position {
-                                builder = builder.position(pos);
+                            if let Some((x, y)) = position {
+                                builder = builder.position(x, y);
                             } else {
                                 builder = builder.center();
                             }

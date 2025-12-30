@@ -1126,15 +1126,20 @@ pub fn App() -> impl IntoView {
                 
                 // If in alert mode, we use a different container style (fullscreen relative to the popup window)
                 let overlay_class = if is_alert_mode { "modal-overlay open static-mode" } else { "modal-overlay open" };
-                let modal_style = if is_alert_mode { 
-                    "border-top: 4px solid var(--accent-yellow); width: 100%; height: 100%; max-width: none; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; padding: 15px" 
-                } else { 
-                    "border-top: 4px solid var(--accent-yellow); max-width: 500px" 
+                let modal_style = if is_alert_mode {
+                    "border-top: 0;"
+                } else {
+                    "border-top: 4px solid var(--accent-yellow); max-width: 500px"
+                };
+                let modal_class = if is_alert_mode {
+                    "glass-modal app-decision-modal toast-modal"
+                } else {
+                    "glass-modal app-decision-modal"
                 };
 
                 view! {
                     <div class={overlay_class}>
-                        <div class="glass-modal app-decision-modal" style={modal_style}>
+                        <div class={modal_class} style={modal_style}>
                             {move || if is_alert_mode {
                                 view! { <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div> }.into_view()
                             } else { view! { <div></div> }.into_view() }}
