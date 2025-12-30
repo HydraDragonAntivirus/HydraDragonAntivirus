@@ -18,7 +18,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        
+      - name: Set up WinDivert
+        shell: pwsh
+        run: |
+          # The windivert-bin folder is in the parent directory relative to hydradragonfirewall
+          $path = Join-Path (Get-Location) "..\windivert-bin"
+          $path = Resolve-Path $path
+          echo "WINDIVERT_PATH=$path" >> $env:GITHUB_ENV
+          echo "WINDIVERT_LIB_DIR=$path" >> $env:GITHUB_ENV
+
       - name: Cargo check (firewall)
         run: cargo check --locked
