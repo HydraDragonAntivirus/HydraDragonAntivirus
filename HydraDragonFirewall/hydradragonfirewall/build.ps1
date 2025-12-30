@@ -3,46 +3,19 @@
 
 param(
     [switch]$Release,
-    [switch]$Run,
-    [switch]$Clean,
-    [string]$WinDivertPath
+    [switch]$Run
 )
 
 $ErrorActionPreference = "Stop"
 
-# Set WinDivert paths if provided (otherwise rely on vendored build)
-$configuredPaths = @(
-    $WinDivertPath,
-    $env:WINDIVERT_PATH
-)
-
-$resolvedWinDivert = $configuredPaths |
-Where-Object { $_ -and (Test-Path $_) } |
-Select-Object -First 1
-
-if ($resolvedWinDivert) {
-    $env:WINDIVERT_PATH = $resolvedWinDivert
-    $env:WINDIVERT_LIB_DIR = $resolvedWinDivert
-    Write-Host "Using WinDivert binaries at '$resolvedWinDivert'" -ForegroundColor Gray
-}
-else {
-    Write-Warning "No valid WinDivert path provided; using vendored WinDivert build instead."
-    Remove-Item Env:WINDIVERT_PATH -ErrorAction SilentlyContinue
-    Remove-Item Env:WINDIVERT_LIB_DIR -ErrorAction SilentlyContinue
-}
+# Set WinDivert paths
+$env:WINDIVERT_PATH = Join-Path $PSScriptRoot "..\everything"
+$env:WINDIVERT_LIB_DIR = Join-Path $PSScriptRoot "..\everything"
 
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "  HydraDragon Firewall Build System" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
-
-# Clean if requested
-if ($Clean) {
-    Write-Host "[1/3] Cleaning build artifacts..." -ForegroundColor Yellow
-    cargo clean
-    if (Test-Path "ui\dist") { Remove-Item -Recurse -Force "ui\dist" }
-    Write-Host "      Cleaned!" -ForegroundColor Green
-}
 
 # Build UI with Trunk
 Write-Host "[1/3] Building UI with Trunk..." -ForegroundColor Yellow
@@ -58,56 +31,27 @@ finally {
 
 # Build Rust backend
 $buildType = if ($Release) { "--release" } else { "" }
-$targetDir = if ($Release) { "target\release" } else { "target\debug" }
-
-# Ensure target directory exists
-if (-not (Test-Path $targetDir)) {
-    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-}
-
-# Use pre-built WinDivert from 'everything' folder if available (avoids recompiling)
-$everythingPath = Join-Path (Split-Path $PSScriptRoot -Parent) "everything"
-if (-not $env:WINDIVERT_PATH -and (Test-Path (Join-Path $everythingPath "WinDivert.dll"))) {
-    $env:WINDIVERT_PATH = $everythingPath
-    Write-Host "      Using pre-built WinDivert from 'everything' folder" -ForegroundColor Gray
-}
-
 Write-Host "[2/3] Building Rust backend $buildType..." -ForegroundColor Yellow
 cargo build $buildType
 if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }
 Write-Host "      Rust build complete!" -ForegroundColor Green
 
-# Copy WinDivert files if provided externally
+# Copy WinDivert files if needed
+$targetDir = if ($Release) { "target\release" } else { "target\debug" }
 $dlls = @("WinDivert.dll", "WinDivert64.sys")
-if ($env:WINDIVERT_PATH) {
-    foreach ($dll in $dlls) {
-        $src = Join-Path $env:WINDIVERT_PATH $dll
-        $dst = Join-Path $targetDir $dll
-        if (Test-Path $src) {
-            Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
-            Copy-Item $src $dst -Force
-        }
-    }
-}
-else {
-    # For vendored build, copy WinDivert64.sys from 'everything' folder if not already in target
-    $sysPath = Join-Path $targetDir "WinDivert64.sys"
-    if (-not (Test-Path $sysPath)) {
-        $everythingPath = Join-Path (Split-Path $PSScriptRoot -Parent) "everything\WinDivert64.sys"
-        if (Test-Path $everythingPath) {
-            Write-Host "      Copying WinDivert64.sys from 'everything' folder" -ForegroundColor Gray
-            Copy-Item $everythingPath $sysPath -Force
-        }
-        else {
-            Write-Warning "WinDivert64.sys not found. Download from https://reqrypt.org/windivert.html and place in target directory."
-        }
+foreach ($dll in $dlls) {
+    $src = Join-Path $env:WINDIVERT_PATH $dll
+    $dst = Join-Path $targetDir $dll
+    if (Test-Path $src) {
+        Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
+        Copy-Item $src $dst -Force
     }
 }
 
 # Also copy exe to 'everything' folder for easy deployment
 $exeSrc = Join-Path $targetDir "hydradragonfirewall.exe"
-$exeDst = if ($env:WINDIVERT_PATH) { Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe" } else { $null }
-if ($exeSrc -and (Test-Path $exeSrc) -and $exeDst) {
+$exeDst = Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe"
+if (Test-Path $exeSrc) {
     Write-Host "      Deploying exe to $env:WINDIVERT_PATH" -ForegroundColor Gray
     Copy-Item $exeSrc $exeDst -Force
 }

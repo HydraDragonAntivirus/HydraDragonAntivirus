@@ -1,6 +1,5 @@
 [build]
-# Reduce compiler memory usage
-jobs = 2
+# Use default jobs (auto-detect CPU cores)
 
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/STACK:67108864"]
@@ -9,11 +8,7 @@ rustflags = ["-C", "link-arg=/STACK:67108864"]
 rustflags = ["-C", "link-arg=/STACK:67108864"]
 
 [profile.dev]
-# Reduce memory during debug builds
-codegen-units = 16
 incremental = true
 
 [profile.release]
-# Reduce memory during release builds
-codegen-units = 8
 lto = "thin"
