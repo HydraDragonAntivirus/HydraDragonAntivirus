@@ -12,7 +12,7 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"])]
     async fn listen(event: &str, handler: &Closure<dyn FnMut(JsValue)>) -> JsValue;
-    
+
     // For window control in alert mode
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "window"])]
     async fn getCurrentWindow() -> JsValue;
@@ -128,7 +128,7 @@ pub fn App() -> impl IntoView {
     let (threats_count, set_threats_count) = create_signal(0);
     let (allowed_count, set_allowed_count) = create_signal(0);
     let (total_count, set_total_count) = create_signal(0);
-    
+
     // Navigation State
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
     let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
@@ -153,9 +153,13 @@ pub fn App() -> impl IntoView {
     let (engine_active, set_engine_active) = create_signal(false);
 
     // Graph State
-    let (graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
+    let (graph_data, set_graph_data) =
+        create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
     let _graph_points = move || {
-        graph_data.get().iter().enumerate()
+        graph_data
+            .get()
+            .iter()
+            .enumerate()
             .map(|(i, &v)| format!("{},{}", i * 50, v))
             .collect::<Vec<_>>()
             .join(" ")
@@ -174,8 +178,8 @@ pub fn App() -> impl IntoView {
             if pending_app.get().is_none() {
                 spawn_local(async move {
                     let win = getCurrentWindow().await;
-                    if let Ok(close_fn) = js_sys::Reflect::get(&win, &JsValue::from_str("close")) {
-                        if let Some(close_fn) = close_fn.dyn_ref::<js_sys::Function>() {
+                    if let Ok(close_fn_value) = Reflect::get(&win, &JsValue::from_str("close")) {
+                        if let Some(close_fn) = close_fn_value.dyn_ref::<js_sys::Function>() {
                             let _ = close_fn.call0(&win);
                         }
                     }
@@ -188,14 +192,19 @@ pub fn App() -> impl IntoView {
     create_effect(move |_| {
         if !is_alert_mode {
             use std::time::Duration;
-            set_interval(move || {
-                let current_activity = (total_count.get() % 100) as u32;
-                let val = 180 - (current_activity.min(150));
-                set_graph_data.update(|v| {
-                    v.push(val);
-                    if v.len() > 10 { v.remove(0); }
-                });
-            }, Duration::from_millis(2000));
+            set_interval(
+                move || {
+                    let current_activity = (total_count.get() % 100) as u32;
+                    let val = 180 - (current_activity.min(150));
+                    set_graph_data.update(|v| {
+                        v.push(val);
+                        if v.len() > 10 {
+                            v.remove(0);
+                        }
+                    });
+                },
+                Duration::from_millis(2000),
+            );
         }
     });
     let (settings, set_settings) = create_signal(FirewallSettings {
@@ -207,23 +216,29 @@ pub fn App() -> impl IntoView {
     // Setup Event Listener
     create_effect(move |_| {
         let closure = Closure::wrap(Box::new(move |event: JsValue| {
-             match serde_wasm_bindgen::from_value::<serde_json::Value>(event.clone()) {
+            match serde_wasm_bindgen::from_value::<serde_json::Value>(event.clone()) {
                 Ok(payload) => {
-                     if let Some(payload_obj) = payload.get("payload") {
-                         match serde_json::from_value::<LogEntry>(payload_obj.clone()) {
+                    if let Some(payload_obj) = payload.get("payload") {
+                        match serde_json::from_value::<LogEntry>(payload_obj.clone()) {
                             Ok(entry) => {
                                 set_logs.update(|l: &mut Vec<LogEntry>| {
                                     l.push(entry.clone());
-                                    if l.len() > 200 { l.remove(0); }
+                                    if l.len() > 200 {
+                                        l.remove(0);
+                                    }
                                 });
-                                
+
                                 set_total_count.update(|n| *n += 1);
-                                
+
                                 // Update engine status based on log messages
-                                if entry.message.contains("Starting") || entry.message.contains("Loading") {
+                                if entry.message.contains("Starting")
+                                    || entry.message.contains("Loading")
+                                {
                                     set_engine_status.set(entry.message.clone());
                                 }
-                                if entry.message.contains("ACTIVE") || entry.message.contains("Engine") {
+                                if entry.message.contains("ACTIVE")
+                                    || entry.message.contains("Engine")
+                                {
                                     set_engine_status.set(entry.message.clone());
                                     if entry.message.contains("ACTIVE") {
                                         set_engine_active.set(true);
@@ -233,38 +248,44 @@ pub fn App() -> impl IntoView {
                                     set_engine_status.set("🟢 Monitoring Active".to_string());
                                     set_engine_active.set(true);
                                 }
-                                if entry.message.contains("WinDivert") && !entry.message.contains("Failed") {
+                                if entry.message.contains("WinDivert")
+                                    && !entry.message.contains("Failed")
+                                {
                                     set_engine_active.set(true);
                                 }
-                                if entry.message.contains("Failed") || entry.message.contains("Error") {
+                                if entry.message.contains("Failed")
+                                    || entry.message.contains("Error")
+                                {
                                     set_engine_status.set(format!("⚠️ {}", entry.message));
                                 }
-                                
+
                                 match entry.level {
                                     LogLevel::Warning | LogLevel::Error => {
-                                        if entry.message.contains("Blocking") || entry.message.contains("BLOCKED") {
+                                        if entry.message.contains("Blocking")
+                                            || entry.message.contains("BLOCKED")
+                                        {
                                             set_blocked_count.update(|n| *n += 1);
                                         }
-                                        if entry.message.contains("Malicious") || entry.message.contains("Threat") {
+                                        if entry.message.contains("Malicious")
+                                            || entry.message.contains("Threat")
+                                        {
                                             set_threats_count.update(|n| *n += 1);
                                         }
-                                    },
+                                    }
                                     LogLevel::Success => {
                                         set_allowed_count.update(|n| *n += 1);
                                     }
-                                    _ => {},
+                                    _ => {}
                                 }
-                            },
-                            Err(_) => {
                             }
-                         }
-                     }
-                },
-                Err(_) => {
+                            Err(_) => {}
+                        }
+                    }
                 }
-             }
+                Err(_) => {}
+            }
         }) as Box<dyn FnMut(JsValue)>);
-        
+
         spawn_local(async move {
             let _ = listen("log", &closure).await;
             closure.forget();
@@ -272,13 +293,13 @@ pub fn App() -> impl IntoView {
 
         // Ask Decision Listener
         let ask_closure = Closure::wrap(Box::new(move |event: JsValue| {
-             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
-                 if let Some(payload_obj) = payload.get("payload") {
-                     if let Ok(app) = serde_json::from_value::<PendingApp>(payload_obj.clone()) {
-                         set_pending_app.set(Some(app));
-                     }
-                 }
-             }
+            if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                if let Some(payload_obj) = payload.get("payload") {
+                    if let Ok(app) = serde_json::from_value::<PendingApp>(payload_obj.clone()) {
+                        set_pending_app.set(Some(app));
+                    }
+                }
+            }
         }) as Box<dyn FnMut(JsValue)>);
 
         spawn_local(async move {
@@ -288,16 +309,18 @@ pub fn App() -> impl IntoView {
 
         // Raw Packet Listener
         let raw_closure = Closure::wrap(Box::new(move |event: JsValue| {
-             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
-                 if let Some(payload_obj) = payload.get("payload") {
-                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
-                         set_raw_packets.update(|p| {
-                             p.push(pkt);
-                             if p.len() > 100 { p.remove(0); }
-                         });
-                     }
-                 }
-             }
+            if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                if let Some(payload_obj) = payload.get("payload") {
+                    if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
+                        set_raw_packets.update(|p| {
+                            p.push(pkt);
+                            if p.len() > 100 {
+                                p.remove(0);
+                            }
+                        });
+                    }
+                }
+            }
         }) as Box<dyn FnMut(JsValue)>);
 
         spawn_local(async move {
@@ -323,7 +346,10 @@ pub fn App() -> impl IntoView {
             let args = serde_wasm_bindgen::to_value(&s).unwrap();
             let _ = invoke("save_settings", args).await;
             set_saved_status.set(true);
-            set_timeout(move || set_saved_status.set(false), std::time::Duration::from_secs(2));
+            set_timeout(
+                move || set_saved_status.set(false),
+                std::time::Duration::from_secs(2),
+            );
         });
     };
 
@@ -351,38 +377,48 @@ pub fn App() -> impl IntoView {
 
     let add_rule_action = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        
+
         // Validation Logic
         let ips_str = new_rule_ips.get();
         let ports_str = new_rule_ports.get();
-        
+
         // Simple Syntax Checker (Mock SDK behavior)
         let mut valid_ips = Vec::new();
         for ip in ips_str.split(',') {
             let trimmed = ip.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             if trimmed == "any" || trimmed == "*" {
                 valid_ips.push(trimmed.to_string());
                 continue;
             }
             // Basic IP regex-like check (dots and numbers)
             if trimmed.chars().filter(|c| *c == '.').count() == 3 {
-                 valid_ips.push(trimmed.to_string());
+                valid_ips.push(trimmed.to_string());
             } else {
-                set_validation_error.set(Some(format!("Invalid IP Syntax: '{}'. Expected IPv4 (e.g. 192.168.1.1) or '*'", trimmed)));
+                set_validation_error.set(Some(format!(
+                    "Invalid IP Syntax: '{}'. Expected IPv4 (e.g. 192.168.1.1) or '*'",
+                    trimmed
+                )));
                 return;
             }
         }
-        
+
         let mut valid_ports = Vec::new();
         for port in ports_str.split(',') {
             let trimmed = port.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             if let Ok(p) = trimmed.parse::<u16>() {
                 valid_ports.push(p);
             } else {
-                 set_validation_error.set(Some(format!("Invalid Port Syntax: '{}'. Expected number (0-65535)", trimmed)));
-                 return;
+                set_validation_error.set(Some(format!(
+                    "Invalid Port Syntax: '{}'. Expected number (0-65535)",
+                    trimmed
+                )));
+                return;
             }
         }
 
@@ -403,47 +439,57 @@ pub fn App() -> impl IntoView {
         let proto_for_closure = protocol_enum.clone();
 
         // Fake SDK "Build" Delay
-        set_timeout(move || {
-            set_console_output.update(|l| l.push("> Syntax check: OK".to_string()));
-            set_console_output.update(|l| l.push("> verifying IP checksums... OK".to_string()));
-            
-            set_timeout(move || {
-                set_settings.update(|s| {
-                    s.rules.push(FirewallRule {
-                        name: new_rule_name.get(),
-                        description: new_rule_desc.get(),
-                        enabled: true,
-                        block: new_rule_block.get(),
-                        protocol: proto_for_closure,
-                        remote_ips: ips_for_closure,
-                        remote_ports: ports_for_closure,
-                        app_name: None,
-                        hostname_pattern: None,
-                        url_pattern: None,
-                    });
-                });
-                save_settings_action();
-                
-                set_console_output.update(|l| l.push("> Deploying to engine... SUCCESS".to_string()));
-                set_console_output.update(|l| l.push("> Rule active.".to_string()));
+        set_timeout(
+            move || {
+                set_console_output.update(|l| l.push("> Syntax check: OK".to_string()));
+                set_console_output.update(|l| l.push("> verifying IP checksums... OK".to_string()));
 
-                // Close after "success"
-                set_timeout(move || {
-                    set_show_rule_modal.set(false);
-                    // Reset Form
-                    set_new_rule_name.set(String::new());
-                    set_new_rule_desc.set(String::new());
-                    set_new_rule_ips.set(String::new());
-                    set_new_rule_ports.set(String::new());
-                    set_new_rule_protocol.set("Any".to_string());
-                    set_validation_error.set(None);
-                    set_console_output.set(Vec::new());
-                    set_is_compiling.set(false);
-                }, Duration::from_millis(800));
-            }, Duration::from_millis(600));
-        }, Duration::from_millis(500));
+                set_timeout(
+                    move || {
+                        set_settings.update(|s| {
+                            s.rules.push(FirewallRule {
+                                name: new_rule_name.get(),
+                                description: new_rule_desc.get(),
+                                enabled: true,
+                                block: new_rule_block.get(),
+                                protocol: proto_for_closure,
+                                remote_ips: ips_for_closure,
+                                remote_ports: ports_for_closure,
+                                app_name: None,
+                                hostname_pattern: None,
+                                url_pattern: None,
+                            });
+                        });
+                        save_settings_action();
+
+                        set_console_output
+                            .update(|l| l.push("> Deploying to engine... SUCCESS".to_string()));
+                        set_console_output.update(|l| l.push("> Rule active.".to_string()));
+
+                        // Close after "success"
+                        set_timeout(
+                            move || {
+                                set_show_rule_modal.set(false);
+                                // Reset Form
+                                set_new_rule_name.set(String::new());
+                                set_new_rule_desc.set(String::new());
+                                set_new_rule_ips.set(String::new());
+                                set_new_rule_ports.set(String::new());
+                                set_new_rule_protocol.set("Any".to_string());
+                                set_validation_error.set(None);
+                                set_console_output.set(Vec::new());
+                                set_is_compiling.set(false);
+                            },
+                            Duration::from_millis(800),
+                        );
+                    },
+                    Duration::from_millis(600),
+                );
+            },
+            Duration::from_millis(500),
+        );
     };
-    
+
     view! {
         <div class="app-container">
             {move || if !is_alert_mode {
@@ -454,7 +500,7 @@ pub fn App() -> impl IntoView {
                             <span class="logo-text">"HYDRADRAGON"</span>
                         </div>
                         <nav>
-                            <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }} 
+                            <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }}
                                on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
                                "Dashboard"
                             </a>
@@ -522,7 +568,7 @@ pub fn App() -> impl IntoView {
                                                     <stop offset="100%" style="stop-color:var(--accent-blue);stop-opacity:0" />
                                                 </linearGradient>
                                             </defs>
-                                            <path d="M0,150 L0,100 Q50,50 100,80 T200,60 T300,100 T400,40 T500,80 T600,60 V150 Z" 
+                                            <path d="M0,150 L0,100 Q50,50 100,80 T200,60 T300,100 T400,40 T500,80 T600,60 V150 Z"
                                                   fill="url(#grad1)" stroke="var(--accent-blue)" stroke-width="2" />
                                         </svg>
                                         <div class="graph-overlay">
@@ -541,7 +587,7 @@ pub fn App() -> impl IntoView {
                                         </div>
                                     </div>
                                 </div>
-        
+
                                 <div class="glass-card logs-section">
                                     <div class="section-header">
                                         <h3 style="margin: 0; font-size: 16px; font-weight: 700">"Real-time Intelligence"</h3>
@@ -572,7 +618,7 @@ pub fn App() -> impl IntoView {
                                     </div>
                                 </div>
                             </div>
-        
+
                             <div class="dash-col-side">
                                  <div class="glass-card stat-item-compact">
                                     <h4>"Total Traffic"</h4>
@@ -593,7 +639,7 @@ pub fn App() -> impl IntoView {
                             </div>
                         </div>
                     }.into_view(),
-                    
+
                     AppView::Rules => view! {
                         <div class="dashboard-grid" style="flex-direction: column">
                             <div class="glass-card" style="width: 100%">
@@ -606,7 +652,7 @@ pub fn App() -> impl IntoView {
                                         "+ ADD RULE"
                                     </button>
                                 </div>
-                                
+
                                 // Rules List
                                 <div class="rules-list" style="display: flex; flex-direction: column; gap: 12px">
                                     <For
@@ -633,7 +679,7 @@ pub fn App() -> impl IntoView {
                                                         </div>
                                                     </div>
                                                     // Toggle Switch
-                                                    <div class="toggle-switch" 
+                                                    <div class="toggle-switch"
                                                          style={if rule.enabled { "background: var(--accent-green); cursor: pointer; width: 44px; height: 24px; border-radius: 24px; position: relative; box-shadow: 0 2px 8px rgba(0,255,136,0.3)" } else { "background: #333; cursor: pointer; width: 44px; height: 24px; border-radius: 24px; position: relative" }}
                                                          on:click=move |ev| { ev.stop_propagation(); toggle_rule(idx); }>
                                                         <div style={if rule.enabled { "left: 22px; background: white; width: 18px; height: 18px; border-radius: 50%; position: absolute; top: 3px; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2)" } else { "left: 3px; background: #666; width: 18px; height: 18px; border-radius: 50%; position: absolute; top: 3px; transition: 0.2s" }}></div>
@@ -785,7 +831,7 @@ pub fn App() -> impl IntoView {
                                                         let sel_id = p.id.clone();
                                                         let is_selected = move || selected_packet.get().map(|s| s.id == sel_id).unwrap_or(false);
                                                         let proto = pkt.protocol;
-                                                        
+
                                                         view! {
                                                             <tr style=move || format!("border-bottom: 1px solid rgba(255,255,255,0.02); cursor: pointer; {}", if is_selected() { "background: rgba(62,148,255,0.15)" } else { "" })
                                                                 on:click=move |_| set_selected_packet.set(Some(p.clone()))>
@@ -834,7 +880,7 @@ pub fn App() -> impl IntoView {
                                                         <div style="color: #6a9955">"// Frame Metadata"</div>
                                                         <div><span style="color: var(--text-muted)">"Timestamp: "</span> {pkt.timestamp}</div>
                                                         <div><span style="color: var(--text-muted)">"Length:    "</span> {pkt.length} " bytes"</div>
-                                                        
+
                                                         <div style="margin-top: 10px; color: #6a9955">"// Process Trace"</div>
                                                         <div><span style="color: var(--text-muted)">"Process:   "</span> <span style="color: var(--accent-blue)">{pkt.process_name.clone()}</span></div>
                                                         <div><span style="color: var(--text-muted)">"PID:       "</span> {pkt.process_id}</div>
@@ -880,15 +926,15 @@ pub fn App() -> impl IntoView {
                                 </div>
                                 <div class="input-group" style="margin-top: 20px">
                                     <label>"THREAT INTELLIGENCE DATABASE PATH"</label>
-                                    <input type="text" 
+                                    <input type="text"
                                            placeholder="e.g., website or C:\\path\\to\\intel"
-                                           prop:value=move || settings.get().website_path 
+                                           prop:value=move || settings.get().website_path
                                            on:input=move |ev| update_path(event_target_value(&ev))
                                     />
                                 </div>
                                 <div class="input-group">
                                     <label>"BLOCKED KEYWORDS (comma-separated)"</label>
-                                    <textarea 
+                                    <textarea
                                         style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; width: 100%; height: 80px; border-radius: 6px; resize: vertical"
                                         placeholder="malware, virus, phishing, trojan..."
                                         on:input=move |ev| {
@@ -967,7 +1013,7 @@ pub fn App() -> impl IntoView {
 
                             // Save Button
                             <div style="display: flex; justify-content: flex-end; gap: 15px">
-                                <button class="btn-primary" 
+                                <button class="btn-primary"
                                         style={move || if saved_status.get() { "padding: 12px 30px; background: var(--accent-green)" } else { "padding: 12px 30px" }}
                                         on:click=move |_| save_settings_action()>
                                     {move || if saved_status.get() { "✓ SETTINGS SAVED!" } else { "💾 SAVE ALL SETTINGS" }}
@@ -991,7 +1037,7 @@ pub fn App() -> impl IntoView {
             <div class={move || if show_rule_modal.get() { "modal-overlay open" } else { "modal-overlay" }}
                  style={move || if !show_rule_modal.get() { "pointer-events: none" } else { "pointer-events: auto" }}>
                 <div class="glass-modal" style="width: 850px; max-width: 95vw; background: #1e1e1e; border: 1px solid #333; box-shadow: 0 10px 40px rgba(0,0,0,0.6); padding: 0; overflow: hidden; display: flex; flex-direction: column; border-radius: 8px">
-                    
+
                     <div style="background: #252526; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333">
                          <div style="display: flex; gap: 10px; align-items: center">
                             <div style="display: flex; gap: 6px">
@@ -1005,13 +1051,13 @@ pub fn App() -> impl IntoView {
                     </div>
 
                     <div style="background: #2d2d2d; display: flex; border-bottom: 1px solid #111">
-                        <div style=move || format!("padding: 8px 20px; font-size: 11px; display: flex; align-items: center; gap: 8px; cursor: pointer; {}", 
+                        <div style=move || format!("padding: 8px 20px; font-size: 11px; display: flex; align-items: center; gap: 8px; cursor: pointer; {}",
                              if active_tab.get() == "rule" { "background: #1e1e1e; border-top: 1px solid #007acc; color: #fff;" } else { "color: #888;" })
                              on:click=move |_| set_active_tab.set("rule".to_string())>
                             <span style="color: #ce9178">"RS"</span>
                             "rule_definition.rs"
                         </div>
-                        <div style=move || format!("padding: 8px 20px; font-size: 11px; display: flex; align-items: center; gap: 8px; cursor: pointer; {}", 
+                        <div style=move || format!("padding: 8px 20px; font-size: 11px; display: flex; align-items: center; gap: 8px; cursor: pointer; {}",
                              if active_tab.get() == "engine" { "background: #1e1e1e; border-top: 1px solid #007acc; color: #fff;" } else { "color: #888;" })
                              on:click=move |_| set_active_tab.set("engine".to_string())>
                             <span style="color: #ce9178">"RS"</span>
@@ -1042,17 +1088,17 @@ pub fn App() -> impl IntoView {
                                 <div style="display: flex; flex-direction: column; gap: 4px">
                                     <div><span style="color: #c586c0">"use"</span> " hydradragon_sdk::prelude::*;"</div>
                                     <div style="margin-bottom: 15px"></div>
-                                    
+
                                     <div style="color: #569cd6">"#[rule_entry]"</div>
                                     <div style="color: #569cd6">"pub fn"<span style="color: #dcdcaa">" define_rule"</span>"() -> "<span style="color: #4ec9b0">"Rule"</span>" {"</div>
-                                    
+
                                     <div style="margin-left: 20px">
                                         <span style="color: #4ec9b0">"RuleBuilder"</span>"::"<span style="color: #dcdcaa">"new"</span>"()"
                                     </div>
-                                    
+
                                     <div style="margin-left: 40px; display: flex; align-items: center; gap: 8px">
                                         <span>"."</span><span style="color: #dcdcaa">"name"</span><span>"("</span>
-                                        <input type="text" required placeholder="\"Enter rule name...\"" 
+                                        <input type="text" required placeholder="\"Enter rule name...\""
                                                style="background: rgba(206, 145, 120, 0.05); border: none; border-bottom: 1px solid #444; color: #ce9178; font-family: inherit; width: 280px; outline: none; padding: 2px 4px"
                                                on:input=move |ev| set_new_rule_name.set(event_target_value(&ev))
                                                prop:value=new_rule_name
@@ -1062,7 +1108,7 @@ pub fn App() -> impl IntoView {
 
                                     <div style="margin-left: 40px; display: flex; align-items: center; gap: 8px">
                                         <span>"."</span><span style="color: #dcdcaa">"description"</span><span>"("</span>
-                                        <input type="text" required placeholder="\"Describe this rule...\"" 
+                                        <input type="text" required placeholder="\"Describe this rule...\""
                                                style="background: rgba(206, 145, 120, 0.05); border: none; border-bottom: 1px solid #444; color: #ce9178; font-family: inherit; width: 350px; outline: none; padding: 2px 4px"
                                                on:input=move |ev| set_new_rule_desc.set(event_target_value(&ev))
                                                prop:value=new_rule_desc
@@ -1123,16 +1169,16 @@ pub fn App() -> impl IntoView {
                                     </div>
                                     <div>"}"</div>
                                 </div>
-                                
+
                                 <div style="margin-top: 30px; display: flex; gap: 15px">
-                                     <button type="submit" 
+                                     <button type="submit"
                                              class={move || if is_compiling.get() { "btn-primary disabled" } else { "btn-primary" }}
                                              disabled={move || is_compiling.get()}
                                              style="background: #007acc; border: none; color: white; padding: 8px 25px; font-family: inherit; cursor: pointer; border-radius: 2px; font-weight: bold; font-size: 12px; display: flex; align-items: center; gap: 10px; transition: background 0.2s">
-                                         {move || if is_compiling.get() { 
-                                             view! { <span style="display:inline-block" class="spin">"🌀"</span> } 
-                                         } else { 
-                                             view! { <span>"🚀"</span> } 
+                                         {move || if is_compiling.get() {
+                                             view! { <span style="display:inline-block" class="spin">"🌀"</span> }
+                                         } else {
+                                             view! { <span>"🚀"</span> }
                                          }}
                                          {move || if is_compiling.get() { "COMPILING..." } else { "BUILD & DEPLOY" }}
                                      </button>
@@ -1217,7 +1263,7 @@ pub fn App() -> impl IntoView {
                             {move || if is_alert_mode {
                                 view! { <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div> }.into_view()
                             } else { view! { <div></div> }.into_view() }}
-                            
+
                             // Header with icon
                             <div style={move || if is_alert_mode { "display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px" } else { "display: flex; align-items: center; gap: 15px; margin-bottom: 20px" }}>
                                 <div class="shield-icon" style={move || if is_alert_mode {
@@ -1232,17 +1278,17 @@ pub fn App() -> impl IntoView {
                                     <p style={move || if is_alert_mode { "margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px" } else { "margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px" }}>{header_subtitle}</p>
                                 </div>
                             </div>
-                            
+
                             // Application Info Card
-                            <div style={move || if is_alert_mode { 
-                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)" 
-                            } else { 
-                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.05)" 
+                            <div style={move || if is_alert_mode {
+                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)"
+                            } else {
+                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.05)"
                             }}>
                                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
-                                    <div style={move || if is_alert_mode { 
+                                    <div style={move || if is_alert_mode {
                                         "width: 28px; height: 28px; background: rgba(62, 148, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px"
-                                    } else { 
+                                    } else {
                                         "width: 40px; height: 40px; background: rgba(62, 148, 255, 0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px"
                                     }}>
                                         "📦"
@@ -1252,7 +1298,7 @@ pub fn App() -> impl IntoView {
                                         <div style="font-size: 10px; color: var(--text-muted)">"PID: " {app.process_id}</div>
                                     </div>
                                 </div>
-                                
+
                                 <div style={move || if is_alert_mode { "display: grid; grid-template-columns: 1fr 1fr; gap: 8px" } else { "display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px" }}>
                                     <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
                                         <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Destination"</div>
@@ -1267,18 +1313,18 @@ pub fn App() -> impl IntoView {
 
                             // Action Buttons
                             <div style={move || if is_alert_mode { "display: flex; flex-direction: column; gap: 6px; margin-top: 12px" } else { "display: flex; flex-direction: column; gap: 10px; margin-top: 25px" }}>
-                                <button class="btn-primary" 
+                                <button class="btn-primary"
                                         style={move || if is_alert_mode { "width: 100%; padding: 10px; font-size: 12px" } else { "width: 100%; padding: 14px; font-size: 15px" }}
                                         on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
                                     "✓ ALLOW ACCESS"
                                 </button>
                                 <div style="display: flex; gap: 8px">
-                                    <button class="btn-primary" 
+                                    <button class="btn-primary"
                                             style={move || if is_alert_mode { "flex: 1; padding: 10px; font-size: 12px; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)" } else { "flex: 1; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)" }}
                                             on:click=move |_| resolve_decision(name_for_block_session.clone(), "block".to_string())>
                                         "BLOCK ONCE"
                                     </button>
-                                    <button class="btn-primary" 
+                                    <button class="btn-primary"
                                             style={move || if is_alert_mode { "flex: 1; padding: 10px; font-size: 12px; background: var(--accent-red)" } else { "flex: 1; background: var(--accent-red)" }}
                                             on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
                                         "✕ BLOCK ALWAYS"
