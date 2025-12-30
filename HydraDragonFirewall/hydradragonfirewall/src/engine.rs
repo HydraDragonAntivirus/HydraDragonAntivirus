@@ -1426,7 +1426,7 @@ impl FirewallEngine {
                                 (
                                     LogLevel::Info,
                                     format!(
-                                        "Skipping HTTPS hook for PID {}: access denied (likely protected or system process); future retries suppressed",
+                                        "HTTPS hook skipped for PID {}: access denied (protected/system or insufficient rights). TLS hostname visibility may be limited for this app; retry suppressed.",
                                         info.process_id
                                     ),
                                 )
@@ -1434,7 +1434,7 @@ impl FirewallEngine {
                                 (
                                     LogLevel::Warning,
                                     format!(
-                                        "Failed to inject HTTPS hook into PID {}: {} (Logic will skip future retries for this PID)",
+                                        "Failed to inject HTTPS hook into PID {}: {} (no further retries; TLS hostnames unavailable for this process)",
                                         info.process_id, e.message
                                     ),
                                 )

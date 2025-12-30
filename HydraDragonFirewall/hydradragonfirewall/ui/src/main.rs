@@ -919,6 +919,52 @@ pub fn App() -> impl IntoView {
                                 </div>
                             </div>
 
+                            // SDK Feature Quick Reference (GUI instead of markdown)
+                            <div class="glass-card" style="width: 100%">
+                                <div class="section-header">
+                                    <h3 style="margin: 0">"🧠 Firewall SDK Quick Reference"</h3>
+                                    <span style="font-size: 12px; color: var(--text-muted)">"built-in detectors, registry helpers, and how to extend"</span>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 12px">
+                                    <div style="background: rgba(62,148,255,0.06); border: 1px solid rgba(62,148,255,0.2); padding: 12px; border-radius: 10px">
+                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-blue)">"Packet & Context Helpers"</h4>
+                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            <li>"RawPacket captures src/dst, ports, protocol, payload preview, and hex dump."</li>
+                                            <li>"TLS hostname enrichment via HTTPS hook when permissions allow."</li>
+                                            <li>"DNS keyword check and file-magic hints to tag content types."</li>
+                                        </ul>
+                                    </div>
+
+                                    <div style="background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.25); padding: 12px; border-radius: 10px">
+                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-green)">"Signature Registry"</h4>
+                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            <li>"Add/remove signatures and list them with metadata."</li>
+                                            <li>"Enable/disable toggles plus \"enabled by default\" tracking."</li>
+                                            <li>"Thread-safe evaluation helper aggregates all enabled findings for the engine."</li>
+                                        </ul>
+                                    </div>
+
+                                    <div style="background: rgba(255,193,59,0.08); border: 1px solid rgba(255,193,59,0.25); padding: 12px; border-radius: 10px">
+                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-yellow)">"Built-in Detectors"</h4>
+                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            <li>"Keyword and reversed-string pattern checks for obfuscation."</li>
+                                            <li>"Regex rule for PowerShell encoded commands and suspicious reversed commands."</li>
+                                            <li>"DNS keyword blocker that runs before general keyword scans."</li>
+                                        </ul>
+                                    </div>
+
+                                    <div style="background: rgba(255,62,62,0.06); border: 1px solid rgba(255,62,62,0.25); padding: 12px; border-radius: 10px">
+                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-red)">"Results & Operations"</h4>
+                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
+                                            <li>"Findings include signature name, category, severity, matched pattern, and reason."</li>
+                                            <li>"Engine uses registry evaluation by default—new signatures become active once registered."</li>
+                                            <li>"Protected/system processes may block HTTPS hooks; TLS hostnames may stay hidden for them."</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
                             // Save Button
                             <div style="display: flex; justify-content: flex-end; gap: 15px">
                                 <button class="btn-primary" 
