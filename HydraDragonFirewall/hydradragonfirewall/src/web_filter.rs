@@ -10,20 +10,7 @@ use std::sync::{Arc, RwLock};
 
 // Use lazy_static to compile regex patterns lazily (on first use, not on startup)
 // This prevents stack overflow during initialization
-lazy_static! {
-    static ref DISCORD_WEBHOOK_REGEX: Regex =
-        Regex::new(r"https://discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_-]+").unwrap();
-    static ref DISCORD_ATTACHMENT_REGEX: Regex =
-        Regex::new(r"https://cdn\.discordapp\.com/attachments/\d+/\d+/[A-Za-z0-9._-]+").unwrap();
-    static ref TELEGRAM_TOKEN_REGEX: Regex =
-        Regex::new(r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}").unwrap();
-
-    // Ported from antivirus.py
-    static ref EMAIL_REGEX: Regex =
-        Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
-    static ref UBLOCK_REGEX: Regex =
-         Regex::new(r"^https?://[a-z0-9-]+\.com/ad_pattern").unwrap(); // Placeholder for actual pattern
-}
+// Hardcoded regexes removed in favor of SDK signatures
 
 #[derive(Clone)]
 pub struct WebFilter {
@@ -359,95 +346,14 @@ impl WebFilter {
         }
     }
 
-    pub fn check_payload(
-        &self,
-        payload: &[u8],
-        settings: &crate::engine::FirewallSettings,
-    ) -> Option<String> {
-        // 1. Convert to string (lossy) to check regex
-        // We only check the first 4KB for efficiency
-        let scan_len = std::cmp::min(payload.len(), 4096);
-        if scan_len == 0 {
-            return None;
-        }
-
-        let text = String::from_utf8_lossy(&payload[..scan_len]);
-
-        if let Some(reason) = self.scan_text_for_signatures(&text, settings) {
-            return Some(reason);
-        }
-
-        None
-    }
 
     fn scan_text_for_signatures(
         &self,
         text: &str,
-        settings: &crate::engine::FirewallSettings,
+        _settings: &crate::engine::FirewallSettings,
     ) -> Option<String> {
-        let text_lower = text.to_lowercase();
-
-        // Dynamic Keyword Scan from Settings
-        for keyword in &settings.blocked_keywords {
-            if text_lower.contains(&keyword.to_lowercase()) {
-                return Some(format!("Blocked Keyword: {}", keyword));
-            }
-        }
-
-        // Check regexes using lazy_static patterns (compiled on first use)
-        if DISCORD_WEBHOOK_REGEX.is_match(text) {
-            return Some("Regex Match: Discord Webhook".to_string());
-        }
-        if DISCORD_ATTACHMENT_REGEX.is_match(text) {
-            return Some("Regex Match: Discord Attachment".to_string());
-        }
-        if TELEGRAM_TOKEN_REGEX.is_match(text) {
-            return Some("Regex Match: Telegram Token".to_string());
-        }
-
-        // --- Email Scanning ---
-        for cap in EMAIL_REGEX.captures_iter(text) {
-            if let Some(email_match) = cap.get(0) {
-                let email = email_match.as_str().to_lowercase();
-                if self.email_blocklist.read().unwrap().contains(&email) {
-                    return Some(format!("Blocked Malicious Email: {}", email));
-                }
-            }
-        }
-
-        // --- URLHaus Check in Payload (e.g. GET requests) ---
-        // Basic heuristic: check if any part of the text matches a known bad URL
-        // (Optimized: Checking substring for every URL is slow, so we check ONLY if "http" is present)
-        if text_lower.contains("http") {
-            for url in self.urlhaus_urls.read().unwrap().iter() {
-                if text_lower.contains(url) {
-                    return Some(format!("Blocked URLHaus: {}", url));
-                }
-            }
-        }
-
-        // 2. Check for Host header (HTTP)
-        // Find "Host: "
-        if let Some(host_idx) = text_lower.find("host: ") {
-            let start = host_idx + 6;
-            if let Some(end) = text[start..].find("\r\n") {
-                let host = text[start..start + end].trim().to_lowercase();
-                // Remove port if present
-                let host_name = host.split(':').next().unwrap_or(&host);
-
-                if self.domain_blocklist.read().unwrap().contains(host_name) {
-                    return Some(format!("Blocked Domain: {}", host_name));
-                }
-
-                // Also check dynamic keywords in Host header specifically
-                for keyword in &settings.blocked_keywords {
-                    if host_name.contains(&keyword.to_lowercase()) {
-                        return Some(format!("Blocked Host Keyword: {}", keyword));
-                    }
-                }
-            }
-        }
-
+        // Hardcoded keyword/regex scan removed.
+        // The engine now relies on SDK-registered signatures.
         None
     }
 

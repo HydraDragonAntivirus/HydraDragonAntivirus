@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
-use windows::Win32::Foundation::{HINSTANCE, HANDLE};
+use windows::Win32::Foundation::HINSTANCE;
 use windows::Win32::Networking::WinSock::{SOCKET, SOCKADDR, SOCKADDR_IN, AF_INET};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;

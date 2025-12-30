@@ -1,5 +1,5 @@
 use std::ffi::CString;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx};
@@ -7,12 +7,84 @@ use windows::Win32::System::Threading::{
     CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
+use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW, GetModuleFileNameExW};
 
 #[allow(dead_code)]
 pub struct Injector;
 
 #[allow(dead_code)]
 impl Injector {
+    pub fn is_dll_loaded(pid: u32, dll_name: &str) -> bool {
+        unsafe {
+            let handle_res = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false.into(), pid);
+            if let Ok(handle) = handle_res {
+                let mut modules = [HMODULE::default(); 1024];
+                let mut cb_needed = 0;
+                if EnumProcessModules(handle, modules.as_mut_ptr(), std::mem::size_of_val(&modules) as u32, &mut cb_needed).is_ok() {
+                    let count = cb_needed as usize / std::mem::size_of::<HMODULE>();
+                    for i in 0..count {
+                        let mut name_buf = [0u16; 256];
+                        let len = GetModuleBaseNameW(handle, Some(modules[i]), &mut name_buf);
+                        if len > 0 {
+                            let name = String::from_utf16_lossy(&name_buf[..len as usize]);
+                            if name.to_lowercase() == dll_name.to_lowercase() {
+                                let _ = CloseHandle(handle);
+                                return true;
+                            }
+                        }
+                    }
+                }
+                let _ = CloseHandle(handle);
+            }
+        }
+        false
+    }
+
+    pub fn get_process_info(pid: u32) -> (String, String) {
+        unsafe {
+            let handle_res = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false.into(), pid);
+            if let Ok(handle) = handle_res {
+                let mut name_buf = [0u16; 256];
+                let mut path_buf = [0u16; 512];
+                
+                let name_len = GetModuleBaseNameW(handle, Some(HMODULE::default()), &mut name_buf);
+                let path_len = GetModuleFileNameExW(Some(handle), Some(HMODULE::default()), &mut path_buf);
+                
+                let name = if name_len > 0 {
+                    String::from_utf16_lossy(&name_buf[..name_len as usize])
+                } else {
+                    format!("PID:{}", pid)
+                };
+                
+                let path = if path_len > 0 {
+                    String::from_utf16_lossy(&path_buf[..path_len as usize])
+                } else {
+                    "Unknown".to_string()
+                };
+                
+                let _ = CloseHandle(handle);
+                return (name, path);
+            }
+        }
+        (format!("PID:{}", pid), "Unknown".to_string())
+    }
+
+    pub fn is_path_excluded(path: &str) -> bool {
+        let path_lower = path.to_lowercase();
+        let exclusions = [
+            "\\program files\\hydradragonantivirus",
+            "\\desktop\\sanctum",
+            "\\appdata\\roaming\\sanctum",
+        ];
+        
+        for exc in &exclusions {
+            if path_lower.contains(exc) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn inject(pid: u32, dll_path: &str) -> Result<(), String> {
         unsafe {
             let process_handle = OpenProcess(

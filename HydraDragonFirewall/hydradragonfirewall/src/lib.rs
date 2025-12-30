@@ -1,9 +1,11 @@
 pub mod engine;
 pub mod http_parser;
 pub mod injector;
+pub mod sdk;
 pub mod tls_parser;
 pub mod web_filter;
 pub mod windivert_api;
+pub mod file_magic;
 
 use crate::engine::FirewallEngine;
 use std::sync::Arc;
@@ -135,7 +137,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
+                window.minimize().unwrap();
                 api.prevent_close();
             }
         })

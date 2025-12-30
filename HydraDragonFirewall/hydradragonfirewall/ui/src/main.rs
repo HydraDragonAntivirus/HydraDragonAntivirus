@@ -10,9 +10,13 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"])]
     async fn listen(event: &str, handler: &Closure<dyn FnMut(JsValue)>) -> JsValue;
+    
+    // For window control in alert mode
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "window"])]
+    async fn getCurrentWindow() -> JsValue;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum LogLevel {
     Info,
@@ -40,20 +44,43 @@ pub struct PendingApp {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RawPacket {
+    pub id: String,
+    pub timestamp: u64,
+    pub src_ip: String,
+    pub dst_ip: String,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: Protocol,
+    pub length: usize,
+    pub payload_hex: String,
+    pub payload_preview: String,
+    pub summary: String,
+    // Process Correlation
+    pub process_id: u32,
+    pub process_name: String,
+    pub process_path: String,
+    // SDK/Rule Context
+    pub action: String,
+    pub rule: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct ResolveArgs {
     name: String,
     decision: String,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum AppView {
     Dashboard,
     Rules,
     Logs,
+    PacketReader,
     Settings,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Protocol {
     TCP,
     UDP,
@@ -102,6 +129,8 @@ pub fn App() -> impl IntoView {
     
     // Navigation State
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
+    let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
+    let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
 
     // Rule Modal State & Validation
     let (show_rule_modal, set_show_rule_modal) = create_signal(false);
@@ -123,24 +152,33 @@ pub fn App() -> impl IntoView {
 
     // Graph State
     let (graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
-    let graph_points = move || {
+    let _graph_points = move || {
         graph_data.get().iter().enumerate()
             .map(|(i, &v)| format!("{},{}", i * 50, v))
             .collect::<Vec<_>>()
             .join(" ")
     };
 
-    // Update Graph Data periodically
+    // Detect Alert Mode
+    let is_alert_mode = {
+        let window = web_sys::window().unwrap();
+        let search = window.location().search().unwrap_or_default();
+        search.contains("mode=alert")
+    };
+
+    // Update Graph Data periodically (Only if NOT in alert mode)
     create_effect(move |_| {
-        use std::time::Duration;
-        set_interval(move || {
-            let current_activity = (total_count.get() % 100) as u32;
-            let val = 180 - (current_activity.min(150));
-            set_graph_data.update(|v| {
-                v.push(val);
-                if v.len() > 10 { v.remove(0); }
-            });
-        }, Duration::from_millis(2000));
+        if !is_alert_mode {
+            use std::time::Duration;
+            set_interval(move || {
+                let current_activity = (total_count.get() % 100) as u32;
+                let val = 180 - (current_activity.min(150));
+                set_graph_data.update(|v| {
+                    v.push(val);
+                    if v.len() > 10 { v.remove(0); }
+                });
+            }, Duration::from_millis(2000));
+        }
     });
     let (settings, set_settings) = create_signal(FirewallSettings {
         blocked_keywords: vec![],
@@ -228,6 +266,25 @@ pub fn App() -> impl IntoView {
         spawn_local(async move {
             let _ = listen("ask_app_decision", &ask_closure).await;
             ask_closure.forget();
+        });
+
+        // Raw Packet Listener
+        let raw_closure = Closure::wrap(Box::new(move |event: JsValue| {
+             if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                 if let Some(payload_obj) = payload.get("payload") {
+                     if let Ok(pkt) = serde_json::from_value::<RawPacket>(payload_obj.clone()) {
+                         set_raw_packets.update(|p| {
+                             p.push(pkt);
+                             if p.len() > 100 { p.remove(0); }
+                         });
+                     }
+                 }
+             }
+        }) as Box<dyn FnMut(JsValue)>);
+
+        spawn_local(async move {
+            let _ = listen("raw_packet", &raw_closure).await;
+            raw_closure.forget();
         });
     });
 
@@ -371,41 +428,54 @@ pub fn App() -> impl IntoView {
     
     view! {
         <div class="app-container">
-            <aside>
-                <div class="logo-area">
-                    <div class="logo-icon"></div>
-                    <span class="logo-text">"HYDRADRAGON"</span>
-                </div>
-                <nav>
-                    <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }} 
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
-                       "Dashboard"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
-                       "Protection Rules"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
-                       "Network Logs"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
-                       "Settings"
-                    </a>
-                </nav>
-                <div style="margin-top: auto">
-                    <div class="callout">"Zero Trust: no implicit whitelists"</div>
-                </div>
-            </aside>
+            {move || if !is_alert_mode {
+                view! {
+                    <aside>
+                        <div class="logo-area">
+                            <div class="logo-icon"></div>
+                            <span class="logo-text">"HYDRADRAGON"</span>
+                        </div>
+                        <nav>
+                            <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }} 
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
+                               "Dashboard"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
+                               "Protection Rules"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
+                               "Network Logs"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::PacketReader { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
+                               "Packet Reader"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
+                               "Settings"
+                            </a>
+                        </nav>
+                        <div style="margin-top: auto">
+                            <div class="callout">"Zero Trust: no implicit whitelists"</div>
+                        </div>
+                    </aside>
+                }.into_view()
+            } else {
+                view! { <div></div> }.into_view()
+            }}
 
-            <main>
-                <header style="display: flex; justify-content: space-between; align-items: center">
+            <main style={if is_alert_mode { "margin-left: 0; padding: 0" } else { "" }}>
+                {move || if !is_alert_mode {
+                    view! {
+                        <header style="display: flex; justify-content: space-between; align-items: center">
                     <h2 style="margin: 0; font-weight: 800; font-size: 28px">
                         {move || match current_view.get() {
                             AppView::Dashboard => "Security Overview",
                             AppView::Rules => "Protection Rules",
                             AppView::Logs => "Network Activity",
+                            AppView::PacketReader => "Packet Inspection",
                             AppView::Settings => "System Settings",
                         }}
                     </h2>
@@ -655,6 +725,133 @@ pub fn App() -> impl IntoView {
                         </div>
                     }.into_view(),
 
+                    AppView::PacketReader => view! {
+                        <div class="dashboard-grid" style="flex-direction: column; height: calc(100vh - 120px)">
+                            <div class="glass-card" style="width: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0">
+                                <div class="section-header" style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05)">
+                                    <div>
+                                        <h3 style="margin: 0">"🔍 Real-time Packet Inspection"</h3>
+                                        <span style="font-size: 11px; color: var(--text-muted)">"Wireshark-mode enabled; live capturing from WinDivert"</span>
+                                    </div>
+                                    <div style="display: flex; gap: 10px">
+                                        <button class="btn-primary" style="padding: 6px 15px; font-size: 11px; background: rgba(255,62,62,0.1); color: var(--accent-red); border-color: var(--accent-red)"
+                                                on:click=move |_| set_raw_packets.set(vec![])>
+                                            "STOP & CLEAR"
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; flex: 1; overflow: hidden">
+                                    // Packet List
+                                    <div style="flex: 1; border-right: 1px solid rgba(255,255,255,0.05); overflow-y: auto">
+                                        <table style="width: 100%; border-collapse: collapse; font-family: 'Fira Code', monospace; font-size: 12px">
+                                            <thead style="position: sticky; top: 0; background: #1a1a1a; z-index: 10">
+                                                <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid #333">
+                                                    <th style="padding: 10px">"Time"</th>
+                                                    <th style="padding: 10px">"Application"</th>
+                                                    <th style="padding: 10px">"Action"</th>
+                                                    <th style="padding: 10px">"Rule"</th>
+                                                    <th style="padding: 10px">"Protocol"</th>
+                                                    <th style="padding: 10px">"Source"</th>
+                                                    <th style="padding: 10px">"Destination"</th>
+                                                    <th style="padding: 10px">"Length"</th>
+                                                    <th style="padding: 10px">"Info"</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <For
+                                                    each=move || raw_packets.get().into_iter().rev()
+                                                    key=|pkt| pkt.id.clone()
+                                                    children=move |pkt| {
+                                                        let p = pkt.clone();
+                                                        let sel_id = p.id.clone();
+                                                        let is_selected = move || selected_packet.get().map(|s| s.id == sel_id).unwrap_or(false);
+                                                        let proto = pkt.protocol;
+                                                        
+                                                        view! {
+                                                            <tr style=move || format!("border-bottom: 1px solid rgba(255,255,255,0.02); cursor: pointer; {}", if is_selected() { "background: rgba(62,148,255,0.15)" } else { "" })
+                                                                on:click=move |_| set_selected_packet.set(Some(p.clone()))>
+                                                                <td style="padding: 8px 10px">{pkt.timestamp % 100000}</td>
+                                                                <td style="padding: 8px 10px">
+                                                                    <div style="font-weight: 500; color: var(--text-bright)">{pkt.process_name.clone()}</div>
+                                                                    <div style="font-size: 10px; color: var(--text-muted)">{format!("PID: {}", pkt.process_id)}</div>
+                                                                </td>
+                                                                <td style="padding: 8px 10px">
+                                                                    {
+                                                                        let action_style = pkt.action.clone();
+                                                                        view! {
+                                                                            <span style=move || format!("color: {}", if action_style == "Allow" { "var(--success)" } else { "var(--danger)" })>
+                                                                                {pkt.action.clone()}
+                                                                            </span>
+                                                                        }
+                                                                    }
+                                                                </td>
+                                                                <td style="padding: 8px 10px; font-size: 11px; color: var(--text-muted)">
+                                                                    {if pkt.rule.is_empty() { "-".to_string() } else { pkt.rule.clone() }}
+                                                                </td>
+                                                                <td style="padding: 8px 10px">
+                                                                    <span style=move || format!("color: {}", match proto { Protocol::TCP => "var(--accent-blue)", Protocol::UDP => "var(--accent-green)", _ => "var(--accent-yellow)" })>
+                                                                        {match proto { Protocol::TCP => "TCP", Protocol::UDP => "UDP", Protocol::ICMP => "ICMP", _ => "RAW" }}
+                                                                    </span>
+                                                                </td>
+                                                                <td style="padding: 8px 10px">{format!("{}:{}", pkt.src_ip, pkt.src_port)}</td>
+                                                                <td style="padding: 8px 10px">{format!("{}:{}", pkt.dst_ip, pkt.dst_port)}</td>
+                                                                <td style="padding: 8px 10px">{pkt.length}</td>
+                                                                <td style="padding: 8px 10px; color: var(--text-muted); font-size: 11px">{pkt.payload_preview.clone()}</td>
+                                                            </tr>
+                                                        }
+                                                    }
+                                                />
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    // Detail View
+                                    <div style="width: 400px; padding: 15px; background: rgba(0,0,0,0.1); overflow-y: auto; font-family: 'Fira Code', monospace">
+                                        {move || match selected_packet.get() {
+                                            Some(pkt) => view! {
+                                                <div style="font-size: 12px">
+                                                    <h4 style="margin: 0 0 15px 0; color: var(--accent-blue)">"Packet Details"</h4>
+                                                    <div style="display: flex; flex-direction: column; gap: 8px">
+                                                        <div style="color: #6a9955">"// Frame Metadata"</div>
+                                                        <div><span style="color: var(--text-muted)">"Timestamp: "</span> {pkt.timestamp}</div>
+                                                        <div><span style="color: var(--text-muted)">"Length:    "</span> {pkt.length} " bytes"</div>
+                                                        
+                                                        <div style="margin-top: 10px; color: #6a9955">"// Process Trace"</div>
+                                                        <div><span style="color: var(--text-muted)">"Process:   "</span> <span style="color: var(--accent-blue)">{pkt.process_name.clone()}</span></div>
+                                                        <div><span style="color: var(--text-muted)">"PID:       "</span> {pkt.process_id}</div>
+                                                        <div style="font-size: 11px; word-break: break-all"><span style="color: var(--text-muted)">"Path:      "</span> {pkt.process_path.clone()}</div>
+
+                                                        <div style="margin-top: 10px; color: #6a9955">"// Network Layer"</div>
+                                                        <div><span style="color: var(--text-muted)">"Source:    "</span> {pkt.src_ip.clone()}</div>
+                                                        <div><span style="color: var(--text-muted)">"Dest:      "</span> {pkt.dst_ip.clone()}</div>
+
+                                                        <div style="margin-top: 10px; color: #6a9955">"// Transport Layer"</div>
+                                                        <div><span style="color: var(--text-muted)">"Protocol:  "</span> {match pkt.protocol { Protocol::TCP => "TCP", Protocol::UDP => "UDP", _ => "OTHER" }}</div>
+                                                        <div><span style="color: var(--text-muted)">"Src Port:  "</span> {pkt.src_port}</div>
+                                                        <div><span style="color: var(--text-muted)">"Dst Port:  "</span> {pkt.dst_port}</div>
+
+                                                        <div style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px">
+                                                            <div style="color: var(--accent-yellow); margin-bottom: 10px">"Hex Dump"</div>
+                                                            <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; line-height: 1.4; word-break: break-all; font-size: 11px; color: #aaa">
+                                                                {pkt.payload_hex.clone()}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }.into_view(),
+                                            None => view! {
+                                                <div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; font-size: 13px">
+                                                    "Select a packet to view its raw data and headers"
+                                                </div>
+                                            }.into_view()
+                                        }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }.into_view(),
+
                     AppView::Settings => view! {
                          <div class="dashboard-grid" style="flex-direction: column">
                             // General Settings Card
@@ -714,6 +911,16 @@ pub fn App() -> impl IntoView {
                             </div>
                         </div>
                     }.into_view(),
+                }}.into_view()
+            }.into_view()
+            } else {
+                 view! {
+                    <div style="height: 100vh; display: flex; align-items: center; justify-content: center; background: transparent">
+                            // Standalone Alert Content is rendered below by `pending_app` logic
+                            // But we need a placeholder here if pending_app is None, though usually the window only opens when there IS one.
+                             <div style="color: var(--text-muted); font-size: 12px">"Waiting for firewall events..."</div>
+                        </div>
+                     }.into_view()
                 }}
             </main>
 
@@ -728,7 +935,7 @@ pub fn App() -> impl IntoView {
                                 <span style="height: 12px; width: 12px; background: #ffbd2e; border-radius: 50%"></span>
                                 <span style="height: 12px; width: 12px; background: #27c93f; border-radius: 50%"></span>
                             </div>
-                            <span style="color: #888; font-family: 'Segoe UI', sans-serif; font-size: 12px; margin-left: 15px; border-left: 1px solid #444; padding-left: 15px">"HydraDragon Advanced SDK v2.4.1"</span>
+                            <span style="color: #888; font-family: 'Segoe UI', sans-serif; font-size: 12px; margin-left: 15px; border-left: 1px solid #444; padding-left: 15px">"HydraDragon Advanced SDK v0.1.0"</span>
                          </div>
                          <button style="background:none; border:none; color: #888; cursor: pointer; font-size: 18px" on:click=move |_| set_show_rule_modal.set(false)>"✕"</button>
                     </div>
@@ -756,7 +963,7 @@ pub fn App() -> impl IntoView {
                         <div style="flex: 1; padding: 15px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #d4d4d4; overflow-y: auto; line-height: 1.5">
                             <Show when=move || active_tab.get() == "rule" fallback=move || view! {
                                 <div style="color: #6a9955; font-style: italic">
-                                    "// HydraDragon Engine Core - v2.4.1" <br/>
+                                    "// HydraDragon Engine Core - v0.1.0" <br/>
                                     "// Internal Packet Processing Pipeline" <br/><br/>
                                     <span style="color: #c586c0">"pub fn"</span><span style="color: #dcdcaa">" process_packet"</span>"(data: &[u8]) {" <br/>
                                     <span style="margin-left: 20px">"let decision = rule_engine.evaluate(data);"</span> <br/>
@@ -916,59 +1123,84 @@ pub fn App() -> impl IntoView {
                 let name_for_block = app.name.clone();
                 let name_for_allow = app.name.clone();
                 let name_for_block_session = app.name.clone();
+                
+                // If in alert mode, we use a different container style (fullscreen relative to the popup window)
+                let overlay_class = if is_alert_mode { "modal-overlay open static-mode" } else { "modal-overlay open" };
+                let modal_style = if is_alert_mode { 
+                    "border-top: 4px solid var(--accent-yellow); width: 100%; height: 100%; max-width: none; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; padding: 15px" 
+                } else { 
+                    "border-top: 4px solid var(--accent-yellow); max-width: 500px" 
+                };
+
                 view! {
-                    <div class="modal-overlay open">
-                        <div class="glass-modal app-decision-modal" style="border-top: 4px solid var(--accent-yellow); max-width: 500px">
+                    <div class={overlay_class}>
+                        <div class="glass-modal app-decision-modal" style={modal_style}>
+                            {move || if is_alert_mode {
+                                view! { <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div> }.into_view()
+                            } else { view! { <div></div> }.into_view() }}
+                            
                             // Header with icon
-                            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px">
-                                <div class="shield-icon" style="width: 48px; height: 48px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)">
+                            <div style={move || if is_alert_mode { "display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px" } else { "display: flex; align-items: center; gap: 15px; margin-bottom: 20px" }}>
+                                <div class="shield-icon" style={move || if is_alert_mode { 
+                                    "width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)" 
+                                } else { 
+                                    "width: 48px; height: 48px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)" 
+                                }}>
                                     "🛡️"
                                 </div>
                                 <div>
-                                    <h2 style="margin: 0; font-size: 22px; font-weight: 700">"Network Access Request"</h2>
-                                    <p style="margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px">"An application is attempting to connect to the network"</p>
+                                    <h2 style={move || if is_alert_mode { "margin: 0; font-size: 16px; font-weight: 700" } else { "margin: 0; font-size: 22px; font-weight: 700" }}>"Network Access Request"</h2>
+                                    <p style={move || if is_alert_mode { "margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px" } else { "margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px" }}>"An application is attempting to connect"</p>
                                 </div>
                             </div>
                             
                             // Application Info Card
-                            <div style="background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.05)">
-                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px">
-                                    <div style="width: 40px; height: 40px; background: rgba(62, 148, 255, 0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px">
+                            <div style={move || if is_alert_mode { 
+                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)" 
+                            } else { 
+                                "background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 20px; border-radius: 12px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.05)" 
+                            }}>
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                                    <div style={move || if is_alert_mode { 
+                                        "width: 28px; height: 28px; background: rgba(62, 148, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px"
+                                    } else { 
+                                        "width: 40px; height: 40px; background: rgba(62, 148, 255, 0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px"
+                                    }}>
                                         "📦"
                                     </div>
                                     <div>
-                                        <div style="font-weight: 700; font-size: 16px; color: white">{app.name.clone()}</div>
-                                        <div style="font-size: 12px; color: var(--text-muted)">"Process ID: " {app.process_id}</div>
+                                        <div style={move || if is_alert_mode { "font-weight: 700; font-size: 13px; color: white" } else { "font-weight: 700; font-size: 16px; color: white" }}>{app.name.clone()}</div>
+                                        <div style="font-size: 10px; color: var(--text-muted)">"PID: " {app.process_id}</div>
                                     </div>
                                 </div>
                                 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px">
-                                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px">
-                                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 4px">"Destination IP"</div>
-                                        <div style="font-family: 'Fira Code', monospace; font-size: 13px; color: var(--accent-blue)">{app.dst_ip.clone()}</div>
+                                <div style={move || if is_alert_mode { "display: grid; grid-template-columns: 1fr 1fr; gap: 8px" } else { "display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px" }}>
+                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                        <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Destination"</div>
+                                        <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{app.dst_ip.clone()}</div>
                                     </div>
-                                    <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px">
-                                        <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 4px">"Port"</div>
-                                        <div style="font-family: 'Fira Code', monospace; font-size: 13px; color: var(--accent-green)">{app.dst_port}</div>
+                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                        <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Port"</div>
+                                        <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-green)">{app.dst_port}</div>
                                     </div>
                                 </div>
                             </div>
 
                             // Action Buttons
-                            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 25px">
+                            <div style={move || if is_alert_mode { "display: flex; flex-direction: column; gap: 6px; margin-top: 12px" } else { "display: flex; flex-direction: column; gap: 10px; margin-top: 25px" }}>
                                 <button class="btn-primary" 
-                                        style="width: 100%; padding: 14px; font-size: 15px"
+                                        style={move || if is_alert_mode { "width: 100%; padding: 10px; font-size: 12px" } else { "width: 100%; padding: 14px; font-size: 15px" }}
                                         on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
                                     "✓ ALLOW ACCESS"
                                 </button>
-                                <div style="display: flex; gap: 10px">
+                                <div style="display: flex; gap: 8px">
                                     <button class="btn-primary" 
-                                            style="flex: 1; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)"
+                                            style={move || if is_alert_mode { "flex: 1; padding: 10px; font-size: 12px; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)" } else { "flex: 1; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)" }}
                                             on:click=move |_| resolve_decision(name_for_block_session.clone(), "block".to_string())>
                                         "BLOCK ONCE"
                                     </button>
                                     <button class="btn-primary" 
-                                            style="flex: 1; background: var(--accent-red)"
+                                            style={move || if is_alert_mode { "flex: 1; padding: 10px; font-size: 12px; background: var(--accent-red)" } else { "flex: 1; background: var(--accent-red)" }}
                                             on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
                                         "✕ BLOCK ALWAYS"
                                     </button>

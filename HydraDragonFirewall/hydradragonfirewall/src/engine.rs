@@ -1,5 +1,6 @@
 use crate::injector::Injector;
 use crate::web_filter::WebFilter;
+use crate::file_magic::FileMagicChecker;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windivert::prelude::*;
 
 lazy_static! {
@@ -27,7 +28,7 @@ lazy_static! {
 // DATA STRUCTURES
 // ============================================================================
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Protocol {
     TCP,
     UDP,
@@ -83,6 +84,10 @@ pub struct PacketInfo {
     pub payload_urls: Vec<String>,
     /// Domain-like tokens discovered in the payload for additional matching
     pub payload_domains: Vec<String>,
+    /// Full image path of the process associated with this packet
+    pub image_path: String,
+    /// Detected file type from magic bytes (e.g. "exe", "zip", "pdf")
+    pub detected_file_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -139,6 +144,9 @@ pub struct FirewallRule {
     pub hostname_pattern: Option<String>,
     /// URL pattern for HTTP filtering (supports wildcards)
     pub url_pattern: Option<String>,
+    /// File types to match (e.g. "exe", "zip") based on magic bytes
+    #[serde(default)]
+    pub file_types: Vec<String>,
 }
 
 impl FirewallRule {
@@ -211,8 +219,19 @@ impl FirewallRule {
                 }
             } else {
                 // No URL in packet but rule requires it
-                return false;
             }
+        }
+
+        // File Magic matching
+        if !self.file_types.is_empty() {
+             if let Some(ref ftype) = packet.detected_file_type {
+                if !self.file_types.contains(ftype) {
+                    return false;
+                }
+             } else {
+                 // Rule requires file type match, but packet has none
+                 return false;
+             }
         }
 
         true
@@ -379,75 +398,48 @@ impl DnsHandler {
 // ============================================================================
 // APP NAME CACHE - CRITICAL FIX #1
 // ============================================================================
-pub struct AppNameCache {
-    cache: RwLock<HashMap<u32, (String, SystemTime)>>,
+pub struct AppInfoCache {
+    cache: RwLock<HashMap<u32, (AppInfoContext, SystemTime)>>,
     cache_duration: Duration,
 }
 
-impl AppNameCache {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AppInfoContext {
+    pub name: String,
+    pub path: String,
+}
+
+impl AppInfoCache {
     pub fn new() -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
-            cache_duration: Duration::from_secs(30),
+            cache_duration: Duration::from_secs(300),
         }
     }
 
-    pub fn get_or_fetch(&self, pid: u32) -> String {
+    pub fn get_info(&self, pid: u32) -> AppInfoContext {
         // Fast path: check cache first
         {
             let cache = self.cache.read().unwrap();
-            if let Some((name, timestamp)) = cache.get(&pid) {
+            if let Some((info, timestamp)) = cache.get(&pid) {
                 if timestamp.elapsed().unwrap_or(Duration::MAX) < self.cache_duration {
-                    return name.clone();
+                    return info.clone();
                 }
             }
         }
 
         // Slow path: fetch and cache
-        let name = Self::fetch_app_name(pid);
+        let (name, path) = Injector::get_process_info(pid);
+        let info = AppInfoContext { name, path };
         let mut cache = self.cache.write().unwrap();
-        cache.insert(pid, (name.clone(), SystemTime::now()));
+        cache.insert(pid, (info.clone(), SystemTime::now()));
 
         // Limit cache size
         if cache.len() > 1000 {
             cache.clear();
         }
 
-        name
-    }
-
-    fn fetch_app_name(process_id: u32) -> String {
-        if process_id == 0 || process_id == 4 {
-            return "System".to_string();
-        }
-
-        #[cfg(windows)]
-        {
-            use std::ffi::OsString;
-            use std::os::windows::ffi::OsStringExt;
-
-            unsafe {
-                let handle = OpenProcess(0x0400 | 0x0010, 0, process_id);
-                if !handle.is_null() {
-                    let mut buffer: [u16; 260] = [0; 260];
-                    let mut size = 260u32;
-                    let success =
-                        QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut size) != 0;
-                    CloseHandle(handle);
-
-                    if success {
-                        let path = OsString::from_wide(&buffer[..size as usize]);
-                        if let Some(path_str) = path.to_str() {
-                            if let Some(name) = std::path::Path::new(path_str).file_name() {
-                                return name.to_string_lossy().to_string();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        format!("PID:{}", process_id)
+        info
     }
 }
 
@@ -456,9 +448,10 @@ pub struct AppManager {
     pub pending: RwLock<VecDeque<PendingApp>>,
     pub known_apps: RwLock<HashSet<String>>,
     pub port_map: RwLock<HashMap<u16, u32>>,
-    pub name_cache: AppNameCache,
+    pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
     pub injected_pids: RwLock<HashSet<u32>>,      // Avoid repeated injections
+    pub failed_pids: RwLock<HashSet<u32>>,        // PIDs where injection failed
 }
 
 impl AppManager {
@@ -468,9 +461,10 @@ impl AppManager {
             pending: RwLock::new(VecDeque::new()),
             known_apps: RwLock::new(HashSet::new()),
             port_map: RwLock::new(HashMap::new()),
-            name_cache: AppNameCache::new(),
+            info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
             injected_pids: RwLock::new(HashSet::new()),
+            failed_pids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -487,7 +481,7 @@ impl AppManager {
     }
 
     // OPTIMIZED: Now uses cache
-    pub fn check_app(&self, packet: &PacketInfo) -> (AppDecision, String) {
+    pub fn check_app(&self, packet: &PacketInfo) -> (AppDecision, String, String) {
         let mut pid = packet.process_id;
 
         if pid == 0 {
@@ -502,7 +496,9 @@ impl AppManager {
             }
         }
 
-        let app_name = self.name_cache.get_or_fetch(pid);
+        let info = self.info_cache.get_info(pid);
+        let app_name = info.name;
+        let app_path = info.path;
         let app_name_lower = app_name.to_lowercase();
 
         // Self-bypass
@@ -512,14 +508,14 @@ impl AppManager {
             || pid == 0
             || pid == 4
         {
-            return (AppDecision::Allow, app_name);
+            return (AppDecision::Allow, app_name, app_path);
         }
 
         // Check decision cache
         {
             let decisions = self.decisions.read().unwrap();
             if let Some(decision) = decisions.get(&app_name_lower) {
-                return (decision.clone(), app_name);
+                return (decision.clone(), app_name, app_path);
             }
         }
 
@@ -539,7 +535,7 @@ impl AppManager {
             }
         }
 
-        (AppDecision::Pending, app_name)
+        (AppDecision::Pending, app_name, app_path)
     }
     pub fn resolve_decision(&self, name: &str, decision: AppDecision) {
         let name_lower = name.to_lowercase();
@@ -584,6 +580,8 @@ pub struct FirewallEngine {
     pub web_filter: Arc<WebFilter>,
     pub settings: Arc<RwLock<FirewallSettings>>,
     pub stop_signal: Arc<AtomicBool>,
+    pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
+    pub file_checker: Arc<FileMagicChecker>,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -610,6 +608,7 @@ impl FirewallEngine {
         let dns_handler = Arc::new(DnsHandler::new());
         let web_filter = Arc::new(WebFilter::new());
         let stop_signal = Arc::new(AtomicBool::new(false));
+        let file_checker = Arc::new(FileMagicChecker::new());
 
         let mut settings_data = Self::load_settings().unwrap_or_default();
 
@@ -627,6 +626,7 @@ impl FirewallEngine {
                 app_name: None,
                 hostname_pattern: None,
                 url_pattern: None,
+                file_types: vec![],
             });
         }
 
@@ -634,6 +634,11 @@ impl FirewallEngine {
         let app_manager = Arc::new(AppManager::new(app_decisions));
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
         let settings = Arc::new(RwLock::new(settings_data));
+        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::new()));
+        {
+            let mut sdk_write = sdk.write().unwrap();
+            sdk_write.register_signature(Arc::new(crate::sdk::DiscordWebhookSignature));
+        }
 
         Self {
             stats,
@@ -643,6 +648,8 @@ impl FirewallEngine {
             web_filter,
             settings,
             stop_signal,
+            sdk,
+            file_checker,
         }
     }
 
@@ -708,6 +715,91 @@ impl FirewallEngine {
 
     pub fn get_settings(&self) -> FirewallSettings {
         self.settings.read().unwrap().clone()
+    }
+
+    /// Resolve PID from port using Windows TCP/UDP extended tables
+    pub fn resolve_pid_from_port(port: u16, is_tcp: bool) -> u32 {
+        use std::mem::size_of;
+        
+        unsafe {
+            // TCP lookup
+            if is_tcp {
+                let mut size: u32 = 0;
+                // First call to get buffer size
+                let _ = windows::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable(
+                    None,
+                    &mut size,
+                    false,
+                    windows::Win32::Networking::WinSock::AF_INET.0 as u32,
+                    windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                );
+                
+                if size > 0 {
+                    let mut buffer = vec![0u8; size as usize];
+                    if windows::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable(
+                        Some(buffer.as_mut_ptr() as *mut _),
+                        &mut size,
+                        false,
+                        windows::Win32::Networking::WinSock::AF_INET.0 as u32,
+                        windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
+                        0,
+                    ) == 0 {
+                        let table = buffer.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_TCPTABLE_OWNER_PID;
+                        let num_entries = (*table).dwNumEntries as usize;
+                        let entries = std::slice::from_raw_parts(
+                            (*table).table.as_ptr(),
+                            num_entries,
+                        );
+                        
+                        for entry in entries {
+                            let local_port = u16::from_be(entry.dwLocalPort as u16);
+                            if local_port == port {
+                                return entry.dwOwningPid;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // UDP lookup
+                let mut size: u32 = 0;
+                let _ = windows::Win32::NetworkManagement::IpHelper::GetExtendedUdpTable(
+                    None,
+                    &mut size,
+                    false,
+                    windows::Win32::Networking::WinSock::AF_INET.0 as u32,
+                    windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
+                    0,
+                );
+                
+                if size > 0 {
+                    let mut buffer = vec![0u8; size as usize];
+                    if windows::Win32::NetworkManagement::IpHelper::GetExtendedUdpTable(
+                        Some(buffer.as_mut_ptr() as *mut _),
+                        &mut size,
+                        false,
+                        windows::Win32::Networking::WinSock::AF_INET.0 as u32,
+                        windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
+                        0,
+                    ) == 0 {
+                        let table = buffer.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_UDPTABLE_OWNER_PID;
+                        let num_entries = (*table).dwNumEntries as usize;
+                        let entries = std::slice::from_raw_parts(
+                            (*table).table.as_ptr(),
+                            num_entries,
+                        );
+                        
+                        for entry in entries {
+                            let local_port = u16::from_be(entry.dwLocalPort as u16);
+                            if local_port == port {
+                                return entry.dwOwningPid;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        0 // Not found
     }
 }
 
@@ -911,10 +1003,48 @@ impl FirewallEngine {
                     }
 
                     if let Some(app) = app_opt {
+                        // 1. Emit data to all windows (Main + Alert)
                         let _ = tx_monitor.emit("ask_app_decision", app);
+
+                        // 2. Ensure Alert Window is Open
+                        if tx_monitor.get_webview_window("firewall-alert").is_none() {
+                             println!("DEBUG: Spawning Firewall Alert Window...");
+                             let _ = WebviewWindowBuilder::new(
+                                &tx_monitor,
+                                "firewall-alert",
+                                WebviewUrl::App("index.html?mode=alert".into())
+                            )
+                             .title("Firewall Alert")
+                             .inner_size(400.0, 320.0)
+                             .resizable(false)
+                             .always_on_top(true)
+                             .decorations(false)
+                             .center()
+                             .skip_taskbar(false)
+                             .build();
+                        } else {
+                            if let Some(win) = tx_monitor.get_webview_window("firewall-alert") {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+
                         // Don't spam the UI, wait for user validation interaction
                         std::thread::sleep(Duration::from_millis(500));
                     } else {
+                        // If no pending app, we might want to close the alert window?
+                        // Actually, if we resolved it, the window might stay open showing "Waiting..." or empty.
+                        // Ideally, we close it from the UI side when decision is made.
+                        
+                        // Check if we should auto-close empty prompt window?
+                        // For now, let the user close it or the UI logic handle it.
+                        // UI logic: resolve_decision calls invoke -> updates state -> PendingApp becomes None.
+                        // If PendingApp is None, the UI shows "Waiting..."
+                        
+                        // We can optionally hide the window if no pending app?
+                        // But let's leave valid "Waiting" state for now.
+                        
                         std::thread::sleep(Duration::from_millis(200));
                     }
                 }
@@ -948,17 +1078,22 @@ impl FirewallEngine {
                                     if Process32FirstW(snapshot, &mut entry).is_ok() {
                                         loop {
                                             let pid = entry.th32ProcessID;
+                                            // More aggressive: Only skip IDLE and SYSTEM
                                             if pid != 0 && pid != 4 && pid != std::process::id() {
-                                                let needs_injection = {
+                                                let already_tracked = {
                                                     let injected = am_global.injected_pids.read().unwrap();
-                                                    !injected.contains(&pid)
+                                                    injected.contains(&pid)
                                                 };
 
-                                                if needs_injection {
-                                                    // Try injecting
-                                                    if Injector::inject(pid, &hook_dll).is_ok() {
-                                                        let mut injected = am_global.injected_pids.write().unwrap();
-                                                        injected.insert(pid);
+                                                if !already_tracked || !Injector::is_dll_loaded(pid, "hook_dll.dll") {
+                                                    // Robust check: Is the DLL actually in the process?
+                                                    // (Even if we didn't inject it this session or it failed before)
+                                                    let (_info_name, info_path) = Injector::get_process_info(pid);
+                                                    if !Injector::is_path_excluded(&info_path) {
+                                                        if Injector::inject(pid, &hook_dll).is_ok() {
+                                                            let mut injected = am_global.injected_pids.write().unwrap();
+                                                            injected.insert(pid);
+                                                        }
                                                     }
                                                 }
                                             }
@@ -972,7 +1107,7 @@ impl FirewallEngine {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_secs(5));
+                    std::thread::sleep(Duration::from_secs(3)); // Faster scan-loop
                 }
             })
             .expect("failed to spawn global_injector thread");
@@ -987,6 +1122,8 @@ impl FirewallEngine {
             let stop_w = Arc::clone(&stop);
             let settings_w = Arc::clone(&settings_arc);
             let dns_w = Arc::clone(&dns);
+            let sdk_w = Arc::clone(&self.sdk);
+            let fcheck_w = Arc::clone(&self.file_checker);
             let tx_log = app_handle.clone();
             let divert_w = divert.clone();
 
@@ -1011,9 +1148,29 @@ impl FirewallEngine {
                                     .to_vec()
                                 };
 
-                                // Network-layer addresses do not contain PIDs; rely on hook
-                                // correlation (when available) or default to 0 for unknown.
-                                let pid = 0;
+                                // PID RESOLUTION:
+                                // 1. Try native Windows TCP/UDP table lookup (most reliable)
+                                // 2. Fallback to hook DLL port mapping
+                                let mut pid = 0u32;
+                                if let Some(p_info) = Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache) {
+                                    let lookup_port = if outbound { p_info.src_port } else { p_info.dst_port };
+                                    let is_tcp = matches!(p_info.protocol, crate::engine::Protocol::TCP);
+                                    
+                                    // Primary: Native Windows API lookup
+                                    pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                    
+                                    // Fallback: Hook DLL mapping (if native lookup failed)
+                                    if pid == 0 {
+                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
+                                            pid = mapped_pid;
+                                        }
+                                    }
+                                    
+                                    // Cache the resolved port->PID mapping for future
+                                    if pid != 0 {
+                                        am_w.update_port_mapping(lookup_port, pid);
+                                    }
+                                }
 
                                 let decision = Self::process_packet_decision(
                                     &packet.data,
@@ -1025,9 +1182,43 @@ impl FirewallEngine {
                                     &wf_w,
                                     &settings_w,
                                     &dns_w,
+                                    &sdk_w,
+                                    &fcheck_w,
                                     &tx_log,
                                     pid,
                                 );
+
+                                // EMIT RAW PACKET FOR UI (Wireshark-like view)
+                                if let Some(info) = Self::parse_packet(&decision.packet_data, outbound, pid, &am_w.info_cache) {
+                                    let ts = Self::now_ts();
+                                    let app_info = am_w.info_cache.get_info(pid);
+                                    
+                                    let payload_preview = if decision.packet_data.len() > 32 {
+                                        format!("{}...", String::from_utf8_lossy(&decision.packet_data[..32]).replace("\n", " "))
+                                    } else {
+                                        String::from_utf8_lossy(&decision.packet_data).replace("\n", " ")
+                                    };
+                                    
+                                    let raw_packet = crate::sdk::RawPacket {
+                                        id: format!("{}-{}-{}", ts, info.src_port, info.dst_port),
+                                        timestamp: ts,
+                                        src_ip: info.src_ip.to_string(),
+                                        dst_ip: info.dst_ip.to_string(),
+                                        src_port: info.src_port,
+                                        dst_port: info.dst_port,
+                                        protocol: info.protocol.clone(),
+                                        length: decision.packet_data.len(),
+                                        payload_hex: decision.packet_data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+                                        payload_preview,
+                                        summary: format!("{} -> {}", info.src_ip, info.dst_ip),
+                                        process_id: pid,
+                                        process_name: app_info.name,
+                                        process_path: app_info.path,
+                                        action: if decision.should_forward { "Allow".to_string() } else { "Block".to_string() },
+                                        rule: decision._reason.clone(),
+                                    };
+                                    let _ = tx_log.emit("raw_packet", raw_packet);
+                                }
 
                                 if decision.should_forward {
                                     // REINJECT IMMEDIATELY from the SAME thread
@@ -1068,43 +1259,78 @@ impl FirewallEngine {
         wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
+        sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
+        file_checker: &Arc<FileMagicChecker>,
         tx: &AppHandle,
         process_id: u32,
     ) -> PacketDecision {
-        let mut should_forward = false;
-        let mut reason = "Allow".to_string();
+        let mut data_vec = data.to_vec();
+        let mut pid = process_id;
 
-        if let Some(mut info) = Self::parse_packet(data, outbound, process_id) {
-            let is_loopback_traffic = info.src_ip.is_loopback() || info.dst_ip.is_loopback();
-            should_forward = is_loopback_traffic;
-            if !is_loopback_traffic {
-                reason = "Default block: non-localhost".to_string();
-            }
-
-            if info.process_id == 0 {
-                let lookup_port = if info.outbound {
-                    info.src_port
-                } else {
-                    info.dst_port
-                };
+        // 1. Resolve PID via port mapping if missing (0)
+        if pid == 0 {
+            if let Some(temp_info) = Self::parse_packet(&data_vec, outbound, 0, &am.info_cache) {
+                let lookup_port = if outbound { temp_info.src_port } else { temp_info.dst_port };
                 if let Some(mapped_pid) = am.get_pid_for_port(lookup_port) {
-                    info.process_id = mapped_pid;
+                    pid = mapped_pid;
                 }
             }
+        }
 
-            // Cache URLs coming from the hook so future packets from the same PID carry context
-            if let Some(ref url) = info.full_url {
-                am.url_cache
-                    .write()
-                    .unwrap()
-                    .insert(info.process_id, url.clone());
+        // 2. Resolve Process Metadata
+        let app_info = am.info_cache.get_info(pid);
+        let sdk_context = crate::sdk::PacketContext {
+            process_id: pid,
+            process_name: app_info.name.clone(),
+            process_path: app_info.path.clone(),
+        };
+
+        // Initialize decision state before parsing
+        let mut should_forward = false;
+        let mut reason = String::from("Pending decision");
+
+        // 3. SDK PACKET CHANGERS & LISTENERS
+        if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
+            let sdk_read = sdk.read().unwrap();
+            for changer in &sdk_read.changers {
+                if changer.modify(&mut data_vec, &info, &sdk_context) {
+                    if let Some(new_info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
+                        info = new_info;
+                    }
+                }
             }
+            for listener in &sdk_read.listeners {
+                listener.on_packet(&data_vec, &info, &sdk_context);
+            }
+            drop(sdk_read);
 
-            // Enriched URL from Cache (Hook DLL)
-            if info.full_url.is_none() {
-                if let Some(url) = am.url_cache.read().unwrap().get(&info.process_id) {
+            // 4. Core Firewall Logic
+            // POLICY CHANGE: Rule-based (Default Allow) instead of Default Deny
+            should_forward = true;
+            reason = if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
+                "Localhost".to_string()
+            } else {
+                "Default Allow".to_string()
+            };
+
+            // Cache URLs
+            if let Some(ref url) = info.full_url {
+                am.url_cache.write().unwrap().insert(pid, url.clone());
+            } else {
+                if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                     info.full_url = Some(url.clone());
                 }
+            }
+
+            // File Magic Detection
+            let detected_type = file_checker.check(&data_vec);
+            if let Some(ref dtype) = detected_type {
+                 // Reuse info struct? No, it's owned now. We modify the copy or just cache it?
+                 // 'info' is local.
+                 am.url_cache.write().unwrap().insert(pid, format!("FILESIG:{}", dtype));
+                 info.detected_file_type = Some(dtype.clone());
+                 
+
             }
 
             let (auto_inject_https, hook_dll) = {
@@ -1119,7 +1345,9 @@ impl FirewallEngine {
                 && !hook_dll.is_empty()
             {
                 let mut injected = am.injected_pids.write().unwrap();
-                if !injected.contains(&info.process_id) {
+                let mut failed = am.failed_pids.write().unwrap();
+                
+                if !injected.contains(&info.process_id) && !failed.contains(&info.process_id) {
                     match Injector::inject(info.process_id, &hook_dll) {
                         Ok(()) => {
                             injected.insert(info.process_id);
@@ -1137,6 +1365,7 @@ impl FirewallEngine {
                             );
                         }
                         Err(e) => {
+                            failed.insert(info.process_id);
                             let _ = tx.emit(
                                 "log",
                                 LogEntry {
@@ -1144,7 +1373,7 @@ impl FirewallEngine {
                                     timestamp: Self::now_ts(),
                                     level: LogLevel::Warning,
                                     message: format!(
-                                        "Failed to inject HTTPS hook into PID {}: {}",
+                                        "Failed to inject HTTPS hook into PID {}: {} (Logic will skip future retries for this PID)",
                                         info.process_id, e
                                     ),
                                 },
@@ -1171,53 +1400,10 @@ impl FirewallEngine {
                 }
             }
 
-            // Keyword Blocking (Hostname/URL)
-            for keyword in &settings_lock.blocked_keywords {
-                let kw_lower = keyword.to_lowercase();
-                if let Some(ref host) = info.hostname {
-                    if host.to_lowercase().contains(&kw_lower) {
-                        should_forward = false;
-                        reason = format!("Keyword Blocked (Host): {}", keyword);
-                        break;
-                    }
-                }
-                if let Some(ref url) = info.full_url {
-                    if url.to_lowercase().contains(&kw_lower) {
-                        should_forward = false;
-                        reason = format!("Keyword Blocked (URL): {}", keyword);
-                        break;
-                    }
-                }
-                if info
-                    .payload_urls
-                    .iter()
-                    .any(|u| u.to_lowercase().contains(&kw_lower))
-                {
-                    should_forward = false;
-                    reason = format!("Keyword Blocked (Payload URL): {}", keyword);
-                    break;
-                }
-                if info
-                    .payload_domains
-                    .iter()
-                    .any(|d| d.to_lowercase().contains(&kw_lower))
-                {
-                    should_forward = false;
-                    reason = format!("Keyword Blocked (Payload Domain): {}", keyword);
-                    break;
-                }
-            }
-
-            if should_forward {
-                if let Some(mal_reason) = wf.check_payload(data, &*settings_lock) {
-                    should_forward = false;
-                    reason = mal_reason;
-                }
-            }
             drop(settings_lock);
 
             // 2. App Decision Check
-            let (app_decision, app_name) = am.check_app(&info);
+            let (app_decision, app_name, _app_path) = am.check_app(&info);
 
             match app_decision {
                 AppDecision::Allow => {
@@ -1238,9 +1424,9 @@ impl FirewallEngine {
                     }
                 }
                 AppDecision::Pending => {
-                    // CRITICAL FIX: Block traffic while waiting for user decision
-                    should_forward = false;
-                    reason = format!("Pending User Auth: {}", app_name);
+                    // POLICY CHANGE: Allow unknown apps by default (No Zero Trust)
+                    should_forward = true;
+                    reason = format!("New App Detected: {}", app_name);
                 }
                 AppDecision::Block => {}
             }
@@ -1396,8 +1582,21 @@ impl FirewallEngine {
             }
         }
 
+        // SDK SECURITY SIGNATURES
+        {
+            let sdk_read = sdk.read().unwrap();
+            let s_lock = settings.read().unwrap();
+            for sig in &sdk_read.signatures {
+                if let Some(sig_reason) = sig.evaluate(&data_vec, &*s_lock, &sdk_context) {
+                    should_forward = false;
+                    reason = format!("SDK Signature [{}]: {}", sig.name(), sig_reason);
+                    break;
+                }
+            }
+        }
+
         PacketDecision {
-            packet_data: data.to_vec(),
+            packet_data: data_vec,
             address_data: address_data.to_vec(),
             should_forward,
             _reason: reason,
@@ -1457,7 +1656,7 @@ impl FirewallEngine {
         (urls, domains)
     }
 
-    fn parse_packet(data: &[u8], outbound: bool, process_id: u32) -> Option<PacketInfo> {
+    fn parse_packet(data: &[u8], outbound: bool, process_id: u32, cache: &AppInfoCache) -> Option<PacketInfo> {
         if data.len() < 20 {
             return None;
         }
@@ -1476,6 +1675,7 @@ impl FirewallEngine {
         let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
         let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
         let header_len = ((data[0] & 0x0F) as usize) * 4;
+        
 
         let (src_port, dst_port) = if header_len + 4 <= data.len() {
             match protocol {
@@ -1615,6 +1815,8 @@ impl FirewallEngine {
             payload_sample,
             payload_urls,
             payload_domains,
+            image_path: cache.get_info(process_id).path,
+            detected_file_type: None,
         })
     }
 
