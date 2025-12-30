@@ -155,7 +155,7 @@ impl FileMagicChecker {
         // (Naive approach, usually works for magic numbers)
         // Actually, some user types duplicates with different magic.
         for (magic, ftype) in raw_sigs {
-            self.addItem(magic, ftype.to_string());
+            self.add_item(magic, ftype.to_string());
         }
 
         // Ensure we sort so we don't return "dos" for "exe" if "exe" is longer/better
@@ -164,7 +164,7 @@ impl FileMagicChecker {
             .sort_by(|a, b| b.magic.len().cmp(&a.magic.len()));
     }
 
-    fn addItem(&mut self, magic: Vec<u8>, file_type: String) {
+    fn add_item(&mut self, magic: Vec<u8>, file_type: String) {
         self.signatures.push(MagicSignature {
             magic,
             file_type,

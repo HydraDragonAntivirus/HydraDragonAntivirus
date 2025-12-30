@@ -114,8 +114,6 @@ pub struct FirewallRule {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct FirewallSettings {
     #[serde(default)]
-    pub blocked_keywords: Vec<String>,
-    #[serde(default)]
     pub website_path: String,
     #[serde(default)]
     pub rules: Vec<FirewallRule>,
@@ -208,7 +206,6 @@ pub fn App() -> impl IntoView {
         }
     });
     let (settings, set_settings) = create_signal(FirewallSettings {
-        blocked_keywords: vec![],
         website_path: "website".to_string(),
         rules: vec![],
     });
@@ -467,11 +464,11 @@ pub fn App() -> impl IntoView {
                         set_console_output.update(|l| l.push("> Rule active.".to_string()));
 
                         // Close after "success"
-                        set_timeout(
-                            move || {
-                                set_show_rule_modal.set(false);
-                                // Reset Form
-                                set_new_rule_name.set(String::new());
+    set_timeout(
+        move || {
+            set_show_rule_modal.set(false);
+            // Reset Form
+            set_new_rule_name.set(String::new());
                                 set_new_rule_desc.set(String::new());
                                 set_new_rule_ips.set(String::new());
                                 set_new_rule_ports.set(String::new());
@@ -485,10 +482,93 @@ pub fn App() -> impl IntoView {
                     },
                     Duration::from_millis(600),
                 );
-            },
-            Duration::from_millis(500),
-        );
-    };
+        },
+        Duration::from_millis(500),
+    );
+};
+
+    if is_alert_mode {
+        return view! {
+            <div class="alert-shell" style="min-height: 100vh; display: flex; align-items: flex-end; justify-content: flex-end; background: transparent; padding: 8px">
+                {move || pending_app.get().map(|app| {
+                    let name_for_block = app.name.clone();
+                    let name_for_allow = app.name.clone();
+                    let name_for_block_session = app.name.clone();
+                    let header_title = "HydraDragon Firewall".to_string();
+                    let header_subtitle = format!("{} is requesting network access", app.name.clone());
+
+                    let overlay_class = "modal-overlay open static-mode";
+                    let modal_style = "border-top: 0;";
+                    let modal_class = "glass-modal app-decision-modal toast-modal";
+
+                    view! {
+                        <div class={overlay_class}>
+                            <div class={modal_class} style={modal_style}>
+                                <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div>
+
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px">
+                                    <div class="shield-icon" style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)">
+                                        "🛡️"
+                                    </div>
+                                    <div>
+                                        <h2 style="margin: 0; font-size: 16px; font-weight: 700">{header_title}</h2>
+                                        <p style="margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px">{header_subtitle}</p>
+                                    </div>
+                                </div>
+
+                                <div style="background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)">
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                                        <div style="width: 28px; height: 28px; background: rgba(62, 148, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px">
+                                            "📦"
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 13px; color: white">{app.name.clone()}</div>
+                                            <div style="font-size: 10px; color: var(--text-muted)">"PID: " {app.process_id}</div>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+                                        <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                            <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Destination"</div>
+                                            <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{app.dst_ip.clone()}</div>
+                                        </div>
+                                        <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                            <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Port"</div>
+                                            <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-green)">{app.dst_port}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 12px">
+                                    <button class="btn-primary"
+                                            style="width: 100%; padding: 10px; font-size: 12px"
+                                            on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
+                                        "✓ ALLOW ACCESS"
+                                    </button>
+                                    <div style="display: flex; gap: 8px">
+                                        <button class="btn-primary"
+                                                style="flex: 1; padding: 10px; font-size: 12px; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)"
+                                                on:click=move |_| resolve_decision(name_for_block_session.clone(), "block".to_string())>
+                                            "BLOCK ONCE"
+                                        </button>
+                                        <button class="btn-primary"
+                                                style="flex: 1; padding: 10px; font-size: 12px; background: var(--accent-red)"
+                                                on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
+                                            "✕ BLOCK ALWAYS"
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center">
+                                    <span style="font-size: 11px; color: var(--text-muted)">"Your decision will be remembered for this application"</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                })}
+            </div>
+        };
+    }
 
     view! {
         <div class="app-container">
@@ -521,9 +601,6 @@ pub fn App() -> impl IntoView {
                                "Settings"
                             </a>
                         </nav>
-                        <div style="margin-top: auto">
-                            <div class="callout">"Zero Trust: no implicit whitelists"</div>
-                        </div>
                     </aside>
                 }.into_view()
             } else {
@@ -931,83 +1008,6 @@ pub fn App() -> impl IntoView {
                                            prop:value=move || settings.get().website_path
                                            on:input=move |ev| update_path(event_target_value(&ev))
                                     />
-                                </div>
-                                <div class="input-group">
-                                    <label>"BLOCKED KEYWORDS (comma-separated)"</label>
-                                    <textarea
-                                        style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; width: 100%; height: 80px; border-radius: 6px; resize: vertical"
-                                        placeholder="malware, virus, phishing, trojan..."
-                                        on:input=move |ev| {
-                                            let val = event_target_value(&ev);
-                                            set_settings.update(|s| s.blocked_keywords = val.split(',').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect());
-                                        }
-                                    >
-                                    {move || settings.get().blocked_keywords.join(", ")}
-                                    </textarea>
-                                </div>
-                            </div>
-
-                            // Zero Trust Policy Card
-                            <div class="glass-card" style="width: 100%">
-                                <div class="section-header">
-                                    <h3 style="margin: 0">"🛡️ Zero Trust Enforcement"</h3>
-                                    <span style="font-size: 12px; color: var(--text-muted)">"no implicit whitelists; use rules or app approvals"</span>
-                                </div>
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 16px">
-                                    <div style="background: rgba(255,90,90,0.08); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,90,90,0.25)">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px">"Default-Deny Posture"</h4>
-                                        <p style="margin: 0; font-size: 12px; color: var(--text-muted)">"All non-localhost traffic is blocked until an app approval or explicit allow rule authorizes it."</p>
-                                    </div>
-                                    <div style="background: rgba(62,148,255,0.08); padding: 15px; border-radius: 10px; border: 1px solid rgba(62,148,255,0.25)">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px">"How to Allow"</h4>
-                                        <p style="margin: 0; font-size: 12px; color: var(--text-muted)">"Approve the app prompt or add an allow rule to open specific hosts or ports—no hidden allowlists remain."</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            // SDK Feature Quick Reference (GUI instead of markdown)
-                            <div class="glass-card" style="width: 100%">
-                                <div class="section-header">
-                                    <h3 style="margin: 0">"🧠 Firewall SDK Quick Reference"</h3>
-                                    <span style="font-size: 12px; color: var(--text-muted)">"built-in detectors, registry helpers, and how to extend"</span>
-                                </div>
-
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 12px">
-                                    <div style="background: rgba(62,148,255,0.06); border: 1px solid rgba(62,148,255,0.2); padding: 12px; border-radius: 10px">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-blue)">"Packet & Context Helpers"</h4>
-                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            <li>"RawPacket captures src/dst, ports, protocol, payload preview, and hex dump."</li>
-                                            <li>"TLS hostname enrichment via HTTPS hook when permissions allow."</li>
-                                            <li>"DNS keyword check and file-magic hints to tag content types."</li>
-                                        </ul>
-                                    </div>
-
-                                    <div style="background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.25); padding: 12px; border-radius: 10px">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-green)">"Signature Registry"</h4>
-                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            <li>"Add/remove signatures and list them with metadata."</li>
-                                            <li>"Enable/disable toggles plus \"enabled by default\" tracking."</li>
-                                            <li>"Thread-safe evaluation helper aggregates all enabled findings for the engine."</li>
-                                        </ul>
-                                    </div>
-
-                                    <div style="background: rgba(255,193,59,0.08); border: 1px solid rgba(255,193,59,0.25); padding: 12px; border-radius: 10px">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-yellow)">"Built-in Detectors"</h4>
-                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            <li>"Keyword and reversed-string pattern checks for obfuscation."</li>
-                                            <li>"Regex rule for PowerShell encoded commands and suspicious reversed commands."</li>
-                                            <li>"DNS keyword blocker that runs before general keyword scans."</li>
-                                        </ul>
-                                    </div>
-
-                                    <div style="background: rgba(255,62,62,0.06); border: 1px solid rgba(255,62,62,0.25); padding: 12px; border-radius: 10px">
-                                        <h4 style="margin: 0 0 6px 0; font-size: 14px; color: var(--accent-red)">"Results & Operations"</h4>
-                                        <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5">
-                                            <li>"Findings include signature name, category, severity, matched pattern, and reason."</li>
-                                            <li>"Engine uses registry evaluation by default—new signatures become active once registered."</li>
-                                            <li>"Protected/system processes may block HTTPS hooks; TLS hostnames may stay hidden for them."</li>
-                                        </ul>
-                                    </div>
                                 </div>
                             </div>
 

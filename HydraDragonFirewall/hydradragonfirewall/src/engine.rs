@@ -4,7 +4,7 @@ use crate::web_filter::WebFilter;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -278,7 +278,6 @@ impl FirewallRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FirewallSettings {
-    pub blocked_keywords: HashSet<String>, // New: Dynamic DNS blocking keywords
     pub app_decisions: HashMap<String, AppDecision>,
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
@@ -292,13 +291,6 @@ pub struct FirewallSettings {
 impl Default for FirewallSettings {
     fn default() -> Self {
         let apps = HashMap::new();
-
-        let mut keywords = HashSet::new();
-        // Default bad keywords
-        keywords.insert("malware".to_string());
-        keywords.insert("virus".to_string());
-        keywords.insert("trojan".to_string());
-        keywords.insert("phishing".to_string());
 
         let mut metadata = HashMap::new();
         metadata.insert("version".to_string(), "2.0.0".to_string());
@@ -316,7 +308,6 @@ impl Default for FirewallSettings {
         }
 
         Self {
-            blocked_keywords: keywords,
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
@@ -357,7 +348,6 @@ impl Default for Statistics {
 
 pub struct DnsHandler {
     queries: RwLock<VecDeque<DnsQuery>>,
-    // No longer stores hardcoded blocked domains, reads from settings
 }
 
 impl DnsHandler {
@@ -367,15 +357,8 @@ impl DnsHandler {
         }
     }
 
-    pub fn should_block(&self, domain: &str, settings: &FirewallSettings) -> bool {
-        let domain_lower = domain.to_lowercase();
-
-        // Check dynamic keywords from settings
-        for pattern in &settings.blocked_keywords {
-            if domain_lower.contains(&pattern.to_lowercase()) {
-                return true;
-            }
-        }
+    pub fn should_block(&self, _domain: &str, _settings: &FirewallSettings) -> bool {
+        // DNS blocking is now handled by SDK signatures; the legacy keyword list has been removed.
         false
     }
 
@@ -544,23 +527,6 @@ impl AppManager {
     }
 }
 
-#[cfg(windows)]
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn OpenProcess(
-        dwDesiredAccess: u32,
-        bInheritHandle: i32,
-        dwProcessId: u32,
-    ) -> *mut std::ffi::c_void;
-    fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
-    fn QueryFullProcessImageNameW(
-        hProcess: *mut std::ffi::c_void,
-        dwFlags: u32,
-        lpExeName: *mut u16,
-        lpdwSize: *mut u32,
-    ) -> i32;
-}
-
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
@@ -681,7 +647,6 @@ impl FirewallEngine {
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap();
         let settings = FirewallSettings {
-            blocked_keywords: current_settings.blocked_keywords.clone(), // Save new field
             app_decisions: self.app_manager.decisions.read().unwrap().clone(),
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
@@ -1340,7 +1305,7 @@ impl FirewallEngine {
 
         // Initialize decision state before parsing
         let mut should_forward = false;
-        let mut reason = String::from("Pending decision");
+        let mut reason: Option<String> = None;
 
         // 3. SDK PACKET CHANGERS & LISTENERS
         if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
@@ -1362,11 +1327,11 @@ impl FirewallEngine {
             // 4. Core Firewall Logic
             // POLICY CHANGE: Rule-based (Default Allow) instead of Default Deny
             should_forward = true;
-            reason = if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
+            reason = Some(if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
                 "Localhost".to_string()
             } else {
                 "Default Allow".to_string()
-            };
+            });
 
             // Cache URLs
             if let Some(ref url) = info.full_url {
@@ -1465,7 +1430,7 @@ impl FirewallEngine {
                 if let Some(ref domain) = dns_domain {
                     if dns_handler.should_block(domain, &*settings_lock) {
                         should_forward = false;
-                        reason = format!("DNS Keyword Blocked: {}", domain);
+                        reason = Some(format!("DNS Keyword Blocked: {}", domain));
                     }
                 }
             }
@@ -1479,9 +1444,14 @@ impl FirewallEngine {
                 AppDecision::Allow => {
                     // If we were only blocking because of the default non-localhost policy,
                     // a user allow decision should punch a hole for this app.
-                    if !should_forward && reason.starts_with("Default block") {
+                    if !should_forward
+                        && reason
+                            .as_ref()
+                            .map(|r| r.starts_with("Default block"))
+                            .unwrap_or(false)
+                    {
                         should_forward = true;
-                        reason = format!("App Allowed: {}", app_name);
+                        reason = Some(format!("App Allowed: {}", app_name));
                     } else if should_forward {
                         stats.packets_total.fetch_add(1, Ordering::Relaxed);
                         stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
@@ -1496,7 +1466,7 @@ impl FirewallEngine {
                 AppDecision::Pending => {
                     // POLICY CHANGE: Allow unknown apps by default (No Zero Trust)
                     should_forward = true;
-                    reason = format!("New App Detected: {}", app_name);
+                    reason = Some(format!("New App Detected: {}", app_name));
                 }
                 AppDecision::Block => {}
             }
@@ -1506,7 +1476,7 @@ impl FirewallEngine {
                 if let Some(ref hostname) = info.hostname {
                     if let Some(block_reason) = wf.check_hostname(hostname) {
                         should_forward = false;
-                        reason = block_reason;
+                        reason = Some(block_reason);
                     }
                 }
             }
@@ -1515,7 +1485,7 @@ impl FirewallEngine {
                 if let Some(ref url) = info.full_url {
                     if let Some(block_reason) = wf.check_url(url) {
                         should_forward = false;
-                        reason = block_reason;
+                        reason = Some(block_reason);
                     }
                 }
             }
@@ -1524,7 +1494,7 @@ impl FirewallEngine {
                 for url in &info.payload_urls {
                     if let Some(block_reason) = wf.check_url(url) {
                         should_forward = false;
-                        reason = block_reason;
+                        reason = Some(block_reason);
                         break;
                     }
                 }
@@ -1534,7 +1504,7 @@ impl FirewallEngine {
                 for domain in &info.payload_domains {
                     if let Some(block_reason) = wf.check_hostname(domain) {
                         should_forward = false;
-                        reason = block_reason;
+                        reason = Some(block_reason);
                         break;
                     }
                 }
@@ -1542,7 +1512,7 @@ impl FirewallEngine {
 
             if should_forward && app_decision == AppDecision::Block {
                 should_forward = false;
-                reason = format!("Blocked App: {}", app_name);
+                reason = Some(format!("Blocked App: {}", app_name));
             }
 
             // 4. Custom Firewall Rules
@@ -1551,10 +1521,10 @@ impl FirewallEngine {
                 if rule.matches(&info, &app_name) {
                     if rule.block {
                         should_forward = false;
-                        reason = format!("Rule: {}", rule.name);
+                        reason = Some(format!("Rule: {}", rule.name));
                     } else {
                         should_forward = true;
-                        reason = format!("Rule Allowed: {}", rule.name);
+                        reason = Some(format!("Rule Allowed: {}", rule.name));
                     }
                     break;
                 }
@@ -1584,7 +1554,9 @@ impl FirewallEngine {
                         .is_ok()
                     {
                         let context = Self::format_packet_context(&info);
-                        println!("DEBUG: Emitting Log: {}", reason);
+                        let allow_reason = reason
+                            .clone()
+                            .unwrap_or_else(|| "Default Allow".to_string());
 
                         let _ = tx.emit(
                             "log",
@@ -1592,7 +1564,7 @@ impl FirewallEngine {
                                 id: format!("{}-allow", now),
                                 timestamp: now,
                                 level: LogLevel::Success,
-                                message: format!("✅ {} | {}", reason, context),
+                                message: format!("✅ {} | {}", allow_reason, context),
                             },
                         );
                     }
@@ -1611,13 +1583,16 @@ impl FirewallEngine {
                         .is_ok()
                     {
                         let context = Self::format_packet_context(&info);
+                        let log_reason = reason
+                            .clone()
+                            .unwrap_or_else(|| "Default Allow".to_string());
                         let _ = tx.emit(
                             "log",
                             LogEntry {
                                 id: format!("{}-blocked", now),
                                 timestamp: now,
                                 level: LogLevel::Warning,
-                                message: format!("🚫 {} | {}", reason, context),
+                                message: format!("🚫 {} | {}", log_reason, context),
                             },
                         );
                     }
@@ -1629,7 +1604,7 @@ impl FirewallEngine {
         else {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-            reason = "Blocked (unsupported or truncated packet)".to_string();
+            reason = Some("Blocked (unsupported or truncated packet)".to_string());
 
             let now = Self::now_ts();
             let last = stats.last_log_time.load(Ordering::Relaxed);
@@ -1639,13 +1614,16 @@ impl FirewallEngine {
                     .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
                     .is_ok()
                 {
+                    let log_reason = reason
+                        .clone()
+                        .unwrap_or_else(|| "Default Allow".to_string());
                     let _ = tx.emit(
                         "log",
                         LogEntry {
                             id: format!("{}-blocked", now),
                             timestamp: now,
                             level: LogLevel::Warning,
-                            message: format!("🚫 {} | raw-bytes={}B", reason, data.len()),
+                            message: format!("🚫 {} | raw-bytes={}B", log_reason, data.len()),
                         },
                     );
                 }
@@ -1660,15 +1638,20 @@ impl FirewallEngine {
 
             if let Some(finding) = findings.first() {
                 should_forward = false;
-                reason = format!("SDK Signature [{}]: {}", finding.signature, finding.reason);
+                reason = Some(format!(
+                    "SDK Signature [{}]: {}",
+                    finding.signature, finding.reason
+                ));
             }
         }
+
+        let reason_text = reason.unwrap_or_else(|| "Default Allow".to_string());
 
         PacketDecision {
             packet_data: data_vec,
             address_data: address_data.to_vec(),
             should_forward,
-            _reason: reason,
+            _reason: reason_text,
         }
     }
 
