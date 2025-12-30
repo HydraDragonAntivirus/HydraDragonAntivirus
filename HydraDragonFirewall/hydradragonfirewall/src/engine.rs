@@ -715,8 +715,6 @@ impl FirewallEngine {
 
     /// Resolve PID from port using Windows TCP/UDP extended tables
     pub fn resolve_pid_from_port(port: u16, is_tcp: bool) -> u32 {
-        use std::mem::size_of;
-
         unsafe {
             // TCP lookup
             if is_tcp {
@@ -1644,12 +1642,11 @@ impl FirewallEngine {
         {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
-            for sig in &sdk_read.signatures {
-                if let Some(sig_reason) = sig.evaluate(&data_vec, &*s_lock, &sdk_context) {
-                    should_forward = false;
-                    reason = format!("SDK Signature [{}]: {}", sig.name(), sig_reason);
-                    break;
-                }
+            let findings = sdk_read.evaluate_signatures(&data_vec, &*s_lock, &sdk_context);
+
+            if let Some(finding) = findings.first() {
+                should_forward = false;
+                reason = format!("SDK Signature [{}]: {}", finding.signature, finding.reason);
             }
         }
 

@@ -346,7 +346,7 @@ impl WebFilter {
 
     fn scan_text_for_signatures(
         &self,
-        text: &str,
+        _text: &str,
         _settings: &crate::engine::FirewallSettings,
     ) -> Option<String> {
         // Hardcoded keyword/regex scan removed.

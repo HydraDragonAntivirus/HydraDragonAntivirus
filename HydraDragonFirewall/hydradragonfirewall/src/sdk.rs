@@ -1,4 +1,5 @@
 use crate::engine::{FirewallSettings, PacketInfo, Protocol};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -159,6 +160,7 @@ impl SdkRegistry {
             needle: "AWS_SECRET_ACCESS_KEY=".to_string(),
             case_sensitive: false,
             utf16: false,
+            detect_reversed: false,
             severity: Severity::High,
             category: SignatureCategory::Credentials,
             description: Some(
@@ -170,9 +172,35 @@ impl SdkRegistry {
             needle: "Invoke-WebRequest".to_string(),
             case_sensitive: false,
             utf16: true,
+            detect_reversed: false,
             severity: Severity::Medium,
             category: SignatureCategory::CommandAndControl,
             description: Some("Detects UTF-16 encoded PowerShell download commands".to_string()),
+        })));
+        self.register_signature(Arc::new(StringPatternSignature::new(PatternConfig {
+            name: "Reversed Powershell Beacon".to_string(),
+            needle: "powershell".to_string(),
+            case_sensitive: false,
+            utf16: false,
+            detect_reversed: true,
+            severity: Severity::High,
+            category: SignatureCategory::Behavior,
+            description: Some(
+                "Detects simple reversed PowerShell tokens often used in obfuscation".to_string(),
+            ),
+        })));
+        self.register_signature(Arc::new(RegexSignature::new(RegexSignatureConfig {
+            name: "Encoded PowerShell Command".to_string(),
+            pattern: String::from(r"powershell\\s+-enc\\s+[A-Za-z0-9/+]{20,}={0,2}"),
+            case_insensitive: true,
+            utf16: false,
+            severity: Severity::High,
+            category: SignatureCategory::CommandAndControl,
+            description: Some("Detects base64-encoded PowerShell execution flags".to_string()),
+            references: vec![
+                "https://attack.mitre.org/techniques/T1059/001".to_string(),
+                "https://aka.ms/powershell".to_string(),
+            ],
         })));
     }
 
@@ -266,13 +294,26 @@ impl StringPatternSignature {
 
     fn find_utf8(&self, data: &[u8]) -> bool {
         let haystack = String::from_utf8_lossy(data);
-        if self.config.case_sensitive {
+        let mut matched = if self.config.case_sensitive {
             haystack.contains(&self.config.needle)
         } else {
             haystack
                 .to_lowercase()
                 .contains(&self.config.needle.to_lowercase())
+        };
+
+        if !matched && self.config.detect_reversed {
+            let reversed: String = haystack.chars().rev().collect();
+            matched = if self.config.case_sensitive {
+                reversed.contains(&self.config.needle)
+            } else {
+                reversed
+                    .to_lowercase()
+                    .contains(&self.config.needle.to_lowercase())
+            };
         }
+
+        matched
     }
 
     fn find_utf16(&self, data: &[u8]) -> bool {
@@ -291,13 +332,26 @@ impl StringPatternSignature {
             return false;
         };
 
-        if self.config.case_sensitive {
+        let mut matched = if self.config.case_sensitive {
             string.contains(&self.config.needle)
         } else {
             string
                 .to_lowercase()
                 .contains(&self.config.needle.to_lowercase())
+        };
+
+        if !matched && self.config.detect_reversed {
+            let reversed: String = string.chars().rev().collect();
+            matched = if self.config.case_sensitive {
+                reversed.contains(&self.config.needle)
+            } else {
+                reversed
+                    .to_lowercase()
+                    .contains(&self.config.needle.to_lowercase())
+            };
         }
+
+        matched
     }
 }
 
@@ -337,8 +391,83 @@ impl SecuritySignature for StringPatternSignature {
                 .clone()
                 .unwrap_or_else(|| "Pattern-based packet inspection".to_string()),
             severity: self.config.severity,
-            category: self.config.category,
+            category: self.config.category.clone(),
             references: vec![],
+        }
+    }
+}
+
+pub struct RegexSignature {
+    config: RegexSignatureConfig,
+    regex: Regex,
+}
+
+impl RegexSignature {
+    pub fn new(config: RegexSignatureConfig) -> Self {
+        let regex = if config.case_insensitive {
+            Regex::new(&format!("(?i){}", config.pattern)).expect("invalid regex pattern")
+        } else {
+            Regex::new(&config.pattern).expect("invalid regex pattern")
+        };
+
+        Self { config, regex }
+    }
+
+    fn maybe_decode_utf16(&self, data: &[u8]) -> Option<String> {
+        if data.len() < 2 {
+            return None;
+        }
+
+        let mut utf16_data = Vec::with_capacity(data.len() / 2);
+        for chunk in data.chunks(2) {
+            if let [lo, hi] = chunk {
+                utf16_data.push(u16::from_le_bytes([*lo, *hi]));
+            }
+        }
+
+        String::from_utf16(&utf16_data).ok()
+    }
+}
+
+impl SecuritySignature for RegexSignature {
+    fn evaluate(
+        &self,
+        data: &[u8],
+        _settings: &FirewallSettings,
+        context: &PacketContext,
+    ) -> Option<String> {
+        let haystack = if self.config.utf16 {
+            self.maybe_decode_utf16(data)
+                .unwrap_or_else(|| String::from_utf8_lossy(data).to_string())
+        } else {
+            String::from_utf8_lossy(data).to_string()
+        };
+
+        if self.regex.is_match(&haystack) {
+            return Some(format!(
+                "{} matched on {} (PID {})",
+                self.config.name, context.process_name, context.process_id
+            ));
+        }
+
+        None
+    }
+
+    fn name(&self) -> &str {
+        &self.config.name
+    }
+
+    fn metadata(&self) -> SignatureMetadata {
+        SignatureMetadata {
+            name: self.config.name.clone(),
+            description: self
+                .config
+                .description
+                .clone()
+                .unwrap_or_else(|| "Regex packet inspection".to_string()),
+            severity: self.config.severity,
+            category: self.config.category.clone(),
+            references: self.config.references.clone(),
         }
     }
 }
@@ -349,9 +478,22 @@ pub struct PatternConfig {
     pub needle: String,
     pub case_sensitive: bool,
     pub utf16: bool,
+    pub detect_reversed: bool,
     pub severity: Severity,
     pub category: SignatureCategory,
     pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegexSignatureConfig {
+    pub name: String,
+    pub pattern: String,
+    pub case_insensitive: bool,
+    pub utf16: bool,
+    pub severity: Severity,
+    pub category: SignatureCategory,
+    pub description: Option<String>,
+    pub references: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
