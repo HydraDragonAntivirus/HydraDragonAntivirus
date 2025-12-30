@@ -32,4 +32,4 @@ jobs:
           echo "WINDIVERT_LIB_DIR=$path" >> $env:GITHUB_ENV
 
       - name: Cargo check (firewall)
-        run: cargo check --locked
+        run: cargo check
