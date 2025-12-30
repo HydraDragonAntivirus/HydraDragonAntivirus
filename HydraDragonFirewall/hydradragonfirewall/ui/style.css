@@ -386,6 +386,13 @@ main {
     /* Active: allow clicks when open */
 }
 
+.modal-overlay.static-mode {
+    background: transparent;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 16px;
+}
+
 .glass-modal {
     width: 450px;
     background: #121419;
@@ -395,6 +402,14 @@ main {
     position: relative;
     z-index: 2001;
     /* Above overlay */
+}
+
+.modal-overlay.static-mode .glass-modal {
+    width: 360px;
+    padding: 24px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    pointer-events: auto;
 }
 
 .input-group {
