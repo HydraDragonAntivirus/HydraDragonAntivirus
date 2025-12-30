@@ -1,7 +1,9 @@
+use js_sys::Reflect;
 use leptos::*;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
 use std::time::Duration;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 #[wasm_bindgen]
 extern "C" {
@@ -165,6 +167,22 @@ pub fn App() -> impl IntoView {
         let search = window.location().search().unwrap_or_default();
         search.contains("mode=alert")
     };
+
+    // In alert mode, close the lightweight toast window if there is nothing to show
+    if is_alert_mode {
+        create_effect(move |_| {
+            if pending_app.get().is_none() {
+                spawn_local(async move {
+                    let win = getCurrentWindow().await;
+                    if let Ok(close_fn) = js_sys::Reflect::get(&win, &JsValue::from_str("close")) {
+                        if let Some(close_fn) = close_fn.dyn_ref::<js_sys::Function>() {
+                            let _ = close_fn.call0(&win);
+                        }
+                    }
+                });
+            }
+        });
+    }
 
     // Update Graph Data periodically (Only if NOT in alert mode)
     create_effect(move |_| {
@@ -917,8 +935,8 @@ pub fn App() -> impl IntoView {
                  view! {
                     <div style="height: 100vh; display: flex; align-items: center; justify-content: center; background: transparent">
                             // Standalone Alert Content is rendered below by `pending_app` logic
-                            // But we need a placeholder here if pending_app is None, though usually the window only opens when there IS one.
-                             <div style="color: var(--text-muted); font-size: 12px">"Waiting for firewall events..."</div>
+                            // In alert mode we auto-close if nothing is pending, so keep the placeholder minimal.
+                             <div style="width: 1px; height: 1px"></div>
                         </div>
                      }.into_view()
                 }}
@@ -1123,7 +1141,17 @@ pub fn App() -> impl IntoView {
                 let name_for_block = app.name.clone();
                 let name_for_allow = app.name.clone();
                 let name_for_block_session = app.name.clone();
-                
+                let header_title = if is_alert_mode {
+                    "HydraDragon Firewall".to_string()
+                } else {
+                    "Network Access Request".to_string()
+                };
+                let header_subtitle = if is_alert_mode {
+                    format!("{} is requesting network access", app.name.clone())
+                } else {
+                    "An application is attempting to connect".to_string()
+                };
+
                 // If in alert mode, we use a different container style (fullscreen relative to the popup window)
                 let overlay_class = if is_alert_mode { "modal-overlay open static-mode" } else { "modal-overlay open" };
                 let modal_style = if is_alert_mode {
@@ -1146,16 +1174,16 @@ pub fn App() -> impl IntoView {
                             
                             // Header with icon
                             <div style={move || if is_alert_mode { "display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px" } else { "display: flex; align-items: center; gap: 15px; margin-bottom: 20px" }}>
-                                <div class="shield-icon" style={move || if is_alert_mode { 
-                                    "width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)" 
-                                } else { 
-                                    "width: 48px; height: 48px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)" 
+                                <div class="shield-icon" style={move || if is_alert_mode {
+                                    "width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)"
+                                } else {
+                                    "width: 48px; height: 48px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)"
                                 }}>
                                     "🛡️"
                                 </div>
                                 <div>
-                                    <h2 style={move || if is_alert_mode { "margin: 0; font-size: 16px; font-weight: 700" } else { "margin: 0; font-size: 22px; font-weight: 700" }}>"Network Access Request"</h2>
-                                    <p style={move || if is_alert_mode { "margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px" } else { "margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px" }}>"An application is attempting to connect"</p>
+                                    <h2 style={move || if is_alert_mode { "margin: 0; font-size: 16px; font-weight: 700" } else { "margin: 0; font-size: 22px; font-weight: 700" }}>{header_title}</h2>
+                                    <p style={move || if is_alert_mode { "margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px" } else { "margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px" }}>{header_subtitle}</p>
                                 </div>
                             </div>
                             
