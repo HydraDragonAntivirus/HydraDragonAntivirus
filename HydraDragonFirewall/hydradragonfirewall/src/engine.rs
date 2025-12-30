@@ -1422,16 +1422,30 @@ impl FirewallEngine {
                         }
                         Err(e) => {
                             failed.insert(info.process_id);
+                            let (level, message) = if e.permission_denied {
+                                (
+                                    LogLevel::Info,
+                                    format!(
+                                        "Skipping HTTPS hook for PID {}: access denied (likely protected or system process); future retries suppressed",
+                                        info.process_id
+                                    ),
+                                )
+                            } else {
+                                (
+                                    LogLevel::Warning,
+                                    format!(
+                                        "Failed to inject HTTPS hook into PID {}: {} (Logic will skip future retries for this PID)",
+                                        info.process_id, e.message
+                                    ),
+                                )
+                            };
                             let _ = tx.emit(
                                 "log",
                                 LogEntry {
                                     id: format!("{}-tls-hook-fail", Self::now_ts()),
                                     timestamp: Self::now_ts(),
-                                    level: LogLevel::Warning,
-                                    message: format!(
-                                        "Failed to inject HTTPS hook into PID {}: {} (Logic will skip future retries for this PID)",
-                                        info.process_id, e
-                                    ),
+                                    level,
+                                    message,
                                 },
                             );
                         }

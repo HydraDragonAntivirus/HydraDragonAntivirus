@@ -1,5 +1,5 @@
 use std::ffi::CString;
-use windows::Win32::Foundation::{CloseHandle, HMODULE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HMODULE};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx};
@@ -10,6 +10,25 @@ use windows::Win32::System::Threading::{
     CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
+use windows::core::Error;
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct InjectionError {
+    pub message: String,
+    pub permission_denied: bool,
+}
+
+#[allow(dead_code)]
+impl InjectionError {
+    fn from_win32(context: &str, err: Error) -> Self {
+        let permission_denied = err.code() == ERROR_ACCESS_DENIED.to_hresult();
+        Self {
+            message: format!("{} failed: {}", context, err),
+            permission_denied,
+        }
+    }
+}
 
 #[allow(dead_code)]
 pub struct Injector;
@@ -103,7 +122,7 @@ impl Injector {
         false
     }
 
-    pub fn inject(pid: u32, dll_path: &str) -> Result<(), String> {
+    pub fn inject(pid: u32, dll_path: &str) -> Result<(), InjectionError> {
         unsafe {
             let process_handle = OpenProcess(
                 PROCESS_CREATE_THREAD
@@ -114,10 +133,13 @@ impl Injector {
                 false.into(),
                 pid,
             )
-            .map_err(|e| format!("OpenProcess failed: {}", e))?;
+            .map_err(|e| InjectionError::from_win32("OpenProcess", e))?;
 
             if process_handle.is_invalid() {
-                return Err("Invalid process handle".to_string());
+                return Err(InjectionError {
+                    message: "Invalid process handle".to_string(),
+                    permission_denied: false,
+                });
             }
 
             // Allocate memory in target process for DLL path
@@ -134,7 +156,10 @@ impl Injector {
 
             if remote_mem.is_null() {
                 let _ = CloseHandle(process_handle);
-                return Err("VirtualAllocEx failed".to_string());
+                return Err(InjectionError {
+                    message: "VirtualAllocEx failed".to_string(),
+                    permission_denied: false,
+                });
             }
 
             // Write DLL path
@@ -150,7 +175,10 @@ impl Injector {
             // WriteProcessMemory returns BOOL (wrapped in Result by windows-rs)
             if write_result.is_err() || bytes_written != dll_path_len {
                 let _ = CloseHandle(process_handle);
-                return Err("WriteProcessMemory failed".to_string());
+                return Err(InjectionError {
+                    message: "WriteProcessMemory failed".to_string(),
+                    permission_denied: false,
+                });
             }
 
             // Get LoadLibraryA address
@@ -159,7 +187,10 @@ impl Injector {
 
             if load_library_addr.is_none() {
                 let _ = CloseHandle(process_handle);
-                return Err("LoadLibraryA not found".to_string());
+                return Err(InjectionError {
+                    message: "LoadLibraryA not found".to_string(),
+                    permission_denied: false,
+                });
             }
 
             let start_routine = std::mem::transmute(load_library_addr);
@@ -179,15 +210,18 @@ impl Injector {
 
             if let Ok(th) = thread_handle {
                 if th.is_invalid() {
-                    return Err("CreateRemoteThread returned invalid handle".to_string());
+                    return Err(InjectionError {
+                        message: "CreateRemoteThread returned invalid handle".to_string(),
+                        permission_denied: false,
+                    });
                 }
                 let _ = CloseHandle(th);
                 Ok(())
             } else {
-                Err(format!(
-                    "CreateRemoteThread failed: {:?}",
-                    thread_handle.err()
-                ))
+                Err(InjectionError {
+                    message: format!("CreateRemoteThread failed: {:?}", thread_handle.err()),
+                    permission_denied: false,
+                })
             }
         }
     }
