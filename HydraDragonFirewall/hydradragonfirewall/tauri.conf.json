@@ -1,12 +1,12 @@
 {
-    "$schema": "../gen/schemas/config-schema.json",
+    "$schema": "./gen/schemas/config-schema.json",
     "productName": "hydradragonfirewall",
     "version": "0.1.0",
     "identifier": "com.hydradragon.firewall",
     "build": {
         "beforeDevCommand": "",
         "beforeBuildCommand": "",
-        "frontendDist": "ui/dist"
+        "frontendDist": "dist"
     },
     "app": {
         "withGlobalTauri": true,

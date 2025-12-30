@@ -289,14 +289,21 @@ impl Default for FirewallSettings {
         );
         metadata.insert("theme".to_string(), "cyberpunk".to_string());
 
+        let mut https_hook_dll = String::new();
+        let mut auto_inject_https = false;
+        if std::path::Path::new("hook_dll.dll").exists() {
+            https_hook_dll = "hook_dll.dll".to_string();
+            auto_inject_https = true;
+        }
+
         Self {
             blocked_keywords: keywords,
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
             metadata,
-            https_hook_dll: String::new(),
-            auto_inject_https: false,
+            https_hook_dll,
+            auto_inject_https,
         }
     }
 }
@@ -913,6 +920,62 @@ impl FirewallEngine {
                 }
             })
             .expect("failed to spawn pending_monitor thread");
+
+        // GLOBAL INJECTOR THREAD
+        let am_global = Arc::clone(&am);
+        let settings_global = Arc::clone(&self.settings);
+        std::thread::Builder::new()
+            .name("global_injector".to_string())
+            .spawn(move || {
+                use windows::Win32::System::Diagnostics::ToolHelp::{
+                    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+                    TH32CS_SNAPPROCESS,
+                };
+
+                loop {
+                    let (auto_inject, hook_dll) = {
+                        let s = settings_global.read().unwrap();
+                        (s.auto_inject_https, s.https_hook_dll.clone())
+                    };
+
+                    if auto_inject && !hook_dll.is_empty() {
+                        unsafe {
+                            if let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+                                if !snapshot.is_invalid() {
+                                    let mut entry = PROCESSENTRY32W::default();
+                                    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+                                    if Process32FirstW(snapshot, &mut entry).is_ok() {
+                                        loop {
+                                            let pid = entry.th32ProcessID;
+                                            if pid != 0 && pid != 4 && pid != std::process::id() {
+                                                let needs_injection = {
+                                                    let injected = am_global.injected_pids.read().unwrap();
+                                                    !injected.contains(&pid)
+                                                };
+
+                                                if needs_injection {
+                                                    // Try injecting
+                                                    if Injector::inject(pid, &hook_dll).is_ok() {
+                                                        let mut injected = am_global.injected_pids.write().unwrap();
+                                                        injected.insert(pid);
+                                                    }
+                                                }
+                                            }
+                                            if Process32NextW(snapshot, &mut entry).is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+                                }
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_secs(5));
+                }
+            })
+            .expect("failed to spawn global_injector thread");
 
         // Worker Pool - RADICAL REFACTOR: Each worker is a fully independent capture loop
         let num_workers = 8; // Increased workers for parallel processing
