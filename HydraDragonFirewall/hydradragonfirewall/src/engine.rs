@@ -6,7 +6,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -51,8 +51,8 @@ impl Protocol {
 pub struct PacketInfo {
     pub timestamp: u64,
     pub protocol: Protocol,
-    pub src_ip: Ipv4Addr,
-    pub dst_ip: Ipv4Addr,
+    pub src_ip: IpAddr,
+    pub dst_ip: IpAddr,
     pub src_port: u16,
     pub dst_port: u16,
     pub size: usize,
@@ -127,7 +127,7 @@ pub struct PendingApp {
     pub process_id: u32,
     pub name: String,
     pub path: String,
-    pub dst_ip: Ipv4Addr,
+    pub dst_ip: IpAddr,
     pub dst_port: u16,
     pub protocol: Protocol,
     pub reason: Option<String>,
@@ -676,8 +676,15 @@ impl FirewallEngine {
         }
     }
 
-    pub fn is_loopback(ip: Ipv4Addr) -> bool {
-        ip.is_loopback() || ip == Ipv4Addr::new(127, 0, 0, 1) || ip == Ipv4Addr::new(0, 0, 0, 0)
+    pub fn is_loopback(ip: IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4 == Ipv4Addr::new(127, 0, 0, 1)
+                    || v4 == Ipv4Addr::new(0, 0, 0, 0)
+            }
+            IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        }
     }
 
     pub fn resolve_app_decision(&self, name: String, decision: String) {
@@ -1296,8 +1303,8 @@ impl FirewallEngine {
         };
 
         // Initialize decision state before parsing
-        let mut should_forward = false;
-        let mut reason: Option<String>;
+        let mut should_forward = true;
+        let mut reason: Option<String> = None;
 
         // 3. SDK PACKET CHANGERS & LISTENERS
         if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
@@ -1317,13 +1324,9 @@ impl FirewallEngine {
             drop(sdk_read);
 
             // 4. Core Firewall Logic
-            // POLICY CHANGE: Rule-based (Default Allow) instead of Default Deny
-            should_forward = true;
-            reason = Some(if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
-                "Localhost".to_string()
-            } else {
-                "Default Allow".to_string()
-            });
+            if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
+                reason.get_or_insert_with(|| "Localhost".to_string());
+            }
 
             // Cache URLs
             if let Some(ref url) = info.full_url {
@@ -1471,7 +1474,7 @@ impl FirewallEngine {
 
             // 3. Web Filter Checks (IP/Hostname/URL lists)
             if should_forward {
-                if wf.is_blocked_ip(std::net::IpAddr::V4(info.dst_ip)) {
+                if wf.is_blocked_ip(info.dst_ip) {
                     should_forward = false;
                     reason = Some(format!("Blocked IP (WebFilter): {}", info.dst_ip));
                 }
@@ -1580,7 +1583,7 @@ impl FirewallEngine {
                         let context = Self::format_packet_context(&info);
                         let allow_reason = reason
                             .clone()
-                            .unwrap_or_else(|| "Default Allow".to_string());
+                            .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
 
                         let _ = tx.emit(
                             "log",
@@ -1609,7 +1612,7 @@ impl FirewallEngine {
                         let context = Self::format_packet_context(&info);
                         let log_reason = reason
                             .clone()
-                            .unwrap_or_else(|| "Default Allow".to_string());
+                            .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
                         let _ = tx.emit(
                             "log",
                             LogEntry {
@@ -1623,35 +1626,18 @@ impl FirewallEngine {
                 }
             }
         }
-        // If parsing failed entirely, treat the packet as blocked to preserve the
-        // default-deny posture and still surface the drop with minimal context.
+        // If parsing failed entirely, allow the packet but surface a debug reason
+        // so traffic is not silently dropped because of parser gaps (e.g., exotic
+        // encapsulations).
         else {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
-            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-            reason = Some("Blocked (unsupported or truncated packet)".to_string());
-
-            let now = Self::now_ts();
-            let last = stats.last_log_time.load(Ordering::Relaxed);
-            if now > last + 50 {
-                if stats
-                    .last_log_time
-                    .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    let log_reason = reason
-                        .clone()
-                        .unwrap_or_else(|| "Default Allow".to_string());
-                    let _ = tx.emit(
-                        "log",
-                        LogEntry {
-                            id: format!("{}-blocked", now),
-                            timestamp: now,
-                            level: LogLevel::Warning,
-                            message: format!("🚫 {} | raw-bytes={}B", log_reason, data.len()),
-                        },
-                    );
-                }
-            }
+            stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+            return PacketDecision {
+                packet_data: data_vec,
+                address_data: address_data.to_vec(),
+                should_forward: true,
+                _reason: "Unparsed packet allowed (no default deny)".to_string(),
+            };
         }
 
         // SDK SECURITY RULES
@@ -1700,7 +1686,7 @@ impl FirewallEngine {
             }
         }
 
-        let reason_text = reason.unwrap_or_else(|| "Default Allow".to_string());
+        let reason_text = reason.unwrap_or_else(|| "Allowed (no matching rule)".to_string());
 
         PacketDecision {
             packet_data: data_vec,
@@ -1833,24 +1819,47 @@ impl FirewallEngine {
         process_id: u32,
         cache: &AppInfoCache,
     ) -> Option<PacketInfo> {
-        if data.len() < 20 {
+        if data.is_empty() {
             return None;
         }
         let ip_version = (data[0] >> 4) & 0x0F;
-        if ip_version != 4 {
-            return None;
-        }
 
-        let protocol = match data[9] {
-            6 => Protocol::TCP,
-            17 => Protocol::UDP,
-            1 => Protocol::ICMP,
-            n => Protocol::Raw(n),
+        let (protocol, src_ip, dst_ip, header_len) = match ip_version {
+            4 => {
+                if data.len() < 20 {
+                    return None;
+                }
+                let protocol = match data[9] {
+                    6 => Protocol::TCP,
+                    17 => Protocol::UDP,
+                    1 => Protocol::ICMP,
+                    n => Protocol::Raw(n),
+                };
+
+                let src_ip = IpAddr::V4(Ipv4Addr::new(data[12], data[13], data[14], data[15]));
+                let dst_ip = IpAddr::V4(Ipv4Addr::new(data[16], data[17], data[18], data[19]));
+                let header_len = ((data[0] & 0x0F) as usize) * 4;
+                (protocol, src_ip, dst_ip, header_len)
+            }
+            6 => {
+                if data.len() < 40 {
+                    return None;
+                }
+                let protocol = match data[6] {
+                    6 => Protocol::TCP,
+                    17 => Protocol::UDP,
+                    58 => Protocol::ICMP,
+                    n => Protocol::Raw(n),
+                };
+
+                let src_bytes: [u8; 16] = data[8..24].try_into().ok()?;
+                let dst_bytes: [u8; 16] = data[24..40].try_into().ok()?;
+                let src_ip = IpAddr::V6(Ipv6Addr::from(src_bytes));
+                let dst_ip = IpAddr::V6(Ipv6Addr::from(dst_bytes));
+                (protocol, src_ip, dst_ip, 40)
+            }
+            _ => return None,
         };
-
-        let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
-        let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
-        let header_len = ((data[0] & 0x0F) as usize) * 4;
 
         let (src_port, dst_port) = if header_len + 4 <= data.len() {
             match protocol {
