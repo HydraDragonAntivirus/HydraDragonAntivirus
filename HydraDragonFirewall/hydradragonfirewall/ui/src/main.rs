@@ -86,6 +86,7 @@ enum AppView {
     Logs,
     PacketReader,
     Settings,
+    Exclusions,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,6 +95,13 @@ pub enum Protocol {
     UDP,
     ICMP,
     Raw(u8),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum AppDecision {
+    Allow,
+    Block,
+    Pending,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -217,11 +225,29 @@ pub fn App() -> impl IntoView {
     };
 
 
-    // Auto-fetch on view change
+
+
+    let (app_decisions, set_app_decisions) = create_signal(std::collections::HashMap::<String, AppDecision>::new());
+
+    let fetch_app_decisions = move || {
+        spawn_local(async move {
+            let res = invoke("get_app_decisions", JsValue::NULL).await;
+            if let Ok(decisions) = serde_wasm_bindgen::from_value::<std::collections::HashMap<String, AppDecision>>(res) {
+                set_app_decisions.set(decisions);
+            }
+        });
+    };
+
     create_effect(move |_| {
-        if current_view.get() == AppView::Rules {
-            fetch_sdk_rules();
-            fetch_rules_raw(); // Prefetch for seamless toggle
+        match current_view.get() {
+            AppView::Rules => {
+                fetch_sdk_rules();
+                fetch_rules_raw();
+            }
+            AppView::Exclusions => {
+                fetch_app_decisions();
+            }
+            _ => {}
         }
     });
 
@@ -233,6 +259,16 @@ pub fn App() -> impl IntoView {
     let (new_rule_ports, set_new_rule_ports) = create_signal(String::new());
     let (new_rule_protocol, set_new_rule_protocol) = create_signal("Any".to_string());
     let (new_rule_block, set_new_rule_block) = create_signal(true);
+
+
+
+    let remove_decision_action = move |name: String| {
+        spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&serde_json::json!({ "name_lower": name })).unwrap();
+            let _ = invoke("remove_app_decision", args).await;
+            fetch_app_decisions(); // Refresh list
+        });
+    };
     let (validation_error, set_validation_error) = create_signal(Option::<String>::None);
     let (console_output, set_console_output) = create_signal(Vec::<String>::new());
     let (is_compiling, set_is_compiling) = create_signal(false);
@@ -274,6 +310,8 @@ pub fn App() -> impl IntoView {
             Duration::from_millis(2000),
         );
     });
+
+
     let (settings, set_settings) = create_signal(FirewallSettings {
         website_path: "website".to_string(),
         rules: vec![],
@@ -471,6 +509,10 @@ pub fn App() -> impl IntoView {
                        on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
                        "Packet Reader"
                     </a>
+                    <a href="#" class={move || if current_view.get() == AppView::Exclusions { "nav-item active" } else { "nav-item" }}
+                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Exclusions); }>
+                       "Exclusions"
+                    </a>
                     <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
                        on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
                        "Settings"
@@ -486,6 +528,7 @@ pub fn App() -> impl IntoView {
                             AppView::Rules => "Protection Rules",
                             AppView::Logs => "Network Activity",
                             AppView::PacketReader => "Packet Inspection",
+                            AppView::Exclusions => "Exclusions Management",
                             AppView::Settings => "System Settings",
                         }}
                     </h2>
@@ -873,6 +916,43 @@ pub fn App() -> impl IntoView {
                         </div>
                     }.into_view(),
 
+                    AppView::Exclusions => view! {
+                        <div class="dashboard-grid" style="flex-direction: column; height: calc(100vh - 120px)">
+                            <div class="glass-card" style="width: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden">
+                                <div class="section-header">
+                                    <h3 style="margin: 0">"✅ Allowed Applications"</h3>
+                                    <span style="font-size: 12px; color: var(--text-muted)">"manage applications with custom network permissions"</span>
+                                </div>
+                                <div style="margin-top: 20px; overflow-y: auto; flex: 1">
+                                    <div class="exclusions-list">
+                                        {move || app_decisions.get().into_iter().map(|(name, decision): (String, AppDecision)| {
+                                            let n = name.clone();
+                                            let n2 = name.clone();
+                                            view! {
+                                                <div class="exclusion-item">
+                                                    <div style="display: flex; flex-direction: column; gap: 4px">
+                                                        <span style="font-weight: 700; color: var(--accent-yellow); font-family: 'Fira Code', monospace">{n}</span>
+                                                        <span style="font-size: 11px; color: var(--text-muted)">{format!("{:?}", decision)}</span>
+                                                    </div>
+                                                    <button class="btn-primary" 
+                                                            style="background: rgba(255,62,62,0.1); color: var(--accent-red); border-color: var(--accent-red); padding: 5px 15px; font-size: 11px"
+                                                            on:click=move |_| remove_decision_action(n2.clone())>
+                                                        "REMOVE"
+                                                    </button>
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                        {move || if app_decisions.get().is_empty() {
+                                            view! { <div style="text-align: center; color: var(--text-muted); padding: 40px">"No exclusions found."</div> }.into_view()
+                                        } else {
+                                            view! { }.into_view()
+                                        }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }.into_view(),
+
                     AppView::Settings => view! {
                          <div class="dashboard-grid" style="flex-direction: column">
                             // General Settings Card
@@ -1105,52 +1185,51 @@ pub fn App() -> impl IntoView {
                 let display_reason = app.reason.clone().unwrap_or_else(|| "Unknown application activity detected.".to_string());
                 
                 view! {
-                    <div class="modal-overlay open">
-                         <div class="premium-alert">
-                             <div class="premium-alert-header">
-                                 <div class="premium-brand">
-                                     "Malwarebytes" <span>"PREMIUM"</span>
-                                 </div>
-                                 <div class="premium-alert-close-x" on:click=move |_| set_pending_app.set(None)>"✕"</div>
+                    <div class="hydra-toast">
+                         <div class="hydra-toast-header">
+                             <div class="hydra-toast-brand">
+                                 <div class="dragon-icon"></div>
+                                 "HYDRADRAGON FIREWALL"
                              </div>
+                             <div style="cursor: pointer; opacity: 0.6" on:click=move |_| set_pending_app.set(None)>"✕"</div>
+                         </div>
+                         
+                         <div class="hydra-toast-content">
+                             <div class="hydra-toast-title">
+                                 "Network Prompt"
+                                 <span>"Action Required"</span>
+                             </div>
+                             <p class="hydra-toast-desc">
+                                 {display_reason}
+                             </p>
                              
-                             <div class="premium-alert-content">
-                                 <div class="premium-alert-icon-large">
-                                     "✔️"
+                             <div class="hydra-toast-details">
+                                 <div class="hydra-toast-detail-row">
+                                     <span class="hydra-toast-label">"Process:"</span>
+                                     <span class="hydra-toast-value">{app.name.clone()}</span>
                                  </div>
-                                 <div class="premium-alert-body">
-                                     <h1 class="premium-alert-title">"Website blocked"</h1>
-                                     <p class="premium-alert-desc">
-                                         {display_reason}
-                                         <br/><br/>
-                                         "If you don't want to block this website, you can exclude it from website protection by accessing Exclusions."
-                                     </p>
-                                     
-                                     <div class="premium-details-grid">
-                                         <div class="label">"Domain:"</div>
-                                         <div class="value">{app.name.clone()}</div>
-                                         
-                                         <div class="label">"IP Address:"</div>
-                                         <div class="value">{app.dst_ip.clone()}</div>
-                                         
-                                         <div class="label">"Port:"</div>
-                                         <div class="value">{app.dst_port}</div>
-                                         
-                                         <div class="label">"Type:"</div>
-                                         <div class="value">"Outbound"</div>
-                                         
-                                         <div class="label">"File:"</div>
-                                         <div class="value" style="font-size: 11px">{app.path.clone()}</div>
-                                     </div>
+                                 <div class="hydra-toast-detail-row">
+                                     <span class="hydra-toast-label">"Remote:"</span>
+                                     <span class="hydra-toast-value">{format!("{}:{}", app.dst_ip, app.dst_port)}</span>
+                                 </div>
+                                 <div class="hydra-toast-detail-row">
+                                     <span class="hydra-toast-label">"File:"</span>
+                                     <span class="hydra-toast-value" style="font-size: 10px">{app.path.clone()}</span>
                                  </div>
                              </div>
-                             
-                             <div class="premium-alert-footer">
-                                 <button class="btn-premium-alt" on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
-                                     "Manage Exclusions"
+
+                             <div class="hydra-toast-footer">
+                                 <button class="btn-hydra-alt" on:click=move |_| {
+                                     set_current_view.set(AppView::Exclusions);
+                                     set_pending_app.set(None);
+                                 }>
+                                     "Exclusions"
                                  </button>
-                                 <button class="btn-premium-main" on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
-                                     "Close"
+                                 <button class="btn-hydra-alt" on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
+                                     "Allow"
+                                 </button>
+                                 <button class="btn-hydra-main" on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
+                                     "Block"
                                  </button>
                              </div>
                          </div>

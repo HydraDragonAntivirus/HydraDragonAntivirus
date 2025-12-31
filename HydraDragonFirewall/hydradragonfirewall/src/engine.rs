@@ -752,6 +752,31 @@ impl FirewallEngine {
         }
         0 // Not found
     }
+    pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
+        self.app_manager.decisions.read().unwrap().clone()
+    }
+
+    pub fn remove_app_decision(&self, name_lower: String) {
+        self.app_manager.decisions.write().unwrap().remove(&name_lower);
+        
+        // Also remove from settings and save
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.app_decisions.remove(&name_lower);
+        }
+        self.save_settings();
+    }
+
+    pub fn clear_app_decisions(&self) {
+        self.app_manager.decisions.write().unwrap().clear();
+        
+        // Also clear from settings and save
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.app_decisions.clear();
+        }
+        self.save_settings();
+    }
 }
 
 impl FirewallEngine {
