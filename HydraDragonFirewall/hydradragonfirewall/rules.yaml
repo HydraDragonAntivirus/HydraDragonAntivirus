@@ -1,0 +1,111 @@
+# HydraDragonFirewall SDK Rules
+# This file uses YAML format with # comments allowed (Feature 17)
+
+rules:
+  # Block Discord Webhook Exfiltration (Features 12, 13, 19, 29, 30)
+  - name: "Block Discord Webhooks"
+    description: "Prevents data exfiltration via Discord webhooks"
+    enabled: true
+    protocol: https
+    action: block
+    condition_logic: and
+    domain:
+      domains:
+        - "*.discord.com"
+        - "*.discordapp.com"
+      case_insensitive: true
+    url:
+      patterns:
+        - "*/api/webhooks/*"
+
+  # Block ICMP Ping (Features 9, 19)
+  - name: "Block ICMP Ping"
+    description: "Blocks all ICMP traffic to prevent ping sweeps"
+    enabled: true
+    protocol: icmp
+    action: block
+
+  # Monitor Local Network Traffic (Features 8, 21, 25, 26)
+  - name: "Ask Local Network Access"
+    description: "Prompts user when accessing local network"
+    enabled: true
+    protocol: tcp
+    action: ask
+    localhost_type: private_c
+    dst_port:
+      ports: [80, 443, 8080, 22, 3389]
+
+  # Detect Base64 Encoded PowerShell (Features 2, 6, 15, 18)
+  - name: "Detect Encoded PowerShell"
+    description: "Detects base64-encoded PowerShell commands in traffic"
+    enabled: true
+    protocol: http
+    action: traffic_attack
+    encoding: base64
+    regex:
+      pattern: "powershell.*-enc"
+      case_insensitive: true
+
+  # Block Suspicious File Downloads (Features 14, 19)
+  - name: "Block EXE Downloads"
+    description: "Blocks downloading of executable files"
+    enabled: false
+    protocol: any
+    action: block
+    file_type:
+      file_types:
+        - "exe"
+        - "dll"
+        - "scr"
+        - "bat"
+        - "cmd"
+
+  # Monitor Traffic Routine (Feature 27)
+  - name: "Monitor Gateway Traffic"
+    description: "Watch traffic going through the gateway"
+    enabled: true
+    protocol: any
+    action: allow
+    routine:
+      from_ip: "any"
+      to_ip: "192.168.1.1"
+      to_port: 53
+
+  # Hex Content Detection (Feature 4)
+  - name: "Detect Hex Encoded Payload"
+    description: "Detects hex-encoded payloads in HTTP traffic"
+    enabled: false
+    protocol: http
+    action: traffic_attack
+    encoding: hex
+    conditions:
+      - content_match:
+          pattern: "malware_signature"
+          encoding: hex
+
+  # Multiple Conditions with OR Logic (Feature 28)
+  - name: "Block Ads Networks"
+    description: "Blocks known advertising domains"
+    enabled: true
+    protocol: any
+    action: block
+    condition_logic: or
+    domain:
+      domains:
+        - "*.doubleclick.net"
+        - "*.googlesyndication.com"
+        - "*.googleadservices.com"
+        - "*.facebook.com/tr/*"
+        - "*.analytics.google.com"
+      case_insensitive: true
+
+  # Inject DLL for Deep Inspection (Feature 24)
+  - name: "Hook Suspicious Process"
+    description: "Injects monitoring DLL into suspicious processes"
+    enabled: false
+    protocol: https
+    action: inject_dll
+    inject_dll_path: "hook_dll.dll"
+    domain:
+      domains:
+        - "*.suspicious-domain.com"
