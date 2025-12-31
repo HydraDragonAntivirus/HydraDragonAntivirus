@@ -1192,11 +1192,10 @@ impl FirewallEngine {
 
                                 // PID RESOLUTION:
                                 // 1. Try native Windows TCP/UDP table lookup (most reliable)
-                                // 2. Fallback to hook DLL port mapping
-                                // PRIMARY PARSE:
                                 let mut pid = 0u32;
+                                let data_vec = packet.data.to_vec();
                                 let mut pre_parsed =
-                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache);
+                                    Self::parse_packet(&data_vec, outbound, 0, &am_w.info_cache);
 
                                 if let Some((ref mut p_info, _)) = pre_parsed {
                                     let lookup_port = if outbound {

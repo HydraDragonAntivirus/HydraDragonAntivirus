@@ -17,7 +17,18 @@ use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, WINEVENTPROC};
 // Force linking to the minhook crate
 extern crate minhook;
 
-// Raw MinHook FFI (using system calling convention for correct decoration)
+// Raw MinHook FFI
+#[cfg(target_arch = "x86")]
+unsafe extern "C" {
+    #[link_name = "\x01_MH_Initialize@0"]
+    fn MH_Initialize() -> i32;
+    #[link_name = "\x01_MH_CreateHook@12"]
+    fn MH_CreateHook(pTarget: *mut c_void, pDetour: *mut c_void, ppOriginal: *mut *mut c_void) -> i32;
+    #[link_name = "\x01_MH_EnableHook@4"]
+    fn MH_EnableHook(pTarget: *mut c_void) -> i32;
+}
+
+#[cfg(not(target_arch = "x86"))]
 unsafe extern "system" {
     fn MH_Initialize() -> i32;
     fn MH_CreateHook(pTarget: *mut c_void, pDetour: *mut c_void, ppOriginal: *mut *mut c_void) -> i32;
