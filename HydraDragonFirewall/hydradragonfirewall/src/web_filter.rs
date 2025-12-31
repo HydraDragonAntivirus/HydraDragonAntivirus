@@ -1,4 +1,6 @@
 use glob::glob;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
@@ -343,6 +345,18 @@ impl WebFilter {
             IpAddr::V6(ipv6) => self.ipv6_blocklist.read().unwrap().contains(&ipv6),
         }
     }
+
+
+    fn scan_text_for_signatures(
+        &self,
+        text: &str,
+        _settings: &crate::engine::FirewallSettings,
+    ) -> Option<String> {
+        // Hardcoded keyword/regex scan removed.
+        // The engine now relies on SDK-registered signatures.
+        None
+    }
+
 }
 
 #[cfg(test)]
@@ -392,4 +406,5 @@ mod tests {
         let _ = fs::remove_file(&malware_path);
         let _ = fs::remove_dir(&tmp_base);
     }
+
 }

@@ -1,10 +1,10 @@
-use crate::file_magic::FileMagicChecker;
 use crate::injector::Injector;
 use crate::web_filter::WebFilter;
+use crate::file_magic::FileMagicChecker;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -224,14 +224,14 @@ impl FirewallRule {
 
         // File Magic matching
         if !self.file_types.is_empty() {
-            if let Some(ref ftype) = packet.detected_file_type {
+             if let Some(ref ftype) = packet.detected_file_type {
                 if !self.file_types.contains(ftype) {
                     return false;
                 }
-            } else {
-                // Rule requires file type match, but packet has none
-                return false;
-            }
+             } else {
+                 // Rule requires file type match, but packet has none
+                 return false;
+             }
         }
 
         true
@@ -278,6 +278,7 @@ impl FirewallRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FirewallSettings {
+    pub blocked_keywords: HashSet<String>, // New: Dynamic DNS blocking keywords
     pub app_decisions: HashMap<String, AppDecision>,
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
@@ -291,6 +292,13 @@ pub struct FirewallSettings {
 impl Default for FirewallSettings {
     fn default() -> Self {
         let apps = HashMap::new();
+
+        let mut keywords = HashSet::new();
+        // Default bad keywords
+        keywords.insert("malware".to_string());
+        keywords.insert("virus".to_string());
+        keywords.insert("trojan".to_string());
+        keywords.insert("phishing".to_string());
 
         let mut metadata = HashMap::new();
         metadata.insert("version".to_string(), "2.0.0".to_string());
@@ -308,6 +316,7 @@ impl Default for FirewallSettings {
         }
 
         Self {
+            blocked_keywords: keywords,
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
@@ -348,6 +357,7 @@ impl Default for Statistics {
 
 pub struct DnsHandler {
     queries: RwLock<VecDeque<DnsQuery>>,
+    // No longer stores hardcoded blocked domains, reads from settings
 }
 
 impl DnsHandler {
@@ -357,8 +367,15 @@ impl DnsHandler {
         }
     }
 
-    pub fn should_block(&self, _domain: &str, _settings: &FirewallSettings) -> bool {
-        // DNS blocking is now handled by SDK signatures; the legacy keyword list has been removed.
+    pub fn should_block(&self, domain: &str, settings: &FirewallSettings) -> bool {
+        let domain_lower = domain.to_lowercase();
+
+        // Check dynamic keywords from settings
+        for pattern in &settings.blocked_keywords {
+            if domain_lower.contains(&pattern.to_lowercase()) {
+                return true;
+            }
+        }
         false
     }
 
@@ -433,8 +450,8 @@ pub struct AppManager {
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
-    pub injected_pids: RwLock<HashSet<u32>>,     // Avoid repeated injections
-    pub failed_pids: RwLock<HashSet<u32>>,       // PIDs where injection failed
+    pub injected_pids: RwLock<HashSet<u32>>,      // Avoid repeated injections
+    pub failed_pids: RwLock<HashSet<u32>>,        // PIDs where injection failed
 }
 
 impl AppManager {
@@ -527,6 +544,23 @@ impl AppManager {
     }
 }
 
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn OpenProcess(
+        dwDesiredAccess: u32,
+        bInheritHandle: i32,
+        dwProcessId: u32,
+    ) -> *mut std::ffi::c_void;
+    fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+    fn QueryFullProcessImageNameW(
+        hProcess: *mut std::ffi::c_void,
+        dwFlags: u32,
+        lpExeName: *mut u16,
+        lpdwSize: *mut u32,
+    ) -> i32;
+}
+
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
@@ -600,7 +634,11 @@ impl FirewallEngine {
         let app_manager = Arc::new(AppManager::new(app_decisions));
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
         let settings = Arc::new(RwLock::new(settings_data));
-        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
+        let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::new()));
+        {
+            let mut sdk_write = sdk.write().unwrap();
+            sdk_write.register_signature(Arc::new(crate::sdk::DiscordWebhookSignature));
+        }
 
         Self {
             stats,
@@ -647,6 +685,7 @@ impl FirewallEngine {
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap();
         let settings = FirewallSettings {
+            blocked_keywords: current_settings.blocked_keywords.clone(), // Save new field
             app_decisions: self.app_manager.decisions.read().unwrap().clone(),
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
@@ -680,6 +719,8 @@ impl FirewallEngine {
 
     /// Resolve PID from port using Windows TCP/UDP extended tables
     pub fn resolve_pid_from_port(port: u16, is_tcp: bool) -> u32 {
+        use std::mem::size_of;
+        
         unsafe {
             // TCP lookup
             if is_tcp {
@@ -693,7 +734,7 @@ impl FirewallEngine {
                     windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
                     0,
                 );
-
+                
                 if size > 0 {
                     let mut buffer = vec![0u8; size as usize];
                     if windows::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable(
@@ -703,13 +744,14 @@ impl FirewallEngine {
                         windows::Win32::Networking::WinSock::AF_INET.0 as u32,
                         windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
                         0,
-                    ) == 0
-                    {
+                    ) == 0 {
                         let table = buffer.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_TCPTABLE_OWNER_PID;
                         let num_entries = (*table).dwNumEntries as usize;
-                        let entries =
-                            std::slice::from_raw_parts((*table).table.as_ptr(), num_entries);
-
+                        let entries = std::slice::from_raw_parts(
+                            (*table).table.as_ptr(),
+                            num_entries,
+                        );
+                        
                         for entry in entries {
                             let local_port = u16::from_be(entry.dwLocalPort as u16);
                             if local_port == port {
@@ -729,7 +771,7 @@ impl FirewallEngine {
                     windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
                     0,
                 );
-
+                
                 if size > 0 {
                     let mut buffer = vec![0u8; size as usize];
                     if windows::Win32::NetworkManagement::IpHelper::GetExtendedUdpTable(
@@ -739,13 +781,14 @@ impl FirewallEngine {
                         windows::Win32::Networking::WinSock::AF_INET.0 as u32,
                         windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
                         0,
-                    ) == 0
-                    {
+                    ) == 0 {
                         let table = buffer.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_UDPTABLE_OWNER_PID;
                         let num_entries = (*table).dwNumEntries as usize;
-                        let entries =
-                            std::slice::from_raw_parts((*table).table.as_ptr(), num_entries);
-
+                        let entries = std::slice::from_raw_parts(
+                            (*table).table.as_ptr(),
+                            num_entries,
+                        );
+                        
                         for entry in entries {
                             let local_port = u16::from_be(entry.dwLocalPort as u16);
                             if local_port == port {
@@ -965,48 +1008,26 @@ impl FirewallEngine {
 
                         // 2. Ensure Alert Window is Open
                         if tx_monitor.get_webview_window("firewall-alert").is_none() {
-                            println!("DEBUG: Spawning Firewall Alert Window...");
-
-                            let toast_width = 420.0;
-                            let toast_height = 260.0;
-                            let position =
-                                tx_monitor
-                                    .primary_monitor()
-                                    .ok()
-                                    .flatten()
-                                    .and_then(|monitor| {
-                                        let scale = monitor.scale_factor();
-                                        let size = monitor.size();
-
-                                        let x = size.width as f64 / scale - toast_width - 24.0;
-                                        let y = size.height as f64 / scale - toast_height - 24.0;
-
-                                        Some((x, y))
-                                    });
-
-                            let mut builder = WebviewWindowBuilder::new(
+                             println!("DEBUG: Spawning Firewall Alert Window...");
+                             let _ = WebviewWindowBuilder::new(
                                 &tx_monitor,
                                 "firewall-alert",
-                                WebviewUrl::App("index.html?mode=alert".into()),
+                                WebviewUrl::App("index.html?mode=alert".into())
                             )
-                            .title("Firewall Alert")
-                            .inner_size(toast_width, toast_height)
-                            .resizable(false)
-                            .always_on_top(true)
-                            .decorations(false)
-                            .skip_taskbar(true);
-
-                            if let Some((x, y)) = position {
-                                builder = builder.position(x, y);
-                            } else {
-                                builder = builder.center();
+                             .title("Firewall Alert")
+                             .inner_size(400.0, 320.0)
+                             .resizable(false)
+                             .always_on_top(true)
+                             .decorations(false)
+                             .center()
+                             .skip_taskbar(false)
+                             .build();
+                        } else {
+                            if let Some(win) = tx_monitor.get_webview_window("firewall-alert") {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
                             }
-
-                            let _ = builder.build();
-                        } else if let Some(win) = tx_monitor.get_webview_window("firewall-alert") {
-                            let _ = win.unminimize();
-                            let _ = win.show();
-                            let _ = win.set_focus();
                         }
 
                         // Don't spam the UI, wait for user validation interaction
@@ -1015,15 +1036,15 @@ impl FirewallEngine {
                         // If no pending app, we might want to close the alert window?
                         // Actually, if we resolved it, the window might stay open showing "Waiting..." or empty.
                         // Ideally, we close it from the UI side when decision is made.
-
+                        
                         // Check if we should auto-close empty prompt window?
                         // For now, let the user close it or the UI logic handle it.
                         // UI logic: resolve_decision calls invoke -> updates state -> PendingApp becomes None.
                         // If PendingApp is None, the UI shows "Waiting..."
-
+                        
                         // We can optionally hide the window if no pending app?
                         // But let's leave valid "Waiting" state for now.
-
+                        
                         std::thread::sleep(Duration::from_millis(200));
                     }
                 }
@@ -1037,7 +1058,7 @@ impl FirewallEngine {
             .name("global_injector".to_string())
             .spawn(move || {
                 use windows::Win32::System::Diagnostics::ToolHelp::{
-                    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+                    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
                     TH32CS_SNAPPROCESS,
                 };
 
@@ -1060,25 +1081,17 @@ impl FirewallEngine {
                                             // More aggressive: Only skip IDLE and SYSTEM
                                             if pid != 0 && pid != 4 && pid != std::process::id() {
                                                 let already_tracked = {
-                                                    let injected =
-                                                        am_global.injected_pids.read().unwrap();
+                                                    let injected = am_global.injected_pids.read().unwrap();
                                                     injected.contains(&pid)
                                                 };
 
-                                                if !already_tracked
-                                                    || !Injector::is_dll_loaded(pid, "hook_dll.dll")
-                                                {
+                                                if !already_tracked || !Injector::is_dll_loaded(pid, "hook_dll.dll") {
                                                     // Robust check: Is the DLL actually in the process?
                                                     // (Even if we didn't inject it this session or it failed before)
-                                                    let (_info_name, info_path) =
-                                                        Injector::get_process_info(pid);
+                                                    let (_info_name, info_path) = Injector::get_process_info(pid);
                                                     if !Injector::is_path_excluded(&info_path) {
-                                                        if Injector::inject(pid, &hook_dll).is_ok()
-                                                        {
-                                                            let mut injected = am_global
-                                                                .injected_pids
-                                                                .write()
-                                                                .unwrap();
+                                                        if Injector::inject(pid, &hook_dll).is_ok() {
+                                                            let mut injected = am_global.injected_pids.write().unwrap();
                                                             injected.insert(pid);
                                                         }
                                                     }
@@ -1139,28 +1152,20 @@ impl FirewallEngine {
                                 // 1. Try native Windows TCP/UDP table lookup (most reliable)
                                 // 2. Fallback to hook DLL port mapping
                                 let mut pid = 0u32;
-                                if let Some(p_info) =
-                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache)
-                                {
-                                    let lookup_port = if outbound {
-                                        p_info.src_port
-                                    } else {
-                                        p_info.dst_port
-                                    };
-                                    let is_tcp =
-                                        matches!(p_info.protocol, crate::engine::Protocol::TCP);
-
+                                if let Some(p_info) = Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache) {
+                                    let lookup_port = if outbound { p_info.src_port } else { p_info.dst_port };
+                                    let is_tcp = matches!(p_info.protocol, crate::engine::Protocol::TCP);
+                                    
                                     // Primary: Native Windows API lookup
                                     pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
-
+                                    
                                     // Fallback: Hook DLL mapping (if native lookup failed)
                                     if pid == 0 {
-                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port)
-                                        {
+                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
                                             pid = mapped_pid;
                                         }
                                     }
-
+                                    
                                     // Cache the resolved port->PID mapping for future
                                     if pid != 0 {
                                         am_w.update_port_mapping(lookup_port, pid);
@@ -1184,26 +1189,16 @@ impl FirewallEngine {
                                 );
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
-                                if let Some(info) = Self::parse_packet(
-                                    &decision.packet_data,
-                                    outbound,
-                                    pid,
-                                    &am_w.info_cache,
-                                ) {
+                                if let Some(info) = Self::parse_packet(&decision.packet_data, outbound, pid, &am_w.info_cache) {
                                     let ts = Self::now_ts();
                                     let app_info = am_w.info_cache.get_info(pid);
-
+                                    
                                     let payload_preview = if decision.packet_data.len() > 32 {
-                                        format!(
-                                            "{}...",
-                                            String::from_utf8_lossy(&decision.packet_data[..32])
-                                                .replace("\n", " ")
-                                        )
+                                        format!("{}...", String::from_utf8_lossy(&decision.packet_data[..32]).replace("\n", " "))
                                     } else {
-                                        String::from_utf8_lossy(&decision.packet_data)
-                                            .replace("\n", " ")
+                                        String::from_utf8_lossy(&decision.packet_data).replace("\n", " ")
                                     };
-
+                                    
                                     let raw_packet = crate::sdk::RawPacket {
                                         id: format!("{}-{}-{}", ts, info.src_port, info.dst_port),
                                         timestamp: ts,
@@ -1213,22 +1208,13 @@ impl FirewallEngine {
                                         dst_port: info.dst_port,
                                         protocol: info.protocol.clone(),
                                         length: decision.packet_data.len(),
-                                        payload_hex: decision
-                                            .packet_data
-                                            .iter()
-                                            .map(|b| format!("{:02X}", b))
-                                            .collect::<Vec<_>>()
-                                            .join(" "),
+                                        payload_hex: decision.packet_data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
                                         payload_preview,
                                         summary: format!("{} -> {}", info.src_ip, info.dst_ip),
                                         process_id: pid,
                                         process_name: app_info.name,
                                         process_path: app_info.path,
-                                        action: if decision.should_forward {
-                                            "Allow".to_string()
-                                        } else {
-                                            "Block".to_string()
-                                        },
+                                        action: if decision.should_forward { "Allow".to_string() } else { "Block".to_string() },
                                         rule: decision._reason.clone(),
                                     };
                                     let _ = tx_log.emit("raw_packet", raw_packet);
@@ -1284,11 +1270,7 @@ impl FirewallEngine {
         // 1. Resolve PID via port mapping if missing (0)
         if pid == 0 {
             if let Some(temp_info) = Self::parse_packet(&data_vec, outbound, 0, &am.info_cache) {
-                let lookup_port = if outbound {
-                    temp_info.src_port
-                } else {
-                    temp_info.dst_port
-                };
+                let lookup_port = if outbound { temp_info.src_port } else { temp_info.dst_port };
                 if let Some(mapped_pid) = am.get_pid_for_port(lookup_port) {
                     pid = mapped_pid;
                 }
@@ -1305,16 +1287,14 @@ impl FirewallEngine {
 
         // Initialize decision state before parsing
         let mut should_forward = false;
-        let mut reason: Option<String> = None;
+        let mut reason = String::from("Pending decision");
 
         // 3. SDK PACKET CHANGERS & LISTENERS
         if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
             let sdk_read = sdk.read().unwrap();
             for changer in &sdk_read.changers {
                 if changer.modify(&mut data_vec, &info, &sdk_context) {
-                    if let Some(new_info) =
-                        Self::parse_packet(&data_vec, outbound, pid, &am.info_cache)
-                    {
+                    if let Some(new_info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
                         info = new_info;
                     }
                 }
@@ -1327,11 +1307,11 @@ impl FirewallEngine {
             // 4. Core Firewall Logic
             // POLICY CHANGE: Rule-based (Default Allow) instead of Default Deny
             should_forward = true;
-            reason = Some(if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
+            reason = if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
                 "Localhost".to_string()
             } else {
                 "Default Allow".to_string()
-            });
+            };
 
             // Cache URLs
             if let Some(ref url) = info.full_url {
@@ -1345,13 +1325,12 @@ impl FirewallEngine {
             // File Magic Detection
             let detected_type = file_checker.check(&data_vec);
             if let Some(ref dtype) = detected_type {
-                // Reuse info struct? No, it's owned now. We modify the copy or just cache it?
-                // 'info' is local.
-                am.url_cache
-                    .write()
-                    .unwrap()
-                    .insert(pid, format!("FILESIG:{}", dtype));
-                info.detected_file_type = Some(dtype.clone());
+                 // Reuse info struct? No, it's owned now. We modify the copy or just cache it?
+                 // 'info' is local.
+                 am.url_cache.write().unwrap().insert(pid, format!("FILESIG:{}", dtype));
+                 info.detected_file_type = Some(dtype.clone());
+                 
+
             }
 
             let (auto_inject_https, hook_dll) = {
@@ -1367,7 +1346,7 @@ impl FirewallEngine {
             {
                 let mut injected = am.injected_pids.write().unwrap();
                 let mut failed = am.failed_pids.write().unwrap();
-
+                
                 if !injected.contains(&info.process_id) && !failed.contains(&info.process_id) {
                     match Injector::inject(info.process_id, &hook_dll) {
                         Ok(()) => {
@@ -1387,30 +1366,16 @@ impl FirewallEngine {
                         }
                         Err(e) => {
                             failed.insert(info.process_id);
-                            let (level, message) = if e.permission_denied {
-                                (
-                                    LogLevel::Info,
-                                    format!(
-                                        "HTTPS hook skipped for PID {}: access denied (protected/system or insufficient rights). TLS hostname visibility may be limited for this app; retry suppressed.",
-                                        info.process_id
-                                    ),
-                                )
-                            } else {
-                                (
-                                    LogLevel::Warning,
-                                    format!(
-                                        "Failed to inject HTTPS hook into PID {}: {} (no further retries; TLS hostnames unavailable for this process)",
-                                        info.process_id, e.message
-                                    ),
-                                )
-                            };
                             let _ = tx.emit(
                                 "log",
                                 LogEntry {
                                     id: format!("{}-tls-hook-fail", Self::now_ts()),
                                     timestamp: Self::now_ts(),
-                                    level,
-                                    message,
+                                    level: LogLevel::Warning,
+                                    message: format!(
+                                        "Failed to inject HTTPS hook into PID {}: {} (Logic will skip future retries for this PID)",
+                                        info.process_id, e
+                                    ),
                                 },
                             );
                         }
@@ -1430,7 +1395,7 @@ impl FirewallEngine {
                 if let Some(ref domain) = dns_domain {
                     if dns_handler.should_block(domain, &*settings_lock) {
                         should_forward = false;
-                        reason = Some(format!("DNS Keyword Blocked: {}", domain));
+                        reason = format!("DNS Keyword Blocked: {}", domain);
                     }
                 }
             }
@@ -1444,14 +1409,9 @@ impl FirewallEngine {
                 AppDecision::Allow => {
                     // If we were only blocking because of the default non-localhost policy,
                     // a user allow decision should punch a hole for this app.
-                    if !should_forward
-                        && reason
-                            .as_ref()
-                            .map(|r| r.starts_with("Default block"))
-                            .unwrap_or(false)
-                    {
+                    if !should_forward && reason.starts_with("Default block") {
                         should_forward = true;
-                        reason = Some(format!("App Allowed: {}", app_name));
+                        reason = format!("App Allowed: {}", app_name);
                     } else if should_forward {
                         stats.packets_total.fetch_add(1, Ordering::Relaxed);
                         stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
@@ -1466,7 +1426,7 @@ impl FirewallEngine {
                 AppDecision::Pending => {
                     // POLICY CHANGE: Allow unknown apps by default (No Zero Trust)
                     should_forward = true;
-                    reason = Some(format!("New App Detected: {}", app_name));
+                    reason = format!("New App Detected: {}", app_name);
                 }
                 AppDecision::Block => {}
             }
@@ -1476,7 +1436,7 @@ impl FirewallEngine {
                 if let Some(ref hostname) = info.hostname {
                     if let Some(block_reason) = wf.check_hostname(hostname) {
                         should_forward = false;
-                        reason = Some(block_reason);
+                        reason = block_reason;
                     }
                 }
             }
@@ -1485,7 +1445,7 @@ impl FirewallEngine {
                 if let Some(ref url) = info.full_url {
                     if let Some(block_reason) = wf.check_url(url) {
                         should_forward = false;
-                        reason = Some(block_reason);
+                        reason = block_reason;
                     }
                 }
             }
@@ -1494,7 +1454,7 @@ impl FirewallEngine {
                 for url in &info.payload_urls {
                     if let Some(block_reason) = wf.check_url(url) {
                         should_forward = false;
-                        reason = Some(block_reason);
+                        reason = block_reason;
                         break;
                     }
                 }
@@ -1504,7 +1464,7 @@ impl FirewallEngine {
                 for domain in &info.payload_domains {
                     if let Some(block_reason) = wf.check_hostname(domain) {
                         should_forward = false;
-                        reason = Some(block_reason);
+                        reason = block_reason;
                         break;
                     }
                 }
@@ -1512,7 +1472,7 @@ impl FirewallEngine {
 
             if should_forward && app_decision == AppDecision::Block {
                 should_forward = false;
-                reason = Some(format!("Blocked App: {}", app_name));
+                reason = format!("Blocked App: {}", app_name);
             }
 
             // 4. Custom Firewall Rules
@@ -1521,10 +1481,10 @@ impl FirewallEngine {
                 if rule.matches(&info, &app_name) {
                     if rule.block {
                         should_forward = false;
-                        reason = Some(format!("Rule: {}", rule.name));
+                        reason = format!("Rule: {}", rule.name);
                     } else {
                         should_forward = true;
-                        reason = Some(format!("Rule Allowed: {}", rule.name));
+                        reason = format!("Rule Allowed: {}", rule.name);
                     }
                     break;
                 }
@@ -1554,9 +1514,7 @@ impl FirewallEngine {
                         .is_ok()
                     {
                         let context = Self::format_packet_context(&info);
-                        let allow_reason = reason
-                            .clone()
-                            .unwrap_or_else(|| "Default Allow".to_string());
+                        println!("DEBUG: Emitting Log: {}", reason);
 
                         let _ = tx.emit(
                             "log",
@@ -1564,7 +1522,7 @@ impl FirewallEngine {
                                 id: format!("{}-allow", now),
                                 timestamp: now,
                                 level: LogLevel::Success,
-                                message: format!("✅ {} | {}", allow_reason, context),
+                                message: format!("✅ {} | {}", reason, context),
                             },
                         );
                     }
@@ -1583,16 +1541,13 @@ impl FirewallEngine {
                         .is_ok()
                     {
                         let context = Self::format_packet_context(&info);
-                        let log_reason = reason
-                            .clone()
-                            .unwrap_or_else(|| "Default Allow".to_string());
                         let _ = tx.emit(
                             "log",
                             LogEntry {
                                 id: format!("{}-blocked", now),
                                 timestamp: now,
                                 level: LogLevel::Warning,
-                                message: format!("🚫 {} | {}", log_reason, context),
+                                message: format!("🚫 {} | {}", reason, context),
                             },
                         );
                     }
@@ -1604,7 +1559,7 @@ impl FirewallEngine {
         else {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-            reason = Some("Blocked (unsupported or truncated packet)".to_string());
+            reason = "Blocked (unsupported or truncated packet)".to_string();
 
             let now = Self::now_ts();
             let last = stats.last_log_time.load(Ordering::Relaxed);
@@ -1614,103 +1569,42 @@ impl FirewallEngine {
                     .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
                     .is_ok()
                 {
-                    let log_reason = reason
-                        .clone()
-                        .unwrap_or_else(|| "Default Allow".to_string());
                     let _ = tx.emit(
                         "log",
                         LogEntry {
                             id: format!("{}-blocked", now),
                             timestamp: now,
                             level: LogLevel::Warning,
-                            message: format!("🚫 {} | raw-bytes={}B", log_reason, data.len()),
+                            message: format!("🚫 {} | raw-bytes={}B", reason, data.len()),
                         },
                     );
                 }
             }
         }
 
-        // SDK SECURITY RULES
+        // SDK SECURITY SIGNATURES
         {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
-            if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
-                let findings = sdk_read.evaluate_all(&info, &data_vec, &*s_lock, &sdk_context);
-
-                if let Some(finding) = findings.first() {
-                    match finding.action {
-                        crate::sdk::RuleAction::Block => {
-                            should_forward = false;
-                            reason = Some(format!(
-                                "SDK Rule [{}]: {}",
-                                finding.rule_name, finding.description
-                            ));
-                        }
-                        crate::sdk::RuleAction::Allow => {
-                            should_forward = true;
-                            reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
-                        }
-                        crate::sdk::RuleAction::TrafficAttack => {
-                            // Log as attack but still forward (monitoring)
-                            let _ = tx.emit(
-                                "log",
-                                LogEntry {
-                                    id: format!("{}-attack", Self::now_ts()),
-                                    timestamp: Self::now_ts(),
-                                    level: LogLevel::Warning,
-                                    message: format!(
-                                        "⚠️ Attack detected by [{}]: {}",
-                                        finding.rule_name, finding.description
-                                    ),
-                                },
-                            );
-                        }
-                        crate::sdk::RuleAction::Ask => {
-                            // Set pending for user decision
-                            should_forward = false; // Block until user decides
-                            reason = Some(format!("SDK Rule [{}]: Pending user decision", finding.rule_name));
-                        }
-                        _ => {} // ChangePacket, SolvePacket, InjectDll handled elsewhere
-                    }
+            for sig in &sdk_read.signatures {
+                if let Some(sig_reason) = sig.evaluate(&data_vec, &*s_lock, &sdk_context) {
+                    should_forward = false;
+                    reason = format!("SDK Signature [{}]: {}", sig.name(), sig_reason);
+                    break;
                 }
             }
         }
-
-        let reason_text = reason.unwrap_or_else(|| "Default Allow".to_string());
 
         PacketDecision {
             packet_data: data_vec,
             address_data: address_data.to_vec(),
             should_forward,
-            _reason: reason_text,
+            _reason: reason,
         }
     }
 
     pub fn inject_dll(&self, pid: u32, dll_path: &str) -> bool {
         Injector::inject(pid, dll_path).is_ok()
-    }
-
-    pub fn get_sdk_rules(&self) -> Vec<crate::sdk::SdkRule> {
-        let sdk = self.sdk.read().unwrap();
-        sdk.rules.clone()
-    }
-
-    pub fn get_rules_raw(&self) -> String {
-        std::fs::read_to_string("rules.yaml").unwrap_or_default()
-    }
-
-    pub fn save_rules_raw(&self, content: String) -> Result<(), String> {
-        if let Err(e) = serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
-            return Err(format!("Invalid YAML: {}", e));
-        }
-        std::fs::write("rules.yaml", content).map_err(|e| e.to_string())
-    }
-
-    pub fn validate_rules_raw(&self, content: String) -> Result<String, String> {
-        match serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
-            Ok(_) => Ok("YAML Syntax is Valid.".to_string()),
-            Err(e) => Err(format!("Syntax Error: {}", e)),
-        }
     }
 
     fn now_ts() -> u64 {
@@ -1762,12 +1656,7 @@ impl FirewallEngine {
         (urls, domains)
     }
 
-    fn parse_packet(
-        data: &[u8],
-        outbound: bool,
-        process_id: u32,
-        cache: &AppInfoCache,
-    ) -> Option<PacketInfo> {
+    fn parse_packet(data: &[u8], outbound: bool, process_id: u32, cache: &AppInfoCache) -> Option<PacketInfo> {
         if data.len() < 20 {
             return None;
         }
@@ -1786,6 +1675,7 @@ impl FirewallEngine {
         let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
         let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
         let header_len = ((data[0] & 0x0F) as usize) * 4;
+        
 
         let (src_port, dst_port) = if header_len + 4 <= data.len() {
             match protocol {

@@ -1,41 +1,13 @@
-use crate::sdk::HookSettings;
 use std::ffi::CString;
-use std::sync::RwLock;
-use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HMODULE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx};
-use windows::Win32::System::ProcessStatus::{
-    EnumProcessModules, GetModuleBaseNameW, GetModuleFileNameExW,
-};
 use windows::Win32::System::Threading::{
     CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
-use windows::core::Error;
-
-lazy_static::lazy_static! {
-    /// Global hook settings that can be modified at runtime
-    pub static ref HOOK_SETTINGS: RwLock<HookSettings> = RwLock::new(HookSettings::default());
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct InjectionError {
-    pub message: String,
-    pub permission_denied: bool,
-}
-
-#[allow(dead_code)]
-impl InjectionError {
-    fn from_win32(context: &str, err: Error) -> Self {
-        let permission_denied = err.code() == ERROR_ACCESS_DENIED.to_hresult();
-        Self {
-            message: format!("{} failed: {}", context, err),
-            permission_denied,
-        }
-    }
-}
+use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW, GetModuleFileNameExW};
 
 #[allow(dead_code)]
 pub struct Injector;
@@ -44,22 +16,11 @@ pub struct Injector;
 impl Injector {
     pub fn is_dll_loaded(pid: u32, dll_name: &str) -> bool {
         unsafe {
-            let handle_res = OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                false.into(),
-                pid,
-            );
+            let handle_res = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false.into(), pid);
             if let Ok(handle) = handle_res {
                 let mut modules = [HMODULE::default(); 1024];
                 let mut cb_needed = 0;
-                if EnumProcessModules(
-                    handle,
-                    modules.as_mut_ptr(),
-                    std::mem::size_of_val(&modules) as u32,
-                    &mut cb_needed,
-                )
-                .is_ok()
-                {
+                if EnumProcessModules(handle, modules.as_mut_ptr(), std::mem::size_of_val(&modules) as u32, &mut cb_needed).is_ok() {
                     let count = cb_needed as usize / std::mem::size_of::<HMODULE>();
                     for i in 0..count {
                         let mut name_buf = [0u16; 256];
@@ -81,31 +42,26 @@ impl Injector {
 
     pub fn get_process_info(pid: u32) -> (String, String) {
         unsafe {
-            let handle_res = OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                false.into(),
-                pid,
-            );
+            let handle_res = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false.into(), pid);
             if let Ok(handle) = handle_res {
                 let mut name_buf = [0u16; 256];
                 let mut path_buf = [0u16; 512];
-
+                
                 let name_len = GetModuleBaseNameW(handle, Some(HMODULE::default()), &mut name_buf);
-                let path_len =
-                    GetModuleFileNameExW(Some(handle), Some(HMODULE::default()), &mut path_buf);
-
+                let path_len = GetModuleFileNameExW(Some(handle), Some(HMODULE::default()), &mut path_buf);
+                
                 let name = if name_len > 0 {
                     String::from_utf16_lossy(&name_buf[..name_len as usize])
                 } else {
                     format!("PID:{}", pid)
                 };
-
+                
                 let path = if path_len > 0 {
                     String::from_utf16_lossy(&path_buf[..path_len as usize])
                 } else {
                     "Unknown".to_string()
                 };
-
+                
                 let _ = CloseHandle(handle);
                 return (name, path);
             }
@@ -113,60 +69,23 @@ impl Injector {
         (format!("PID:{}", pid), "Unknown".to_string())
     }
 
-    /// Check if a path is excluded from hooking using global settings
     pub fn is_path_excluded(path: &str) -> bool {
-        let settings = HOOK_SETTINGS.read().unwrap();
-        settings.is_whitelisted(path)
-    }
-
-    /// Check if hooking is enabled
-    pub fn is_hooking_enabled() -> bool {
-        let settings = HOOK_SETTINGS.read().unwrap();
-        settings.enabled
-    }
-
-    /// Update hook settings
-    pub fn update_settings(new_settings: HookSettings) {
-        let mut settings = HOOK_SETTINGS.write().unwrap();
-        *settings = new_settings;
-    }
-
-    /// Add a path to the whitelist
-    pub fn add_whitelist_path(path: String) {
-        let mut settings = HOOK_SETTINGS.write().unwrap();
-        settings.add_whitelist_path(path);
-    }
-
-    /// Remove a path from the whitelist
-    pub fn remove_whitelist_path(path: &str) {
-        let mut settings = HOOK_SETTINGS.write().unwrap();
-        settings.remove_whitelist_path(path);
-    }
-
-    /// Get current whitelist paths
-    pub fn get_whitelist_paths() -> Vec<String> {
-        let settings = HOOK_SETTINGS.read().unwrap();
-        settings.whitelist_paths.clone()
-    }
-
-    pub fn inject(pid: u32, dll_path: &str) -> Result<(), InjectionError> {
-        // Check if hooking is enabled
-        if !Self::is_hooking_enabled() {
-            return Err(InjectionError {
-                message: "Hooking is disabled".to_string(),
-                permission_denied: false,
-            });
+        let path_lower = path.to_lowercase();
+        let exclusions = [
+            "\\program files\\hydradragonantivirus",
+            "\\desktop\\sanctum",
+            "\\appdata\\roaming\\sanctum",
+        ];
+        
+        for exc in &exclusions {
+            if path_lower.contains(exc) {
+                return true;
+            }
         }
+        false
+    }
 
-        // Check if process is whitelisted
-        let (_, process_path) = Self::get_process_info(pid);
-        if Self::is_path_excluded(&process_path) {
-            return Err(InjectionError {
-                message: format!("Process {} is whitelisted", process_path),
-                permission_denied: false,
-            });
-        }
-
+    pub fn inject(pid: u32, dll_path: &str) -> Result<(), String> {
         unsafe {
             let process_handle = OpenProcess(
                 PROCESS_CREATE_THREAD
@@ -177,13 +96,10 @@ impl Injector {
                 false.into(),
                 pid,
             )
-            .map_err(|e| InjectionError::from_win32("OpenProcess", e))?;
+            .map_err(|e| format!("OpenProcess failed: {}", e))?;
 
             if process_handle.is_invalid() {
-                return Err(InjectionError {
-                    message: "Invalid process handle".to_string(),
-                    permission_denied: false,
-                });
+                return Err("Invalid process handle".to_string());
             }
 
             // Allocate memory in target process for DLL path
@@ -200,10 +116,7 @@ impl Injector {
 
             if remote_mem.is_null() {
                 let _ = CloseHandle(process_handle);
-                return Err(InjectionError {
-                    message: "VirtualAllocEx failed".to_string(),
-                    permission_denied: false,
-                });
+                return Err("VirtualAllocEx failed".to_string());
             }
 
             // Write DLL path
@@ -219,10 +132,7 @@ impl Injector {
             // WriteProcessMemory returns BOOL (wrapped in Result by windows-rs)
             if write_result.is_err() || bytes_written != dll_path_len {
                 let _ = CloseHandle(process_handle);
-                return Err(InjectionError {
-                    message: "WriteProcessMemory failed".to_string(),
-                    permission_denied: false,
-                });
+                return Err("WriteProcessMemory failed".to_string());
             }
 
             // Get LoadLibraryA address
@@ -231,10 +141,7 @@ impl Injector {
 
             if load_library_addr.is_none() {
                 let _ = CloseHandle(process_handle);
-                return Err(InjectionError {
-                    message: "LoadLibraryA not found".to_string(),
-                    permission_denied: false,
-                });
+                return Err("LoadLibraryA not found".to_string());
             }
 
             let start_routine = std::mem::transmute(load_library_addr);
@@ -254,65 +161,16 @@ impl Injector {
 
             if let Ok(th) = thread_handle {
                 if th.is_invalid() {
-                    return Err(InjectionError {
-                        message: "CreateRemoteThread returned invalid handle".to_string(),
-                        permission_denied: false,
-                    });
+                    return Err("CreateRemoteThread returned invalid handle".to_string());
                 }
                 let _ = CloseHandle(th);
                 Ok(())
             } else {
-                Err(InjectionError {
-                    message: format!("CreateRemoteThread failed: {:?}", thread_handle.err()),
-                    permission_denied: false,
-                })
+                Err(format!(
+                    "CreateRemoteThread failed: {:?}",
+                    thread_handle.err()
+                ))
             }
         }
-    }
-
-    /// Inject DLL to all running processes except whitelisted ones
-    pub fn inject_all_processes(dll_path: &str) -> Vec<(u32, Result<(), InjectionError>)> {
-        use windows::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
-            TH32CS_SNAPPROCESS,
-        };
-
-        let mut results = Vec::new();
-
-        unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if let Ok(snap) = snapshot {
-                let mut entry = PROCESSENTRY32 {
-                    dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
-                    ..Default::default()
-                };
-
-                if Process32First(snap, &mut entry).is_ok() {
-                    loop {
-                        let pid = entry.th32ProcessID;
-                        
-                        // Skip self, system, and idle processes
-                        if pid != 0 && pid != 4 && pid != std::process::id() {
-                            let (_, path) = Self::get_process_info(pid);
-                            
-                            // Only inject if not whitelisted and not already injected
-                            if !Self::is_path_excluded(&path) {
-                                if !Self::is_dll_loaded(pid, "hook_dll.dll") {
-                                    let result = Self::inject(pid, dll_path);
-                                    results.push((pid, result));
-                                }
-                            }
-                        }
-
-                        if Process32Next(snap, &mut entry).is_err() {
-                            break;
-                        }
-                    }
-                }
-                let _ = CloseHandle(snap);
-            }
-        }
-
-        results
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 #[derive(Clone, Debug)]
 pub struct MagicSignature {
     pub magic: Vec<u8>,
@@ -24,8 +26,8 @@ impl FileMagicChecker {
             return None;
         }
 
-        // We search for the first match. Order matters if there are overlapping prefixes,
-        // but robust signatures usually are distinct enough.
+        // We search for the first match. Order matters if there are overlapping prefixes, 
+        // but robust signatures usually are distinct enough. 
         // We'll iterate through our list.
         for sig in &self.signatures {
             if data.len() >= sig.offset + sig.magic.len() {
@@ -52,13 +54,10 @@ impl FileMagicChecker {
             (vec![0x4D, 0x3C, 0xB2, 0xA1], "pcap"),
             (vec![0x0A, 0x0D, 0x0D, 0x0A], "pcapng"),
             (vec![0xED, 0xAB, 0xEE, 0xDB], "rpm"),
-            (
-                vec![0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, 0x66],
-                "sqlite",
-            ),
+            (vec![0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, 0x66], "sqlite"),
             (vec![0x53, 0x50, 0x30, 0x31], "bin"),
             (vec![0x49, 0x57, 0x41, 0x44], "wad"),
-            (vec![0x00], "pic"),
+            (vec![0x00], "pic"), 
             (vec![0xBE, 0xBA, 0xFE, 0xCA], "dba"),
             (vec![0x00, 0x01, 0x42, 0x44], "dba"),
             (vec![0x00, 0x01, 0x44, 0x54], "tda"),
@@ -134,10 +133,7 @@ impl FileMagicChecker {
             (vec![0x42, 0x4D], "bmp"),
             (vec![0x43, 0x44, 0x30, 0x30, 0x31], "iso"),
             (vec![0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00], "lnk"),
-            (
-                vec![0x62, 0x6F, 0x6F, 0x6B, 0x00, 0x00, 0x00, 0x00],
-                "alias",
-            ),
+            (vec![0x62, 0x6F, 0x6F, 0x6B, 0x00, 0x00, 0x00, 0x00], "alias"),
             (vec![0x75, 0x73, 0x74, 0x61, 0x72, 0x00, 0x30, 0x30], "tar"),
             (vec![0x4D, 0x53, 0x43, 0x46], "cab"),
             (vec![0x4B, 0x44, 0x4D], "vmdk"),
@@ -155,16 +151,15 @@ impl FileMagicChecker {
         // (Naive approach, usually works for magic numbers)
         // Actually, some user types duplicates with different magic.
         for (magic, ftype) in raw_sigs {
-            self.add_item(magic, ftype.to_string());
+            self.addItem(magic, ftype.to_string());
         }
-
+        
         // Ensure we sort so we don't return "dos" for "exe" if "exe" is longer/better
         // The loop check order matters.
-        self.signatures
-            .sort_by(|a, b| b.magic.len().cmp(&a.magic.len()));
+        self.signatures.sort_by(|a, b| b.magic.len().cmp(&a.magic.len()));
     }
-
-    fn add_item(&mut self, magic: Vec<u8>, file_type: String) {
+    
+    fn addItem(&mut self, magic: Vec<u8>, file_type: String) {
         self.signatures.push(MagicSignature {
             magic,
             file_type,
