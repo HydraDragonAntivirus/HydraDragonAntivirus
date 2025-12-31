@@ -11,7 +11,7 @@ pub fn RulesWiki() -> impl IntoView {
                         "Complete Rules Reference"
                     </h3>
                     <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; opacity: 0.8">
-                        "HydraDragon SDK v0.1.0 • Full Feature Documentation"
+                        "HydraDragon SDK v2025.4.0 • Full Feature Documentation"
                     </div>
                 </div>
             </div>
