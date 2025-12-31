@@ -4,7 +4,6 @@ use leptos::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
 
 mod wiki;
 use wiki::RulesWiki;
@@ -163,15 +162,15 @@ pub struct FirewallSettings {
 pub fn App() -> impl IntoView {
     let (logs, set_logs) = create_signal(Vec::<LogEntry>::new());
     let (blocked_count, set_blocked_count) = create_signal(0);
-    let (threats_count, set_threats_count) = create_signal(0);
-    let (allowed_count, set_allowed_count) = create_signal(0);
+    let (_threats_count, set_threats_count) = create_signal(0);
+    let (_allowed_count, set_allowed_count) = create_signal(0);
     let (total_count, set_total_count) = create_signal(0);
 
     // Navigation State
     let (current_view, set_current_view) = create_signal(AppView::Dashboard);
     let (raw_packets, set_raw_packets) = create_signal(Vec::<RawPacket>::new());
     let (selected_packet, set_selected_packet) = create_signal(Option::<RawPacket>::None);
-    let (sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
+    let (_sdk_rules, set_sdk_rules) = create_signal(Vec::<SdkRuleView>::new());
     
     let (pending_app, set_pending_app) = create_signal(Option::<PendingApp>::None);
     let (app_decisions, set_app_decisions) = create_signal(std::collections::HashMap::<String, AppDecision>::new());
@@ -217,7 +216,7 @@ pub fn App() -> impl IntoView {
         }
     });
 
-    let resolve_decision = move |name: String, decision: String| {
+    let _resolve_decision = move |name: String, decision: String| {
         let name_lower = name.clone();
         spawn_local(async move {
             let args = serde_wasm_bindgen::to_value(&ResolveArgs {
@@ -236,7 +235,7 @@ pub fn App() -> impl IntoView {
     
     let (show_editor, set_show_editor) = create_signal(false);
     let (rules_raw_content, set_rules_raw_content) = create_signal(String::new());
-    let (validation_result, set_validation_result) = create_signal(String::from("Ready to validate."));
+    let (_validation_result, set_validation_result) = create_signal(String::from("Ready to validate."));
 
     let fetch_sdk_rules = move || {
         spawn_local(async move {
@@ -305,21 +304,21 @@ pub fn App() -> impl IntoView {
         });
     };
 
-    let (show_rule_modal, set_show_rule_modal) = create_signal(false);
-    let (new_rule_name, set_new_rule_name) = create_signal(String::new());
-    let (new_rule_desc, set_new_rule_desc) = create_signal(String::new());
-    let (new_rule_ips, set_new_rule_ips) = create_signal(String::new());
-    let (new_rule_ports, set_new_rule_ports) = create_signal(String::new());
-    let (new_rule_protocol, set_new_rule_protocol) = create_signal("Any".to_string());
-    let (new_rule_block, set_new_rule_block) = create_signal(true);
-    let (validation_error, set_validation_error) = create_signal(Option::<String>::None);
-    let (console_output, set_console_output) = create_signal(Vec::<String>::new());
-    let (is_compiling, set_is_compiling) = create_signal(false);
-    let (active_tab, set_active_tab) = create_signal("rule".to_string());
+    let (_show_rule_modal, _set_show_rule_modal) = create_signal(false);
+    let (_new_rule_name, _set_new_rule_name) = create_signal(String::new());
+    let (_new_rule_desc, _set_new_rule_desc) = create_signal(String::new());
+    let (_new_rule_ips, _set_new_rule_ips) = create_signal(String::new());
+    let (_new_rule_ports, _set_new_rule_ports) = create_signal(String::new());
+    let (_new_rule_protocol, _set_new_rule_protocol) = create_signal("Any".to_string());
+    let (_new_rule_block, _set_new_rule_block) = create_signal(true);
+    let (_validation_error, _set_validation_error) = create_signal(Option::<String>::None);
+    let (_console_output, _set_console_output) = create_signal(Vec::<String>::new());
+    let (_is_compiling, _set_is_compiling) = create_signal(false);
+    let (_active_tab, _set_active_tab) = create_signal("rule".to_string());
     let (saved_status, set_saved_status) = create_signal(false);
     let (engine_status, set_engine_status) = create_signal("Initializing Engine...".to_string());
     let (engine_active, set_engine_active) = create_signal(false);
-    let (graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
+    let (_graph_data, set_graph_data) = create_signal(vec![180, 160, 170, 150, 140, 130, 110, 120, 100]);
     let (settings, set_settings) = create_signal(FirewallSettings::default());
 
     create_effect(move |_| {
@@ -676,7 +675,6 @@ pub fn App() -> impl IntoView {
                                     </div>
                                 </div>
                             }.into_view(),
-                            _ => view! { <div>"View Not Implemented"</div> }.into_view(),
                         }}
                     </main>
                 </div>

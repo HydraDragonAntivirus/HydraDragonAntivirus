@@ -18,12 +18,7 @@ rules:
       patterns:
         - "*/api/webhooks/*"
 
-  # Block ICMP Ping (Features 9, 19)
-  - name: "Block ICMP Ping"
-    description: "Blocks all ICMP traffic to prevent ping sweeps"
-    enabled: true
-    protocol: icmp
-    action: block
+
 
   # Monitor Local Network Traffic (Features 8, 21, 25, 26)
   - name: "Ask Local Network Access"

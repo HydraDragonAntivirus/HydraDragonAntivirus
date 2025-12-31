@@ -19,7 +19,7 @@ lazy_static! {
         Regex::new(r"(?i)https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+")
             .expect("failed to compile URL regex");
     static ref DOMAIN_TOKEN_REGEX: Regex =
-        Regex::new(r"(?i)\b([a-z0-9][a-z0-9-]{0,62}\.)+[a-z]{2,}\b")
+        Regex::new(r"(?i)\b(([a-z0-9][a-z0-9-]{0,62}\.)+[a-z]{2,})\b")
             .expect("failed to compile domain token regex");
 }
 // Imports updated below
@@ -351,12 +351,14 @@ impl Default for Statistics {
 
 pub struct DnsHandler {
     queries: RwLock<VecDeque<DnsQuery>>,
+    ip_map: RwLock<HashMap<String, (String, SystemTime)>>,
 }
 
 impl DnsHandler {
     pub fn new() -> Self {
         Self {
             queries: RwLock::new(VecDeque::new()),
+            ip_map: RwLock::new(HashMap::new()),
         }
     }
 
@@ -378,6 +380,21 @@ impl DnsHandler {
         if queries.len() > 500 {
             queries.pop_front();
         }
+    }
+
+    pub fn update_ip_map(&self, ip: String, domain: String) {
+        let mut map = self.ip_map.write().unwrap();
+        map.insert(ip, (domain, SystemTime::now()));
+        // Optional: Periodic cleanup of old entries could be added here
+        if map.len() > 2000 {
+            // Very basic cleanup if it gets too large
+            map.clear();
+        }
+    }
+
+    pub fn resolve_ip(&self, ip: &str) -> Option<String> {
+        let map = self.ip_map.read().unwrap();
+        map.get(ip).map(|(domain, _)| domain.clone())
     }
 }
 
@@ -591,21 +608,6 @@ impl FirewallEngine {
 
         // Default allow rules are now handled in Default impl or loaded from disk.
         // We do NOT hardcode them here to allow user to override/remove them.
-        if settings_data.rules.is_empty() {
-            settings_data.rules.push(FirewallRule {
-                name: "Block ICMP (Ping)".to_string(),
-                description: "Blocks all incoming and outgoing ICMP echo requests.".to_string(),
-                enabled: true,
-                block: true,
-                protocol: Some(Protocol::ICMP),
-                remote_ips: vec![],
-                remote_ports: vec![],
-                app_name: None,
-                hostname_pattern: None,
-                url_pattern: None,
-                file_types: vec![],
-            });
-        }
 
         let app_decisions = settings_data.app_decisions.clone();
         let app_manager = Arc::new(AppManager::new(app_decisions));
@@ -1148,10 +1150,12 @@ impl FirewallEngine {
                                 // PID RESOLUTION:
                                 // 1. Try native Windows TCP/UDP table lookup (most reliable)
                                 // 2. Fallback to hook DLL port mapping
+                                // PRIMARY PARSE:
                                 let mut pid = 0u32;
-                                if let Some(p_info) =
-                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache)
-                                {
+                                let mut pre_parsed =
+                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache);
+
+                                if let Some((ref mut p_info, _)) = pre_parsed {
                                     let lookup_port = if outbound {
                                         p_info.src_port
                                     } else {
@@ -1174,6 +1178,8 @@ impl FirewallEngine {
                                     // Cache the resolved port->PID mapping for future
                                     if pid != 0 {
                                         am_w.update_port_mapping(lookup_port, pid);
+                                        p_info.process_id = pid;
+                                        p_info.image_path = am_w.info_cache.get_info(pid).path;
                                     }
                                 }
 
@@ -1191,10 +1197,11 @@ impl FirewallEngine {
                                     &fcheck_w,
                                     &tx_log,
                                     pid,
+                                    pre_parsed,
                                 );
 
                                 // EMIT RAW PACKET FOR UI (Wireshark-like view)
-                                if let Some(info) = Self::parse_packet(
+                                if let Some((info, _)) = Self::parse_packet(
                                     &decision.packet_data,
                                     outbound,
                                     pid,
@@ -1288,30 +1295,37 @@ impl FirewallEngine {
         stats: &Arc<Statistics>,
         rules: &Arc<RwLock<Vec<FirewallRule>>>,
         am: &Arc<AppManager>,
-        wf: &Arc<WebFilter>,
+        _wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
         sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
         file_checker: &Arc<FileMagicChecker>,
         tx: &AppHandle,
         process_id: u32,
+        pre_parsed: Option<(PacketInfo, usize)>,
     ) -> PacketDecision {
-        let mut data_vec = data.to_vec();
-        let mut pid = process_id;
-
-        // 1. Resolve PID via port mapping if missing (0)
-        if pid == 0 {
-            if let Some(temp_info) = Self::parse_packet(&data_vec, outbound, 0, &am.info_cache) {
-                let lookup_port = if outbound {
-                    temp_info.src_port
+        let (mut info, payload_offset) = match pre_parsed {
+            Some(p) => p,
+            None => {
+                if let Some((p_info, offset)) =
+                    Self::parse_packet(data, outbound, process_id, &am.info_cache)
+                {
+                    (p_info, offset)
                 } else {
-                    temp_info.dst_port
-                };
-                if let Some(mapped_pid) = am.get_pid_for_port(lookup_port) {
-                    pid = mapped_pid;
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+                    return PacketDecision {
+                        packet_data: data.to_vec(),
+                        address_data: address_data.to_vec(),
+                        should_forward: true,
+                        _reason: "Unparsed packet allowed (no default deny)".to_string(),
+                    };
                 }
             }
-        }
+        };
+
+        let mut data_vec = data.to_vec();
+        let pid = info.process_id;
 
         // 2. Resolve Process Metadata
         let app_info = am.info_cache.get_info(pid);
@@ -1321,16 +1335,25 @@ impl FirewallEngine {
             process_path: app_info.path.clone(),
         };
 
-        // Initialize decision state before parsing
+        // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
 
-        // 3. SDK PACKET CHANGERS & LISTENERS
-        if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
+        // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
+        if info.hostname.is_none() {
+            if outbound {
+                info.hostname = dns_handler.resolve_ip(&info.dst_ip.to_string());
+            } else {
+                info.hostname = dns_handler.resolve_ip(&info.src_ip.to_string());
+            }
+        }
+
+        // 4. SDK PACKET CHANGERS & LISTENERS
+        {
             let sdk_read = sdk.read().unwrap();
             for changer in &sdk_read.changers {
                 if changer.modify(&mut data_vec, &info, &sdk_context) {
-                    if let Some(new_info) =
+                    if let Some((new_info, _)) =
                         Self::parse_packet(&data_vec, outbound, pid, &am.info_cache)
                     {
                         info = new_info;
@@ -1340,367 +1363,318 @@ impl FirewallEngine {
             for listener in &sdk_read.listeners {
                 listener.on_packet(&data_vec, &info, &sdk_context);
             }
-            drop(sdk_read);
+        }
 
-            // 4. Core Firewall Logic
-            if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
-                reason.get_or_insert_with(|| "Localhost".to_string());
+        // 5. Core Firewall Logic
+        if info.src_ip.is_loopback() || info.dst_ip.is_loopback() {
+            reason.get_or_insert_with(|| "Localhost".to_string());
+        }
+
+        // Cache URLs
+        if let Some(ref url) = info.full_url {
+            am.url_cache.write().unwrap().insert(pid, url.clone());
+        } else {
+            if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
+                info.full_url = Some(url.clone());
             }
+        }
 
-            // Cache URLs
-            if let Some(ref url) = info.full_url {
-                am.url_cache.write().unwrap().insert(pid, url.clone());
-            } else {
-                if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
-                    info.full_url = Some(url.clone());
-                }
-            }
+        // File Magic Detection
+        let detected_type = file_checker.check(&data_vec);
+        if let Some(ref dtype) = detected_type {
+            am.url_cache
+                .write()
+                .unwrap()
+                .insert(pid, format!("FILESIG:{}", dtype));
+            info.detected_file_type = Some(dtype.clone());
+        }
 
-            // File Magic Detection
-            let detected_type = file_checker.check(&data_vec);
-            if let Some(ref dtype) = detected_type {
-                // Reuse info struct? No, it's owned now. We modify the copy or just cache it?
-                // 'info' is local.
-                am.url_cache
-                    .write()
-                    .unwrap()
-                    .insert(pid, format!("FILESIG:{}", dtype));
-                info.detected_file_type = Some(dtype.clone());
-            }
+        let (auto_inject_https, hook_dll) = {
+            let s = settings.read().unwrap();
+            (s.auto_inject_https, s.https_hook_dll.clone())
+        };
 
-            let (auto_inject_https, hook_dll) = {
-                let s = settings.read().unwrap();
-                (s.auto_inject_https, s.https_hook_dll.clone())
-            };
+        if auto_inject_https
+            && info.tls_handshake
+            && info.hostname.is_none()
+            && info.process_id != 0
+            && !hook_dll.is_empty()
+        {
+            let mut injected = am.injected_pids.write().unwrap();
+            let mut failed = am.failed_pids.write().unwrap();
 
-            if auto_inject_https
-                && info.tls_handshake
-                && info.hostname.is_none()
-                && info.process_id != 0
-                && !hook_dll.is_empty()
-            {
-                let mut injected = am.injected_pids.write().unwrap();
-                let mut failed = am.failed_pids.write().unwrap();
-
-                if !injected.contains(&info.process_id) && !failed.contains(&info.process_id) {
-                    match Injector::inject(info.process_id, &hook_dll) {
-                        Ok(()) => {
-                            injected.insert(info.process_id);
-                            let _ = tx.emit(
-                                "log",
-                                LogEntry {
-                                    id: format!("{}-tls-hook", Self::now_ts()),
-                                    timestamp: Self::now_ts(),
-                                    level: LogLevel::Info,
-                                    message: format!(
-                                        "Injected HTTPS hook into PID {} to enrich TLS hostname context",
-                                        info.process_id
-                                    ),
-                                },
-                            );
-                        }
-                        Err(e) => {
-                            failed.insert(info.process_id);
-                            let (level, message) = if e.permission_denied {
-                                (
-                                    LogLevel::Info,
-                                    format!(
-                                        "HTTPS hook skipped for PID {}: access denied (protected/system or insufficient rights). TLS hostname visibility may be limited for this app; retry suppressed.",
-                                        info.process_id
-                                    ),
-                                )
-                            } else {
-                                (
-                                    LogLevel::Warning,
-                                    format!(
-                                        "Failed to inject HTTPS hook into PID {}: {} (no further retries; TLS hostnames unavailable for this process)",
-                                        info.process_id, e.message
-                                    ),
-                                )
-                            };
-                            let _ = tx.emit(
-                                "log",
-                                LogEntry {
-                                    id: format!("{}-tls-hook-fail", Self::now_ts()),
-                                    timestamp: Self::now_ts(),
-                                    level,
-                                    message,
-                                },
-                            );
-                        }
+            if !injected.contains(&info.process_id) && !failed.contains(&info.process_id) {
+                match Injector::inject(info.process_id, &hook_dll) {
+                    Ok(()) => {
+                        injected.insert(info.process_id);
+                        let _ = tx.emit(
+                            "log",
+                            LogEntry {
+                                id: format!("{}-tls-hook", Self::now_ts()),
+                                timestamp: Self::now_ts(),
+                                level: LogLevel::Info,
+                                message: format!(
+                                    "Injected HTTPS hook into PID {} to enrich TLS hostname context",
+                                    info.process_id
+                                ),
+                            },
+                        );
                     }
-                }
-            }
-
-            let is_dns_query = matches!(info.protocol, Protocol::UDP)
-                && (info.src_port == 53 || info.dst_port == 53);
-            let dns_domain = info.dns_query.clone();
-            // println!("DEBUG: Packet Parsed: {} -> {}", info.src_ip, info.dst_ip);
-            // 1. Enforce keyword and signature checks without any implicit whitelist
-            let settings_lock = settings.read().unwrap();
-
-            // DNS keyword filtering happens before generic keyword checks so DNS-only traffic can be blocked
-            if should_forward && is_dns_query {
-                if let Some(ref domain) = dns_domain {
-                    if dns_handler.should_block(domain, &*settings_lock) {
-                        should_forward = false;
-                        reason = Some(format!("DNS Keyword Blocked: {}", domain));
-                    }
-                }
-            }
-
-            drop(settings_lock);
-
-            // 2. App Decision Check
-            let (app_decision, app_name, _app_path) = am.check_app(&info);
-
-            match app_decision {
-                AppDecision::Allow => {
-                    // If we were only blocking because of the default non-localhost policy,
-                    // a user allow decision should punch a hole for this app.
-                    if !should_forward
-                        && reason
-                            .as_ref()
-                            .map(|r| r.starts_with("Default block"))
-                            .unwrap_or(false)
-                    {
-                        should_forward = true;
-                        reason = Some(format!("App Allowed: {}", app_name));
-                    } else if should_forward {
-                        stats.packets_total.fetch_add(1, Ordering::Relaxed);
-                        stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
-                        return PacketDecision {
-                            packet_data: data.to_vec(),
-                            address_data: address_data.to_vec(),
-                            should_forward: true,
-                            _reason: format!("App Allowed: {}", app_name),
+                    Err(e) => {
+                        failed.insert(info.process_id);
+                        let (level, message) = if e.permission_denied {
+                            (
+                                LogLevel::Info,
+                                format!(
+                                    "HTTPS hook skipped for PID {}: access denied (protected/system or insufficient rights). TLS hostname visibility may be limited for this app; retry suppressed.",
+                                    info.process_id
+                                ),
+                            )
+                        } else {
+                            (
+                                LogLevel::Warning,
+                                format!(
+                                    "Failed to inject HTTPS hook into PID {}: {} (no further retries; TLS hostnames unavailable for this process)",
+                                    info.process_id, e.message
+                                ),
+                            )
                         };
+                        let _ = tx.emit(
+                            "log",
+                            LogEntry {
+                                id: format!("{}-tls-hook-fail", Self::now_ts()),
+                                timestamp: Self::now_ts(),
+                                level,
+                                message,
+                            },
+                        );
                     }
                 }
-                AppDecision::Pending => {
-                    // POLICY CHANGE: Allow unknown apps by default (No Zero Trust)
+            }
+        }
+
+        let is_dns_query = matches!(info.protocol, Protocol::UDP)
+            && (info.src_port == 53 || info.dst_port == 53);
+        let dns_domain = info.dns_query.clone();
+
+        // 6. Resolve App Identity
+        let (app_decision, app_name, _) = am.check_app(&info);
+
+        // 7. Custom Firewall Rules (PRIORITY #1)
+        let current_rules = rules.read().unwrap();
+        for rule in current_rules.iter() {
+            if rule.matches(&info, &app_name) {
+                if rule.block {
+                    should_forward = false;
+                    reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
+                } else {
                     should_forward = true;
-                    reason = Some(format!("New App Detected: {}", app_name));
+                    reason = Some(format!("Rule Allowed: {}", rule.name));
                 }
-                AppDecision::Block => {}
+                break;
+            }
+        }
+        drop(current_rules);
+
+        // 8. App Decision Check
+        if should_forward {
+            match app_decision {
+                AppDecision::Block => {
+                    should_forward = false;
+                    reason = Some(format!("Blocked App: {}", app_name));
+                }
+                AppDecision::Allow => {
+                    should_forward = true;
+                    reason = Some(format!("App Allowed: {}", app_name));
+                }
                 AppDecision::AllowOnce => {
                     should_forward = true;
                     reason = Some(format!("App Allowed (Once): {}", app_name));
-                    // Remove the decision after use so the next request goes back to Pending
                     am.remove_decision(&app_name.to_lowercase());
                 }
-            }
-
-            // 3. Web Filter Checks (IP/Hostname/URL lists)
-            if should_forward {
-                if wf.is_blocked_ip(info.dst_ip) {
-                    should_forward = false;
-                    reason = Some(format!("Blocked IP (WebFilter): {}", info.dst_ip));
-                }
-            }
-
-            if should_forward {
-                if let Some(ref hostname) = info.hostname {
-                    if let Some(block_reason) = wf.check_hostname(hostname) {
-                        should_forward = false;
-                        reason = Some(block_reason);
-                    }
-                }
-            }
-
-            if should_forward {
-                if let Some(ref url) = info.full_url {
-                    if let Some(block_reason) = wf.check_url(url) {
-                        should_forward = false;
-                        reason = Some(block_reason);
-                    }
-                }
-            }
-
-            if should_forward {
-                for url in &info.payload_urls {
-                    if let Some(block_reason) = wf.check_url(url) {
-                        should_forward = false;
-                        reason = Some(block_reason);
-                        break;
-                    }
-                }
-            }
-
-            if should_forward {
-                for domain in &info.payload_domains {
-                    if let Some(block_reason) = wf.check_hostname(domain) {
-                        should_forward = false;
-                        reason = Some(block_reason);
-                        break;
-                    }
-                }
-            }
-
-            if should_forward && app_decision == AppDecision::Block {
-                should_forward = false;
-                reason = Some(format!("Blocked App: {}", app_name));
-            }
-
-            // 4. Custom Firewall Rules
-            let current_rules = rules.read().unwrap();
-            for rule in current_rules.iter() {
-                if rule.matches(&info, &app_name) {
-                    if rule.block {
-                        should_forward = false;
-                        reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
-                    } else {
-                        should_forward = true;
-                        reason = Some(format!("Rule Allowed: {}", rule.name));
-                    }
-                    break;
-                }
-            }
-
-            // 5. Finalize Pending Decision (Trigger prompt if still pending)
-            if app_decision == AppDecision::Pending {
-                 let app_name_lower = app_name.to_lowercase();
-                 let mut known = am.known_apps.write().unwrap();
-                 if !known.contains(&app_name_lower) {
-                     known.insert(app_name_lower.clone());
-                     let mut pending = am.pending.write().unwrap();
-                     pending.push_back(PendingApp {
-                         process_id: pid,
-                         name: app_name.clone(),
-                         path: app_info.path.clone(),
-                         dst_ip: info.dst_ip,
-                         dst_port: info.dst_port,
-                         protocol: info.protocol.clone(),
-                         reason: reason.clone(),
-                     });
-                 }
-            }
-
-            stats.packets_total.fetch_add(1, Ordering::Relaxed);
-            if is_dns_query {
-                if let Some(domain) = dns_domain.clone().or_else(|| info.hostname.clone()) {
-                    dns_handler.log_query(domain, !should_forward);
-                }
-            }
-            if should_forward {
-                stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
-
-                // ALLOWED TRAFFIC LOGGING (Rate Limited)
-                let now = Self::now_ts();
-                let last = stats.last_allowed_log_time.load(Ordering::Relaxed);
-
-                // Debugging: Print rate limit status
-                // println!("DEBUG: checking rate limit. Now: {}, Last: {}, Diff: {}", now, last, now.saturating_sub(last));
-
-                // Log max 2 allowed events per second to prevent flood
-                if now > last + 500 {
-                    if stats
-                        .last_allowed_log_time
-                        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        let context = Self::format_packet_context(&info);
-                        let allow_reason = reason
-                            .clone()
-                            .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
-
-                        let _ = tx.emit(
-                            "log",
-                            LogEntry {
-                                id: format!("{}-allow", now),
-                                timestamp: now,
-                                level: LogLevel::Success,
-                                message: format!("✅ {} | {}", allow_reason, context),
-                            },
-                        );
-                    }
-                }
-            } else {
-                stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-
-                // RATE LIMITING
-                let now = Self::now_ts();
-                let last = stats.last_log_time.load(Ordering::Relaxed);
-
-                if now > last + 50 {
-                    if stats
-                        .last_log_time
-                        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        let context = Self::format_packet_context(&info);
-                        let log_reason = reason
-                            .clone()
-                            .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
-                        let _ = tx.emit(
-                            "log",
-                            LogEntry {
-                                id: format!("{}-blocked", now),
-                                timestamp: now,
-                                level: LogLevel::Warning,
-                                message: format!("🚫 {} | {}", log_reason, context),
-                            },
-                        );
-                    }
+                AppDecision::Pending => {
+                    should_forward = true;
                 }
             }
         }
-        // If parsing failed entirely, allow the packet but surface a debug reason
-        // so traffic is not silently dropped because of parser gaps (e.g., exotic
-        // encapsulations).
-        else {
-            stats.packets_total.fetch_add(1, Ordering::Relaxed);
-            stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
-            return PacketDecision {
-                packet_data: data_vec,
-                address_data: address_data.to_vec(),
-                should_forward: true,
-                _reason: "Unparsed packet allowed (no default deny)".to_string(),
-            };
-        }
 
-        // SDK SECURITY RULES
+        // 9. SDK SECURITY RULES (CRITICAL: Evaluate before final logging)
         {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
-            if let Some(info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
-                let findings = sdk_read.evaluate_all(&info, &data_vec, &*s_lock, &sdk_context);
 
-                if let Some(finding) = findings.first() {
-                    match finding.action {
-                        crate::sdk::RuleAction::Block => {
-                            should_forward = false;
-                            reason = Some(format!(
-                                "SDK Rule [{}]: {}",
-                                finding.rule_name, finding.description
-                            ));
-                        }
-                        crate::sdk::RuleAction::Allow => {
-                            should_forward = true;
-                            reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
-                        }
-                        crate::sdk::RuleAction::TrafficAttack => {
-                            // Log as attack but still forward (monitoring)
-                            let _ = tx.emit(
-                                "log",
-                                LogEntry {
-                                    id: format!("{}-attack", Self::now_ts()),
-                                    timestamp: Self::now_ts(),
-                                    level: LogLevel::Warning,
-                                    message: format!(
-                                        "⚠️ Attack detected by [{}]: {}",
-                                        finding.rule_name, finding.description
-                                    ),
-                                },
-                            );
-                        }
-                        crate::sdk::RuleAction::Ask => {
-                            // Set pending for user decision
-                            should_forward = false; // Block until user decides
-                            reason = Some(format!("SDK Rule [{}]: Pending user decision", finding.rule_name));
-                        }
-                        _ => {} // ChangePacket, SolvePacket, InjectDll handled elsewhere
+            // Evaluate rules against the PAYLOAD for efficiency and correctness
+            let payload = if payload_offset < data_vec.len() {
+                &data_vec[payload_offset..]
+            } else {
+                &[]
+            };
+
+            let findings = sdk_read.evaluate_all(&info, payload, &*s_lock, &sdk_context);
+
+            if let Some(finding) = findings.first() {
+                match finding.action {
+                    crate::sdk::RuleAction::Block => {
+                        should_forward = false;
+                        reason = Some(format!(
+                            "SDK Rule [{}]: {}",
+                            finding.rule_name, finding.description
+                        ));
                     }
+                    crate::sdk::RuleAction::Allow => {
+                        should_forward = true;
+                        reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
+                    }
+                    crate::sdk::RuleAction::TrafficAttack => {
+                        // Log as attack but still forward (monitoring)
+                        let _ = tx.emit(
+                            "log",
+                            LogEntry {
+                                id: format!("{}-attack", Self::now_ts()),
+                                timestamp: Self::now_ts(),
+                                level: LogLevel::Warning,
+                                message: format!(
+                                    "⚠️ Attack detected by [{}]: {}",
+                                    finding.rule_name, finding.description
+                                ),
+                            },
+                        );
+                    }
+                    crate::sdk::RuleAction::Ask => {
+                        // Set pending for user decision
+                        should_forward = false; // Block until user decides
+                        reason = Some(format!(
+                            "SDK Rule [{}]: Pending user decision",
+                            finding.rule_name
+                        ));
+                    }
+                    _ => {} // ChangePacket, SolvePacket, InjectDll handled elsewhere
+                }
+            }
+        }
+
+        // 10. Web Filter Checks (DEPRECATED: User said Never Block Except Rules)
+        /*
+        if should_forward {
+            if wf.is_blocked_ip(info.dst_ip) {
+               // should_forward = false; // SILENT BLOCK REMOVED
+               // reason = Some(format!("Blocked IP (WebFilter): {}", info.dst_ip));
+            }
+        }
+        */
+
+        // 11. Finalize Pending Decision (Trigger prompt if still unknown)
+        if app_decision == AppDecision::Pending {
+            let app_name_lower = app_name.to_lowercase();
+            let mut known = am.known_apps.write().unwrap();
+            if !known.contains(&app_name_lower) {
+                known.insert(app_name_lower.clone());
+                let mut pending = am.pending.write().unwrap();
+                pending.push_back(PendingApp {
+                    process_id: pid,
+                    name: app_name.clone(),
+                    path: app_info.path.clone(),
+                    dst_ip: info.dst_ip,
+                    dst_port: info.dst_port,
+                    protocol: info.protocol.clone(),
+                    reason: reason.clone(),
+                });
+            }
+        }
+
+        stats.packets_total.fetch_add(1, Ordering::Relaxed);
+        if is_dns_query {
+            if let Some(domain) = dns_domain.clone().or_else(|| info.hostname.clone()) {
+                dns_handler.log_query(domain.clone(), !should_forward);
+
+                // DNS Snooping: extract IP addresses from the answer if this is a response
+                if info.src_port == 53 && payload_offset < data_vec.len() {
+                    let dns_payload = &data_vec[payload_offset..];
+                    let ips = Self::parse_dns_answers(dns_payload);
+                    for (ip, _) in ips {
+                        dns_handler.update_ip_map(ip, domain.clone());
+                    }
+                }
+            }
+        }
+
+        if should_forward {
+            stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
+
+            // ALLOWED TRAFFIC LOGGING (Rate Limited)
+            let now = Self::now_ts();
+            let last = stats.last_allowed_log_time.load(Ordering::Relaxed);
+
+            if now > last + 500 {
+                if stats
+                    .last_allowed_log_time
+                    .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let mut context = Self::format_packet_context(&info);
+
+                    // DNS Snooping context enrichment
+                    if let Some(domain) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
+                        if !context.contains(&domain) {
+                            context = format!("host={} | {}", domain, context);
+                        }
+                    } else if let Some(domain) = dns_handler.resolve_ip(&info.src_ip.to_string()) {
+                        if !context.contains(&domain) {
+                            context = format!("host={} | {}", domain, context);
+                        }
+                    }
+
+                    let allow_reason = reason
+                        .clone()
+                        .unwrap_or_else(|| "Allowed (no matching rule)".to_string());
+
+                    let _ = tx.emit(
+                        "log",
+                        LogEntry {
+                            id: format!("{}-allow", now),
+                            timestamp: now,
+                            level: LogLevel::Success,
+                            message: format!("✅ {} | {}", allow_reason, context),
+                        },
+                    );
+                }
+            }
+        } else {
+            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+
+            let now = Self::now_ts();
+            let last = stats.last_log_time.load(Ordering::Relaxed);
+
+            if now > last + 50 {
+                if stats
+                    .last_log_time
+                    .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let mut context = Self::format_packet_context(&info);
+
+                    if let Some(domain) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
+                        if !context.contains(&domain) {
+                            context = format!("host={} | {}", domain, context);
+                        }
+                    } else if let Some(domain) = dns_handler.resolve_ip(&info.src_ip.to_string()) {
+                        if !context.contains(&domain) {
+                            context = format!("host={} | {}", domain, context);
+                        }
+                    }
+
+                    let log_reason = reason
+                        .clone()
+                        .unwrap_or_else(|| "Blocked".to_string());
+                    let _ = tx.emit(
+                        "log",
+                        LogEntry {
+                            id: format!("{}-blocked", now),
+                            timestamp: now,
+                            level: LogLevel::Warning,
+                            message: format!("🚫 {} | {}", log_reason, context),
+                        },
+                    );
                 }
             }
         }
@@ -1837,7 +1811,7 @@ impl FirewallEngine {
         outbound: bool,
         process_id: u32,
         cache: &AppInfoCache,
-    ) -> Option<PacketInfo> {
+    ) -> Option<(PacketInfo, usize)> {
         if data.is_empty() {
             return None;
         }
@@ -1897,6 +1871,19 @@ impl FirewallEngine {
             (0, 0)
         };
 
+        let mut payload_start = header_len;
+        if matches!(protocol, Protocol::TCP) {
+            let tcp_header_start = header_len;
+            let tcp_data_offset = if tcp_header_start + 12 < data.len() {
+                ((data[tcp_header_start + 12] >> 4) as usize) * 4
+            } else {
+                20
+            };
+            payload_start = header_len + tcp_data_offset;
+        } else if matches!(protocol, Protocol::UDP) {
+            payload_start = header_len + 8;
+        }
+
         let mut hostname = None;
         let mut full_url = None;
         let mut dns_query = None;
@@ -1913,15 +1900,7 @@ impl FirewallEngine {
         let mut payload_domains: Vec<String> = Vec::new();
 
         // Extract hostname and URL from TCP payloads
-        if matches!(protocol, Protocol::TCP) && header_len + 20 < data.len() {
-            // TCP header is at least 20 bytes, data offset is in bits 4-7 of byte 12
-            let tcp_header_start = header_len;
-            let tcp_data_offset = if tcp_header_start + 12 < data.len() {
-                ((data[tcp_header_start + 12] >> 4) as usize) * 4
-            } else {
-                20
-            };
-            let payload_start = header_len + tcp_data_offset;
+        if matches!(protocol, Protocol::TCP) && payload_start < data.len() {
 
             if payload_start < data.len() {
                 let payload = &data[payload_start..];
@@ -1960,21 +1939,11 @@ impl FirewallEngine {
         // Extract DNS question names from UDP DNS traffic
         if matches!(protocol, Protocol::UDP)
             && (src_port == 53 || dst_port == 53)
-            && header_len + 8 <= data.len()
+            && payload_start <= data.len()
         {
-            let dns_payload = &data[header_len + 8..];
+            let dns_payload = &data[payload_start..];
             dns_query = Self::parse_dns_query(dns_payload);
             payload_bytes = Some(dns_payload);
-        }
-
-        if hostname.is_none() {
-            hostname = dns_query.clone();
-        }
-
-        if hostname.is_none() {
-            if let Some(domain) = payload_domains.first() {
-                hostname = Some(domain.clone());
-            }
         }
 
         if payload_bytes.is_none() {
@@ -2000,7 +1969,17 @@ impl FirewallEngine {
             }
         }
 
-        Some(PacketInfo {
+        if hostname.is_none() {
+            hostname = dns_query.clone();
+        }
+
+        if hostname.is_none() {
+            if let Some(domain) = payload_domains.first() {
+                hostname = Some(domain.clone());
+            }
+        }
+
+        Some((PacketInfo {
             timestamp: Self::now_ts(),
             protocol,
             src_ip,
@@ -2025,7 +2004,7 @@ impl FirewallEngine {
             payload_domains,
             image_path: cache.get_info(process_id).path,
             detected_file_type: None,
-        })
+        }, payload_start))
     }
 
     fn format_packet_context(info: &PacketInfo) -> String {
@@ -2140,5 +2119,99 @@ impl FirewallEngine {
         } else {
             Some(labels.join("."))
         }
+    }
+
+    fn parse_dns_answers(payload: &[u8]) -> Vec<(String, String)> {
+        if payload.len() < 12 {
+            return Vec::new();
+        }
+
+        let qd_count = u16::from_be_bytes([payload[4], payload[5]]) as usize;
+        let an_count = u16::from_be_bytes([payload[6], payload[7]]) as usize;
+        if an_count == 0 {
+            return Vec::new();
+        }
+
+        // Helper to skip a name in DNS format
+        fn skip_name(payload: &[u8], mut offset: usize) -> Option<usize> {
+            while offset < payload.len() {
+                let len = payload[offset] as usize;
+                if len == 0 {
+                    return Some(offset + 1);
+                }
+                if (len & 0xC0) == 0xC0 {
+                    // Pointer
+                    return Some(offset + 2);
+                }
+                offset += 1 + len;
+            }
+            None
+        }
+
+        let mut offset = 12usize;
+        let mut results = Vec::new();
+
+        // 1. Skip Questions
+        for _ in 0..qd_count {
+            offset = match skip_name(payload, offset) {
+                Some(o) => o,
+                None => break,
+            };
+            offset += 4; // Type (2) + Class (2)
+        }
+
+        // 2. Parse Answers
+        for _ in 0..an_count {
+            if offset >= payload.len() {
+                break;
+            }
+
+            // Skip Name
+            offset = match skip_name(payload, offset) {
+                Some(o) => o,
+                None => break,
+            };
+
+            if offset + 10 > payload.len() {
+                break;
+            }
+
+            let rtype = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+            let rdlen = u16::from_be_bytes([payload[offset + 8], payload[offset + 9]]) as usize;
+            offset += 10;
+
+            if offset + rdlen > payload.len() {
+                break;
+            }
+
+            if rtype == 1 && rdlen == 4 {
+                // A Record (IPv4)
+                let ip = format!(
+                    "{}.{}.{}.{}",
+                    payload[offset],
+                    payload[offset + 1],
+                    payload[offset + 2],
+                    payload[offset + 3]
+                );
+                results.push(ip);
+            } else if rtype == 28 && rdlen == 16 {
+                // AAAA Record (IPv6)
+                let mut parts = Vec::new();
+                for i in 0..8 {
+                    parts.push(format!(
+                        "{:x}",
+                        u16::from_be_bytes([payload[offset + i * 2], payload[offset + i * 2 + 1]])
+                    ));
+                }
+                results.push(parts.join(":"));
+            }
+
+            offset += rdlen;
+        }
+
+        results
+            .into_iter()
+            .map(|ip| (ip, String::new()))
+            .collect()
     }
 }
