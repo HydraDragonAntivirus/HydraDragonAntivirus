@@ -45,10 +45,8 @@ pub struct LogEntry {
 pub struct PendingApp {
     pub process_id: u32,
     pub name: String,
-    pub path: String,
     pub dst_ip: String,
     pub dst_port: u16,
-    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -256,23 +254,47 @@ pub fn App() -> impl IntoView {
             .join(" ")
     };
 
+    // Detect Alert Mode
+    let is_alert_mode = {
+        let window = web_sys::window().unwrap();
+        let search = window.location().search().unwrap_or_default();
+        search.contains("mode=alert")
+    };
 
-    // Update Graph Data periodically (Unified UI)
-    create_effect(move |_| {
-        use std::time::Duration;
-        set_interval(
-            move || {
-                let current_activity = (total_count.get() % 100) as u32;
-                let val = 180 - (current_activity.min(150));
-                set_graph_data.update(|v| {
-                    v.push(val);
-                    if v.len() > 10 {
-                        v.remove(0);
+    // In alert mode, close the lightweight toast window if there is nothing to show
+    if is_alert_mode {
+        create_effect(move |_| {
+            if pending_app.get().is_none() {
+                spawn_local(async move {
+                    let win = getCurrentWindow().await;
+                    if let Ok(close_fn_value) = Reflect::get(&win, &JsValue::from_str("close")) {
+                        if let Some(close_fn) = close_fn_value.dyn_ref::<js_sys::Function>() {
+                            let _ = close_fn.call0(&win);
+                        }
                     }
                 });
-            },
-            Duration::from_millis(2000),
-        );
+            }
+        });
+    }
+
+    // Update Graph Data periodically (Only if NOT in alert mode)
+    create_effect(move |_| {
+        if !is_alert_mode {
+            use std::time::Duration;
+            set_interval(
+                move || {
+                    let current_activity = (total_count.get() % 100) as u32;
+                    let val = 180 - (current_activity.min(150));
+                    set_graph_data.update(|v| {
+                        v.push(val);
+                        if v.len() > 10 {
+                            v.remove(0);
+                        }
+                    });
+                },
+                Duration::from_millis(2000),
+            );
+        }
     });
     let (settings, set_settings) = create_signal(FirewallSettings {
         website_path: "website".to_string(),
@@ -357,21 +379,24 @@ pub fn App() -> impl IntoView {
             closure.forget();
         });
 
-        // Ask Decision Listener - Now enabled for all windows
-        let ask_closure = Closure::wrap(Box::new(move |event: JsValue| {
-            if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
-                if let Some(payload_obj) = payload.get("payload") {
-                    if let Ok(app) = serde_json::from_value::<PendingApp>(payload_obj.clone()) {
-                        set_pending_app.set(Some(app));
+        // Ask Decision Listener - ONLY in alert mode
+        // This ensures the main window does NOT show the popup
+        if is_alert_mode {
+            let ask_closure = Closure::wrap(Box::new(move |event: JsValue| {
+                if let Ok(payload) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                    if let Some(payload_obj) = payload.get("payload") {
+                        if let Ok(app) = serde_json::from_value::<PendingApp>(payload_obj.clone()) {
+                            set_pending_app.set(Some(app));
+                        }
                     }
                 }
-            }
-        }) as Box<dyn FnMut(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
-        spawn_local(async move {
-            let _ = listen("ask_app_decision", &ask_closure).await;
-            ask_closure.forget();
-        });
+            spawn_local(async move {
+                let _ = listen("ask_app_decision", &ask_closure).await;
+                ask_closure.forget();
+            });
+        }
 
         // Raw Packet Listener
         let raw_closure = Closure::wrap(Box::new(move |event: JsValue| {
@@ -446,40 +471,130 @@ pub fn App() -> impl IntoView {
         ev.prevent_default();
     };
 
+    if is_alert_mode {
+        return view! {
+            <div class="alert-shell" style="min-height: 100vh; display: flex; align-items: flex-end; justify-content: flex-end; background: transparent; padding: 8px">
+                {move || pending_app.get().map(|app| {
+                    let name_for_block = app.name.clone();
+                    let name_for_allow = app.name.clone();
+                    let name_for_block_session = app.name.clone();
+                    let header_title = "HydraDragon Firewall".to_string();
+                    let header_subtitle = format!("{} is requesting network access", app.name.clone());
+
+                    let overlay_class = "modal-overlay open static-mode";
+                    let modal_style = "border-top: 0;";
+                    let modal_class = "glass-modal app-decision-modal";
+
+                    view! {
+                        <div class={overlay_class}>
+                            <div class={modal_class} style={modal_style}>
+                                <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div>
+
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px">
+                                    <div class="shield-icon" style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)">
+                                        "🛡️"
+                                    </div>
+                                    <div>
+                                        <h2 style="margin: 0; font-size: 16px; font-weight: 700">{header_title}</h2>
+                                        <p style="margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px">{header_subtitle}</p>
+                                    </div>
+                                </div>
+
+                                <div style="background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)">
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                                        <div style="width: 28px; height: 28px; background: rgba(62, 148, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px">
+                                            "📦"
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 13px; color: white">{app.name.clone()}</div>
+                                            <div style="font-size: 10px; color: var(--text-muted)">"PID: " {app.process_id}</div>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+                                        <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                            <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Destination"</div>
+                                            <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{app.dst_ip.clone()}</div>
+                                        </div>
+                                        <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                            <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Port"</div>
+                                            <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-green)">{app.dst_port}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 12px">
+                                    <button class="btn-primary"
+                                            style="width: 100%; padding: 10px; font-size: 12px"
+                                            on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
+                                        "✓ ALLOW ACCESS"
+                                    </button>
+                                    <div style="display: flex; gap: 8px">
+                                        <button class="btn-primary"
+                                                style="flex: 1; padding: 10px; font-size: 12px; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)"
+                                                on:click=move |_| resolve_decision(name_for_block_session.clone(), "block".to_string())>
+                                            "BLOCK ONCE"
+                                        </button>
+                                        <button class="btn-primary"
+                                                style="flex: 1; padding: 10px; font-size: 12px; background: var(--accent-red)"
+                                                on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
+                                            "✕ BLOCK ALWAYS"
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center">
+                                    <span style="font-size: 11px; color: var(--text-muted)">"Your decision will be remembered for this application"</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                })}
+            </div>
+        };
+    }
 
     view! {
         <div class="app-container">
-            <aside>
-                <div class="logo-area">
-                    <div class="logo-icon"></div>
-                    <span class="logo-text">"HYDRADRAGON"</span>
-                </div>
-                <nav>
-                    <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
-                       "Dashboard"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
-                       "Protection Rules"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
-                       "Network Activity"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::PacketReader { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
-                       "Packet Reader"
-                    </a>
-                    <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
-                       on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
-                       "Settings"
-                    </a>
-                </nav>
-            </aside>
+            {move || if !is_alert_mode {
+                view! {
+                    <aside>
+                        <div class="logo-area">
+                            <div class="logo-icon"></div>
+                            <span class="logo-text">"HYDRADRAGON"</span>
+                        </div>
+                        <nav>
+                            <a href="#" class={move || if current_view.get() == AppView::Dashboard { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Dashboard); }>
+                               "Dashboard"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Rules { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Rules); }>
+                               "Protection Rules"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Logs { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Logs); }>
+                               "Network Logs"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::PacketReader { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::PacketReader); }>
+                               "Packet Reader"
+                            </a>
+                            <a href="#" class={move || if current_view.get() == AppView::Settings { "nav-item active" } else { "nav-item" }}
+                               on:click=move |ev| { ev.prevent_default(); set_current_view.set(AppView::Settings); }>
+                               "Settings"
+                            </a>
+                        </nav>
+                    </aside>
+                }.into_view()
+            } else {
+                view! { <div></div> }.into_view()
+            }}
 
-            <main>
-                <header style="display: flex; justify-content: space-between; align-items: center">
+            <main style={if is_alert_mode { "margin-left: 0; padding: 0" } else { "" }}>
+                {move || if !is_alert_mode {
+                    view! {
+                        <header style="display: flex; justify-content: space-between; align-items: center">
                     <h2 style="margin: 0; font-weight: 800; font-size: 28px">
                         {move || match current_view.get() {
                             AppView::Dashboard => "Security Overview",
@@ -901,6 +1016,16 @@ pub fn App() -> impl IntoView {
                             </div>
                         </div>
                     }.into_view(),
+                }}.into_view()
+            }.into_view()
+            } else {
+                 view! {
+                    <div style="height: 100vh; display: flex; align-items: center; justify-content: center; background: transparent">
+                            // Standalone Alert Content is rendered below by `pending_app` logic
+                            // In alert mode we auto-close if nothing is pending, so keep the placeholder minimal.
+                             <div style="width: 1px; height: 1px"></div>
+                        </div>
+                     }.into_view()
                 }}
             </main>
 
@@ -1099,65 +1224,91 @@ pub fn App() -> impl IntoView {
                 </div>
             </div>
 
-            {move || pending_app.get().map(|app| {
+            {move || if is_alert_mode {
+                pending_app.get().map(|app| {
                 let name_for_block = app.name.clone();
                 let name_for_allow = app.name.clone();
-                let display_reason = app.reason.clone().unwrap_or_else(|| "Unknown application activity detected.".to_string());
-                
+                let name_for_block_session = app.name.clone();
+                let header_title = "HydraDragon Firewall".to_string();
+                let header_subtitle = format!("{} is requesting network access", app.name.clone());
+
+                // Alert mode styling (static toast)
+                let overlay_class = "modal-overlay open static-mode";
+                let modal_style = "border-top: 0;";
+                let modal_class = "glass-modal app-decision-modal";
+
                 view! {
-                    <div class="modal-overlay open">
-                         <div class="premium-alert">
-                             <div class="premium-alert-header">
-                                 <div class="premium-brand">
-                                     "Malwarebytes" <span>"PREMIUM"</span>
-                                 </div>
-                                 <div class="premium-alert-close-x" on:click=move |_| set_pending_app.set(None)>"✕"</div>
-                             </div>
-                             
-                             <div class="premium-alert-content">
-                                 <div class="premium-alert-icon-large">
-                                     "✔️"
-                                 </div>
-                                 <div class="premium-alert-body">
-                                     <h1 class="premium-alert-title">"Website blocked"</h1>
-                                     <p class="premium-alert-desc">
-                                         {display_reason}
-                                         <br/><br/>
-                                         "If you don't want to block this website, you can exclude it from website protection by accessing Exclusions."
-                                     </p>
-                                     
-                                     <div class="premium-details-grid">
-                                         <div class="label">"Domain:"</div>
-                                         <div class="value">{app.name.clone()}</div>
-                                         
-                                         <div class="label">"IP Address:"</div>
-                                         <div class="value">{app.dst_ip.clone()}</div>
-                                         
-                                         <div class="label">"Port:"</div>
-                                         <div class="value">{app.dst_port}</div>
-                                         
-                                         <div class="label">"Type:"</div>
-                                         <div class="value">"Outbound"</div>
-                                         
-                                         <div class="label">"File:"</div>
-                                         <div class="value" style="font-size: 11px">{app.path.clone()}</div>
-                                     </div>
-                                 </div>
-                             </div>
-                             
-                             <div class="premium-alert-footer">
-                                 <button class="btn-premium-alt" on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
-                                     "Manage Exclusions"
-                                 </button>
-                                 <button class="btn-premium-main" on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
-                                     "Close"
-                                 </button>
-                             </div>
-                         </div>
+                    <div class={overlay_class}>
+                        <div class={modal_class} style={modal_style}>
+                            <div data-tauri-drag-region style="position: absolute; top: 0; left: 0; right: 0; height: 30px; cursor: move; z-index: 10"></div>
+
+                            // Header with icon
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 10px">
+                                <div class="shield-icon" style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-yellow), #ff9900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 20px rgba(255, 204, 0, 0.3)">
+                                    "🛡️"
+                                </div>
+                                <div>
+                                    <h2 style="margin: 0; font-size: 16px; font-weight: 700">{header_title}</h2>
+                                    <p style="margin: 2px 0 0 0; color: var(--text-muted); font-size: 11px">{header_subtitle}</p>
+                                </div>
+                            </div>
+
+                            // Application Info Card
+                            <div style="background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding: 12px; border-radius: 10px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05)">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                                    <div style="width: 28px; height: 28px; background: rgba(62, 148, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px">
+                                        "📦"
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 700; font-size: 13px; color: white">{app.name.clone()}</div>
+                                        <div style="font-size: 10px; color: var(--text-muted)">"PID: " {app.process_id}</div>
+                                    </div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                        <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Destination"</div>
+                                        <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{app.dst_ip.clone()}</div>
+                                    </div>
+                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px">
+                                        <div style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px">"Port"</div>
+                                        <div style="font-family: 'Fira Code', monospace; font-size: 11px; color: var(--accent-green)">{app.dst_port}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            // Action Buttons
+                            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 12px">
+                                <button class="btn-primary"
+                                        style="width: 100%; padding: 10px; font-size: 12px"
+                                        on:click=move |_| resolve_decision(name_for_allow.clone(), "allow".to_string())>
+                                    "✓ ALLOW ACCESS"
+                                </button>
+                                <div style="display: flex; gap: 8px">
+                                    <button class="btn-primary"
+                                            style="flex: 1; padding: 10px; font-size: 12px; background: rgba(255, 62, 62, 0.15); border: 1px solid var(--accent-red); box-shadow: none; color: var(--accent-red)"
+                                            on:click=move |_| resolve_decision(name_for_block_session.clone(), "block".to_string())>
+                                        "BLOCK ONCE"
+                                    </button>
+                                    <button class="btn-primary"
+                                            style="flex: 1; padding: 10px; font-size: 12px; background: var(--accent-red)"
+                                            on:click=move |_| resolve_decision(name_for_block.clone(), "block".to_string())>
+                                        "✕ BLOCK ALWAYS"
+                                    </button>
+                                </div>
+                            </div>
+
+                            // Footer hint
+                            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center">
+                                <span style="font-size: 11px; color: var(--text-muted)">"Your decision will be remembered for this application"</span>
+                            </div>
+                        </div>
                     </div>
                 }
-            })}
-
+            })
+            } else {
+                None
+            }}
         </div>
     }
 }
