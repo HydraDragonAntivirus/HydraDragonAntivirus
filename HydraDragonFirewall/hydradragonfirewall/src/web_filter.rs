@@ -15,9 +15,14 @@ pub struct WebFilter {
     ipv4_blocklist: Arc<RwLock<HashSet<Ipv4Addr>>>,
     ipv6_blocklist: Arc<RwLock<HashSet<Ipv6Addr>>>,
     domain_blocklist: Arc<RwLock<HashSet<String>>>,
+    
+    // Whitelists to override blocklists
+    ipv4_whitelist: Arc<RwLock<HashSet<Ipv4Addr>>>,
+    ipv6_whitelist: Arc<RwLock<HashSet<Ipv6Addr>>>,
+    domain_whitelist: Arc<RwLock<HashSet<String>>>,
+
     /// Blocked hostname patterns (supports wildcards like *.facebook.com)
     blocked_hostnames: Arc<RwLock<Vec<String>>>,
-    /// Blocked URL patterns (supports wildcards)
     /// Blocked URL patterns (supports wildcards)
     blocked_url_patterns: Arc<RwLock<Vec<String>>>,
 
@@ -35,6 +40,11 @@ impl WebFilter {
             ipv4_blocklist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_blocklist: Arc::new(RwLock::new(HashSet::new())),
             domain_blocklist: Arc::new(RwLock::new(HashSet::new())),
+            
+            ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            domain_whitelist: Arc::new(RwLock::new(HashSet::new())),
+
             blocked_hostnames: Arc::new(RwLock::new(Vec::new())),
             blocked_url_patterns: Arc::new(RwLock::new(Vec::new())),
 
@@ -58,6 +68,11 @@ impl WebFilter {
     /// Check if a hostname matches any blocked patterns
     pub fn check_hostname(&self, hostname: &str) -> Option<String> {
         let hostname_lower = hostname.to_lowercase();
+
+        // 0. Check whitelist (whitelist overrides any block)
+        if self.domain_whitelist.read().unwrap().contains(&hostname_lower) {
+            return None;
+        }
 
         // 1. Check domain blocklist (exact match)
         if self
@@ -323,15 +338,29 @@ impl WebFilter {
             }
         }
 
-        // Insert everything into blocklists; whitelist files are treated as signatures too
-        if !ips_v4.is_empty() {
-            self.ipv4_blocklist.write().unwrap().extend(ips_v4);
-        }
-        if !ips_v6.is_empty() {
-            self.ipv6_blocklist.write().unwrap().extend(ips_v6);
-        }
-        if !domains.is_empty() {
-            self.domain_blocklist.write().unwrap().extend(domains);
+        let is_whitelist = filename.contains("WhiteList") || filename.contains("AllowList");
+
+        // Insert everything into appropriate lists
+        if is_whitelist {
+            if !ips_v4.is_empty() {
+                self.ipv4_whitelist.write().unwrap().extend(ips_v4);
+            }
+            if !ips_v6.is_empty() {
+                self.ipv6_whitelist.write().unwrap().extend(ips_v6);
+            }
+            if !domains.is_empty() {
+                self.domain_whitelist.write().unwrap().extend(domains);
+            }
+        } else {
+            if !ips_v4.is_empty() {
+                self.ipv4_blocklist.write().unwrap().extend(ips_v4);
+            }
+            if !ips_v6.is_empty() {
+                self.ipv6_blocklist.write().unwrap().extend(ips_v6);
+            }
+            if !domains.is_empty() {
+                self.domain_blocklist.write().unwrap().extend(domains);
+            }
         }
 
         Ok(count)
@@ -339,8 +368,20 @@ impl WebFilter {
 
     pub fn is_blocked_ip(&self, ip: IpAddr) -> bool {
         match ip {
-            IpAddr::V4(ipv4) => self.ipv4_blocklist.read().unwrap().contains(&ipv4),
-            IpAddr::V6(ipv6) => self.ipv6_blocklist.read().unwrap().contains(&ipv6),
+            IpAddr::V4(ipv4) => {
+                // Check whitelist first
+                if self.ipv4_whitelist.read().unwrap().contains(&ipv4) {
+                    return false;
+                }
+                self.ipv4_blocklist.read().unwrap().contains(&ipv4)
+            }
+            IpAddr::V6(ipv6) => {
+                // Check whitelist first
+                if self.ipv6_whitelist.read().unwrap().contains(&ipv6) {
+                    return false;
+                }
+                self.ipv6_blocklist.read().unwrap().contains(&ipv6)
+            }
         }
     }
 }
@@ -352,7 +393,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn test_whitelist_csv_is_treated_as_blocklist() {
+    fn test_whitelist_csv_is_treated_as_whitelist() {
         let filter = WebFilter::new();
 
         let tmp_base = std::env::temp_dir().join(format!(
@@ -372,16 +413,16 @@ mod tests {
 
         let _ = filter
             .load_csv(&whitelist_path)
-            .expect("Failed to load whitelist as blocklist");
+            .expect("Failed to load whitelist");
         let _ = filter
             .load_csv(&malware_path)
             .expect("Failed to load malware blocklist");
 
-        let blocked = filter
-            .check_hostname("trusted.example")
-            .expect("Whitelist entries must now block");
-        assert!(blocked.contains("trusted.example"));
+        // Whitelist should NOT block
+        let blocked = filter.check_hostname("trusted.example");
+        assert!(blocked.is_none(), "Whitelist entries must NOT block");
 
+        // Malware should stay blocked
         let malware_block = filter
             .check_hostname("blocked.example")
             .expect("Malware domains should stay blocked");
