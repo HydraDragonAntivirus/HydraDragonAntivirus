@@ -71,7 +71,7 @@ impl WebFilter {
 
         // 0. Check whitelist (whitelist overrides any block)
         if self.domain_whitelist.read().unwrap().contains(&hostname_lower) {
-            return None;
+            return Some(format!("Whitelisted Domain: {}", hostname));
         }
 
         // 1. Check domain blocklist (exact match)

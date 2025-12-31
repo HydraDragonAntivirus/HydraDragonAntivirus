@@ -1489,13 +1489,16 @@ impl FirewallEngine {
         for rule in current_rules.iter() {
             if rule.matches(&info, &app_name) {
                 if rule.block {
+                    // Block rules are final and take absolute precedence
                     should_forward = false;
                     reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
+                    break;
                 } else {
+                    // Allow rules set the tentative decision, but we continue 
+                    // searching to see if a more specific Block rule exists.
                     should_forward = true;
                     reason = Some(format!("Rule Allowed: {}", rule.name));
                 }
-                break;
             }
         }
         drop(current_rules);
@@ -1577,13 +1580,19 @@ impl FirewallEngine {
             }
         }
 
-        // 10. Intelligence & Malware Checks (Features 12, 13, 31)
-        if should_forward {
+            // 10. Intelligence & Malware Checks (Features 12, 13, 31)
+            let mut skip_malware_domain = false;
             // Check domain blocklist (dns snooping / SNI / Host)
             if let Some(domain) = info.hostname.as_deref() {
                 if let Some(reason_msg) = wf.check_hostname(domain) {
-                    should_forward = false;
-                    reason = Some(reason_msg);
+                    if reason_msg.contains("Whitelisted") {
+                        // Mark as whitelisted, but DO NOT return None yet; we still want to check the URL
+                        skip_malware_domain = true;
+                        reason = Some(reason_msg);
+                    } else {
+                        should_forward = false;
+                        reason = Some(reason_msg);
+                    }
                 }
             }
             
@@ -1598,13 +1607,12 @@ impl FirewallEngine {
             }
 
             // Check IP blocklist (IPv4/v6 Malware lists)
-            if should_forward {
+            if should_forward && !skip_malware_domain {
                 if wf.is_blocked_ip(info.dst_ip) {
                     should_forward = false;
                     reason = Some(format!("Blocked IP (Intelligence): {}", info.dst_ip));
                 }
             }
-        }
 
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
