@@ -81,6 +81,35 @@ fn validate_rules_content(content: String, state: tauri::State<FirewallState>) -
     engine.validate_rules_raw(content)
 }
 
+#[tauri::command]
+async fn get_app_decisions(handle: AppHandle) -> Result<std::collections::HashMap<String, crate::engine::AppDecision>, String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        Ok(engine.get_app_decisions())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn remove_app_decision(name_lower: String, handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.remove_app_decision(name_lower);
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn clear_app_decisions(handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.clear_app_decisions();
+        Ok(())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
 pub fn run() {
     println!("DEBUG: hydradragonfirewall::run() entered");
     println!("--- HydraDragon Firewall Booting (Tauri 2.0) ---");
@@ -179,7 +208,10 @@ pub fn run() {
             get_sdk_rules,
             get_rules_content,
             save_rules_content,
-            validate_rules_content
+            validate_rules_content,
+            get_app_decisions,
+            remove_app_decision,
+            clear_app_decisions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
