@@ -1630,18 +1630,49 @@ impl FirewallEngine {
             }
         }
 
-        // SDK SECURITY SIGNATURES
+        // SDK SECURITY RULES
         {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
-            let findings = sdk_read.evaluate_signatures(&data_vec, &*s_lock, &sdk_context);
+            if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
+                let findings = sdk_read.evaluate_all(&info, &data_vec, &*s_lock, &sdk_context);
 
-            if let Some(finding) = findings.first() {
-                should_forward = false;
-                reason = Some(format!(
-                    "SDK Signature [{}]: {}",
-                    finding.signature, finding.reason
-                ));
+                if let Some(finding) = findings.first() {
+                    match finding.action {
+                        crate::sdk::RuleAction::Block => {
+                            should_forward = false;
+                            reason = Some(format!(
+                                "SDK Rule [{}]: {}",
+                                finding.rule_name, finding.description
+                            ));
+                        }
+                        crate::sdk::RuleAction::Allow => {
+                            should_forward = true;
+                            reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
+                        }
+                        crate::sdk::RuleAction::TrafficAttack => {
+                            // Log as attack but still forward (monitoring)
+                            let _ = tx.emit(
+                                "log",
+                                LogEntry {
+                                    id: format!("{}-attack", Self::now_ts()),
+                                    timestamp: Self::now_ts(),
+                                    level: LogLevel::Warning,
+                                    message: format!(
+                                        "⚠️ Attack detected by [{}]: {}",
+                                        finding.rule_name, finding.description
+                                    ),
+                                },
+                            );
+                        }
+                        crate::sdk::RuleAction::Ask => {
+                            // Set pending for user decision
+                            should_forward = false; // Block until user decides
+                            reason = Some(format!("SDK Rule [{}]: Pending user decision", finding.rule_name));
+                        }
+                        _ => {} // ChangePacket, SolvePacket, InjectDll handled elsewhere
+                    }
+                }
             }
         }
 
@@ -1657,6 +1688,29 @@ impl FirewallEngine {
 
     pub fn inject_dll(&self, pid: u32, dll_path: &str) -> bool {
         Injector::inject(pid, dll_path).is_ok()
+    }
+
+    pub fn get_sdk_rules(&self) -> Vec<crate::sdk::SdkRule> {
+        let sdk = self.sdk.read().unwrap();
+        sdk.rules.clone()
+    }
+
+    pub fn get_rules_raw(&self) -> String {
+        std::fs::read_to_string("rules.yaml").unwrap_or_default()
+    }
+
+    pub fn save_rules_raw(&self, content: String) -> Result<(), String> {
+        if let Err(e) = serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
+            return Err(format!("Invalid YAML: {}", e));
+        }
+        std::fs::write("rules.yaml", content).map_err(|e| e.to_string())
+    }
+
+    pub fn validate_rules_raw(&self, content: String) -> Result<String, String> {
+        match serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
+            Ok(_) => Ok("YAML Syntax is Valid.".to_string()),
+            Err(e) => Err(format!("Syntax Error: {}", e)),
+        }
     }
 
     fn now_ts() -> u64 {

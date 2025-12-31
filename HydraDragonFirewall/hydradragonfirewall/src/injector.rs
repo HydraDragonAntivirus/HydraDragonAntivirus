@@ -1,4 +1,6 @@
+use crate::sdk::HookSettings;
 use std::ffi::CString;
+use std::sync::RwLock;
 use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HMODULE};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
@@ -11,6 +13,11 @@ use windows::Win32::System::Threading::{
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 use windows::core::Error;
+
+lazy_static::lazy_static! {
+    /// Global hook settings that can be modified at runtime
+    pub static ref HOOK_SETTINGS: RwLock<HookSettings> = RwLock::new(HookSettings::default());
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -106,23 +113,60 @@ impl Injector {
         (format!("PID:{}", pid), "Unknown".to_string())
     }
 
+    /// Check if a path is excluded from hooking using global settings
     pub fn is_path_excluded(path: &str) -> bool {
-        let path_lower = path.to_lowercase();
-        let exclusions = [
-            "\\program files\\hydradragonantivirus",
-            "\\desktop\\sanctum",
-            "\\appdata\\roaming\\sanctum",
-        ];
+        let settings = HOOK_SETTINGS.read().unwrap();
+        settings.is_whitelisted(path)
+    }
 
-        for exc in &exclusions {
-            if path_lower.contains(exc) {
-                return true;
-            }
-        }
-        false
+    /// Check if hooking is enabled
+    pub fn is_hooking_enabled() -> bool {
+        let settings = HOOK_SETTINGS.read().unwrap();
+        settings.enabled
+    }
+
+    /// Update hook settings
+    pub fn update_settings(new_settings: HookSettings) {
+        let mut settings = HOOK_SETTINGS.write().unwrap();
+        *settings = new_settings;
+    }
+
+    /// Add a path to the whitelist
+    pub fn add_whitelist_path(path: String) {
+        let mut settings = HOOK_SETTINGS.write().unwrap();
+        settings.add_whitelist_path(path);
+    }
+
+    /// Remove a path from the whitelist
+    pub fn remove_whitelist_path(path: &str) {
+        let mut settings = HOOK_SETTINGS.write().unwrap();
+        settings.remove_whitelist_path(path);
+    }
+
+    /// Get current whitelist paths
+    pub fn get_whitelist_paths() -> Vec<String> {
+        let settings = HOOK_SETTINGS.read().unwrap();
+        settings.whitelist_paths.clone()
     }
 
     pub fn inject(pid: u32, dll_path: &str) -> Result<(), InjectionError> {
+        // Check if hooking is enabled
+        if !Self::is_hooking_enabled() {
+            return Err(InjectionError {
+                message: "Hooking is disabled".to_string(),
+                permission_denied: false,
+            });
+        }
+
+        // Check if process is whitelisted
+        let (_, process_path) = Self::get_process_info(pid);
+        if Self::is_path_excluded(&process_path) {
+            return Err(InjectionError {
+                message: format!("Process {} is whitelisted", process_path),
+                permission_denied: false,
+            });
+        }
+
         unsafe {
             let process_handle = OpenProcess(
                 PROCESS_CREATE_THREAD
@@ -224,5 +268,51 @@ impl Injector {
                 })
             }
         }
+    }
+
+    /// Inject DLL to all running processes except whitelisted ones
+    pub fn inject_all_processes(dll_path: &str) -> Vec<(u32, Result<(), InjectionError>)> {
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
+            TH32CS_SNAPPROCESS,
+        };
+
+        let mut results = Vec::new();
+
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if let Ok(snap) = snapshot {
+                let mut entry = PROCESSENTRY32 {
+                    dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+                    ..Default::default()
+                };
+
+                if Process32First(snap, &mut entry).is_ok() {
+                    loop {
+                        let pid = entry.th32ProcessID;
+                        
+                        // Skip self, system, and idle processes
+                        if pid != 0 && pid != 4 && pid != std::process::id() {
+                            let (_, path) = Self::get_process_info(pid);
+                            
+                            // Only inject if not whitelisted and not already injected
+                            if !Self::is_path_excluded(&path) {
+                                if !Self::is_dll_loaded(pid, "hook_dll.dll") {
+                                    let result = Self::inject(pid, dll_path);
+                                    results.push((pid, result));
+                                }
+                            }
+                        }
+
+                        if Process32Next(snap, &mut entry).is_err() {
+                            break;
+                        }
+                    }
+                }
+                let _ = CloseHandle(snap);
+            }
+        }
+
+        results
     }
 }
