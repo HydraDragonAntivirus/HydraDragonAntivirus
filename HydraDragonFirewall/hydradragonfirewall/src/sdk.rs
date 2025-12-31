@@ -832,8 +832,14 @@ impl SdkRegistry {
 
     pub fn load_default_rules(&mut self) {
         // Load from rules.yaml if it exists
-        if let Ok(rule_file) = SdkRuleFile::load_from_file("rules.yaml") {
-            self.rules = rule_file.rules;
+        match SdkRuleFile::load_from_file("rules.yaml") {
+            Ok(rule_file) => {
+                println!("[SDK] Loaded {} rules from rules.yaml", rule_file.rules.len());
+                self.rules = rule_file.rules;
+            }
+            Err(e) => {
+                eprintln!("[SDK] Failed to load rules.yaml: {}", e);
+            }
         }
     }
 
