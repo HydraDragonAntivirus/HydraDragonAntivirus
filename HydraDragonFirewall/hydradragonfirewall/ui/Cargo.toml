@@ -22,7 +22,6 @@ web-sys = { version = "0.3", features = [
     "HtmlInputElement", 
     "HtmlSelectElement",
     "EventTarget",
-    "Location",
     "console"
 ] }
 

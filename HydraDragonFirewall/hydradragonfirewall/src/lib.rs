@@ -110,25 +110,6 @@ async fn clear_app_decisions(handle: AppHandle) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
-async fn get_active_alert(handle: AppHandle) -> Result<Option<crate::engine::PendingApp>, String> {
-    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
-        Ok(engine.get_active_alert())
-    } else {
-        Err("Engine not initialized".to_string())
-    }
-}
-
-#[tauri::command]
-async fn get_window_label(window: tauri::Window) -> String {
-    window.label().to_string()
-}
-
-#[tauri::command]
-async fn close_window(window: tauri::Window) {
-    let _ = window.close();
-}
-
 pub fn run() {
     println!("DEBUG: hydradragonfirewall::run() entered");
     println!("--- HydraDragon Firewall Booting (Tauri 2.0) ---");
@@ -216,10 +197,8 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    window.minimize().unwrap();
-                    api.prevent_close();
-                }
+                window.minimize().unwrap();
+                api.prevent_close();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -232,10 +211,7 @@ pub fn run() {
             validate_rules_content,
             get_app_decisions,
             remove_app_decision,
-            clear_app_decisions,
-            get_active_alert,
-            get_window_label,
-            close_window
+            clear_app_decisions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -119,7 +119,6 @@ pub enum AppDecision {
     Pending,
     Allow,
     Block,
-    AllowOnce,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -438,7 +437,6 @@ pub struct AppManager {
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
     pub injected_pids: RwLock<HashSet<u32>>,     // Avoid repeated injections
     pub failed_pids: RwLock<HashSet<u32>>,       // PIDs where injection failed
-    pub active_alert: RwLock<Option<PendingApp>>,
 }
 
 impl AppManager {
@@ -452,7 +450,6 @@ impl AppManager {
             url_cache: RwLock::new(HashMap::new()),
             injected_pids: RwLock::new(HashSet::new()),
             failed_pids: RwLock::new(HashSet::new()),
-            active_alert: RwLock::new(None),
         }
     }
 
@@ -521,20 +518,6 @@ impl AppManager {
         let name_lower = name.to_lowercase();
         let mut decisions = self.decisions.write().unwrap();
         decisions.insert(name_lower, decision);
-    }
-
-    pub fn remove_decision(&self, name_lower: &str) {
-        let mut decisions = self.decisions.write().unwrap();
-        decisions.remove(name_lower);
-    }
-
-    pub fn clear_decisions(&self) {
-        let mut decisions = self.decisions.write().unwrap();
-        decisions.clear();
-    }
-
-    pub fn get_active_alert(&self) -> Option<PendingApp> {
-        self.active_alert.read().unwrap().clone()
     }
 }
 
@@ -657,13 +640,8 @@ impl FirewallEngine {
 
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap();
-        
-        // Filter out AllowOnce decisions so they don't persist
-        let mut decisions = self.app_manager.decisions.read().unwrap().clone();
-        decisions.retain(|_, v| *v != AppDecision::AllowOnce);
-
         let settings = FirewallSettings {
-            app_decisions: decisions,
+            app_decisions: self.app_manager.decisions.read().unwrap().clone(),
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             metadata: current_settings.metadata.clone(),
@@ -682,38 +660,12 @@ impl FirewallEngine {
 
     pub fn resolve_app_decision(&self, name: String, decision: String) {
         let app_decision = match decision.as_str() {
-            "allow_always" => AppDecision::Allow,
-            "allow_once" => AppDecision::AllowOnce,
-            "block" => AppDecision::Block,
+            "Allow" => AppDecision::Allow,
+            "Block" => AppDecision::Block,
             _ => AppDecision::Pending,
         };
         self.app_manager.resolve_decision(&name, app_decision);
-
-        // Clear the active alert so it doesn't linger
-        {
-            let mut active = self.app_manager.active_alert.write().unwrap();
-            *active = None;
-        }
-
         self.save_settings();
-    }
-
-    pub fn remove_app_decision(&self, name_lower: String) {
-        self.app_manager.remove_decision(&name_lower);
-        self.save_settings();
-    }
-
-    pub fn clear_app_decisions(&self) {
-        self.app_manager.clear_decisions();
-        self.save_settings();
-    }
-
-    pub fn get_active_alert(&self) -> Option<PendingApp> {
-        self.app_manager.get_active_alert()
-    }
-
-    pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
-        self.app_manager.decisions.read().unwrap().clone()
     }
 
     pub fn get_settings(&self) -> FirewallSettings {
@@ -799,6 +751,31 @@ impl FirewallEngine {
             }
         }
         0 // Not found
+    }
+    pub fn get_app_decisions(&self) -> HashMap<String, AppDecision> {
+        self.app_manager.decisions.read().unwrap().clone()
+    }
+
+    pub fn remove_app_decision(&self, name_lower: String) {
+        self.app_manager.decisions.write().unwrap().remove(&name_lower);
+        
+        // Also remove from settings and save
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.app_decisions.remove(&name_lower);
+        }
+        self.save_settings();
+    }
+
+    pub fn clear_app_decisions(&self) {
+        self.app_manager.decisions.write().unwrap().clear();
+        
+        // Also clear from settings and save
+        {
+            let mut settings = self.settings.write().unwrap();
+            settings.app_decisions.clear();
+        }
+        self.save_settings();
     }
 }
 
@@ -995,27 +972,33 @@ impl FirewallEngine {
                 loop {
                     let mut app_opt = None;
                     {
+                        // Pop one pending app at a time
                         if let Ok(mut pending) = am_monitor.pending.write() {
                             app_opt = pending.pop_front();
                         }
                     }
 
                     if let Some(app) = app_opt {
-                        // 1. Store it as the active alert for windows to fetch if they miss the emit
-                        {
-                            let mut active = am_monitor.active_alert.write().unwrap();
-                            *active = Some(app.clone());
-                        }
-
-                        // 1. Trigger Alert Window Spawning logic
-                        Self::spawn_alert_window(&tx_monitor);
-                        
-                        // 2. Emit data to all windows (Main + Alert)
+                        // 1. Emit data to all windows (Main + Alert)
                         let _ = tx_monitor.emit("ask_app_decision", app);
 
-                        // Don't spam the UI
+
+
+                        // Don't spam the UI, wait for user validation interaction
                         std::thread::sleep(Duration::from_millis(500));
                     } else {
+                        // If no pending app, we might want to close the alert window?
+                        // Actually, if we resolved it, the window might stay open showing "Waiting..." or empty.
+                        // Ideally, we close it from the UI side when decision is made.
+
+                        // Check if we should auto-close empty prompt window?
+                        // For now, let the user close it or the UI logic handle it.
+                        // UI logic: resolve_decision calls invoke -> updates state -> PendingApp becomes None.
+                        // If PendingApp is None, the UI shows "Waiting..."
+
+                        // We can optionally hide the window if no pending app?
+                        // But let's leave valid "Waiting" state for now.
+
                         std::thread::sleep(Duration::from_millis(200));
                     }
                 }
@@ -1297,7 +1280,7 @@ impl FirewallEngine {
 
         // Initialize decision state before parsing
         let mut should_forward = false;
-        let mut reason: Option<String>;
+        let mut reason: Option<String> = None;
 
         // 3. SDK PACKET CHANGERS & LISTENERS
         if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
@@ -1461,22 +1444,9 @@ impl FirewallEngine {
                     reason = Some(format!("New App Detected: {}", app_name));
                 }
                 AppDecision::Block => {}
-                AppDecision::AllowOnce => {
-                    should_forward = true;
-                    reason = Some(format!("App Allowed (Once): {}", app_name));
-                    // Remove the decision after use so the next request goes back to Pending
-                    am.remove_decision(&app_name.to_lowercase());
-                }
             }
 
-            // 3. Web Filter Checks (IP/Hostname/URL lists)
-            if should_forward {
-                if wf.is_blocked_ip(std::net::IpAddr::V4(info.dst_ip)) {
-                    should_forward = false;
-                    reason = Some(format!("Blocked IP (WebFilter): {}", info.dst_ip));
-                }
-            }
-
+            // 3. Web Filter Checks (Hostname/URL lists)
             if should_forward {
                 if let Some(ref hostname) = info.hostname {
                     if let Some(block_reason) = wf.check_hostname(hostname) {
@@ -1658,7 +1628,7 @@ impl FirewallEngine {
         {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
-            if let Some(info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
+            if let Some(mut info) = Self::parse_packet(&data_vec, outbound, pid, &am.info_cache) {
                 let findings = sdk_read.evaluate_all(&info, &data_vec, &*s_lock, &sdk_context);
 
                 if let Some(finding) = findings.first() {
@@ -1734,47 +1704,6 @@ impl FirewallEngine {
         match serde_yaml::from_str::<crate::sdk::SdkRuleFile>(&content) {
             Ok(_) => Ok("YAML Syntax is Valid.".to_string()),
             Err(e) => Err(format!("Syntax Error: {}", e)),
-        }
-    }
-
-    pub fn spawn_alert_window(app: &AppHandle) {
-        // If window already exists, just return or show it
-        if let Some(win) = app.get_webview_window("firewall-alert") {
-            let _ = win.show();
-            let _ = win.set_focus();
-            return;
-        }
-
-        let width = 420.0;
-        let height = 280.0;
-
-        let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
-            .title("HydraDragon Firewall Alert")
-            .inner_size(width, height)
-            .resizable(false)
-            .always_on_top(true)
-            .decorations(false)
-            .transparent(true)
-            .shadow(true);
-
-        // Position in bottom-right corner
-        if let Ok(Some(monitor)) = app.primary_monitor() {
-            let size = monitor.size();
-            let scale = monitor.scale_factor();
-            let monitor_w = (size.width as f64) / scale;
-            let monitor_h = (size.height as f64) / scale;
-            
-            // 20px margin from edges
-            let x = monitor_w - width - 20.0;
-            let y = monitor_h - height - 60.0; // Clear taskbar
-            
-            if let Ok(win) = builder.position(x, y).build() {
-                let _ = win.show();
-            }
-        } else {
-            if let Ok(win) = builder.build() {
-                let _ = win.show();
-            }
         }
     }
 
