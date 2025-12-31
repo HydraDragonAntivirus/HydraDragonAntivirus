@@ -130,6 +130,7 @@ pub struct PendingApp {
     pub dst_ip: IpAddr,
     pub dst_port: u16,
     pub protocol: Protocol,
+    pub hostname: Option<String>,
     pub reason: Option<String>,
 }
 
@@ -604,7 +605,7 @@ impl FirewallEngine {
         let stop_signal = Arc::new(AtomicBool::new(false));
         let file_checker = Arc::new(FileMagicChecker::new());
 
-        let mut settings_data = Self::load_settings().unwrap_or_default();
+        let settings_data = Self::load_settings().unwrap_or_default();
 
         // Default allow rules are now handled in Default impl or loaded from disk.
         // We do NOT hardcode them here to allow user to override/remove them.
@@ -1221,7 +1222,7 @@ impl FirewallEngine {
                                             .replace("\n", " ")
                                     };
 
-                                    let raw_packet = crate::sdk::RawPacket {
+                                    let mut raw_packet = crate::sdk::RawPacket {
                                         id: format!("{}-{}-{}", ts, info.src_port, info.dst_port),
                                         timestamp: ts,
                                         src_ip: info.src_ip.to_string(),
@@ -1247,7 +1248,22 @@ impl FirewallEngine {
                                             "Block".to_string()
                                         },
                                         rule: decision._reason.clone(),
+                                        hostname: info.hostname.clone(),
                                     };
+
+                                    // Enrich summary with hostname if available
+                                    if let Some(ref h) = raw_packet.hostname {
+                                        raw_packet.summary = format!("{} ({})", raw_packet.summary, h);
+                                    } else {
+                                        // Snooping fallback for raw packet display
+                                        if let Some(domain) = dns_w.resolve_ip(&info.dst_ip.to_string()) {
+                                            raw_packet.hostname = Some(domain.clone());
+                                            raw_packet.summary = format!("{} ({})", raw_packet.summary, domain);
+                                        } else if let Some(domain) = dns_w.resolve_ip(&info.src_ip.to_string()) {
+                                            raw_packet.hostname = Some(domain.clone());
+                                            raw_packet.summary = format!("{} ({})", raw_packet.summary, domain);
+                                        }
+                                    }
                                     let _ = tx_log.emit("raw_packet", raw_packet);
                                 }
 
@@ -1295,7 +1311,7 @@ impl FirewallEngine {
         stats: &Arc<Statistics>,
         rules: &Arc<RwLock<Vec<FirewallRule>>>,
         am: &Arc<AppManager>,
-        _wf: &Arc<WebFilter>,
+        wf: &Arc<WebFilter>,
         settings: &Arc<RwLock<FirewallSettings>>,
         dns_handler: &Arc<DnsHandler>,
         sdk: &Arc<RwLock<crate::sdk::SdkRegistry>>,
@@ -1357,6 +1373,14 @@ impl FirewallEngine {
                         Self::parse_packet(&data_vec, outbound, pid, &am.info_cache)
                     {
                         info = new_info;
+                        // RE-ENRICH after change (Feature 12/Context)
+                        if info.hostname.is_none() {
+                            if outbound {
+                                info.hostname = dns_handler.resolve_ip(&info.dst_ip.to_string());
+                            } else {
+                                info.hostname = dns_handler.resolve_ip(&info.src_ip.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -1553,15 +1577,34 @@ impl FirewallEngine {
             }
         }
 
-        // 10. Web Filter Checks (DEPRECATED: User said Never Block Except Rules)
-        /*
+        // 10. Intelligence & Malware Checks (Features 12, 13, 31)
         if should_forward {
-            if wf.is_blocked_ip(info.dst_ip) {
-               // should_forward = false; // SILENT BLOCK REMOVED
-               // reason = Some(format!("Blocked IP (WebFilter): {}", info.dst_ip));
+            // Check domain blocklist (dns snooping / SNI / Host)
+            if let Some(domain) = info.hostname.as_deref() {
+                if let Some(reason_msg) = wf.check_hostname(domain) {
+                    should_forward = false;
+                    reason = Some(reason_msg);
+                }
+            }
+            
+            // Check URL blocklist (HTTP parsing / Hooking)
+            if should_forward {
+                if let Some(url) = info.full_url.as_deref() {
+                    if let Some(reason_msg) = wf.check_url(url) {
+                        should_forward = false;
+                        reason = Some(reason_msg);
+                    }
+                }
+            }
+
+            // Check IP blocklist (IPv4/v6 Malware lists)
+            if should_forward {
+                if wf.is_blocked_ip(info.dst_ip) {
+                    should_forward = false;
+                    reason = Some(format!("Blocked IP (Intelligence): {}", info.dst_ip));
+                }
             }
         }
-        */
 
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
@@ -1577,6 +1620,7 @@ impl FirewallEngine {
                     dst_ip: info.dst_ip,
                     dst_port: info.dst_port,
                     protocol: info.protocol.clone(),
+                    hostname: info.hostname.clone(),
                     reason: reason.clone(),
                 });
             }
@@ -1724,8 +1768,8 @@ impl FirewallEngine {
             return;
         }
 
-        let width = 420.0;
-        let height = 280.0;
+        let width = 400.0;
+        let height = 200.0;
 
         let builder = WebviewWindowBuilder::new(app, "firewall-alert", WebviewUrl::App("index.html?mode=alert".into()))
             .title("HydraDragon Firewall Alert")

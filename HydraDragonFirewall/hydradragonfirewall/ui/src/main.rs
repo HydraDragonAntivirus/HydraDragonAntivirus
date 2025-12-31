@@ -50,6 +50,8 @@ pub struct PendingApp {
     pub path: String,
     pub dst_ip: String,
     pub dst_port: u16,
+    pub protocol: Protocol,
+    pub hostname: Option<String>,
     pub reason: Option<String>,
 }
 
@@ -73,6 +75,7 @@ pub struct RawPacket {
     // SDK/Rule Context
     pub action: String,
     pub rule: String,
+    pub hostname: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -713,24 +716,24 @@ fn AlertWindow(
                      let n1 = app.name.clone(); let n2 = app.name.clone(); let n3 = app.name.clone();
                      let res1 = resolve_decision_internal.clone(); let res2 = resolve_decision_internal.clone(); let res3 = resolve_decision_internal.clone();
                      view! {
-                         <div class="alert-content-grid">
-                             <div class="alert-icon-container"> <div class="alert-big-icon">"✓"</div> </div>
+                         <div class="alert-content-grid" style="margin-top: 0">
                              <div class="alert-info-container">
-                                  <h2 class="alert-title">{format!("Network connection blocked")}</h2>
-                                  <div class="alert-desc">
-                                      "HydraDragon blocked a connection attempt. You can exclude this application if you trust it."
+                                  <h2 class="alert-title" style="margin-bottom: 5px">
+                                      {if let Some(ref h) = app.hostname { format!("{} wants connection", h) } else { app.name.clone() }}
+                                  </h2>
+                                  <div class="alert-desc" style="margin-bottom: 8px">
+                                      {if app.hostname.is_some() { app.name.clone() } else { "System intercept".to_string() }} " is attempting network access."
                                   </div>
-                                  <div class="alert-details-box">
-                                      <div class="detail-row"> <span class="detail-label">"IP Address:"</span> <span class="detail-value">{app.dst_ip.clone()}</span> </div>
-                                      <div class="detail-row"> <span class="detail-label">"Port:"</span> <span class="detail-value">{app.dst_port.to_string()}</span> </div>
-                                      <div class="detail-row"> <span class="detail-label">"File:"</span> <span class="detail-value">{app.path.clone()}</span> </div>
+                                  <div class="alert-details-box" style="font-size: 11px">
+                                      <div class="detail-row"> <span class="detail-label" style="width: 80px">"Target:"</span> <span class="detail-value">{format!("{}:{}", app.dst_ip, app.dst_port)}</span> </div>
+                                      <div class="detail-row"> <span class="detail-label" style="width: 80px">"Path:"</span> <span class="detail-value" style="font-size: 10px; opacity: 0.6">{app.path.clone()}</span> </div>
                                   </div>
                              </div>
                          </div>
-                         <div class="alert-footer-actions">
+                         <div class="alert-footer-actions" style="margin-top: 10px; padding-top: 10px">
                              <button class="alert-btn block" on:click=move |_| res3(n3.clone(), "block".to_string())> "BLOCK" </button>
-                             <button class="alert-btn session" on:click=move |_| res1(n1.clone(), "allow_once".to_string())> "ALLOW ONCE" </button>
-                             <button class="alert-btn always" on:click=move |_| res2(n2.clone(), "allow_always".to_string())> "ALLOW ALWAYS" </button>
+                             <button class="alert-btn session" on:click=move |_| res1(n1.clone(), "allow_once".to_string())> "ONCE" </button>
+                             <button class="alert-btn always" on:click=move |_| res2(n2.clone(), "allow_always".to_string())> "TRUST" </button>
                          </div>
                      }
                  })}

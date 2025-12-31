@@ -595,6 +595,12 @@ pub enum ConditionLogic {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentMatchData {
+    pub pattern: String,
+    pub encoding: ContentEncoding,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleCondition {
     Protocol(RuleProtocol),
@@ -607,7 +613,7 @@ pub enum RuleCondition {
     FileType(FileTypeMatcher),
     Regex(RegexMatcher),
     Localhost(LocalhostType),
-    ContentMatch { pattern: String, encoding: ContentEncoding },
+    ContentMatch(ContentMatchData),
 }
 
 impl RuleCondition {
@@ -627,11 +633,11 @@ impl RuleCondition {
             RuleCondition::Localhost(localhost_type) => {
                 localhost_type.matches(packet.src_ip) || localhost_type.matches(packet.dst_ip)
             }
-            RuleCondition::ContentMatch { pattern, encoding } => {
+            RuleCondition::ContentMatch(data) => {
                 // Try to find pattern in decoded content
-                if let Some(decoded) = encoding.decode(payload) {
+                if let Some(decoded) = data.encoding.decode(payload) {
                     let text = String::from_utf8_lossy(&decoded);
-                    text.contains(pattern)
+                    text.contains(&data.pattern)
                 } else {
                     false
                 }
@@ -1005,6 +1011,7 @@ pub struct RawPacket {
     pub process_path: String,
     pub action: String,
     pub rule: String,
+    pub hostname: Option<String>,
 }
 
 impl RawPacket {
@@ -1051,6 +1058,7 @@ impl RawPacket {
             process_path: context.process_path.clone(),
             action: action.into(),
             rule: rule.into(),
+            hostname: info.hostname.clone(),
         }
     }
 }
