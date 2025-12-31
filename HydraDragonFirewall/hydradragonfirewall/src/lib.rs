@@ -1,15 +1,17 @@
 pub mod engine;
+pub mod file_magic;
 pub mod http_parser;
 pub mod injector;
 pub mod sdk;
 pub mod tls_parser;
 pub mod web_filter;
 pub mod windivert_api;
-pub mod file_magic;
 
 use crate::engine::FirewallEngine;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+
+pub struct FirewallState(pub Arc<RwLock<FirewallEngine>>);
 
 #[tauri::command]
 async fn resolve_app_decision(
@@ -48,6 +50,35 @@ async fn save_settings(
     } else {
         Err("Engine not initialized".to_string())
     }
+}
+
+#[tauri::command]
+async fn get_sdk_rules<R: Runtime>(
+    handle: AppHandle<R>,
+) -> Result<Vec<crate::sdk::SdkRule>, String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        Ok(engine.get_sdk_rules())
+    } else {
+        Err("Engine not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+fn get_rules_content(state: tauri::State<FirewallState>) -> String {
+    let engine = state.inner().0.read().unwrap();
+    engine.get_rules_raw()
+}
+
+#[tauri::command]
+fn save_rules_content(content: String, state: tauri::State<FirewallState>) -> Result<(), String> {
+    let engine = state.inner().0.read().unwrap();
+    engine.save_rules_raw(content)
+}
+
+#[tauri::command]
+fn validate_rules_content(content: String, state: tauri::State<FirewallState>) -> Result<String, String> {
+    let engine = state.inner().0.read().unwrap();
+    engine.validate_rules_raw(content)
 }
 
 pub fn run() {
@@ -144,7 +175,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resolve_app_decision,
             get_settings,
-            save_settings
+            save_settings,
+            get_sdk_rules,
+            get_rules_content,
+            save_rules_content,
+            validate_rules_content
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
