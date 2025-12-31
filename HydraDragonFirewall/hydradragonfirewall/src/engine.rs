@@ -1117,10 +1117,21 @@ impl FirewallEngine {
                 .name(format!("packet_worker_{}", worker_id))
                 .spawn(move || {
                     let mut buffer = vec![0u8; 65535];
+                    let mut packet_count = 0u64;
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
                             Ok(packet) => {
+                                packet_count += 1;
+                                if packet_count % 100 == 0 {
+                                    let ts = Self::now_ts();
+                                    let _ = tx_log.emit("log", LogEntry {
+                                        id: format!("{}-worker-{}-count", ts, worker_id),
+                                        timestamp: ts,
+                                        level: LogLevel::Info,
+                                        message: format!("📊 Worker {} received {} packets", worker_id, packet_count),
+                                    });
+                                }
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
 
@@ -1249,10 +1260,18 @@ impl FirewallEngine {
                             }
                             Err(_e) => {
                                 let err_str = _e.to_string();
-                                if err_str.contains("timeout") || err_str.contains("122") {
+                                if err_str.contains("timeout") {
+                                    // Ignore timeouts as they are expected
                                     std::thread::sleep(Duration::from_millis(1));
                                 } else {
-                                    // Hard error - log once and maybe exit thread?
+                                    let ts = Self::now_ts();
+                                    let _ = tx_log.emit("log", LogEntry {
+                                        id: format!("{}-worker-{}-err-{}", ts, worker_id, packet_count),
+                                        timestamp: ts,
+                                        level: LogLevel::Error,
+                                        message: format!("❌ Worker {} Recv Error: {} (count: {})", worker_id, err_str, packet_count),
+                                    });
+                                    std::thread::sleep(Duration::from_millis(100));
                                 }
                             }
                         }
@@ -1827,6 +1846,7 @@ impl FirewallEngine {
         let (protocol, src_ip, dst_ip, header_len) = match ip_version {
             4 => {
                 if data.len() < 20 {
+                    // println!("DEBUG: Packet too short for IPv4: {}", data.len());
                     return None;
                 }
                 let protocol = match data[9] {
@@ -1843,6 +1863,7 @@ impl FirewallEngine {
             }
             6 => {
                 if data.len() < 40 {
+                    // println!("DEBUG: Packet too short for IPv6: {}", data.len());
                     return None;
                 }
                 let protocol = match data[6] {
@@ -1858,7 +1879,10 @@ impl FirewallEngine {
                 let dst_ip = IpAddr::V6(Ipv6Addr::from(dst_bytes));
                 (protocol, src_ip, dst_ip, 40)
             }
-            _ => return None,
+            _ => {
+                // println!("DEBUG: Unknown IP version: {}", ip_version);
+                return None;
+            }
         };
 
         let (src_port, dst_port) = if header_len + 4 <= data.len() {
