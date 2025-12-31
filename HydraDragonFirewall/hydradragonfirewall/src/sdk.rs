@@ -9,7 +9,7 @@ use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -139,7 +139,7 @@ pub struct IpMatcher {
 }
 
 impl IpMatcher {
-    pub fn matches(&self, ip: IpAddr) -> bool {
+    pub fn matches(&self, ip: Ipv4Addr) -> bool {
         if self.addresses.is_empty() && self.cidr_ranges.is_empty() {
             return true; // Empty matcher = any
         }
@@ -163,60 +163,33 @@ impl IpMatcher {
         false
     }
 
-    fn ip_in_cidr(&self, ip: IpAddr, cidr: &str) -> bool {
+    fn ip_in_cidr(&self, ip: Ipv4Addr, cidr: &str) -> bool {
         let parts: Vec<&str> = cidr.split('/').collect();
         if parts.len() != 2 {
             return false;
         }
 
-        match ip {
-            IpAddr::V4(ipv4) => {
-                let Ok(network) = parts[0].parse::<Ipv4Addr>() else {
-                    return false;
-                };
-                let Ok(prefix_len) = parts[1].parse::<u32>() else {
-                    return false;
-                };
+        let Ok(network) = parts[0].parse::<Ipv4Addr>() else {
+            return false;
+        };
+        let Ok(prefix_len) = parts[1].parse::<u32>() else {
+            return false;
+        };
 
-                if prefix_len > 32 {
-                    return false;
-                }
-
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u32 << (32 - prefix_len)
-                };
-
-                let ip_u32 = u32::from(ipv4);
-                let network_u32 = u32::from(network);
-
-                (ip_u32 & mask) == (network_u32 & mask)
-            }
-            IpAddr::V6(ipv6) => {
-                let Ok(network) = parts[0].parse::<Ipv6Addr>() else {
-                    return false;
-                };
-                let Ok(prefix_len) = parts[1].parse::<u32>() else {
-                    return false;
-                };
-
-                if prefix_len > 128 {
-                    return false;
-                }
-
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u128 << (128 - prefix_len)
-                };
-
-                let ip_u128 = u128::from(ipv6);
-                let network_u128 = u128::from(network);
-
-                (ip_u128 & mask) == (network_u128 & mask)
-            }
+        if prefix_len > 32 {
+            return false;
         }
+
+        let mask = if prefix_len == 0 {
+            0
+        } else {
+            !0u32 << (32 - prefix_len)
+        };
+
+        let ip_u32 = u32::from(ip);
+        let network_u32 = u32::from(network);
+
+        (ip_u32 & mask) == (network_u32 & mask)
     }
 }
 
@@ -472,39 +445,25 @@ pub enum LocalhostType {
 }
 
 impl LocalhostType {
-    pub fn matches(&self, ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(ipv4) => match self {
-                LocalhostType::None => true, // Always passes (no filter)
-                LocalhostType::Loopback => ipv4.octets()[0] == 127,
-                LocalhostType::PrivateA => ipv4.octets()[0] == 10,
-                LocalhostType::PrivateB => {
-                    ipv4.octets()[0] == 172 && ipv4.octets()[1] >= 16 && ipv4.octets()[1] <= 31
-                }
-                LocalhostType::PrivateC => {
-                    ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168
-                }
-                LocalhostType::Any => ipv4 == Ipv4Addr::new(0, 0, 0, 0),
-                LocalhostType::All => {
-                    LocalhostType::Loopback.matches(ip)
-                        || LocalhostType::PrivateA.matches(ip)
-                        || LocalhostType::PrivateB.matches(ip)
-                        || LocalhostType::PrivateC.matches(ip)
-                        || LocalhostType::Any.matches(ip)
-                }
-            },
-            IpAddr::V6(ipv6) => match self {
-                LocalhostType::None => true,
-                LocalhostType::Loopback => ipv6.is_loopback(),
-                LocalhostType::PrivateA | LocalhostType::PrivateB | LocalhostType::PrivateC => {
-                    ipv6.is_unique_local() || ipv6.is_unicast_link_local()
-                }
-                LocalhostType::Any => ipv6.is_unspecified(),
-                LocalhostType::All => {
-                    ipv6.is_loopback() || ipv6.is_unique_local() || ipv6.is_unicast_link_local()
-                        || ipv6.is_unspecified()
-                }
-            },
+    pub fn matches(&self, ip: Ipv4Addr) -> bool {
+        match self {
+            LocalhostType::None => true, // Always passes (no filter)
+            LocalhostType::Loopback => ip.octets()[0] == 127,
+            LocalhostType::PrivateA => ip.octets()[0] == 10,
+            LocalhostType::PrivateB => {
+                ip.octets()[0] == 172 && ip.octets()[1] >= 16 && ip.octets()[1] <= 31
+            }
+            LocalhostType::PrivateC => {
+                ip.octets()[0] == 192 && ip.octets()[1] == 168
+            }
+            LocalhostType::Any => ip == Ipv4Addr::new(0, 0, 0, 0),
+            LocalhostType::All => {
+                LocalhostType::Loopback.matches(ip)
+                    || LocalhostType::PrivateA.matches(ip)
+                    || LocalhostType::PrivateB.matches(ip)
+                    || LocalhostType::PrivateC.matches(ip)
+                    || LocalhostType::Any.matches(ip)
+            }
         }
     }
 }
