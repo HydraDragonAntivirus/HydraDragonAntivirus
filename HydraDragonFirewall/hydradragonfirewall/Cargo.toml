@@ -21,6 +21,7 @@ regex = "1.10"
 lazy_static = "1.4"
 glob = "0.3"
 crossbeam-channel = "0.5"
+url = "2.5"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
