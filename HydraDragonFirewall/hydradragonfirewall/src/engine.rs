@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1035,6 +1035,14 @@ impl FirewallEngine {
         // GLOBAL INJECTOR THREAD
         let am_global = Arc::clone(&am);
         let settings_global = Arc::clone(&self.settings);
+
+        // Enable debug privileges to allow injection into cross-session/system processes
+        if Injector::enable_debug_privilege() {
+            println!("[Engine] SeDebugPrivilege enabled successfully");
+        } else {
+            eprintln!("[Engine] Failed to enable SeDebugPrivilege - injection might be limited");
+        }
+
         std::thread::Builder::new()
             .name("global_injector".to_string())
             .spawn(move || {
@@ -1059,29 +1067,63 @@ impl FirewallEngine {
                                     if Process32FirstW(snapshot, &mut entry).is_ok() {
                                         loop {
                                             let pid = entry.th32ProcessID;
-                                            // More aggressive: Only skip IDLE and SYSTEM
+                                             // More aggressive: Only skip IDLE and SYSTEM
                                             if pid != 0 && pid != 4 && pid != std::process::id() {
+                                                let is_32bit = Injector::is_process_32bit(pid);
+                                                
+                                                // Determine the correct DLL to inject based on architecture
+                                                let mut target_dll = hook_dll.clone();
+                                                if is_32bit {
+                                                    // Look for a 32-bit variant of the DLL
+                                                    let p = Path::new(&hook_dll);
+                                                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                                                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                                                            let parent = p.parent().unwrap_or_else(|| Path::new(""));
+                                                            
+                                                            // Try common suffixes
+                                                            let x86_path = parent.join(format!("{}.x86.{}", stem, ext));
+                                                            let d32_path = parent.join(format!("{}.32.{}", stem, ext));
+                                                            
+                                                            if x86_path.exists() {
+                                                                target_dll = x86_path.to_string_lossy().to_string();
+                                                            } else if d32_path.exists() {
+                                                                target_dll = d32_path.to_string_lossy().to_string();
+                                                            } else {
+                                                                // If no 32-bit DLL found, we might need to skip or warn
+                                                                // For now, we'll try the main one but it will likely fail if it's 64-bit
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                let hook_dll_name = Path::new(&target_dll)
+                                                    .file_name()
+                                                    .and_then(|n: &std::ffi::OsStr| n.to_str())
+                                                    .unwrap_or("hook_dll.dll");
+
                                                 let already_tracked = {
-                                                    let injected =
-                                                        am_global.injected_pids.read().unwrap();
+                                                    let injected = am_global.injected_pids.read().unwrap();
                                                     injected.contains(&pid)
                                                 };
 
-                                                if !already_tracked
-                                                    || !Injector::is_dll_loaded(pid, "hook_dll.dll")
-                                                {
-                                                    // Robust check: Is the DLL actually in the process?
-                                                    // (Even if we didn't inject it this session or it failed before)
-                                                    let (_info_name, info_path) =
-                                                        Injector::get_process_info(pid);
+                                                if !already_tracked || !Injector::is_dll_loaded(pid, hook_dll_name) {
+                                                    let (_info_name, info_path) = Injector::get_process_info(pid);
                                                     if !Injector::is_path_excluded(&info_path) {
-                                                        if Injector::inject(pid, &hook_dll).is_ok()
-                                                        {
-                                                            let mut injected = am_global
-                                                                .injected_pids
-                                                                .write()
-                                                                .unwrap();
-                                                            injected.insert(pid);
+                                                        match Injector::inject(pid, &target_dll) {
+                                                            Ok(_) => {
+                                                                let mut injected = am_global.injected_pids.write().unwrap();
+                                                                injected.insert(pid);
+                                                            }
+                                                            Err(e) => {
+                                                                if !already_tracked {
+                                                                    eprintln!("[Engine] Injection failed for PID {} ({}): {}{}", 
+                                                                        pid, info_path, e.message, 
+                                                                        if is_32bit { " (Target is 32-bit)" } else { "" });
+                                                                    
+                                                                    let mut injected = am_global.injected_pids.write().unwrap();
+                                                                    injected.insert(pid);
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }

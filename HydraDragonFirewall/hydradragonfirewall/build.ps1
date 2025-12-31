@@ -12,6 +12,23 @@ $ErrorActionPreference = "Stop"
 $env:WINDIVERT_PATH = Join-Path $PSScriptRoot "..\everything"
 $env:WINDIVERT_LIB_DIR = Join-Path $PSScriptRoot "..\everything"
 
+function Robust-Copy($src, $dst) {
+    if (Test-Path $src) {
+        try {
+            Copy-Item $src $dst -Force -ErrorAction Stop
+            Write-Host "      Successfully copied to $dst" -ForegroundColor Gray
+        }
+        catch {
+            $err = $_.Exception.Message
+            Write-Warning "      Failed to copy $src to $dst : $err"
+            Write-Host "      Hint: Make sure the application is not running." -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Warning "      Source not found: $src"
+    }
+}
+
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "  HydraDragon Firewall Build System" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
@@ -34,12 +51,19 @@ finally {
 $buildType = if ($Release) { "--release" } else { "" }
 Write-Host "[2/3] Building Rust backend $buildType..." -ForegroundColor Yellow
 
-# Build Hook DLL first
-Write-Host "      Building Hook DLL..." -ForegroundColor Gray
+# Build Hook DLLs (64-bit and 32-bit)
+Write-Host "      Building Hook DLLs..." -ForegroundColor Gray
 Push-Location hook_dll
 try {
-    cargo build $buildType
-    if ($LASTEXITCODE -ne 0) { throw "Hook DLL build failed" }
+    # 64-bit build
+    Write-Host "        - Building 64-bit..." -ForegroundColor Gray
+    cargo build $buildType --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw "64-bit Hook DLL build failed" }
+
+    # 32-bit build
+    Write-Host "        - Building 32-bit..." -ForegroundColor Gray
+    cargo build $buildType --target i686-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw "32-bit Hook DLL build failed" }
 }
 finally {
     Pop-Location
@@ -52,37 +76,25 @@ Write-Host "      Rust build complete!" -ForegroundColor Green
 
 # Copy WinDivert and Hook DLL files if needed
 $targetDir = if ($Release) { "target\release" } else { "target\debug" }
-$hookDllSrc = if ($Release) { "hook_dll\target\release\hook_dll.dll" } else { "hook_dll\target\debug\hook_dll.dll" }
+$hook64Src = if ($Release) { "hook_dll\target\x86_64-pc-windows-msvc\release\hook_dll.dll" } else { "hook_dll\target\x86_64-pc-windows-msvc\debug\hook_dll.dll" }
+$hook32Src = if ($Release) { "hook_dll\target\i686-pc-windows-msvc\release\hook_dll.dll" } else { "hook_dll\target\i686-pc-windows-msvc\debug\hook_dll.dll" }
 
-# Copy Hook DLL to engine target
-if (Test-Path $hookDllSrc) {
-    Write-Host "      Copying hook_dll.dll to $targetDir" -ForegroundColor Gray
-    Copy-Item $hookDllSrc $targetDir -Force
-}
+# Copy Hook DLLs to engine target
+Robust-Copy $hook64Src (Join-Path $targetDir "hook_dll.dll")
+Robust-Copy $hook32Src (Join-Path $targetDir "hook_dll.32.dll")
 
 $dlls = @("WinDivert.dll", "WinDivert64.sys")
 foreach ($dll in $dlls) {
-    $src = Join-Path $env:WINDIVERT_PATH $dll
-    $dst = Join-Path $targetDir $dll
-    if (Test-Path $src) {
-        Write-Host "      Copying $dll to $targetDir" -ForegroundColor Gray
-        Copy-Item $src $dst -Force
-    }
+    Robust-Copy (Join-Path $env:WINDIVERT_PATH $dll) (Join-Path $targetDir $dll)
 }
 
 # Also copy exe and hook_dll to 'everything' folder for easy deployment
 $exeSrc = Join-Path $targetDir "hydradragonfirewall.exe"
 $exeDst = Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe"
-if (Test-Path $exeSrc) {
-    Write-Host "      Deploying exe to $env:WINDIVERT_PATH" -ForegroundColor Gray
-    Copy-Item $exeSrc $exeDst -Force
-}
+Robust-Copy $exeSrc $exeDst
 
-$hookDst = Join-Path $env:WINDIVERT_PATH "hook_dll.dll"
-if (Test-Path $hookDllSrc) {
-    Write-Host "      Deploying hook_dll.dll to $env:WINDIVERT_PATH" -ForegroundColor Gray
-    Copy-Item $hookDllSrc $hookDst -Force
-}
+Robust-Copy $hook64Src (Join-Path $env:WINDIVERT_PATH "hook_dll.dll")
+Robust-Copy $hook32Src (Join-Path $env:WINDIVERT_PATH "hook_dll.32.dll")
 
 Write-Host ""
 Write-Host "[3/3] Build Successful!" -ForegroundColor Green

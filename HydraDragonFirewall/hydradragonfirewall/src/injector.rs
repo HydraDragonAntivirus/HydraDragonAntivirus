@@ -2,16 +2,23 @@ use crate::sdk::HookSettings;
 use std::ffi::CString;
 use std::sync::RwLock;
 use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HMODULE};
+use windows::core::BOOL;
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx};
 use windows::Win32::System::ProcessStatus::{
-    EnumProcessModules, GetModuleBaseNameW, GetModuleFileNameExW,
+    EnumProcessModulesEx, GetModuleBaseNameW, GetModuleFileNameExW, LIST_MODULES_ALL,
 };
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
+    CreateRemoteThread, GetCurrentProcess, IsWow64Process, OpenProcess, OpenProcessToken,
+    PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
+use windows::Win32::Security::{
+    AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
+    TOKEN_PRIVILEGES, TOKEN_QUERY, LookupPrivilegeValueA,
+};
+
 use windows::core::Error;
 
 lazy_static::lazy_static! {
@@ -44,24 +51,32 @@ pub struct Injector;
 impl Injector {
     pub fn is_dll_loaded(pid: u32, dll_name: &str) -> bool {
         unsafe {
+            // Try combined permissions for module enumeration
             let handle_res = OpenProcess(
                 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
                 false.into(),
                 pid,
-            );
+            ).or_else(|_| {
+                // Fallback for some system processes
+                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false.into(), pid)
+            });
+
             if let Ok(handle) = handle_res {
                 let mut modules = [HMODULE::default(); 1024];
                 let mut cb_needed = 0;
-                if EnumProcessModules(
+                
+                // Use EnumProcessModulesEx with LIST_MODULES_ALL to see both 32/64 bit modules
+                if EnumProcessModulesEx(
                     handle,
                     modules.as_mut_ptr(),
                     std::mem::size_of_val(&modules) as u32,
                     &mut cb_needed,
+                    LIST_MODULES_ALL,
                 )
                 .is_ok()
                 {
                     let count = cb_needed as usize / std::mem::size_of::<HMODULE>();
-                    for i in 0..count {
+                    for i in 0..(count.min(1024)) {
                         let mut name_buf = [0u16; 256];
                         let len = GetModuleBaseNameW(handle, Some(modules[i]), &mut name_buf);
                         if len > 0 {
@@ -74,6 +89,20 @@ impl Injector {
                     }
                 }
                 let _ = CloseHandle(handle);
+            }
+        }
+        false
+    }
+
+    pub fn is_process_32bit(pid: u32) -> bool {
+        unsafe {
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false.into(), pid) {
+                let mut is_wow64 = BOOL::default();
+                let res = IsWow64Process(handle, &mut is_wow64);
+                let _ = CloseHandle(handle);
+                if res.is_ok() {
+                    return is_wow64.as_bool();
+                }
             }
         }
         false
@@ -297,7 +326,7 @@ impl Injector {
                             
                             // Only inject if not whitelisted and not already injected
                             if !Self::is_path_excluded(&path) {
-                                if !Self::is_dll_loaded(pid, "hook_dll.dll") {
+                                if !Self::is_dll_loaded(pid, dll_path) {
                                     let result = Self::inject(pid, dll_path);
                                     results.push((pid, result));
                                 }
@@ -314,5 +343,33 @@ impl Injector {
         }
 
         results
+    }
+
+    /// Enable SeDebugPrivilege for the current process
+    pub fn enable_debug_privilege() -> bool {
+        unsafe {
+            let mut h_token = windows::Win32::Foundation::HANDLE::default();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut h_token).is_err() {
+                return false;
+            }
+
+            let mut luid = windows::Win32::Foundation::LUID::default();
+            if LookupPrivilegeValueA(None, windows::core::s!("SeDebugPrivilege"), &mut luid).is_err() {
+                let _ = CloseHandle(h_token);
+                return false;
+            }
+
+            let tkp = TOKEN_PRIVILEGES {
+                PrivilegeCount: 1,
+                Privileges: [LUID_AND_ATTRIBUTES {
+                    Luid: luid,
+                    Attributes: SE_PRIVILEGE_ENABLED,
+                }],
+            };
+
+            let res = AdjustTokenPrivileges(h_token, false, Some(&tkp), 0, None, None);
+            let _ = CloseHandle(h_token);
+            res.is_ok()
+        }
     }
 }
