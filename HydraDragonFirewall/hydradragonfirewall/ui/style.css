@@ -475,3 +475,147 @@ main {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
 }
+
+/* PREMIUM ALERT (MALWAREBYTES STYLE) */
+.premium-alert {
+    width: 650px;
+    background: #ffffff;
+    color: #333333;
+    border-radius: 4px;
+    padding: 0;
+    overflow: hidden;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    border: 1px solid #ddd;
+    animation: popupScale 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.premium-alert-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 4px solid #4caf50;
+    /* Distinctive green top bar */
+}
+
+.premium-brand {
+    font-size: 18px;
+    font-weight: 700;
+    color: #034f84;
+    /* Deep blue Malwarebytes feel */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.premium-brand span {
+    font-weight: 400;
+    color: #666;
+    font-size: 16px;
+    border-left: 1px solid #ccc;
+    padding-left: 8px;
+}
+
+.premium-alert-close-x {
+    cursor: pointer;
+    font-size: 20px;
+    color: #999;
+}
+
+.premium-alert-close-x:hover {
+    color: #333;
+}
+
+.premium-alert-content {
+    padding: 30px;
+    display: flex;
+    gap: 25px;
+}
+
+.premium-alert-icon-large {
+    font-size: 48px;
+    color: #4caf50;
+    display: flex;
+    align-items: flex-start;
+}
+
+.premium-alert-body {
+    flex: 1;
+}
+
+.premium-alert-title {
+    color: #4caf50;
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 15px 0;
+}
+
+.premium-alert-desc {
+    font-size: 15px;
+    color: #555;
+    line-height: 1.4;
+    margin-bottom: 25px;
+}
+
+.premium-details-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px;
+    font-size: 14px;
+    background: #fcfcfc;
+    padding: 15px;
+    border: 1px solid #eee;
+    border-radius: 2px;
+}
+
+.premium-details-grid .label {
+    font-weight: 600;
+    color: #222;
+}
+
+.premium-details-grid .value {
+    color: #444;
+    font-family: 'Consolas', monospace;
+    word-break: break-all;
+}
+
+.premium-alert-footer {
+    padding: 20px 30px;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: flex-end;
+    gap: 15px;
+    border-top: 1px solid #eee;
+}
+
+.btn-premium-alt {
+    background: white;
+    border: 1px solid #cccccc;
+    color: #333333;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.btn-premium-alt:hover {
+    background: #f9f9f9;
+    border-color: #bbb;
+}
+
+.btn-premium-main {
+    background: #4caf50;
+    border: 1px solid #43a047;
+    color: white;
+    padding: 10px 30px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.btn-premium-main:hover {
+    background: #43a047;
+}

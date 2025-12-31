@@ -125,9 +125,11 @@ pub enum AppDecision {
 pub struct PendingApp {
     pub process_id: u32,
     pub name: String,
+    pub path: String,
     pub dst_ip: Ipv4Addr,
     pub dst_port: u16,
     pub protocol: Protocol,
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -502,23 +504,15 @@ impl AppManager {
             }
         }
 
-        // Add to pending if new
+        // Check if new
         {
-            let mut known = self.known_apps.write().unwrap();
+            let known = self.known_apps.read().unwrap();
             if !known.contains(&app_name_lower) {
-                known.insert(app_name_lower.clone());
-                let mut pending = self.pending.write().unwrap();
-                pending.push_back(PendingApp {
-                    process_id: pid,
-                    name: app_name.clone(),
-                    dst_ip: packet.dst_ip,
-                    dst_port: packet.dst_port,
-                    protocol: packet.protocol.clone(),
-                });
+                return (AppDecision::Pending, app_name, app_path);
             }
         }
 
-        (AppDecision::Pending, app_name, app_path)
+        (AppDecision::Allow, app_name, app_path)
     }
     pub fn resolve_decision(&self, name: &str, decision: AppDecision) {
         let name_lower = name.to_lowercase();
@@ -963,51 +957,7 @@ impl FirewallEngine {
                         // 1. Emit data to all windows (Main + Alert)
                         let _ = tx_monitor.emit("ask_app_decision", app);
 
-                        // 2. Ensure Alert Window is Open
-                        if tx_monitor.get_webview_window("firewall-alert").is_none() {
-                            println!("DEBUG: Spawning Firewall Alert Window...");
 
-                            let toast_width = 420.0;
-                            let toast_height = 260.0;
-                            let position =
-                                tx_monitor
-                                    .primary_monitor()
-                                    .ok()
-                                    .flatten()
-                                    .and_then(|monitor| {
-                                        let scale = monitor.scale_factor();
-                                        let size = monitor.size();
-
-                                        let x = size.width as f64 / scale - toast_width - 24.0;
-                                        let y = size.height as f64 / scale - toast_height - 24.0;
-
-                                        Some((x, y))
-                                    });
-
-                            let mut builder = WebviewWindowBuilder::new(
-                                &tx_monitor,
-                                "firewall-alert",
-                                WebviewUrl::App("index.html?mode=alert".into()),
-                            )
-                            .title("Firewall Alert")
-                            .inner_size(toast_width, toast_height)
-                            .resizable(false)
-                            .always_on_top(true)
-                            .decorations(false)
-                            .skip_taskbar(true);
-
-                            if let Some((x, y)) = position {
-                                builder = builder.position(x, y);
-                            } else {
-                                builder = builder.center();
-                            }
-
-                            let _ = builder.build();
-                        } else if let Some(win) = tx_monitor.get_webview_window("firewall-alert") {
-                            let _ = win.unminimize();
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
 
                         // Don't spam the UI, wait for user validation interaction
                         std::thread::sleep(Duration::from_millis(500));
@@ -1521,13 +1471,32 @@ impl FirewallEngine {
                 if rule.matches(&info, &app_name) {
                     if rule.block {
                         should_forward = false;
-                        reason = Some(format!("Rule: {}", rule.name));
+                        reason = Some(format!("Rule [{}]: {}", rule.name, rule.description));
                     } else {
                         should_forward = true;
                         reason = Some(format!("Rule Allowed: {}", rule.name));
                     }
                     break;
                 }
+            }
+
+            // 5. Finalize Pending Decision (Trigger prompt if still pending)
+            if app_decision == AppDecision::Pending {
+                 let app_name_lower = app_name.to_lowercase();
+                 let mut known = am.known_apps.write().unwrap();
+                 if !known.contains(&app_name_lower) {
+                     known.insert(app_name_lower.clone());
+                     let mut pending = am.pending.write().unwrap();
+                     pending.push_back(PendingApp {
+                         process_id: pid,
+                         name: app_name.clone(),
+                         path: app_info.path.clone(),
+                         dst_ip: info.dst_ip,
+                         dst_port: info.dst_port,
+                         protocol: info.protocol.clone(),
+                         reason: reason.clone(),
+                     });
+                 }
             }
 
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
