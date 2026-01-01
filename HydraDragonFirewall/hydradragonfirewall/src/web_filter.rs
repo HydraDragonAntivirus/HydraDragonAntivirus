@@ -69,9 +69,9 @@ impl WebFilter {
     pub fn check_hostname(&self, hostname: &str) -> Option<String> {
         let hostname_lower = hostname.to_lowercase();
 
-        // 0. Check whitelist (whitelist overrides any block)
+        // 0. Check whitelist (whitelist prevents hostname/domain blocking, but individual URLs can still be blocked)
         if self.domain_whitelist.read().unwrap().contains(&hostname_lower) {
-            return Some(format!("Whitelisted Domain: {}", hostname));
+            return Some("WHITELISTED".to_string());
         }
 
         // 1. Check domain blocklist (exact match)

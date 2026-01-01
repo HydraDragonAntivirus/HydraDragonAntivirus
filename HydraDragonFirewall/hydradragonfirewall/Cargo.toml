@@ -36,3 +36,6 @@ windows = { version = "0.62.2", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
 ] }
+shared_no_std = { path = "../../../Sanctum/shared_no_std" }
+tokio = { version = "1", features = ["full"] }
+url = "2.5.7"

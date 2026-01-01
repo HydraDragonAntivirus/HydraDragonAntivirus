@@ -601,7 +601,7 @@ pub struct ContentMatchData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", untagged)]
 pub enum RuleCondition {
     Protocol(RuleProtocol),
     SrcIp(IpMatcher),
@@ -631,7 +631,11 @@ impl RuleCondition {
             }
             RuleCondition::Regex(matcher) => matcher.matches(payload),
             RuleCondition::Localhost(localhost_type) => {
-                localhost_type.matches(packet.src_ip) || localhost_type.matches(packet.dst_ip)
+                if packet.outbound {
+                    localhost_type.matches(packet.dst_ip)
+                } else {
+                    localhost_type.matches(packet.src_ip)
+                }
             }
             RuleCondition::ContentMatch(data) => {
                 // Try to find pattern in decoded content
@@ -774,11 +778,14 @@ impl SdkRule {
             matches.push(matcher.matches(&check_data));
         }
 
-        // Localhost check
+        // Localhost check (directional: outbound checks dst, inbound checks src)
         if let Some(ref localhost_type) = self.localhost_type {
-            let src_match = localhost_type.matches(packet.src_ip);
-            let dst_match = localhost_type.matches(packet.dst_ip);
-            matches.push(src_match || dst_match);
+            let matches_localhost = if packet.outbound {
+                localhost_type.matches(packet.dst_ip)
+            } else {
+                localhost_type.matches(packet.src_ip)
+            };
+            matches.push(matches_localhost);
         }
 
         // Routine check

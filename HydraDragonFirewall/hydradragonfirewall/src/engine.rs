@@ -13,6 +13,9 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windivert::prelude::*;
+use shared_no_std::ghost_hunting::{Syscall, NtFunction, NetworkActivityData};
+use tokio::net::windows::named_pipe::ClientOptions;
+use tokio::io::AsyncReadExt;
 
 lazy_static! {
     static ref URL_REGEX: Regex =
@@ -454,6 +457,7 @@ pub struct AppManager {
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
+    pub ghost_urls: RwLock<HashMap<u32, Vec<String>>>, // PID -> List of URLs from ETW
     pub injected_pids: RwLock<HashSet<u32>>,     // Avoid repeated injections
     pub failed_pids: RwLock<HashSet<u32>>,       // PIDs where injection failed
     pub active_alert: RwLock<Option<PendingApp>>,
@@ -468,6 +472,7 @@ impl AppManager {
             port_map: RwLock::new(HashMap::new()),
             info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
+            ghost_urls: RwLock::new(HashMap::new()),
             injected_pids: RwLock::new(HashSet::new()),
             failed_pids: RwLock::new(HashSet::new()),
             active_alert: RwLock::new(None),
@@ -1043,6 +1048,40 @@ impl FirewallEngine {
             eprintln!("[Engine] Failed to enable SeDebugPrivilege - injection might be limited");
         }
 
+        // Start Telemetry Relay Monitor (Sanctum Ghost Layer)
+        let am_telemetry = Arc::clone(&am);
+        tauri::async_runtime::spawn(async move {
+            let pipe_name = r"\\.\pipe\hydradragon_firewall_telemetry";
+            loop {
+                if let Ok(mut client) = ClientOptions::new().open(pipe_name) {
+                    let mut buffer = vec![0u8; 8192];
+                    loop {
+                        match client.read(&mut buffer).await {
+                            Ok(0) => break, // disconnected
+                            Ok(n) => {
+                                // Handle stream of multiple JSON objects (contiguous or partial)
+                                let mut de = serde_json::Deserializer::from_slice(&buffer[..n]).into_iter::<Syscall>();
+                                while let Some(result) = de.next() {
+                                    if let Ok(syscall) = result {
+                                        if let NtFunction::NetworkActivity(data) = syscall.data {
+                                            let url = match data {
+                                                NetworkActivityData::Http(h) => h.url,
+                                                NetworkActivityData::WinINet(w) => w.url,
+                                            };
+                                            let mut urls = am_telemetry.ghost_urls.write().unwrap();
+                                            urls.entry(syscall.pid).or_default().push(url);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        });
+
         std::thread::Builder::new()
             .name("global_injector".to_string())
             .spawn(move || {
@@ -1435,12 +1474,27 @@ impl FirewallEngine {
             reason.get_or_insert_with(|| "Localhost".to_string());
         }
 
-        // Cache URLs
+        // Cache URLs and resolve Ghost URLs (ETW)
         if let Some(ref url) = info.full_url {
             am.url_cache.write().unwrap().insert(pid, url.clone());
         } else {
             if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                 info.full_url = Some(url.clone());
+            } else {
+                // Check Ghost URLs (Sanctum ETW)
+                if let Some(urls) = am.ghost_urls.read().unwrap().get(&pid) {
+                    if let Some(last_url) = urls.last() {
+                        info.full_url = Some(last_url.clone());
+                        // Also try to extract hostname from URL
+                        if info.hostname.is_none() {
+                            if let Ok(url_parsed) = ::url::Url::parse(last_url) {
+                                if let Some(host) = url_parsed.host_str() {
+                                    info.hostname = Some(host.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1566,8 +1620,42 @@ impl FirewallEngine {
             }
         }
 
-        // 9. SDK SECURITY RULES (CRITICAL: Evaluate before final logging)
-        {
+        // 9. Intelligence & Malware Checks (Features 12, 13, 31)
+        // CRITICAL: Move this BEFORE SDK rules so whitelisting takes full priority!
+        let mut skip_malware_domain = false;
+        // Check domain blocklist (dns snooping / SNI / Host)
+        if let Some(domain) = info.hostname.as_deref() {
+            if let Some(reason_msg) = wf.check_hostname(domain) {
+                if reason_msg == "WHITELISTED" {
+                    skip_malware_domain = true;
+                    reason = Some(format!("Whitelisted Domain: {}", domain));
+                } else {
+                    should_forward = false;
+                    reason = Some(reason_msg);
+                }
+            }
+        }
+        
+        // Check URL blocklist (HTTP parsing / Hooking)
+        if should_forward {
+            if let Some(url) = info.full_url.as_deref() {
+                if let Some(reason_msg) = wf.check_url(url) {
+                    should_forward = false;
+                    reason = Some(reason_msg);
+                }
+            }
+        }
+
+        // Check IP blocklist (IPv4/v6 Malware lists)
+        if should_forward && !skip_malware_domain {
+            if wf.is_blocked_ip(info.dst_ip) {
+                should_forward = false;
+                reason = Some(format!("Blocked IP (Intelligence): {}", info.dst_ip));
+            }
+        }
+
+        // 10. SDK SECURITY RULES
+        if should_forward && !skip_malware_domain {
             let sdk_read = sdk.read().unwrap();
             let s_lock = settings.read().unwrap();
 
@@ -1621,40 +1709,7 @@ impl FirewallEngine {
             }
         }
 
-            // 10. Intelligence & Malware Checks (Features 12, 13, 31)
-            let mut skip_malware_domain = false;
-            // Check domain blocklist (dns snooping / SNI / Host)
-            if let Some(domain) = info.hostname.as_deref() {
-                if let Some(reason_msg) = wf.check_hostname(domain) {
-                    if reason_msg.contains("Whitelisted") {
-                        // Mark as whitelisted, but DO NOT return None yet; we still want to check the URL
-                        skip_malware_domain = true;
-                        reason = Some(reason_msg);
-                    } else {
-                        should_forward = false;
-                        reason = Some(reason_msg);
-                    }
-                }
-            }
-            
-            // Check URL blocklist (HTTP parsing / Hooking)
-            if should_forward {
-                if let Some(url) = info.full_url.as_deref() {
-                    if let Some(reason_msg) = wf.check_url(url) {
-                        should_forward = false;
-                        reason = Some(reason_msg);
-                    }
-                }
-            }
-
-            // Check IP blocklist (IPv4/v6 Malware lists)
-            if should_forward && !skip_malware_domain {
-                if wf.is_blocked_ip(info.dst_ip) {
-                    should_forward = false;
-                    reason = Some(format!("Blocked IP (Intelligence): {}", info.dst_ip));
-                }
-            }
-
+    
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
             let app_name_lower = app_name.to_lowercase();
