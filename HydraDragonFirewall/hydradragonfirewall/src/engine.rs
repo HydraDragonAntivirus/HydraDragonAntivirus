@@ -1050,35 +1050,74 @@ impl FirewallEngine {
 
         // Start Telemetry Relay Monitor (Sanctum Ghost Layer)
         let am_telemetry = Arc::clone(&am);
+        let tx_telemetry = tx.clone();
         tauri::async_runtime::spawn(async move {
             let pipe_name = r"\\.\pipe\hydradragon_firewall_telemetry";
+            println!("[Engine] Telemetry Relay Monitor starting (searching for pipe: {})", pipe_name);
             loop {
-                if let Ok(mut client) = ClientOptions::new().open(pipe_name) {
-                    let mut buffer = vec![0u8; 8192];
-                    loop {
-                        match client.read(&mut buffer).await {
-                            Ok(0) => break, // disconnected
-                            Ok(n) => {
-                                // Handle stream of multiple JSON objects (contiguous or partial)
-                                let mut de = serde_json::Deserializer::from_slice(&buffer[..n]).into_iter::<Syscall>();
-                                while let Some(result) = de.next() {
-                                    if let Ok(syscall) = result {
-                                        if let NtFunction::NetworkActivity(data) = syscall.data {
-                                            let url = match data {
-                                                NetworkActivityData::Http(h) => h.url,
-                                                NetworkActivityData::WinINet(w) => w.url,
-                                            };
-                                            let mut urls = am_telemetry.ghost_urls.write().unwrap();
-                                            urls.entry(syscall.pid).or_default().push(url);
+                match ClientOptions::new().open(pipe_name) {
+                    Ok(mut client) => {
+                        println!("[Engine] [Sanctum] Connected to Sanctum Telemetry pipe!");
+                        let ts = Self::now_ts();
+                        let _ = tx_telemetry.emit(
+                            "log",
+                            LogEntry {
+                                id: format!("{}-telemetry-connected", ts),
+                                timestamp: ts,
+                                level: LogLevel::Success,
+                                message: "📡 Connected to Sanctum Telemetry (Ghost Layer)".to_string(),
+                            },
+                        );
+
+                        let mut buffer = vec![0u8; 8192];
+                        loop {
+                            match client.read(&mut buffer).await {
+                                Ok(0) => {
+                                    println!("[Engine] [Sanctum] Telemetry pipe disconnected.");
+                                    break; // disconnected
+                                }
+                                Ok(n) => {
+                                    // Handle stream of multiple JSON objects (contiguous or partial)
+                                    let mut de = serde_json::Deserializer::from_slice(&buffer[..n]).into_iter::<Syscall>();
+                                    while let Some(result) = de.next() {
+                                        match result {
+                                            Ok(syscall) => {
+                                                println!("[Engine] [Sanctum] Received Event: {:?}", syscall.data);
+                                                if let NtFunction::NetworkActivity(data) = syscall.data {
+                                                    let url = match data {
+                                                        NetworkActivityData::Http(h) => h.url,
+                                                        NetworkActivityData::WinINet(w) => w.url,
+                                                    };
+                                                    println!("[Engine] [Ghost] Telemetry Hit for PID {}: {}", syscall.pid, url);
+                                                    let mut urls = am_telemetry.ghost_urls.write().unwrap();
+                                                    urls.entry(syscall.pid).or_default().push(url);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!("[Engine] [Sanctum] Deserialization error: {}", e);
+                                            }
                                         }
                                     }
                                 }
+                                Err(e) => {
+                                    eprintln!("[Engine] [Sanctum] Pipe read error: {}", e);
+                                    break;
+                                }
                             }
-                            Err(_) => break,
                         }
                     }
+                    Err(e) => {
+                        let err_msg = e.to_string();
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            // Silent wait for Sanctum to start
+                        } else if err_msg.contains("231") || err_msg.contains("busy") {
+                             println!("[Engine] [Sanctum] Telemetry pipe busy (waiting for Sanctum server to be ready...)");
+                        } else {
+                             eprintln!("[Engine] [Sanctum] Failed to open telemetry pipe: {}", e);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
                 }
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         });
 

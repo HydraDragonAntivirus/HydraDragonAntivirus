@@ -11,7 +11,7 @@ use crate::engine::FirewallEngine;
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-pub struct FirewallState(pub Arc<RwLock<FirewallEngine>>);
+// FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2
 
 #[tauri::command]
 async fn resolve_app_decision(
@@ -64,21 +64,30 @@ async fn get_sdk_rules<R: Runtime>(
 }
 
 #[tauri::command]
-fn get_rules_content(state: tauri::State<FirewallState>) -> String {
-    let engine = state.inner().0.read().unwrap();
-    engine.get_rules_raw()
+async fn get_rules_content(handle: AppHandle) -> String {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.get_rules_raw()
+    } else {
+        String::new()
+    }
 }
 
 #[tauri::command]
-fn save_rules_content(content: String, state: tauri::State<FirewallState>) -> Result<(), String> {
-    let engine = state.inner().0.read().unwrap();
-    engine.save_rules_raw(content)
+async fn save_rules_content(content: String, handle: AppHandle) -> Result<(), String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.save_rules_raw(content)
+    } else {
+        Err("Engine not initialized".to_string())
+    }
 }
 
 #[tauri::command]
-fn validate_rules_content(content: String, state: tauri::State<FirewallState>) -> Result<String, String> {
-    let engine = state.inner().0.read().unwrap();
-    engine.validate_rules_raw(content)
+async fn validate_rules_content(content: String, handle: AppHandle) -> Result<String, String> {
+    if let Some(engine) = handle.try_state::<Arc<FirewallEngine>>() {
+        engine.validate_rules_raw(content)
+    } else {
+        Err("Engine not initialized".to_string())
+    }
 }
 
 #[tauri::command]
@@ -197,7 +206,7 @@ pub fn run() {
                                 .unwrap_or_default()
                                 .as_millis() as u64,
                             level: crate::engine::LogLevel::Info,
-                            message: "🚀 Starting Firewall Engine...".to_string(),
+                            message: "--- HydraDragon Firewall Starting ---".to_string(),
                         },
                     );
 

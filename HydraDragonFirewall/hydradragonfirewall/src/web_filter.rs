@@ -43,7 +43,17 @@ impl WebFilter {
             
             ipv4_whitelist: Arc::new(RwLock::new(HashSet::new())),
             ipv6_whitelist: Arc::new(RwLock::new(HashSet::new())),
-            domain_whitelist: Arc::new(RwLock::new(HashSet::new())),
+            domain_whitelist: Arc::new(RwLock::new(
+                [
+                    "discord.com".to_string(),
+                    "discordapp.com".to_string(),
+                    "gateway.discord.gg".to_string(),
+                    "cdn.discordapp.com".to_string(),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
+            )),
 
             blocked_hostnames: Arc::new(RwLock::new(Vec::new())),
             blocked_url_patterns: Arc::new(RwLock::new(Vec::new())),
