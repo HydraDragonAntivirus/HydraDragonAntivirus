@@ -44,19 +44,8 @@ namespace HydraDragonAntivirusTaskScheduler
                 _logger.LogWarning(ex, "Failed during sanctum initialization sequence.");
             }
 
-            // --------------------------------------------------
-            // Supervision phase
-            // --------------------------------------------------
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                if (!IsFirewallRunning())
-                {
-                    _logger.LogWarning("Firewall is not running. Attempting to restart...");
-                    await StartFirewallAsync(desktopSanctum, stoppingToken);
-                }
-                
-                await Task.Delay(10000, stoppingToken); // Check every 10 seconds
-            }
+            // Keep service running until cancellation
+            await Task.Delay(Timeout.Infinite, stoppingToken);
         }
 
         // ------------------------------------------------------------
