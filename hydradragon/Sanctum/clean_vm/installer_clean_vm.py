@@ -17,8 +17,6 @@ import subprocess
 import sys
 import shutil
 from pathlib import Path
-from urllib.request import urlretrieve
-from urllib.error import URLError
 
 # Configure UTF-8 output for Windows console
 try:
@@ -49,15 +47,6 @@ if not is_admin():
     sys.exit(1)
 
 # ----------------------
-# Constants
-# ----------------------
-GITHUB_BASE_URL = "https://raw.githubusercontent.com/0xflux/Sanctum/refs/heads/main/clean_files"
-FILES_TO_DOWNLOAD = [
-    ("ioc_list.txt", "ioc_list.txt"),
-    ("config.cfg", "config.cfg")
-]
-
-# ----------------------
 # Helper functions
 # ----------------------
 def get_special_folder(csidl):
@@ -78,22 +67,6 @@ def create_directory(path, description):
         return True
     except Exception as e:
         print(f"ERROR: Failed to create {description}: {e}", file=sys.stderr)
-        return False
-
-def download_file(url, dest_path, description):
-    """Download a file from a URL to the destination path."""
-    print(f"Downloading {description} from {url}...")
-    print(f"  → {dest_path}")
-    
-    try:
-        urlretrieve(url, dest_path)
-        print(f"✓ Download completed successfully: {description}")
-        return True
-    except URLError as e:
-        print(f"ERROR: Failed to download {description}: {e}", file=sys.stderr)
-        return False
-    except Exception as e:
-        print(f"ERROR: Unexpected error downloading {description}: {e}", file=sys.stderr)
         return False
 
 def configure_bcd():
@@ -169,17 +142,8 @@ def main():
     
     if not create_directory(desktop_sanctum, "Desktop\\sanctum"):
         errors.append("Desktop sanctum directory creation")
-    
-    # 3. Download required files to %AppData%\Sanctum
-    print("\nDownloading required files from GitHub...")
-    for remote_name, local_name in FILES_TO_DOWNLOAD:
-        url = f"{GITHUB_BASE_URL}/{remote_name}"
-        dest = appdata_sanctum / local_name
-        
-        if not download_file(url, dest, local_name):
-            errors.append(f"Download {local_name}")
 
-    # 4. Dynamic System32 Deployment (EDR DLL)
+    # 3. Dynamic System32 Deployment (EDR DLL)
     print("\nDeploying EDR component to System32...")
     # Dynamic source: Relies on repo structure: Sanctum/System32/sanctum.dll
     base_dir = Path(__file__).parent.absolute()
@@ -207,11 +171,11 @@ def main():
     else:
         print(f"WARNING: Source DLL not found at {local_dll_source}. Skipping deployment.", file=sys.stderr)
 
-    # 5. Configure BCD settings
+    # 4. Configure BCD settings
     if not configure_bcd():
         errors.append("BCD configuration")
 
-    # 6. Summary
+    # 5. Summary
     print("\n" + "=" * 70)
     if errors:
         print("⚠ Setup completed with warnings/errors:")
