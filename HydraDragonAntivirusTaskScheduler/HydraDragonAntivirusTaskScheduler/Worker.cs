@@ -44,8 +44,19 @@ namespace HydraDragonAntivirusTaskScheduler
                 _logger.LogWarning(ex, "Failed during sanctum initialization sequence.");
             }
 
-            // Keep service running until cancellation
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            // --------------------------------------------------
+            // Supervision phase
+            // --------------------------------------------------
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                if (!IsFirewallRunning())
+                {
+                    _logger.LogWarning("Firewall is not running. Attempting to restart...");
+                    await StartFirewallAsync(desktopSanctum, stoppingToken);
+                }
+                
+                await Task.Delay(10000, stoppingToken); // Check every 10 seconds
+            }
         }
 
         // ------------------------------------------------------------
@@ -201,7 +212,74 @@ namespace HydraDragonAntivirusTaskScheduler
             // 5) app.exe
             await RunExeAsync(appPath);
 
+            // 6) HydraDragonFirewall (via Task Scheduler for highest privileges)
+            await StartFirewallAsync(sanctumDir, ct);
+
             _logger.LogInformation("Sanctum sequence completed.");
+        }
+
+        private async Task StartFirewallAsync(string sanctumDir, CancellationToken ct)
+        {
+            string firewallExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HydraDragonAntivirus", "HydraDragonFirewall", "HydraDragonFirewall.exe");
+
+            if (!File.Exists(firewallExe))
+            {
+                _logger.LogWarning("Firewall executable not found at: {path}", firewallExe);
+                return;
+            }
+
+            if (IsFirewallRunning())
+            {
+                _logger.LogInformation("Firewall already running.");
+                return;
+            }
+
+            try
+            {
+                string taskName = "HydraDragonFirewall";
+                
+                _logger.LogInformation("Registering and starting firewall task: {exe}", firewallExe);
+
+                // Create task
+                var createPsi = new ProcessStartInfo
+                {
+                    FileName = "schtasks",
+                    Arguments = $"/create /tn \"{taskName}\" /tr \"\\\"{firewallExe}\\\"\" /sc ONCE /st 00:00 /rl HIGHEST /f",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                
+                using (var p = Process.Start(createPsi))
+                {
+                    if (p != null) await p.WaitForExitAsync(ct);
+                }
+
+                // Run task
+                var runPsi = new ProcessStartInfo
+                {
+                    FileName = "schtasks",
+                    Arguments = $"/run /tn \"{taskName}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (var p = Process.Start(runPsi))
+                {
+                    if (p != null)
+                    {
+                         _logger.LogInformation("Triggered HydraDragon Firewall task.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to manage HydraDragon Firewall task.");
+            }
+        }
+
+        private bool IsFirewallRunning()
+        {
+            return Process.GetProcessesByName("HydraDragonFirewall").Length > 0;
         }
     }
 }
