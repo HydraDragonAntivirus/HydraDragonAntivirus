@@ -54,8 +54,6 @@ See the [LICENSE](./LICENSE) file for more information.
 ## Ghidra
 - Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
 - Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
-- Ghidra log: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_logs\analyze.log
-- Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_projects
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
  ## Sigma-HQ - Hayabusa
