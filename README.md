@@ -40,7 +40,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Then delete results.pkl and rename ml_definitions.pkl to results.pkl to consolidate the pickled data.
 
 ## Guide to compiling from source
-- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then change based on your installed folder of HydraDragonAntivirus. After compiling Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
+- This very complex task. I need create wiki for that. Please contact me.
 
 ## Ghidra Source Code
 - I now using 11.4.3: https://ghidra-sre.org/
