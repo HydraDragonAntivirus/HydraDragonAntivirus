@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+members = ["shared_std", "shared_no_std","um_engine", "gui/src-tauri", "injected_dll", "malware", "elam_installer", "sanctum_ppl_runner", "server"]
+exclude = ["driver"]

@@ -1,0 +1,29 @@
+[package]
+name = "sanctum_ppl_runner"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+[dependencies]
+windows = {version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_System_EventLog",
+    "Win32_System_Registry",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Time",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_WindowsAndMessaging",
+]}
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+shared_std ={ path = "../shared_std"}
+shared_no_std ={ path = "../shared_no_std"}
+serde = { version = "1.0", features = ["derive"] }

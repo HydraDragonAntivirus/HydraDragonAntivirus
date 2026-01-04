@@ -1,0 +1,12 @@
+[package]
+name = "etw_consumer"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+[dependencies]

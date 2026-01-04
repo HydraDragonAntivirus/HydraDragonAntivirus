@@ -1,0 +1,121 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.0.7 Chrome/128.0.6613.186 Electron/32.2.5 Safari/537.36" version="26.0.7">
+  <diagram name="Page-1" id="2czVHm9swG73TGpmsQqm">
+    <mxGraphModel dx="1728" dy="998" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="zyTgSz7I7N70F11k_NIh-6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-1" target="zyTgSz7I7N70F11k_NIh-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-1" value="DLL with our hooked syscall" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#60a917;fontColor=#ffffff;strokeColor=#2D7600;" vertex="1" parent="1">
+          <mxGeometry x="150" y="217" width="95" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-3" target="zyTgSz7I7N70F11k_NIh-7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-3" value="IPC for DLLs" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="249.5" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-7" target="zyTgSz7I7N70F11k_NIh-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-7" value="MPSC Channel" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d80073;fontColor=#ffffff;strokeColor=#A50040;" vertex="1" parent="1">
+          <mxGeometry x="480" y="281.5" width="90" height="30.5" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-9" value="" style="endArrow=none;html=1;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="290" y="650" as="sourcePoint" />
+            <mxPoint x="290" y="51.75" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-10" target="zyTgSz7I7N70F11k_NIh-12">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="680" y="296.57142857142856" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-10" value="Reciever" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d80073;fontColor=#ffffff;strokeColor=#A50040;" vertex="1" parent="1">
+          <mxGeometry x="585" y="281.5" width="90" height="30.5" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-12" value="ghost_hunt_open_process_add" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="710" y="249.5" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-14" target="zyTgSz7I7N70F11k_NIh-17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-14" value="Driver process handle callback" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e51400;fontColor=#ffffff;strokeColor=#B20000;" vertex="1" parent="1">
+          <mxGeometry x="150" y="390" width="95" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-15" value="Event source" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;" vertex="1" parent="1">
+          <mxGeometry x="152.5" y="60" width="92.5" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-16" value="EDR Engine" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="60" width="92.5" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-17" target="zyTgSz7I7N70F11k_NIh-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-17" value="IOCTL recv" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="422.5" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-20" target="zyTgSz7I7N70F11k_NIh-31">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-20" value="add_handle_driver_notified" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="710" y="422.5" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-22" target="zyTgSz7I7N70F11k_NIh-20">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="690" y="485" />
+              <mxPoint x="690" y="437" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-22" value="Driver message processing" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d80073;fontColor=#ffffff;strokeColor=#A50040;" vertex="1" parent="1">
+          <mxGeometry x="585" y="470" width="90" height="30.5" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-25" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="575" y="580" as="sourcePoint" />
+            <mxPoint x="575" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-26" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="900" y="220" as="sourcePoint" />
+            <mxPoint x="580" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-27" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="910" y="590" as="sourcePoint" />
+            <mxPoint x="910" y="217" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-28" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="910" y="590" as="sourcePoint" />
+            <mxPoint x="570" y="590" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-29" value="Event loop in engine (core.rs)" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;" vertex="1" parent="1">
+          <mxGeometry x="585" y="180" width="92.5" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-30" target="zyTgSz7I7N70F11k_NIh-31">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-30" value="poll_ghost_timer" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="550" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-31" value="process_monitor.rs" style="rhombus;whiteSpace=wrap;html=1;fillColor=#a0522d;fontColor=#ffffff;strokeColor=#6D1F00;" vertex="1" parent="1">
+          <mxGeometry x="960" y="358" width="170" height="157.5" as="geometry" />
+        </mxCell>
+        <mxCell id="zyTgSz7I7N70F11k_NIh-32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="zyTgSz7I7N70F11k_NIh-12" target="zyTgSz7I7N70F11k_NIh-31">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1044" y="330" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
