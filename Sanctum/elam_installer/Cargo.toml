@@ -1,0 +1,16 @@
+[package]
+name = "elam_installer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+windows = {version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Antimalware",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Services",
+    "Win32_System_WindowsProgramming",
+    "Win32_Security",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Registry",
+]}

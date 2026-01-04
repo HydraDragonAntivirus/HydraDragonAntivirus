@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="style.css">
+	<script src="nav.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+
+	<script>
+		document.addEventListener("DOMContentLoaded", function() {
+	
+			const { invoke } = window.__TAURI__.core;
+			const { listen } = window.__TAURI__.event;
+
+			//
+			// Events
+			//
+			var query_pid = function(event) {
+				event.preventDefault();
+				const pid = document.getElementById("pid_input").value;			
+
+				invoke('process_query_pid', { pid: pid })
+					.then((response) => {
+						document.getElementById("pid_query_result").innerHTML = response;
+					})
+					.catch((error) => console.error("Invoke error:", error));
+			};
+
+			//
+			// Event listeners
+			//
+			var folder_submission_form = document.getElementById("pid_query_form");
+			folder_submission_form.addEventListener('submit', query_pid, false);
+	
+			
+		});
+	</script>
+
+  </head>
+  <body>
+    <header id="header"><p>Sanctum Home EDR</p></header>
+
+	<div id="container">
+
+		<main id="center" class="column">
+			<article>
+			
+				<h1>Process information</h1>
+				<p>Information relating to running processes on your PC.</p>
+
+				<div class="full_callout" id="pid_inspector">
+					<b>Query process</b>
+					<p>Enter a PID and get information about the process.</p>
+					<form action="#" id="pid_query_form">
+						<input type="text" value="" autocomplete="off" placeholder="Enter pid" id="pid_input" />
+						<button type="submit" class="single_box_button scan_control_button" id="pid_submit">Query pid</button>
+					</form>
+
+					<div id="pid_query_result"></div>
+				</div>
+			
+			</article>								
+		</main>
+
+		<div id="nav-placeholder"></div>
+
+		<div id="right" class="column">
+			<p> </p>
+		</div>
+
+	</div>
+
+	<!-- <div id="footer-wrapper">
+		<footer id="footer"><p>Footer...</p></footer>
+	</div> -->
+  </body>
+</html>

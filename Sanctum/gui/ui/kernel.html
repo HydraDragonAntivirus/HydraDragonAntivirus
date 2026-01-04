@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="style.css">
+	<script src="nav.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+
+	<script>
+		document.addEventListener("DOMContentLoaded", function() {
+	
+			const { invoke } = window.__TAURI__.core;
+			const { listen } = window.__TAURI__.event;
+	
+			let globalState = 'Uninstalled';
+	
+			const TIMEOUT_WAIT = 20;
+	
+	
+			//
+			// Page initialisation
+			//
+			invoke('driver_check_state')
+				.then((state) => {
+					console.log("Checking state... ", state);
+					print_driver_state(state)
+				})
+				.catch((error) => console.error("Invoke error:", error));
+
+
+			//
+			// Events
+			//
+
+			document.getElementById("install_driver_btn").addEventListener("click", function(event) {
+				event.preventDefault();
+				invoke('driver_install_driver')
+					.then((response) => {
+						print_driver_state(response)
+					})
+					.catch((error) => {console.error("Invoke error:", error);});
+			});
+
+			document.getElementById("uninstall_driver_btn").addEventListener("click", function(event) {
+				event.preventDefault();
+				invoke('driver_uninstall_driver')
+					.then((response) => {
+						print_driver_state(response)
+					})
+					.catch((error) => {console.error("Invoke error:", error);});
+			});
+
+			document.getElementById("start_driver_btn").addEventListener("click", function(event) {
+				event.preventDefault();
+				invoke('driver_start_driver')
+					.then((response) => {
+						print_driver_state(response)
+					})
+					.catch((error) => {console.error("Invoke error:", error);});
+			});
+
+			document.getElementById("stop_driver_btn").addEventListener("click", function(event) {
+				event.preventDefault();
+				invoke('driver_stop_driver')
+					.then((response) => {
+						print_driver_state(response)
+					})
+					.catch((error) => {console.error("Invoke error:", error);});
+			});
+
+			document.getElementById("ping_driver").addEventListener("click", function(event) {
+				event.preventDefault();
+				invoke('ioctl_ping_driver')
+					.then((response) => {
+						document.getElementById("ioctl_response").innerText = response;
+					})
+					.catch((error) => {console.error("Invoke error:", error);});
+			});
+
+
+			//
+			// Functions
+			//
+			function print_driver_state(response) {
+				const j = JSON.parse(response);
+				const [key, value] = Object.entries(j)[0];
+
+				// set the global state of the page
+				globalState = key;
+
+				document.getElementById("driver_state_msg").innerText = key;
+
+				if (value) {
+					document.getElementById("driver_state_with_err").innerText = "An error occurred: " + value;
+				} else {
+					document.getElementById("driver_state_with_err").innerText = "";
+				}
+			}
+
+			function formatMessage(input) {
+				const lines = [];
+
+				// Handle additional fields like `messages` and `process_creations`
+				if (input.messages && input.messages.length > 0) {
+					input.messages.forEach((msg, index) => {
+						lines.push(`[dbg] ${msg}`);
+					});
+				}
+
+				if (input.process_creations && input.process_creations.length > 0) {
+					input.process_creations.forEach((creation, index) => {
+						const creationDetails = Object.entries(creation)
+							.map(([key, value]) => `${key}: ${value}`)
+							.join(", ");
+						lines.push(`[process started] ${creationDetails}`);
+					});
+				}
+
+				// Join all lines into a single formatted string
+				return lines.join("\n");
+			}
+
+
+			//
+			// Async kernel messages
+			//
+			(function get_kernel_messages() {
+
+				// only run this when we are running the driver
+				console.log("State: ", globalState);
+				if (globalState == 'Started') {
+					invoke('driver_get_kernel_debug_messages')
+					.then((response) => {
+						const data = JSON.parse(response);
+						
+						//
+						// Note: The below is commented out from a refactor going from KernelMessages which
+						// has now extended beyond basic / occasional messages, to instead handle an array
+						// of debug messages from the kernel. Leaving commented out as I may wish to revert
+						// in the future to using the KernelMessages / an alternate struct and it serves as a good
+						// prototype.
+						//
+
+						// // early check if all fields are empty then wait until the next IPC
+						// if (
+						// 	(!data.messages || data.messages.length === 0) && 
+						// 	(!data.process_creations || data.process_creations.length === 0)
+						// ) {
+						// 	return;
+						// }
+						
+						// const kernelOutput = document.getElementById('kernel-output');
+						// // const formattedMessage = formatMessage(data);
+
+						// // Create a new div for the message
+						// const messageDiv = document.createElement('div');
+						// messageDiv.innerHTML = formattedMessage.replace(/\n/g, '<br>'); 
+
+						// // Insert the new message at the top
+						// kernelOutput.prepend(messageDiv);
+
+
+
+						//
+						// New implementation: Checks for any null data for an early return, followed by adding the 
+						// messages to the debug log.
+						//
+
+						if (!data || !Array.isArray(data) || data.length === 0) {
+							return;
+						}
+						const kernelOutput = document.getElementById('kernel-output');
+
+						// iterate over the array and add each item to the kernel output
+						data.forEach(item => {
+							const messageDiv = document.createElement('div');
+							messageDiv.innerHTML = item.toString().replace(/\n/g, '<br>'); 
+							kernelOutput.prepend(messageDiv);
+						});
+
+					}).catch((error) => console.error("Invoke error:", error));
+				}
+
+				setTimeout( get_kernel_messages, 500 ); // tick speed
+			})();
+
+		});
+	</script>
+
+  </head>
+  <body>
+    <header id="header"><p>Sanctum Home EDR</p></header>
+
+	<div id="container">
+
+		<main id="center" class="column">
+			<article>
+			
+				<h1>Kernel functions</h1>
+				<p>A number of functions which relate to functionality in the kernel.</p>
+
+				<div class="full_callout" id="driver_control_panel">
+					<b>Primary driver controls</b>
+					<p>Use these buttons to control the state of the driver. Current state: <span id="driver_state_msg">Loading...</span> <span id="driver_state_with_err" class="error_msg"></span></p>
+					<form action="#" id="driver_main_controls">
+						<button type="submit" class="single_box_button scan_control_button" id="install_driver_btn">Install</button>
+						<button type="submit" class="single_box_button scan_control_button" id="uninstall_driver_btn">Uninstall</button>
+						<button type="submit" class="single_box_button scan_control_button" id="start_driver_btn">Start</button>
+						<button type="submit" class="single_box_button scan_control_button" id="stop_driver_btn">Stop</button>
+					</form>
+				</div>
+
+				<div class="full_callout" id="ioctl_control_panel">
+					<b>Driver communication</b>
+					<p>Use these options to communicate with the driver whilst it's in development, these will become automated functions in time.</p>
+					<p id="ioctl_response"></p>
+					<form action="#" id="ioctl_main_controls">
+						<button type="submit" class="single_box_button scan_control_button" id="ping_driver">Ping driver</button>
+					</form>
+				</div>
+
+				<h3>Kernel debug output messages:</h3>
+				<div id="kernel-output" class="scroll-box"></div>
+			
+			</article>								
+		</main>
+
+		<div id="nav-placeholder"></div>
+
+		<div id="right" class="column">
+			<p> </p>
+		</div>
+
+	</div>
+
+	<!-- <div id="footer-wrapper">
+		<footer id="footer"><p>Footer...</p></footer>
+	</div> -->
+  </body>
+</html>

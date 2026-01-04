@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<link rel="stylesheet" href="style.css">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Document</title>
+	<script src="nav.js"></script>
+
+	<script>
+	document.addEventListener("DOMContentLoaded", function() {
+
+		const { invoke } = window.__TAURI__.core;
+		const { listen } = window.__TAURI__.event;
+
+		const possibleStates = ['Scanning', 'Finished', 'FinishedWithError', 'Inactive', 'Cancelled'];
+
+		const TIMEOUT_WAIT = 20;
+
+
+		//
+		// Page initialisation
+		//
+		let scan_in_progress = false;
+		invoke('scanner_check_page_state')
+			.then((state) => {
+				if (possibleStates.includes(state)) {
+					console.log(`Starting state: ${state}`);
+					if (state === 'Scanning') {
+						console.log("Starting state is scanning");
+						write_live_scan_stats("Scanning...");
+						scan_in_progress = true;
+					} else {
+						console.log("Starting state is NOT scanning");
+						scan_in_progress = false;
+					}
+					set_scan_button_state(scan_in_progress);
+				} else {
+					console.error(`Unexpected state received: ${state}`);
+				}
+			})
+			.catch((error) => console.error("Invoke error:", error));
+
+
+
+		//
+		// Listeners
+		//
+
+		// scan complete - no results
+		listen("folder_scan_no_results", function (scanEvent) {
+			const scanResult = scanEvent.payload;
+			scan_in_progress = false;
+			set_scan_button_state(scan_in_progress);
+
+			setTimeout(() => {
+				write_live_scan_stats("Scan finished.")
+				document.getElementById("folder_scan_result").textContent = scanResult;
+				document.getElementById("folder_scan_err").textContent = "";
+			}, TIMEOUT_WAIT);
+		});
+		// scan complete - malware
+		listen("folder_scan_malware_found", function (scanEvent) {
+			const scanResult = scanEvent.payload;
+			scan_in_progress = false;
+			set_scan_button_state(scan_in_progress);
+
+			console.log("Scan result received:", scanResult);
+			const resultContainer = document.getElementById("folder_scan_result");
+
+			setTimeout(() => {
+				resultContainer.textContent = ""; 
+				write_live_scan_stats("Scan finished.")
+
+				// iterate through the results and print as a new paragraph
+				scanResult.scan_results.forEach((result) => {
+					const resultItem = document.createElement("p");
+					resultItem.textContent = `Malware found. File: ${result.file}, Hash: ${result.hash}`;
+					resultContainer.appendChild(resultItem);
+				});
+
+				document.getElementById("folder_scan_err").textContent = "";
+			}, TIMEOUT_WAIT);
+		});
+		// scan complete for folder - error
+		listen("folder_scan_error", function (scanEvent) {
+			const scanResult = scanEvent.payload;
+			scan_in_progress = false;
+			set_scan_button_state(scan_in_progress);
+
+			setTimeout(() => {
+				write_live_scan_stats("Scan finished.")
+				document.getElementById("folder_scan_result").textContent = "" // blank the "started scan" msg
+				document.getElementById("folder_scan_err").textContent = scanResult;
+			}, TIMEOUT_WAIT);
+		});
+
+
+
+		//
+		// Events
+		//
+
+		// submitting a folder for analysis
+		var submit_folder_for_scan = function(event) {
+			event.preventDefault();
+			const file_path = document.getElementById("folder_path_input").value;			
+
+			scan_in_progress = true;
+			set_scan_button_state(scan_in_progress);
+			document.getElementById("folder_scan_err").textContent = ""
+
+			invoke('scanner_start_folder_scan', { filePath: file_path })
+				.then((response) => {
+					document.getElementById("folder_scan_result").innerHTML = response;
+				})
+				.catch((error) => console.error("Invoke error:", error));
+		};
+
+		// Quick scan!
+		var submit_quick_scan = function(event) {
+			event.preventDefault();
+
+			scan_in_progress = true;
+			set_scan_button_state(scan_in_progress);
+			document.getElementById("folder_scan_err").textContent = ""
+
+			invoke('scanner_start_quick_scan')
+				.then((response) => {
+					document.getElementById("folder_scan_result").innerHTML = response;
+				})
+				.catch((error) => console.error("Invoke error:", error));
+		};
+
+		// cancel scan!
+		var cancel_scan = function(event) {
+			event.preventDefault();
+
+			console.log("Cancelled..");
+
+			scan_in_progress = false;
+			set_scan_button_state(scan_in_progress);
+
+			invoke('scanner_stop_scan')
+				.then((response) => {
+					write_live_scan_stats("Scan cancelled.")
+					document.getElementById("folder_scan_result").innerHTML = response;
+					scan_in_progress = false;
+				})
+				.catch((error) => {
+					console.error("Invoke error:", error);
+				});
+		};
+
+		var folder_submission_form = document.getElementById("folder_scan_form");
+		folder_submission_form.addEventListener('submit', submit_folder_for_scan, false);
+
+		var quick_scan_form = document.getElementById("quick_scan_form");
+		quick_scan_form.addEventListener('submit', submit_quick_scan, false);
+
+		var cancel_scan_form = document.getElementById("cancel_scan_form");
+		cancel_scan_form.addEventListener('submit', cancel_scan, false);
+
+
+		//
+		// Async page state
+		//
+		(function scanner_check_page_state() {
+			
+			if (scan_in_progress) {
+
+				invoke('scanner_check_page_state')
+					.then((state) => {
+						if (possibleStates.includes(state)) {
+							if (state === 'Scanning') {
+								
+								// if we are scanning, make another call to get the stats
+								write_live_scan_stats("Scanning...");
+
+							} else {
+								console.log("Starting state is NOT scanning");
+								scan_in_progress = false;
+								return;
+							}
+						} else {
+							console.error(`Unexpected state received: ${state}`);
+						}
+					}).catch((error) => console.error("Invoke error:", error));
+			}
+
+			setTimeout( scanner_check_page_state, 500 ); // tick speed
+		})();
+
+
+		//
+		// Functions
+		//
+
+		/// Toggles the scanning state for the bool, and determines which page elements to show
+		function set_scan_button_state(is_scanning) {
+			if (is_scanning) {
+				// disable scan buttons and enable the cancel button
+				const controlButtons = document.querySelectorAll(".scan_control_button");
+				controlButtons.forEach(button => {
+					button.disabled = true;
+				});
+
+				document.getElementById("cancel_scan_form").innerHTML = "<button type=\"submit\" class=\"single_box_button\"  id=\"scan_cancel\">Cancel</button>";
+			} else {
+				// enable scan buttons and enable the cancel button
+				const controlButtons = document.querySelectorAll(".scan_control_button");
+				controlButtons.forEach(button => {
+					button.disabled = false;
+				});
+				document.getElementById("cancel_scan_form").innerHTML = "";
+			}
+		}
+
+
+		function write_live_scan_stats(scan_text) {
+			invoke('scanner_get_scan_stats')
+				.then((stats) => {
+					const parsed_stats = JSON.parse(stats);
+
+					let txt = `${scan_text} Time taken: ${parsed_stats.time_taken.secs}s. Number of files scanned: ${parsed_stats.num_files_scanned}`;
+
+					document.getElementById("folder_scan_stats").textContent = txt;
+				}).catch((error) => console.error("Invoke error:", error));
+		}
+	});
+	</script>
+
+</head>
+<body>
+	<header id="header"><p>Sanctum Home EDR</p></header>
+
+	<div id="container">
+
+		<main id="center" class="column">
+			<article>
+				<h1>Antivirus</h1>
+				<p>The usermode antivirus module. More than 'just' an antivirus, gives you detailed reports
+					relating to malware.
+				</p>
+
+				<!-- For the scan results -->
+				<div id="scanResultBox">
+					<p id="folder_scan_stats"></p>
+					<p id="folder_scan_result"></p>
+					<p id="folder_scan_err" class="error_msg"></p>
+					<form action="#" id="cancel_scan_form">
+					</form>
+				</div>
+				
+				<!-- Main page -->
+				<div id="quick_scan_callout" class="full_callout">
+					<b>Common scan</b>
+					<form action="#" id="quick_scan_form">
+						<p>Scans places commonly abused by malware.</p>
+						<div id="scan_button_quick">
+							<button type="submit" class="single_box_button scan_control_button" id="quick_scan_submit">Scan</button>
+						</div>
+					</form>
+				</div>
+
+				<div id="full_scan_callout" class="full_callout">
+					<b>File / Folder scan</b>
+					<p>Enter either the path to the fil you wish to scan, or the directory root you wish to scan. If you wish to scan the full filesystem you should indicate the drive letter, such as C:\.</p>
+					<form action="#" id="folder_scan_form">
+						<input type="text" value="C:\" autocomplete="off" placeholder="Enter folder path" id="folder_path_input" />
+
+						<div id="scan_button_full">
+							<button type="submit" class="single_box_button scan_control_button" id="scan_submit_btn">Scan</button>
+						</div>
+					</form>
+				</div>
+
+			</article>
+		</main>
+
+		<div id="nav-placeholder"></div>
+
+		<div id="right" class="column">
+			<p> </p>
+		</div>
+
+	</div>
+
+	<!-- <div id="footer-wrapper">
+		<footer id="footer"><p>Footer...</p></footer>
+	</div> -->
+</body>
+</html>
