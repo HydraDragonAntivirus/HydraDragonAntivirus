@@ -8,7 +8,7 @@ pub mod web_filter;
 pub mod windivert_api;
 
 use crate::engine::FirewallEngine;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 // FirewallState was redundant as we manage Arc<FirewallEngine> directly in modern Tauri 2
