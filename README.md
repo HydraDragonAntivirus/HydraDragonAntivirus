@@ -92,7 +92,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/mandiant/gostringungarbler
 - https://github.com/cod3nym/Deobfuscar
 - https://github.com/fesh0r/fernflower
-- https://github.com/ViRb3/de4dot-cex
+- https://github.com/GDATAAdvancedAnalytics/de4dotEx
 - https://www.rathlev-home.de/index-e.html?tools/prog-e.html#unpack 
 - https://github.com/myfreeer/7z-build-nsis
 - https://github.com/upx/upx
