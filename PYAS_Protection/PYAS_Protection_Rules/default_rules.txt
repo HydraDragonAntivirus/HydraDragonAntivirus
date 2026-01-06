@@ -1,4 +1,4 @@
 \??\C:\Program Files\HydraDragonAntivirus\
-\??\C:\Users\Public\Desktop\Sanctum\
-\??\C:\Users\Public\AppData\Roaming\Sanctum\
+Desktop\Sanctum\
+AppData\Roaming\Sanctum\
 \??\C:\Windows\explorer.exe
