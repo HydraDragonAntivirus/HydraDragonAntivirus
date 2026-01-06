@@ -189,10 +189,12 @@
     <ClInclude Include="Driver_Common.h" />
     <ClInclude Include="Driver_Regedit.h" />
     <ClInclude Include="Driver_File.h" />
+    <ClInclude Include="ProtectionRules.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Driver.c" />
     <ClCompile Include="File.c" />
+    <ClCompile Include="ProtectionRules.c" />
     <ClCompile Include="Process.c" />
     <ClCompile Include="Regedit.c" />
   </ItemGroup>
