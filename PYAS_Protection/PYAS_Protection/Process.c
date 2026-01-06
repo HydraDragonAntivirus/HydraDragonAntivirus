@@ -2,6 +2,7 @@
 #include "Driver.h"
 #include "Driver_Process.h"
 #include "Driver_Common.h" // Include common helpers
+#include "ProtectionRules.h"
 
 //
 // --- Globals ---
@@ -64,6 +65,9 @@ NTSTATUS ProcessDriverUnload() {
 
     KeReleaseInStackQueuedSpinLock(&lockHandle);
 
+    // Release dynamically loaded rules
+    CleanupProtectionRules();
+
     DbgPrint("[Process-Protection] Unloaded\r\n");
     return STATUS_SUCCESS;
 }
@@ -75,6 +79,12 @@ NTSTATUS ProcessDriverUnload() {
 NTSTATUS ProtectProcess(void)
 {
     NTSTATUS status = STATUS_SUCCESS;
+
+    // Load dynamic protection rules once so runtime checks rely on disk-based configuration.
+    status = InitializeProtectionRules();
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[Process-Protection] Failed to preload protection rules: 0x%X\n", status);
+    }
 
     // Safety: ensure called at PASSIVE_LEVEL
     if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
@@ -365,24 +375,8 @@ BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
         return FALSE;
     }
 
-    // Define the FOLDERS to be protected.
-    // Matches ANY process running from these folders or subfolders.
-    // Uses substring matching to avoid drive letter issues and handle full paths.
-    // NOTE: SeLocateProcessImageName returns Native paths e.g. \Device\HarddiskVolume3\Program Files...
-    // But ContainsSubstringInsensitive is robust enough to find "\Program Files\..." inside it.
-    static const PCWSTR protectedFolders[] = {
-        L"\\Program Files\\HydraDragonAntivirus\\",
-        L"\\Desktop\\Sanctum\\", 
-        L"\\AppData\\Roaming\\Sanctum\\"
-    };
-
-    // Check Folders
-    for (ULONG i = 0; i < ARRAYSIZE(protectedFolders); ++i) {
-        if (ContainsSubstringInsensitive(pImageName->Buffer, protectedFolders[i])) {
-            result = TRUE;
-            break;
-        }
-    }
+    // Delegate protection decision to the dynamic rule engine (with a hardcoded kernel root).
+    result = IsPathProtected(pImageName->Buffer);
 
     ExFreePool(pImageName);
     return result;

@@ -2,6 +2,7 @@
 #include "Driver.h"
 #include "Driver_File.h"   // your header with OBJECT_TYPE_TEMP and related typedefs
 #include "Driver_Common.h" // Include common helpers
+#include "ProtectionRules.h"
 
 // globals
 PVOID g_CallBackHandle = NULL;
@@ -33,7 +34,12 @@ VOID SendAlertWorker(PVOID Context);
 // entry/unload (call from your DriverEntry/DriverUnload)
 NTSTATUS FileDriverEntry()
 {
-    NTSTATUS status = ProtectFileByObRegisterCallbacks();
+    NTSTATUS status = InitializeProtectionRules();
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[Self-Defense] Failed to preload protection rules: 0x%X\n", status);
+    }
+
+    status = ProtectFileByObRegisterCallbacks();
     if (NT_SUCCESS(status)) {
         DbgPrint("[Self-Defense] File protection initialized\n");
     }
@@ -49,6 +55,8 @@ VOID FileUnloadDriver()
         ObUnRegisterCallbacks(g_CallBackHandle);
         g_CallBackHandle = NULL;
     }
+
+    CleanupProtectionRules();
     DbgPrint("[Self-Defense] FileDriver Unloaded\n");
 }
 
@@ -184,20 +192,7 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
     UNICODE_STRING fileName = nameInfo->Name;
     BOOLEAN isProtected = FALSE;
 
-    // Folder-based protection patterns
-    // Using ContainsSubstringInsensitive to match substring anywhere in the DOS Path
-    static const PCWSTR protectedFolders[] = {
-        L"\\Program Files\\HydraDragonAntivirus", 
-        L"\\Desktop\\Sanctum",
-        L"\\AppData\\Roaming\\Sanctum"
-    };
-    
-    for (ULONG i = 0; i < ARRAYSIZE(protectedFolders); ++i) {
-        if (ContainsSubstringInsensitive(fileName.Buffer, protectedFolders[i])) {
-            isProtected = TRUE;
-            break;
-        }
-    }
+    isProtected = IsPathProtected(fileName.Buffer);
 
     if (isProtected) {
         ACCESS_MASK desiredAccess = 0;
