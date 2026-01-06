@@ -420,11 +420,18 @@ BOOLEAN IsPathProtected(_In_ PCWSTR Path)
         return FALSE;
     }
 
-    // Kernel-enforced base path
-    static const WCHAR kHardcodedRoot[] = L"\\\\Program Files\\HydraDragonAntivirus";
-    if (ContainsSubstringInsensitive(Path, kHardcodedRoot))
+    // Kernel-enforced base paths (support both native and DOS prefix forms)
+    static const PCWSTR kHardcodedRoots[] = {
+        L"\\Program Files\\HydraDragonAntivirus",           // Native paths: \Device\\HarddiskVolumeX\\Program Files\\HydraDragonAntivirus
+        L"\\??\\C:\\Program Files\\HydraDragonAntivirus" // DOS device paths: \??\\C:\\Program Files\\HydraDragonAntivirus
+    };
+
+    for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRoots); ++i)
     {
-        return TRUE;
+        if (ContainsSubstringInsensitive(Path, kHardcodedRoots[i]))
+        {
+            return TRUE;
+        }
     }
 
     if (!g_RuleMutexInitialized)
