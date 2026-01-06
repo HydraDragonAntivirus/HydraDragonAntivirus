@@ -1,7 +1,8 @@
 #include "ProtectionRules.h"
 #include "Driver_Common.h"
 
-#define RULE_DIRECTORY L"\\\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection_Rules\\"
+// Native directory path for loading rule files
+#define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection_Rules\\"
 #define MAX_RULE_FILE_SIZE (64 * 1024) // 64KB safety cap for a single rule file
 
 static PROTECTION_RULE_SET g_RuleSet = { 0 };
