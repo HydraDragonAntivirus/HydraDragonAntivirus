@@ -216,11 +216,12 @@ impl BehaviorEngine {
                 detailed_indicators.push(format!("DataStaging({} files written to Temp)", state.staged_files_written.len()));
             }
 
-            // 3. Internet connectivity
+            // 3. Exfiltration / Upload behavior
             total_tracked_conditions += 1;
-            if is_online { 
+            let is_uploading = is_online && (has_sensitive_access || recent_access_count > 0 || has_staged_data);
+            if is_uploading { 
                 satisfied_conditions += 1; 
-                detailed_indicators.push("InternetAccess(Active)".to_string());
+                detailed_indicators.push("Exfiltration(Upload detected after data access)".to_string());
             }
 
             // 4. Suspicious parent
@@ -310,7 +311,7 @@ impl BehaviorEngine {
 
     #[cfg(target_os = "windows")]
     fn has_active_connections(&self, pid: u32) -> bool {
-        use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_ALL};
+        use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, MIB_TCPTABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_ALL};
         use windows::Win32::Networking::WinSock::AF_INET;
 
         if pid == 0 { return false; }
@@ -322,13 +323,20 @@ impl BehaviorEngine {
 
             let mut buffer = vec![0u8; dw_size as usize];
             if GetExtendedTcpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, AF_INET.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0) == 0 {
-                // The table format is complex to parse in a single step without heavy bindings,
-                // but we check if GetExtendedTcpTable succeeded and returned data.
-                // A more robust check would iterate over the rows and match the PID.
+                // Parse the table to verify the PID
+                let table = buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+                let num_entries = (*table).dwNumEntries as usize;
+                let rows = std::ptr::addr_of!((*table).table) as *const MIB_TCPROW_OWNER_PID;
                 
-                // Simple heuristic for now: if we can get the table, we assume some network capability exists.
-                // To be precise, we'd need to cast the buffer to MIB_TCPTABLE_OWNER_PID and iterate.
-                return true; 
+                for i in 0..num_entries {
+                    let row = *rows.add(i);
+                    if row.dwOwningPid == pid {
+                        // Check if it's an established outbound connection (state 5 = ESTABLISHED)
+                        if row.dwState == 5 && row.dwRemoteAddr != 0 {
+                            return true;
+                        }
+                    }
+                }
             }
         }
         false
