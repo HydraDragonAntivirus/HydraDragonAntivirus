@@ -1,6 +1,7 @@
 ﻿// Regedit.c - Registry protection with user-mode alerting (FIXED)
 #include "Driver.h"
 #include "Driver_Regedit.h"
+#include "ProtectionRules.h"
 
 LARGE_INTEGER Cookie;
 
@@ -339,7 +340,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER))
+                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
+                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
                     {
                         // Queue alert (non-blocking)
                         QueueRegistryAlertToUserMode(&RegPath, L"DELETE_VALUE");
@@ -361,7 +363,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER))
+                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
+                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
                     {
                         QueueRegistryAlertToUserMode(&RegPath, L"DELETE_KEY");
                         Status = STATUS_ACCESS_DENIED;
@@ -490,7 +493,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER))
+                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
+                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
                     {
                         QueueRegistryAlertToUserMode(&RegPath, L"SET_VALUE");
                         Status = STATUS_ACCESS_DENIED;
@@ -517,7 +521,8 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_PYAS) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_OWLY) ||
                         UnicodeContainsInsensitive(&RegPath, REG_PROTECT_SANCTUM) ||
-                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER))
+                        UnicodeContainsInsensitive(&RegPath, REG_PROTECT_MBRFILTER) ||
+                        IsPathProtectedByType(RegPath.Buffer, RuleTypeRegistry))
                     {
                         QueueRegistryAlertToUserMode(&RegPath, L"RENAME_KEY");
                         Status = STATUS_ACCESS_DENIED;

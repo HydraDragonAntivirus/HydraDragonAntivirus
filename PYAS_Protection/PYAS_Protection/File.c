@@ -196,7 +196,7 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
 
     BOOLEAN isProtected = FALSE;
 
-    isProtected = IsPathProtected(fileName.Buffer);
+    isProtected = IsPathProtectedByType(fileName.Buffer, RuleTypeFile);
 
     if (isProtected) {
         ACCESS_MASK desiredAccess = 0;

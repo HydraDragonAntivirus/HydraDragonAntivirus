@@ -369,13 +369,20 @@ BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
     NTSTATUS status;
     BOOLEAN result = FALSE;
 
+    status = SeLocateProcessImageName(Process, &pImageName);
+    if (!NT_SUCCESS(status) || !pImageName) {
+        return FALSE;
+    }
+
     // Normalize from \Device\HarddiskVolumeX to \??\C: before checking rules
     NormalizeDevicePathToDos(pImageName);
 
     // Delegate protection decision to the dynamic rule engine
-    result = IsPathProtected(pImageName->Buffer);
+    result = IsPathProtectedByType(pImageName->Buffer, RuleTypeProcess);
 
-    ExFreePool(pImageName);
+    if (pImageName) {
+        ExFreePool(pImageName);
+    }
     return result;
 }
 

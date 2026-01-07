@@ -5,10 +5,16 @@
 #define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection_Rules\\"
 #define MAX_RULE_FILE_SIZE (64 * 1024) // 64KB safety cap for a single rule file
 
-static PROTECTION_RULE_SET g_RuleSet = { 0 };
+static PROTECTION_RULE_SET g_RuleSets[RuleTypeMax] = { 0 };
 static FAST_MUTEX g_RuleMutex;
 static BOOLEAN g_RuleMutexInitialized = FALSE;
 static BOOLEAN g_RulesLoaded = FALSE;
+
+static const PCWSTR kRuleSubDirs[RuleTypeMax] = {
+    L"Process\\",
+    L"File\\",
+    L"Registry\\"
+};
 
 static NTSTATUS EnsureRuleCapacity(PPROTECTION_RULE_SET RuleSet, ULONG RequiredCount)
 {
@@ -342,7 +348,7 @@ static NTSTATUS LoadRulesFromFilePath(PUNICODE_STRING FilePath, PPROTECTION_RULE
     return status;
 }
 
-static NTSTATUS LoadRulesFromDirectory(PPROTECTION_RULE_SET RuleSet)
+static NTSTATUS LoadRulesFromDirectorySpecific(PCWSTR SubDirectory, PPROTECTION_RULE_SET RuleSet)
 {
     HANDLE dirHandle = NULL;
     IO_STATUS_BLOCK ioStatus = { 0 };
@@ -350,7 +356,10 @@ static NTSTATUS LoadRulesFromDirectory(PPROTECTION_RULE_SET RuleSet)
     OBJECT_ATTRIBUTES objectAttributes;
     NTSTATUS status;
 
-    RtlInitUnicodeString(&directoryPath, RULE_DIRECTORY);
+    WCHAR fullDirPath[256];
+    RtlStringCbPrintfW(fullDirPath, sizeof(fullDirPath), L"%s%s", RULE_DIRECTORY, SubDirectory);
+
+    RtlInitUnicodeString(&directoryPath, fullDirPath);
     InitializeObjectAttributes(
         &objectAttributes,
         &directoryPath,
@@ -446,7 +455,6 @@ static NTSTATUS LoadRulesFromDirectory(PPROTECTION_RULE_SET RuleSet)
 
                 if (!NT_SUCCESS(loadStatus))
                 {
-                    // Continue loading other files but remember the first failure
                     status = loadStatus;
                 }
             }
@@ -481,15 +489,14 @@ NTSTATUS InitializeProtectionRules()
         return STATUS_SUCCESS;
     }
 
-    FreeRuleSet(&g_RuleSet);
-    NTSTATUS status = LoadRulesFromDirectory(&g_RuleSet);
-    if (NT_SUCCESS(status))
-    {
-        g_RulesLoaded = TRUE;
+    for (int i = 0; i < RuleTypeMax; i++) {
+        FreeRuleSet(&g_RuleSets[i]);
+        LoadRulesFromDirectorySpecific(kRuleSubDirs[i], &g_RuleSets[i]);
     }
 
+    g_RulesLoaded = TRUE;
     ExReleaseFastMutex(&g_RuleMutex);
-    return status;
+    return STATUS_SUCCESS;
 }
 
 VOID CleanupProtectionRules()
@@ -500,22 +507,24 @@ VOID CleanupProtectionRules()
     }
 
     ExAcquireFastMutex(&g_RuleMutex);
-    FreeRuleSet(&g_RuleSet);
+    for (int i = 0; i < RuleTypeMax; i++) {
+        FreeRuleSet(&g_RuleSets[i]);
+    }
     g_RulesLoaded = FALSE;
     ExReleaseFastMutex(&g_RuleMutex);
 }
 
-BOOLEAN IsPathProtected(_In_ PCWSTR Path)
+BOOLEAN IsPathProtectedByType(_In_ PCWSTR Path, _In_ RULE_TYPE RuleType)
 {
-    if (!Path)
+    if (!Path || RuleType >= RuleTypeMax)
     {
         return FALSE;
     }
 
     // Kernel-enforced base paths (support both native and DOS prefix forms)
     static const PCWSTR kHardcodedRoots[] = {
-        L"\\Program Files\\HydraDragonAntivirus",           // Native paths: \Device\\HarddiskVolumeX\\Program Files\\HydraDragonAntivirus
-        L"\\??\\C:\\Program Files\\HydraDragonAntivirus" // DOS device paths: \??\\C:\\Program Files\\HydraDragonAntivirus
+        L"\\Program Files\\HydraDragonAntivirus",
+        L"\\??\\C:\\Program Files\\HydraDragonAntivirus"
     };
 
     for (ULONG i = 0; i < ARRAYSIZE(kHardcodedRoots); ++i)
@@ -532,7 +541,6 @@ BOOLEAN IsPathProtected(_In_ PCWSTR Path)
         g_RuleMutexInitialized = TRUE;
     }
 
-    // Load rules on first use
     if (!g_RulesLoaded)
     {
         InitializeProtectionRules();
@@ -541,9 +549,11 @@ BOOLEAN IsPathProtected(_In_ PCWSTR Path)
     ExAcquireFastMutex(&g_RuleMutex);
 
     BOOLEAN matched = FALSE;
-    for (ULONG i = 0; i < g_RuleSet.Count; i++)
+    PPROTECTION_RULE_SET ruleSet = &g_RuleSets[RuleType];
+    
+    for (ULONG i = 0; i < ruleSet->Count; i++)
     {
-        if (g_RuleSet.Rules[i] && ContainsSubstringInsensitive(Path, g_RuleSet.Rules[i]))
+        if (ruleSet->Rules[i] && ContainsSubstringInsensitive(Path, ruleSet->Rules[i]))
         {
             matched = TRUE;
             break;
@@ -552,5 +562,11 @@ BOOLEAN IsPathProtected(_In_ PCWSTR Path)
 
     ExReleaseFastMutex(&g_RuleMutex);
     return matched;
+}
+
+BOOLEAN IsPathProtected(_In_ PCWSTR Path)
+{
+    // Legacy support: default to File rules
+    return IsPathProtectedByType(Path, RuleTypeFile);
 }
 
