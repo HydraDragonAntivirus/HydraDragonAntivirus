@@ -121,11 +121,16 @@ impl Logging {
     }
 
     fn log_in_file(status: Status, message: &str, dir: &str) {
+        let log_dir = Path::new(dir);
+        if !log_dir.exists() {
+            let _ = std::fs::create_dir_all(log_dir);
+        }
+
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
             .append(true)
-            .open(Path::new(&dir).join("owlyshield.log"))
+            .open(log_dir.join("owlyshield.log"))
             .unwrap();
 
         let now = (DateTime::from(SystemTime::now()) as DateTime<Local>)

@@ -20,6 +20,7 @@ pub enum Param {
     Telemetry,
     MqttServer,
     NoveltyPath,
+    RulesPath,
     Unknown,
 }
 
@@ -44,6 +45,7 @@ impl Param {
             Param::Telemetry => "TELEMETRY",  // 1 if telemetry is active, 0 if not
             Param::MqttServer => "MQTT_SERVER",
             Param::NoveltyPath => "NOVELTY_PATH",
+            Param::RulesPath => "RULES_PATH",
             _ => "UNKNOWN"
         }
     }
@@ -61,6 +63,7 @@ impl Param {
             Param::Telemetry => "telemetry",  // 1 if telemetry is active, 0 if not
             Param::MqttServer => "mqtt_server",
             Param::NoveltyPath => "novelty_path",
+            Param::RulesPath => "rules_path",
             _ => "unknown"
         }
     }
@@ -89,6 +92,8 @@ impl Param {
             params.push(Param::NoveltyPath);
         }
 
+        params.push(Param::RulesPath);
+
         let mut ret = Vec::new();
         for param in params {
             let val = Self::convert_to_str(&param).to_string();
@@ -110,6 +115,7 @@ impl Param {
             "TELEMETRY" => Param::Telemetry,  // 1 if telemetry is active, 0 if not
             "MQTT_SERVER" => Param::MqttServer,
             "NOVELTY_PATH" => Param::NoveltyPath,
+            "RULES_PATH" => Param::RulesPath,
             _ => Param::Unknown,
         }
     }
@@ -127,6 +133,7 @@ impl Param {
             "telemetry" => Param::Telemetry,  // 1 if telemetry is active, 0 if not
             "mqtt_server" => Param::MqttServer,
             "novelty_path" => Param::NoveltyPath,
+            "rules_path" => Param::RulesPath,
             _ => Param::Unknown,
         }
     }

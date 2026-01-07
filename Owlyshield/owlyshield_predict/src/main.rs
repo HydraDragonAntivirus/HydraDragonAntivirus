@@ -141,6 +141,7 @@ mod watchlist;
 mod whitelist;
 mod worker;
 mod novelty;
+mod behavior_engine;
 #[cfg(feature = "realtime_learning")]
 pub mod realtime_learning;  // OwlyShield realtime-learning module
 #[cfg(target_os = "windows")]

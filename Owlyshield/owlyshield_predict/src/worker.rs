@@ -802,6 +802,7 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
+        pub behavior_engine: crate::behavior_engine::BehaviorEngine,
     }
 
     impl<'a> Worker<'a> {
@@ -815,6 +816,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
+                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -868,6 +870,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
+                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -892,6 +895,9 @@ pub mod worker_instance {
                 {
                     precord.add_irp_record(iomsg, None);
                 }
+
+                // --- ADDED: Process event in behavior engine ---
+                self.behavior_engine.process_event(precord, iomsg);
 
                 if let Some(process_record_handler) = &mut self.process_record_handler {
                     process_record_handler.handle_io(precord);

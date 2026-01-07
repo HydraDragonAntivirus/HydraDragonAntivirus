@@ -190,6 +190,10 @@ OB_PREOP_CALLBACK_STATUS PreCallBack(
     }
 
     UNICODE_STRING fileName = nameInfo->Name;
+    
+    // Normalize path to ensure consistency with rules
+    NormalizeDevicePathToDos(&fileName);
+
     BOOLEAN isProtected = FALSE;
 
     isProtected = IsPathProtected(fileName.Buffer);
@@ -265,6 +269,9 @@ NTSTATUS QueueAlertToUserMode(
             workItem->AttackingProcessPath.Length = 0;
             workItem->AttackingProcessPath.MaximumLength = needed;
             RtlCopyUnicodeString(&workItem->AttackingProcessPath, AttackingProcessPath);
+
+            // Normalize path for user-mode reporting
+            NormalizeDevicePathToDos(&workItem->AttackingProcessPath);
         }
     }
 

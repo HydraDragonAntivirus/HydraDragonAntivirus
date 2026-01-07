@@ -159,6 +159,12 @@ pub fn run() {
 
                 worker = worker.build();
 
+                // Load behavior rules
+                let rules_path = Path::new(&config[Param::RulesPath]).join("behavior_rules.yaml");
+                if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
+                    Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
+                }
+
                 let mut count = 0;
                 let mut timer = SystemTime::now();
                 loop {
