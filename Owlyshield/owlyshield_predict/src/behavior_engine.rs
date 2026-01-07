@@ -50,6 +50,7 @@ pub struct ProcessBehaviorState {
     pub archive_action_detected: bool,
     pub archive_in_temp_detected: bool,
     pub parent_name: String,
+    pub has_active_connection: bool,
 }
 
 pub struct BehaviorEngine {
@@ -74,94 +75,107 @@ impl BehaviorEngine {
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         let gid = msg.gid;
-        let state = self.process_states.entry(gid).or_insert_with(|| {
-            let mut s = ProcessBehaviorState::default();
-            let mut sys = sysinfo::System::new_all();
-            sys.refresh_processes();
-            if let Some(proc) = sys.process(sysinfo::Pid::from(msg.pid as usize)) {
-                if let Some(parent_pid) = proc.parent() {
-                    if let Some(parent_proc) = sys.process(parent_pid) {
-                        s.parent_name = parent_proc.name().to_string();
-                    }
-                }
-            } else {
-                s.parent_name = "unknown".to_string();
+        let pid = msg.pid;
+
+        // 1. Pre-calculate values that require borrowing self
+        let exfiltration_enabled = self.rules.iter().any(|r| r.detect_exfiltration);
+        let has_active_conn = if exfiltration_enabled {
+            let active = self.has_active_connections(pid);
+            if active {
+                self.signal_firewall(pid);
             }
-            s
-        });
+            active
+        } else {
+            false
+        };
 
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase();
 
-        // Track events for ALL rules
-        for rule in &self.rules {
-            // 1. Track Browser Access
-            for b_path in &rule.browser_paths {
-                if filepath.contains(&b_path.to_lowercase()) {
-                    state.accessed_browsers.insert(b_path.clone(), SystemTime::now());
-                    
-                    // Track sensitive files
-                    for s_file in &rule.sensitive_files {
-                        if filepath.contains(&s_file.to_lowercase()) {
-                            state.sensitive_files_read.insert(s_file.clone());
+        // 2. Perform updates to process state using split borrowing
+        {
+            let states = &mut self.process_states;
+            let rules = &self.rules;
+
+            let state = states.entry(gid).or_insert_with(|| {
+                let mut s = ProcessBehaviorState::default();
+                let mut sys = sysinfo::System::new_all();
+                sys.refresh_processes();
+                if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
+                    if let Some(parent_pid) = proc.parent() {
+                        if let Some(parent_proc) = sys.process(parent_pid) {
+                            s.parent_name = parent_proc.name().to_string();
+                        }
+                    }
+                } else {
+                    s.parent_name = "unknown".to_string();
+                }
+                s
+            });
+
+            if has_active_conn {
+                state.has_active_connection = true;
+            }
+
+            // Track events for ALL rules
+            for rule in rules {
+                // 1. Track Browser Access
+                for b_path in &rule.browser_paths {
+                    if filepath.contains(&b_path.to_lowercase()) {
+                        state.accessed_browsers.insert(b_path.clone(), SystemTime::now());
+                        
+                        // Track sensitive files
+                        for s_file in &rule.sensitive_files {
+                            if filepath.contains(&s_file.to_lowercase()) {
+                                state.sensitive_files_read.insert(s_file.clone());
+                            }
+                        }
+                    }
+                }
+
+                // 2. Track Data Staging
+                for s_path in &rule.staging_paths {
+                    if filepath.contains(&s_path.to_lowercase()) && irp_op == IrpMajorOp::IrpWrite {
+                        state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
+                    }
+                }
+
+                // 3. Track Entropy
+                if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
+                    state.high_entropy_detected = true;
+                }
+
+                // 4. Track Crypto APIs
+                for api in &rule.crypto_apis {
+                    if filepath.contains(&api.to_lowercase()) {
+                        state.crypto_api_count += 1;
+                    }
+                }
+
+                // 5. Track Archive Actions
+                for action in &rule.archive_actions {
+                    if filepath.contains(&action.to_lowercase()) {
+                        state.archive_action_detected = true;
+                        
+                        // Track archive specifically in staging paths (Temp)
+                        for s_path in &rule.staging_paths {
+                            if filepath.contains(&s_path.to_lowercase()) {
+                                state.archive_in_temp_detected = true;
+                            }
+                        }
+
+                        // Track archive in specific archive locations
+                        for a_loc in &rule.archive_locations {
+                            if filepath.contains(&a_loc.to_lowercase()) {
+                                state.archive_in_temp_detected = true; 
+                            }
                         }
                     }
                 }
             }
+        } // state and rules borrows are dropped here
 
-            // 2. Track Data Staging
-            for s_path in &rule.staging_paths {
-                if filepath.contains(&s_path.to_lowercase()) && irp_op == IrpMajorOp::IrpWrite {
-                    state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
-                }
-            }
-
-            // 3. Track Entropy
-            if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
-                state.high_entropy_detected = true;
-            }
-
-            // 4. Track Crypto APIs
-            for api in &rule.crypto_apis {
-                if filepath.contains(&api.to_lowercase()) {
-                    state.crypto_api_count += 1;
-                }
-            }
-
-            // 5. Track Archive Actions
-            for action in &rule.archive_actions {
-                if filepath.contains(&action.to_lowercase()) {
-                    state.archive_action_detected = true;
-                    
-                    // Track archive specifically in staging paths (Temp)
-                    for s_path in &rule.staging_paths {
-                        if filepath.contains(&s_path.to_lowercase()) {
-                            state.archive_in_temp_detected = true;
-                        }
-                    }
-
-                    // Track archive in specific archive locations
-                    for a_loc in &rule.archive_locations {
-                        if filepath.contains(&a_loc.to_lowercase()) {
-                            state.archive_in_temp_detected = true; 
-                        }
-                    }
-                }
-            }
-        }
-
-        // Check for active connections if exfiltration detection is enabled for any rule
-        if self.rules.iter().any(|r| r.detect_exfiltration) {
-            if let Some(pid) = precord.pid {
-                if self.has_active_connections(pid) {
-                    state.has_active_connection = true;
-                    // Signal Firewall to watch this process for high-entropy uploads
-                    self.signal_firewall(pid);
-                }
-            }
-        }
-
-        // Check for matches
+        // 3. Check for matches
         self.check_rules(precord, gid);
     }
 
