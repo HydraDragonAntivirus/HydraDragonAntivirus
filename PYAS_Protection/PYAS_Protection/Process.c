@@ -369,13 +369,10 @@ BOOLEAN IsProtectedProcessByPath(PEPROCESS Process) {
     NTSTATUS status;
     BOOLEAN result = FALSE;
 
-    status = SeLocateProcessImageName(Process, &pImageName);
-    if (!NT_SUCCESS(status) || !pImageName || !pImageName->Buffer) {
-        if (pImageName) ExFreePool(pImageName);
-        return FALSE;
-    }
+    // Normalize from \Device\HarddiskVolumeX to \??\C: before checking rules
+    NormalizeDevicePathToDos(pImageName);
 
-    // Delegate protection decision to the dynamic rule engine (with a hardcoded kernel root).
+    // Delegate protection decision to the dynamic rule engine
     result = IsPathProtected(pImageName->Buffer);
 
     ExFreePool(pImageName);
@@ -474,6 +471,14 @@ NTSTATUS QueueProcessAlertToUserMode(
         {
             RtlCopyMemory(workItem->TargetPath.Buffer, targetPath->Buffer, targetPath->Length);
             workItem->TargetPath.Buffer[targetPath->Length / sizeof(WCHAR)] = L'\0';
+            
+            // Normalize path for user-mode reporting
+            UNICODE_STRING uTarget;
+            uTarget.Buffer = workItem->TargetPath.Buffer;
+            uTarget.Length = workItem->TargetPath.Length;
+            uTarget.MaximumLength = workItem->TargetPath.MaximumLength;
+            NormalizeDevicePathToDos(&uTarget);
+            workItem->TargetPath.Length = uTarget.Length;
         }
     }
 
@@ -492,6 +497,14 @@ NTSTATUS QueueProcessAlertToUserMode(
         {
             RtlCopyMemory(workItem->AttackerPath.Buffer, attackerPath->Buffer, attackerPath->Length);
             workItem->AttackerPath.Buffer[attackerPath->Length / sizeof(WCHAR)] = L'\0';
+
+            // Normalize path for user-mode reporting
+            UNICODE_STRING uAttacker;
+            uAttacker.Buffer = workItem->AttackerPath.Buffer;
+            uAttacker.Length = workItem->AttackerPath.Length;
+            uAttacker.MaximumLength = workItem->AttackerPath.MaximumLength;
+            NormalizeDevicePathToDos(&uAttacker);
+            workItem->AttackerPath.Length = uAttacker.Length;
         }
     }
 

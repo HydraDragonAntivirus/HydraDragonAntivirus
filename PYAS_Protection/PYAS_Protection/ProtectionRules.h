@@ -22,4 +22,4 @@ VOID CleanupProtectionRules();
 // This enforces the hardcoded kernel root (\\Program Files\\HydraDragonAntivirus)
 // and then consults dynamically loaded rules from the rules directory.
 BOOLEAN IsPathProtected(_In_ PCWSTR Path);
-
+VOID NormalizeDevicePathToDos(PUNICODE_STRING Path);

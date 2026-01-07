@@ -110,12 +110,65 @@ static BOOLEAN IsDotDirectory(PUNICODE_STRING FileName)
 
 static NTSTATUS AppendRulesFromBuffer(PPROTECTION_RULE_SET RuleSet, PUCHAR Buffer, ULONG BytesRead)
 {
-    if (!Buffer || BytesRead == 0)
+    if (!Buffer || BytesRead < 2)
     {
         return STATUS_SUCCESS;
     }
 
-    // Treat the file as UTF-8/ASCII and convert manually into WCHAR lines
+    // Check for UTF-16 Little Endian BOM (0xFF 0xFE)
+    BOOLEAN isUtf16LE = (Buffer[0] == 0xFF && Buffer[1] == 0xFE);
+    // Check for UTF-16 Big Endian BOM (0xFE 0xFF)
+    BOOLEAN isUtf16BE = (Buffer[0] == 0xFE && Buffer[1] == 0xFF);
+
+    if (isUtf16LE || isUtf16BE)
+    {
+        PWCHAR utf16Buffer = (PWCHAR)(Buffer + 2);
+        ULONG utf16Chars = (BytesRead - 2) / sizeof(WCHAR);
+        ULONG start = 0;
+
+        for (ULONG i = 0; i <= utf16Chars; i++)
+        {
+            BOOLEAN isDelimiter = (i == utf16Chars) || utf16Buffer[i] == L'\n' || utf16Buffer[i] == L'\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    ULONG length = i - start;
+                    // Trim trailing whitespace
+                    while (length > 0 && (utf16Buffer[start + length - 1] == L' ' || utf16Buffer[start + length - 1] == L'\t' || utf16Buffer[start + length - 1] == L'\r'))
+                    {
+                        length--;
+                    }
+
+                    // Trim leading whitespace
+                    ULONG leading = 0;
+                    while (leading < length && (utf16Buffer[start + leading] == L' ' || utf16Buffer[start + leading] == L'\t'))
+                    {
+                        leading++;
+                    }
+
+                    if (length > leading)
+                    {
+                        length -= leading;
+                        // Handle potential Big Endian (swap bytes)
+                        if (isUtf16BE)
+                        {
+                            for (ULONG k = 0; k < length; k++)
+                            {
+                                WCHAR c = utf16Buffer[start + leading + k];
+                                utf16Buffer[start + leading + k] = (WCHAR)((c << 8) | (c >> 8));
+                            }
+                        }
+                        AddRuleString(RuleSet, &utf16Buffer[start + leading], length);
+                    }
+                }
+                start = i + 1;
+            }
+        }
+        return STATUS_SUCCESS;
+    }
+
+    // Treat the file as UTF-8/ASCII (fallback)
     ULONG start = 0;
     for (ULONG i = 0; i <= BytesRead; i++)
     {
@@ -125,13 +178,11 @@ static NTSTATUS AppendRulesFromBuffer(PPROTECTION_RULE_SET RuleSet, PUCHAR Buffe
             if (i > start)
             {
                 ULONG length = i - start;
-                // Trim trailing whitespace
                 while (length > 0 && (Buffer[start + length - 1] == ' ' || Buffer[start + length - 1] == '\t' || Buffer[start + length - 1] == '\r'))
                 {
                     length--;
                 }
 
-                // Trim leading whitespace
                 ULONG leading = 0;
                 while (leading < length && (Buffer[start + leading] == ' ' || Buffer[start + leading] == '\t'))
                 {
@@ -142,22 +193,15 @@ static NTSTATUS AppendRulesFromBuffer(PPROTECTION_RULE_SET RuleSet, PUCHAR Buffe
                 {
                     length -= leading;
                     PWCHAR ruleBuffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPoolNx, (length + 1) * sizeof(WCHAR), RULE_POOL_TAG);
-                    if (!ruleBuffer)
+                    if (ruleBuffer)
                     {
-                        return STATUS_INSUFFICIENT_RESOURCES;
-                    }
-
-                    for (ULONG j = 0; j < length; j++)
-                    {
-                        ruleBuffer[j] = (WCHAR)Buffer[start + leading + j];
-                    }
-                    ruleBuffer[length] = L'\0';
-
-                    NTSTATUS addStatus = AddRuleString(RuleSet, ruleBuffer, length);
-                    ExFreePoolWithTag(ruleBuffer, RULE_POOL_TAG);
-                    if (!NT_SUCCESS(addStatus))
-                    {
-                        return addStatus;
+                        for (ULONG j = 0; j < length; j++)
+                        {
+                            ruleBuffer[j] = (WCHAR)Buffer[start + leading + j];
+                        }
+                        ruleBuffer[length] = L'\0';
+                        AddRuleString(RuleSet, ruleBuffer, length);
+                        ExFreePoolWithTag(ruleBuffer, RULE_POOL_TAG);
                     }
                 }
             }
@@ -166,6 +210,53 @@ static NTSTATUS AppendRulesFromBuffer(PPROTECTION_RULE_SET RuleSet, PUCHAR Buffe
     }
 
     return STATUS_SUCCESS;
+}
+
+// Helper to normalize \Device\HarddiskVolumeX to \??\C:
+VOID NormalizeDevicePathToDos(PUNICODE_STRING Path)
+{
+    if (!Path || !Path->Buffer || Path->Length < 28) return; // Min length for \Device\HarddiskVolumeX
+
+    // Hardcoded check for most common volume (C:)
+    const WCHAR DEVICE_PREFIX[] = L"\\Device\\HarddiskVolume3";
+    const WCHAR DOS_PREFIX[] = L"\\??\\C:";
+    
+    // Check if it starts with DEVICE_PREFIX (case-insensitive)
+    BOOLEAN startsWith = TRUE;
+    SIZE_T prefixLen = (sizeof(DEVICE_PREFIX) / sizeof(WCHAR)) - 1;
+    
+    if (Path->Length < prefixLen * sizeof(WCHAR)) return;
+
+    for (SIZE_T i = 0; i < prefixLen; i++)
+    {
+        if (RtlUpcaseUnicodeChar(Path->Buffer[i]) != RtlUpcaseUnicodeChar(DEVICE_PREFIX[i]))
+        {
+            startsWith = FALSE;
+            break;
+        }
+    }
+
+    if (startsWith)
+    {
+        SIZE_T dosLen = (sizeof(DOS_PREFIX) / sizeof(WCHAR)) - 1;
+        SIZE_T totalLen = (Path->Length / sizeof(WCHAR)) - prefixLen + dosLen;
+        
+        if (totalLen * sizeof(WCHAR) <= Path->MaximumLength)
+        {
+            // Shift content
+            RtlMoveMemory(
+                &Path->Buffer[dosLen], 
+                &Path->Buffer[prefixLen], 
+                Path->Length - (prefixLen * sizeof(WCHAR))
+            );
+            // Copy new prefix
+            RtlCopyMemory(Path->Buffer, DOS_PREFIX, dosLen * sizeof(WCHAR));
+            Path->Length = (USHORT)(totalLen * sizeof(WCHAR));
+            // Null terminate
+            if (Path->Length + sizeof(WCHAR) <= Path->MaximumLength)
+                Path->Buffer[Path->Length / sizeof(WCHAR)] = L'\0';
+        }
+    }
 }
 
 static NTSTATUS LoadRulesFromFilePath(PUNICODE_STRING FilePath, PPROTECTION_RULE_SET RuleSet)
