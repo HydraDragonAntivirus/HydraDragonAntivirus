@@ -1,5 +1,5 @@
 use crate::file_magic::FileMagicChecker;
-use crate::injector::Injector;
+
 use crate::web_filter::WebFilter;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -289,10 +289,6 @@ pub struct FirewallSettings {
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
     pub metadata: HashMap<String, String>,
-    /// Optional DLL that can be injected into processes to enrich HTTPS visibility
-    pub https_hook_dll: String,
-    /// Whether to auto-inject the hook DLL for TLS Client Hello packets with no SNI/URL
-    pub auto_inject_https: bool,
 }
 
 impl Default for FirewallSettings {
@@ -307,20 +303,11 @@ impl Default for FirewallSettings {
         );
         metadata.insert("theme".to_string(), "cyberpunk".to_string());
 
-        let mut https_hook_dll = String::new();
-        let mut auto_inject_https = false;
-        if std::path::Path::new("hook_dll.dll").exists() {
-            https_hook_dll = "hook_dll.dll".to_string();
-            auto_inject_https = true;
-        }
-
         Self {
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
             metadata,
-            https_hook_dll,
-            auto_inject_https,
         }
     }
 }
@@ -436,7 +423,7 @@ impl AppInfoCache {
         }
 
         // Slow path: fetch and cache
-        let (name, path) = Injector::get_process_info(pid);
+        let (name, path) = Self::get_process_info_native(pid);
         let info = AppInfoContext { name, path };
         let mut cache = self.cache.write().unwrap();
         cache.insert(pid, (info.clone(), SystemTime::now()));
@@ -448,6 +435,37 @@ impl AppInfoCache {
 
         info
     }
+
+    fn get_process_info_native(pid: u32) -> (String, String) {
+        if pid == 0 || pid == 4 {
+            return ("System".to_string(), "System".to_string());
+        }
+
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        use windows::Win32::System::ProcessStatus::GetModuleFileNameExA;
+
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if let Ok(handle) = handle {
+                let mut buffer = [0u8; 1024];
+                let len = GetModuleFileNameExA(Some(handle), None, &mut buffer);
+                let _ = CloseHandle(handle);
+
+                if len > 0 {
+                    let full_path = String::from_utf8_lossy(&buffer[..len as usize]).to_string();
+                    let name = Path::new(&full_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    return (name, full_path);
+                }
+            }
+        }
+
+        ("Unknown".to_string(), "Unknown".to_string())
+    }
 }
 
 pub struct AppManager {
@@ -458,9 +476,8 @@ pub struct AppManager {
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
     pub ghost_urls: RwLock<HashMap<u32, Vec<String>>>, // PID -> List of URLs from ETW
-    pub injected_pids: RwLock<HashSet<u32>>,     // Avoid repeated injections
-    pub failed_pids: RwLock<HashSet<u32>>,       // PIDs where injection failed
     pub active_alert: RwLock<Option<PendingApp>>,
+    pub suspicious_pids: RwLock<HashSet<u32>>,    // PIDs flagged by behavior engine
 }
 
 impl AppManager {
@@ -473,9 +490,8 @@ impl AppManager {
             info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
             ghost_urls: RwLock::new(HashMap::new()),
-            injected_pids: RwLock::new(HashSet::new()),
-            failed_pids: RwLock::new(HashSet::new()),
             active_alert: RwLock::new(None),
+            suspicious_pids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -516,6 +532,8 @@ impl AppManager {
         if pid == std::process::id()
             || app_name_lower == "hydradragonfirewall.exe"
             || app_name_lower == "system"
+            || app_name_lower.contains("sanctum")
+            || app_name_lower.contains("owlyshield")
             || pid == 0
             || pid == 4
         {
@@ -675,8 +693,6 @@ impl FirewallEngine {
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
             metadata: current_settings.metadata.clone(),
-            https_hook_dll: current_settings.https_hook_dll.clone(),
-            auto_inject_https: current_settings.auto_inject_https,
         };
 
         if let Ok(content) = serde_json::to_string_pretty(&settings) {
@@ -905,88 +921,7 @@ impl FirewallEngine {
             }
         };
 
-        // PIPE MONITOR FOR HOOK DLL
-        let am_pipe = Arc::clone(&am);
-        std::thread::Builder::new()
-            .name("pipe_monitor".to_string())
-            .spawn(move || {
-                use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
-                use windows::Win32::System::Pipes::{
-                    ConnectNamedPipe, CreateNamedPipeA, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
-                    PIPE_WAIT,
-                };
-                let pipe_name = windows::core::s!("\\\\.\\pipe\\HydraDragonFirewall");
-                loop {
-                    unsafe {
-                        let handle: windows::Win32::Foundation::HANDLE = CreateNamedPipeA(
-                            pipe_name,
-                            PIPE_ACCESS_DUPLEX,
-                            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                            1,
-                            1024,
-                            1024,
-                            0,
-                            None,
-                        )
-                        .unwrap_or_default();
 
-                        if !handle.is_invalid() {
-                            if ConnectNamedPipe(handle, None).is_ok() {
-                                let mut buffer = [0u8; 1024];
-                                let mut bytes_read = 0;
-                                if windows::Win32::Storage::FileSystem::ReadFile(
-                                    handle,
-                                    Some(&mut buffer),
-                                    Some(&mut bytes_read),
-                                    None,
-                                )
-                                .is_ok()
-                                {
-                                    let msg =
-                                        String::from_utf8_lossy(&buffer[..bytes_read as usize])
-                                            .to_string();
-
-                                    let mut pid_val = None;
-                                    if let Some(p_idx) = msg.find("PID:") {
-                                        let pid_str: String = msg[p_idx + 4..]
-                                            .chars()
-                                            .take_while(|c| c.is_digit(10))
-                                            .collect();
-                                        pid_val = pid_str.parse::<u32>().ok();
-                                    }
-
-                                    if let Some(pid) = pid_val {
-                                        if msg.contains("URL:") {
-                                            if let Some(url_part) = msg.split("URL:").nth(1) {
-                                                am_pipe
-                                                    .url_cache
-                                                    .write()
-                                                    .unwrap()
-                                                    .insert(pid, url_part.trim().to_string());
-                                            }
-                                        }
-                                        if msg.contains("PORT:") {
-                                            if let Some(port_part) = msg.split("PORT:").nth(1) {
-                                                let port_str: String = port_part
-                                                    .trim()
-                                                    .chars()
-                                                    .take_while(|c| c.is_digit(10))
-                                                    .collect();
-                                                if let Ok(port) = port_str.parse::<u16>() {
-                                                    am_pipe.update_port_mapping(port, pid);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                let _ = windows::Win32::Foundation::CloseHandle(handle);
-                            }
-                        }
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            })
-            .expect("failed to spawn pipe_monitor thread");
 
         let ts = Self::now_ts();
         let _ = tx.emit(
@@ -1037,16 +972,6 @@ impl FirewallEngine {
             })
             .expect("failed to spawn pending_monitor thread");
 
-        // GLOBAL INJECTOR THREAD
-        let am_global = Arc::clone(&am);
-        let settings_global = Arc::clone(&self.settings);
-
-        // Enable debug privileges to allow injection into cross-session/system processes
-        if Injector::enable_debug_privilege() {
-            println!("[Engine] SeDebugPrivilege enabled successfully");
-        } else {
-            eprintln!("[Engine] Failed to enable SeDebugPrivilege - injection might be limited");
-        }
 
         // Start Telemetry Relay Monitor (Sanctum Ghost Layer)
         let am_telemetry = Arc::clone(&am);
@@ -1073,7 +998,7 @@ impl FirewallEngine {
                         loop {
                             match client.read(&mut buffer).await {
                                 Ok(0) => {
-                                    println!("[Engine] [Sanctum] Telemetry pipe disconnected.");
+                                     println!("[Engine] [Sanctum] Telemetry pipe disconnected.");
                                     break; // disconnected
                                 }
                                 Ok(n) => {
@@ -1120,106 +1045,6 @@ impl FirewallEngine {
                 }
             }
         });
-
-        std::thread::Builder::new()
-            .name("global_injector".to_string())
-            .spawn(move || {
-                use windows::Win32::System::Diagnostics::ToolHelp::{
-                    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
-                    TH32CS_SNAPPROCESS,
-                };
-
-                loop {
-                    let (auto_inject, hook_dll) = {
-                        let s = settings_global.read().unwrap();
-                        (s.auto_inject_https, s.https_hook_dll.clone())
-                    };
-
-                    if auto_inject && !hook_dll.is_empty() {
-                        unsafe {
-                            if let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-                                if !snapshot.is_invalid() {
-                                    let mut entry = PROCESSENTRY32W::default();
-                                    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-                                    if Process32FirstW(snapshot, &mut entry).is_ok() {
-                                        loop {
-                                            let pid = entry.th32ProcessID;
-                                             // More aggressive: Only skip IDLE and SYSTEM
-                                            if pid != 0 && pid != 4 && pid != std::process::id() {
-                                                let is_32bit = Injector::is_process_32bit(pid);
-                                                
-                                                // Determine the correct DLL to inject based on architecture
-                                                let mut target_dll = hook_dll.clone();
-                                                if is_32bit {
-                                                    // Look for a 32-bit variant of the DLL
-                                                    let p = Path::new(&hook_dll);
-                                                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                                                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                                                            let parent = p.parent().unwrap_or_else(|| Path::new(""));
-                                                            
-                                                            // Try common suffixes
-                                                            let x86_path = parent.join(format!("{}.x86.{}", stem, ext));
-                                                            let d32_path = parent.join(format!("{}.32.{}", stem, ext));
-                                                            
-                                                            if x86_path.exists() {
-                                                                target_dll = x86_path.to_string_lossy().to_string();
-                                                            } else if d32_path.exists() {
-                                                                target_dll = d32_path.to_string_lossy().to_string();
-                                                            } else {
-                                                                // If no 32-bit DLL found, we might need to skip or warn
-                                                                // For now, we'll try the main one but it will likely fail if it's 64-bit
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                let hook_dll_name = Path::new(&target_dll)
-                                                    .file_name()
-                                                    .and_then(|n: &std::ffi::OsStr| n.to_str())
-                                                    .unwrap_or("hook_dll.dll");
-
-                                                let already_tracked = {
-                                                    let injected = am_global.injected_pids.read().unwrap();
-                                                    injected.contains(&pid)
-                                                };
-
-                                                if !already_tracked || !Injector::is_dll_loaded(pid, hook_dll_name) {
-                                                    let (_info_name, info_path) = Injector::get_process_info(pid);
-                                                    if !Injector::is_path_excluded(&info_path) {
-                                                        match Injector::inject(pid, &target_dll) {
-                                                            Ok(_) => {
-                                                                let mut injected = am_global.injected_pids.write().unwrap();
-                                                                injected.insert(pid);
-                                                            }
-                                                            Err(e) => {
-                                                                if !already_tracked {
-                                                                    eprintln!("[Engine] Injection failed for PID {} ({}): {}{}", 
-                                                                        pid, info_path, e.message, 
-                                                                        if is_32bit { " (Target is 32-bit)" } else { "" });
-                                                                    
-                                                                    let mut injected = am_global.injected_pids.write().unwrap();
-                                                                    injected.insert(pid);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            if Process32NextW(snapshot, &mut entry).is_err() {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-                                }
-                            }
-                        }
-                    }
-                    std::thread::sleep(Duration::from_secs(3)); // Faster scan-loop
-                }
-            })
-            .expect("failed to spawn global_injector thread");
 
         // Worker Pool - RADICAL REFACTOR: Each worker is a fully independent capture loop
         let num_workers = 8; // Increased workers for parallel processing
@@ -1547,69 +1372,7 @@ impl FirewallEngine {
             info.detected_file_type = Some(dtype.clone());
         }
 
-        let (auto_inject_https, hook_dll) = {
-            let s = settings.read().unwrap();
-            (s.auto_inject_https, s.https_hook_dll.clone())
-        };
-
-        if auto_inject_https
-            && info.tls_handshake
-            && info.hostname.is_none()
-            && info.process_id != 0
-            && !hook_dll.is_empty()
-        {
-            let mut injected = am.injected_pids.write().unwrap();
-            let mut failed = am.failed_pids.write().unwrap();
-
-            if !injected.contains(&info.process_id) && !failed.contains(&info.process_id) {
-                match Injector::inject(info.process_id, &hook_dll) {
-                    Ok(()) => {
-                        injected.insert(info.process_id);
-                        let _ = tx.emit(
-                            "log",
-                            LogEntry {
-                                id: format!("{}-tls-hook", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level: LogLevel::Info,
-                                message: format!(
-                                    "Injected HTTPS hook into PID {} to enrich TLS hostname context",
-                                    info.process_id
-                                ),
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        failed.insert(info.process_id);
-                        let (level, message) = if e.permission_denied {
-                            (
-                                LogLevel::Info,
-                                format!(
-                                    "HTTPS hook skipped for PID {}: access denied (protected/system or insufficient rights). TLS hostname visibility may be limited for this app; retry suppressed.",
-                                    info.process_id
-                                ),
-                            )
-                        } else {
-                            (
-                                LogLevel::Warning,
-                                format!(
-                                    "Failed to inject HTTPS hook into PID {}: {} (no further retries; TLS hostnames unavailable for this process)",
-                                    info.process_id, e.message
-                                ),
-                            )
-                        };
-                        let _ = tx.emit(
-                            "log",
-                            LogEntry {
-                                id: format!("{}-tls-hook-fail", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level,
-                                message,
-                            },
-                        );
-                    }
-                }
-            }
-        }
+        // (Hook DLL injection removed, relying on Sanctum for telemetry)
 
         let is_dns_query = matches!(info.protocol, Protocol::UDP)
             && (info.src_port == 53 || info.dst_port == 53);
@@ -1743,12 +1506,25 @@ impl FirewallEngine {
                             finding.rule_name
                         ));
                     }
-                    _ => {} // ChangePacket, SolvePacket, InjectDll handled elsewhere
+                    _ => {} // ChangePacket, SolvePacket handled elsewhere
                 }
             }
         }
 
     
+        // 10b. EXFILTRATION DETECTION (Shared from OwlyShield)
+        if should_forward && outbound {
+            let suspicious = am.suspicious_pids.read().unwrap();
+            if suspicious.contains(&pid) {
+                if let Some(entropy) = info.payload_entropy {
+                    if entropy > 7.5 {
+                        should_forward = false;
+                        reason = Some("🚫 High Entropy Upload from Suspicious Process (OwlyShield Alert)".to_string());
+                    }
+                }
+            }
+        }
+
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
             let app_name_lower = app_name.to_lowercase();
@@ -1874,10 +1650,6 @@ impl FirewallEngine {
             should_forward,
             _reason: reason_text,
         }
-    }
-
-    pub fn inject_dll(&self, pid: u32, dll_path: &str) -> bool {
-        Injector::inject(pid, dll_path).is_ok()
     }
 
     pub fn get_sdk_rules(&self) -> Vec<crate::sdk::SdkRule> {

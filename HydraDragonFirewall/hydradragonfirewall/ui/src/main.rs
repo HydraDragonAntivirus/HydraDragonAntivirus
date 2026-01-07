@@ -140,7 +140,6 @@ pub enum RuleActionView {
     Ask,
     ChangePacket,
     SolvePacket,
-    InjectDll,
     Unknown,
 }
 

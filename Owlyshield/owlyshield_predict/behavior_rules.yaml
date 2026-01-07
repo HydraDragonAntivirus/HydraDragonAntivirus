@@ -18,7 +18,7 @@
   multi_access_threshold: 2
   time_window_ms: 30000
   # Updated indicator for Upload/Exfiltration detection
-  require_internet: true
+  detect_exfiltration: true # New: Flags suspicious PID to Firewall for entropy-based upload blocking
   conditions_percentage: 0.5
   
   # Advanced Indicators

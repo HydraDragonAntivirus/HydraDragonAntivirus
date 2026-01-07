@@ -51,50 +51,26 @@ finally {
 $buildType = if ($Release) { "--release" } else { "" }
 Write-Host "[2/3] Building Rust backend $buildType..." -ForegroundColor Yellow
 
-# Build Hook DLLs (64-bit and 32-bit)
-Write-Host "      Building Hook DLLs..." -ForegroundColor Gray
-Push-Location hook_dll
-try {
-    # 64-bit build
-    Write-Host "        - Building 64-bit..." -ForegroundColor Gray
-    cargo build $buildType --target x86_64-pc-windows-msvc
-    if ($LASTEXITCODE -ne 0) { throw "64-bit Hook DLL build failed" }
 
-    # 32-bit build
-    Write-Host "        - Building 32-bit..." -ForegroundColor Gray
-    cargo build $buildType --target i686-pc-windows-msvc
-    if ($LASTEXITCODE -ne 0) { throw "32-bit Hook DLL build failed" }
-}
-finally {
-    Pop-Location
-}
 
 # Build Firewall Engine
 cargo build $buildType
 if ($LASTEXITCODE -ne 0) { throw "Firewall Engine build failed" }
 Write-Host "      Rust build complete!" -ForegroundColor Green
 
-# Copy WinDivert and Hook DLL files if needed
+
+
+# Copy WinDivert files
 $targetDir = if ($Release) { "target\release" } else { "target\debug" }
-$hook64Src = if ($Release) { "hook_dll\target\x86_64-pc-windows-msvc\release\hook_dll.dll" } else { "hook_dll\target\x86_64-pc-windows-msvc\debug\hook_dll.dll" }
-$hook32Src = if ($Release) { "hook_dll\target\i686-pc-windows-msvc\release\hook_dll.dll" } else { "hook_dll\target\i686-pc-windows-msvc\debug\hook_dll.dll" }
-
-# Copy Hook DLLs to engine target
-Robust-Copy $hook64Src (Join-Path $targetDir "hook_dll.dll")
-Robust-Copy $hook32Src (Join-Path $targetDir "hook_dll.32.dll")
-
 $dlls = @("WinDivert.dll", "WinDivert64.sys")
 foreach ($dll in $dlls) {
     Robust-Copy (Join-Path $env:WINDIVERT_PATH $dll) (Join-Path $targetDir $dll)
 }
 
-# Also copy exe and hook_dll to 'everything' folder for easy deployment
+# Also copy exe to 'everything' folder for easy deployment
 $exeSrc = Join-Path $targetDir "hydradragonfirewall.exe"
 $exeDst = Join-Path $env:WINDIVERT_PATH "hydradragonfirewall.exe"
 Robust-Copy $exeSrc $exeDst
-
-Robust-Copy $hook64Src (Join-Path $env:WINDIVERT_PATH "hook_dll.dll")
-Robust-Copy $hook32Src (Join-Path $env:WINDIVERT_PATH "hook_dll.32.dll")
 
 Write-Host ""
 Write-Host "[3/3] Build Successful!" -ForegroundColor Green

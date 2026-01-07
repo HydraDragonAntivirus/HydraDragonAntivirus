@@ -78,13 +78,10 @@ rules:
         encoding: hex
 
 
-  # Inject DLL for Deep Inspection (Feature 24)
-  - name: "Hook Suspicious Process"
-    description: "Injects monitoring DLL into suspicious processes"
-    enabled: false
-    protocol: https
-    action: inject_dll
-    inject_dll_path: "hook_dll.dll"
-    domain:
-      domains:
-        - "*.suspicious-domain.com"
+  # Block High Entropy Exfiltration (Feature 32)
+  - name: "Block Encrypted Exfiltration"
+    description: "Blocks high-entropy outbound traffic which often indicates encrypted stealing/C2 activity"
+    enabled: true
+    protocol: any
+    action: block
+    entropy_threshold: 7.8

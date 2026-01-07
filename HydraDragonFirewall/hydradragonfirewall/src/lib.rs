@@ -1,7 +1,7 @@
 pub mod engine;
 pub mod file_magic;
 pub mod http_parser;
-pub mod injector;
+
 pub mod sdk;
 pub mod tls_parser;
 pub mod web_filter;

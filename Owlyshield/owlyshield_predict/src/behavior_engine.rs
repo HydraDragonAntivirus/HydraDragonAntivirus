@@ -15,7 +15,7 @@ pub struct BehaviorRule {
     pub staging_paths: Vec<String>,
     pub multi_access_threshold: usize,
     pub time_window_ms: u64,
-    pub require_internet: bool,
+    pub detect_exfiltration: bool,
     
     // Advanced Indicators
     #[serde(default)]
@@ -150,6 +150,17 @@ impl BehaviorEngine {
             }
         }
 
+        // Check for active connections if exfiltration detection is enabled for any rule
+        if self.rules.iter().any(|r| r.detect_exfiltration) {
+            if let Some(pid) = precord.pid {
+                if self.has_active_connections(pid) {
+                    state.has_active_connection = true;
+                    // Signal Firewall to watch this process for high-entropy uploads
+                    self.signal_firewall(pid);
+                }
+            }
+        }
+
         // Check for matches
         self.check_rules(precord, gid);
     }
@@ -175,18 +186,14 @@ impl BehaviorEngine {
             // Condition B: Data Staging
             let has_staged_data = !state.staged_files_written.is_empty();
 
-            // Condition C: Internet Connectivity
-            let is_online = if rule.require_internet {
-                self.has_active_connections(precord.pids.iter().next().cloned().unwrap_or(0))
-            } else {
-                true
-            };
+            // Condition E: Sensitive File Access (e.g., Cookies, Local State)
+            let has_sensitive_access = !state.sensitive_files_read.is_empty();
+
+            // Condition C: Exfiltration (now based on detect_exfiltration rule field and state.has_active_connection)
+            let is_uploading = rule.detect_exfiltration && state.has_active_connection && (has_sensitive_access || recent_access_count > 0 || has_staged_data);
 
             // Condition D: Suspicious Parent
             let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
-
-            // Condition E: Sensitive File Access (e.g., Cookies, Local State)
-            let has_sensitive_access = !state.sensitive_files_read.is_empty();
 
             // Condition G: Specified processes are closed (not running)
             let any_targeted_process_running = if !rule.closed_process_paths.is_empty() {
@@ -218,7 +225,6 @@ impl BehaviorEngine {
 
             // 3. Exfiltration / Upload behavior
             total_tracked_conditions += 1;
-            let is_uploading = is_online && (has_sensitive_access || recent_access_count > 0 || has_staged_data);
             if is_uploading { 
                 satisfied_conditions += 1; 
                 detailed_indicators.push("Exfiltration(Upload detected after data access)".to_string());
@@ -292,12 +298,11 @@ impl BehaviorEngine {
     }
 
     #[cfg(target_os = "windows")]
-    fn is_any_process_running(&self, names: &[String]) -> bool {
+    fn is_any_process_running(&self, process_names: &[String]) -> bool {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_processes();
-        for proc in sys.processes().values() {
-            let proc_name = proc.name().to_lowercase();
-            if names.iter().any(|n| proc_name.contains(&n.to_lowercase())) {
+        for process_name in process_names {
+            if sys.processes().values().any(|p| p.name().to_lowercase() == process_name.to_lowercase()) {
                 return true;
             }
         }
@@ -345,5 +350,15 @@ impl BehaviorEngine {
     #[cfg(not(target_os = "windows"))]
     fn has_active_connections(&self, _pid: u32) -> bool {
         false
+    }
+
+    fn signal_firewall(&self, pid: u32) {
+        use std::io::Write;
+        // Try to connect to the HydraDragonFirewall pipe to flag this PID as suspicious
+        if let Ok(mut stream) = std::fs::OpenOptions::new()
+            .write(true)
+            .open("\\\\.\\pipe\\HydraDragonFirewall") {
+            let _ = writeln!(stream, "PID:{} SUSPICIOUS_PID:TRUE", pid);
+        }
     }
 }

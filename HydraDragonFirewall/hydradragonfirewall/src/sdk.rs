@@ -1,7 +1,7 @@
 // HydraDragonFirewall SDK - Complete Implementation
 // Features: Base58, Base64, Reverse, Hex, HTTP, HTTPS, UDP, TCP, ICMP, ARP,
 // IP Address, Domain, URL, File Type, Regex, YAML Signatures, Comments,
-// Traffic Attack, Block, Allow, Ask, Change Packet, Solve Packet, Inject DLL,
+// Traffic Attack, Block, Allow, Ask, Change Packet, Solve Packet,
 // Port, Localhost, Routine, AND/OR Conditions, Rule Name, Description
 
 use crate::engine::{FirewallSettings, PacketInfo, Protocol};
@@ -455,6 +455,24 @@ impl PortMatcher {
 }
 
 // ============================================================================
+// ENTROPY MATCHING (Feature 32 - New)
+// ============================================================================
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct EntropyMatcher {
+    pub min_entropy: f64,
+}
+
+impl EntropyMatcher {
+    pub fn matches(&self, entropy: Option<f64>) -> bool {
+        if let Some(e) = entropy {
+            return e >= self.min_entropy;
+        }
+        false
+    }
+}
+
+// ============================================================================
 // LOCALHOST DETECTION (Feature 26)
 // ============================================================================
 
@@ -579,7 +597,6 @@ pub enum RuleAction {
     Ask,            // Feature 21: Prompt user
     ChangePacket,   // Feature 22: Modify packet
     SolvePacket,    // Feature 23: Fix/normalize packet
-    InjectDll,      // Feature 24: Inject DLL to watch
 }
 
 // ============================================================================
@@ -614,6 +631,7 @@ pub enum RuleCondition {
     Regex(RegexMatcher),
     Localhost(LocalhostType),
     ContentMatch(ContentMatchData),
+    Entropy(EntropyMatcher),
 }
 
 impl RuleCondition {
@@ -646,6 +664,7 @@ impl RuleCondition {
                     false
                 }
             }
+            RuleCondition::Entropy(matcher) => matcher.matches(packet.payload_entropy),
         }
     }
 }
@@ -708,12 +727,12 @@ pub struct SdkRule {
     // Feature 28: Additional conditions
     #[serde(default)]
     pub conditions: Vec<RuleCondition>,
+    // Feature 32: Entropy threshold
+    #[serde(default)]
+    pub entropy_threshold: Option<f64>,
     // Packet modification data (for ChangePacket action)
     #[serde(default)]
     pub change_data: Option<String>,
-    // DLL path (for InjectDll action)
-    #[serde(default)]
-    pub inject_dll_path: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -799,6 +818,11 @@ impl SdkRule {
             matches.push(condition.matches(packet, &check_data));
         }
 
+        // Entropy check
+        if let Some(threshold) = self.entropy_threshold {
+            matches.push(packet.payload_entropy.unwrap_or(0.0) >= threshold);
+        }
+
         // Apply condition logic
         if matches.is_empty() {
             return true; // Empty rule matches everything
@@ -856,7 +880,6 @@ pub struct RuleMatchResult {
     pub action: RuleAction,
     pub description: String,
     pub change_data: Option<String>,
-    pub inject_dll_path: Option<String>,
 }
 
 // ============================================================================
@@ -930,7 +953,6 @@ impl SdkRegistry {
                     action: rule.action.clone(),
                     description: rule.description.clone(),
                     change_data: rule.change_data.clone(),
-                    inject_dll_path: rule.inject_dll_path.clone(),
                 });
             }
         }
@@ -953,7 +975,6 @@ impl SdkRegistry {
                 action: rule.action.clone(),
                 description: rule.description.clone(),
                 change_data: rule.change_data.clone(),
-                inject_dll_path: rule.inject_dll_path.clone(),
             })
             .collect()
     }
@@ -1070,45 +1091,4 @@ impl RawPacket {
     }
 }
 
-// ============================================================================
-// HOOK SETTINGS (Feature 30 - Process Hooking)
-// ============================================================================
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HookSettings {
-    pub enabled: bool,
-    pub whitelist_paths: Vec<String>,
-}
-
-impl Default for HookSettings {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            whitelist_paths: vec![
-                "\\desktop\\sanctum".to_string(),
-                "\\appdata\\roaming\\sanctum".to_string(),
-                "\\appdata\\local\\sanctum".to_string(),
-                "\\program files\\hydradragonantivirus".to_string(),
-            ],
-        }
-    }
-}
-
-impl HookSettings {
-    pub fn is_whitelisted(&self, path: &str) -> bool {
-        let path_lower = path.to_lowercase();
-        self.whitelist_paths
-            .iter()
-            .any(|p| path_lower.contains(&p.to_lowercase()))
-    }
-
-    pub fn add_whitelist_path(&mut self, path: String) {
-        if !self.whitelist_paths.contains(&path) {
-            self.whitelist_paths.push(path);
-        }
-    }
-
-    pub fn remove_whitelist_path(&mut self, path: &str) {
-        self.whitelist_paths.retain(|p| p != path);
-    }
-}
+// (HookSettings removed as per user request to rely on ETW/Sanctum)

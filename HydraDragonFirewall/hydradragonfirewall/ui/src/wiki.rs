@@ -46,8 +46,7 @@ action: allow          # Whitelist the traffic (bypass further checks)
 action: ask            # Prompt the user with a popup decision
 action: traffic_attack # Log as a HIGH SEVERITY attack
 action: change_packet  # Modify payload content (advanced)
-action: solve_packet   # Auto-fix malformed packets
-action: inject_dll     # Inject monitoring DLL into the source process"
+action: solve_packet   # Auto-fix malformed packets"
                     </pre>
                 </div>
 
