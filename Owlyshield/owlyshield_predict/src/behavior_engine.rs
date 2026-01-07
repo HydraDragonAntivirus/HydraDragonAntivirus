@@ -24,7 +24,7 @@ pub struct BehaviorRule {
     pub entropy_threshold: f64,
     pub archive_actions: Vec<String>,
     pub max_staging_lifetime_ms: u64,
-    pub require_browser_closed_recently: bool,
+    pub closed_process_paths: Vec<String>,
     pub conditions_percentage: f32,
 }
 
@@ -33,7 +33,6 @@ pub struct ProcessBehaviorState {
     pub accessed_browsers: HashMap<String, SystemTime>,
     pub sensitive_files_read: HashSet<String>,
     pub staged_files_written: HashMap<PathBuf, SystemTime>,
-    pub last_browser_close: Option<SystemTime>,
     pub crypto_api_count: usize,
     pub high_entropy_detected: bool,
     pub archive_action_detected: bool,
@@ -162,12 +161,13 @@ impl BehaviorEngine {
             // Condition E: Sensitive File Access (e.g., Cookies, Local State)
             let has_sensitive_access = !state.sensitive_files_read.is_empty();
 
-            // Condition G: Browser closed recently
-            let browser_closed_recently = if rule.require_browser_closed_recently {
-                state.last_browser_close.map_or(false, |t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000) // 1 hour threshold for "recently"
+            // Condition G: Specified processes are closed (not running)
+            let any_targeted_process_running = if !rule.closed_process_paths.is_empty() {
+                self.is_any_process_running(&rule.closed_process_paths)
             } else {
-                true
+                false
             };
+            let target_processes_closed = !rule.closed_process_paths.is_empty() && !any_targeted_process_running;
 
             // Condition Count Logic
             let mut satisfied_conditions = 0;
@@ -232,12 +232,12 @@ impl BehaviorEngine {
                 detailed_indicators.push("ArchiveCreation(Detected)".to_string());
             }
 
-            // 9. Browser state
-            if rule.require_browser_closed_recently {
+            // 9. Target processes closed
+            if !rule.closed_process_paths.is_empty() {
                 total_tracked_conditions += 1;
-                if browser_closed_recently { 
+                if target_processes_closed { 
                     satisfied_conditions += 1; 
-                    detailed_indicators.push("BrowserClosedRecently(True)".to_string());
+                    detailed_indicators.push(format!("TargetProcessesClosed({})", rule.closed_process_paths.join(", ")));
                 }
             }
 
@@ -253,6 +253,24 @@ impl BehaviorEngine {
                 precord.is_malicious = true;
             }
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn is_any_process_running(&self, names: &[String]) -> bool {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_processes();
+        for proc in sys.processes().values() {
+            let proc_name = proc.name().to_lowercase();
+            if names.iter().any(|n| proc_name.contains(&n.to_lowercase())) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn is_any_process_running(&self, _names: &[String]) -> bool {
+        false
     }
 
     #[cfg(target_os = "windows")]

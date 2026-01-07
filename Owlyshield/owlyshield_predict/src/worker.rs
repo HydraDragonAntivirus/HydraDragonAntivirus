@@ -269,10 +269,8 @@ pub mod process_record_handling {
     #[cfg(target_os = "windows")]
     use windows::Win32::Foundation::{CloseHandle, GetLastError};
     #[cfg(target_os = "windows")]
-    use windows::Win32::System::ProcessStatus::GetProcessImageFileNameA;
-    #[cfg(target_os = "windows")]
     use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
     };
     #[cfg(target_os = "linux")]
     use std::path::Path;
@@ -306,18 +304,14 @@ pub mod process_record_handling {
                 let r_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
                 if let Ok(handle) = r_handle {
                     if !(handle.is_invalid() || handle.0 == 0) {
-                        let mut buffer: Vec<u8> = Vec::new();
-                        buffer.resize(1024, 0);
-                        let res = GetProcessImageFileNameA(handle, buffer.as_mut_slice());
+                        let mut buffer = vec![0u16; 1024];
+                        let mut size = buffer.len() as u32;
+                        let res = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size);
 
                         CloseHandle(handle);
-                        if res == 0 {
-                            let _errorcode = GetLastError().0;
-                        } else {
-                            let pathbuf = PathBuf::from(
-                                String::from_utf8_unchecked(buffer).trim_matches(char::from(0)),
-                            );
-                            return Some(pathbuf);
+                        if res.as_bool() {
+                            let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                            return Some(PathBuf::from(path));
                         }
                     }
                 }

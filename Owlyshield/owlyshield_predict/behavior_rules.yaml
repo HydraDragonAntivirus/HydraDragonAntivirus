@@ -54,4 +54,9 @@
     - ".zip"
     - ".rar"
   max_staging_lifetime_ms: 60000
-  require_browser_closed_recently: true
+  closed_process_paths:
+    - "chrome.exe"
+    - "msedge.exe"
+    - "brave.exe"
+    - "opera.exe"
+    - "discord.exe"
