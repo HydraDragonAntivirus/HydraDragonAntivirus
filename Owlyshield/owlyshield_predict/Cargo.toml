@@ -54,6 +54,8 @@ features = [
     "Win32_System_RemoteDesktop",
     "Win32_System_IO",
     "Win32_System_Pipes",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
 ]
 
 # Linux

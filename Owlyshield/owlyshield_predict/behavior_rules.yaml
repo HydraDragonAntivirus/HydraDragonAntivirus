@@ -1,0 +1,57 @@
+# Advanced Behavior Rules for HydraDragon Browser Protection
+- name: "Unified Browser Stealer Detection"
+  browser_paths:
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "Opera Software\\Opera GX Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
+  sensitive_files:
+    - "Cookies"
+    - "Login Data"
+    - "Web Data"
+    - "Local State"
+  staging_paths:
+    - "AppData\\Local\\Temp"
+  multi_access_threshold: 2
+  time_window_ms: 30000
+  require_internet: true
+  conditions_percentage: 0.5
+  
+  # Advanced Indicators
+  crypto_apis:
+    - "CryptUnprotectData"
+    - "BCryptDecrypt"
+    - "NCryptDecrypt"
+    - "DPAPI"
+  suspicious_parents:
+    - "powershell.exe"
+    - "cmd.exe"
+    - "wscript.exe"
+    - "cscript.exe"
+    - "mshta.exe"
+    - "python.exe"
+    - "node.exe"
+  allowlisted_apps:
+    - "chrome.exe"
+    - "msedge.exe"
+    - "brave.exe"
+    - "opera.exe"
+    - "discord.exe"
+    - "codium.exe"
+    - "vscodium.exe"
+    - "code.exe"
+    - "visualstudio.exe"
+    - "devenv.exe"
+  entropy_threshold: 7.0
+  archive_actions:
+    - "CreateZip"
+    - "CreateRar"
+    - "7z"
+    - "tar"
+    - ".zip"
+    - ".rar"
+  max_staging_lifetime_ms: 60000
+  require_browser_closed_recently: true

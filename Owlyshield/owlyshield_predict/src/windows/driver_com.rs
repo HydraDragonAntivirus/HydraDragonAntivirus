@@ -242,46 +242,24 @@ pub struct CDriverMsgs<'a> {
 }
 
 impl UnicodeString {
-    /// Get the file path from the `UnicodeString` path and the extension returned by the driver.
-    pub fn as_string_ext(&self, extension: [wchar_t; 12]) -> String {
+    pub fn as_string_ext(&self, _extension: [wchar_t; 12]) -> String {
+        if self.buffer.is_null() || self.length == 0 {
+            return String::new();
+        }
+        
+        // UNICODE_STRING.Length is in bytes. wchar_t is 2 bytes.
+        let num_elements = self.length as usize / 2;
+        
+        // Safety check: ensure the pointer is aligned for wchar_t (2 bytes)
+        if (self.buffer as usize) % 2 != 0 {
+            return String::new();
+        }
+
         unsafe {
-            let str_slice = std::slice::from_raw_parts(self.buffer, self.length as usize);
-            let mut first_zero_index = 0;
-            let mut last_dot_index = 0;
-            let mut first_zero_index_ext = 0;
-
-            // Filepath
-            for (i, c) in str_slice.iter().enumerate() {
-                if *c == 46 {
-                    last_dot_index = i + 1;
-                }
-                if *c == 0 {
-                    first_zero_index = i;
-                    break;
-                }
-            }
-
-            if first_zero_index_ext > 0 && last_dot_index > 0 {
-                // Extension
-                for (i, c) in extension.iter().enumerate() {
-                    if *c == 0 {
-                        first_zero_index_ext = i;
-                        break;
-                    } else if *c != str_slice[last_dot_index + i] {
-                        first_zero_index_ext = 0;
-                        break;
-                    }
-                }
-                String::from_utf16_lossy(
-                    &[
-                        &str_slice[..last_dot_index],
-                        &extension[..first_zero_index_ext],
-                    ]
-                        .concat(),
-                )
-            } else {
-                String::from_utf16_lossy(&str_slice[..first_zero_index])
-            }
+            let str_slice = std::slice::from_raw_parts(self.buffer, num_elements);
+            // Find the first null terminator or use the full length
+            let effective_len = str_slice.iter().position(|&c| c == 0).unwrap_or(num_elements);
+            String::from_utf16_lossy(&str_slice[..effective_len])
         }
     }
 }
@@ -291,16 +269,26 @@ impl ReplyIrp {
     fn unpack_drivermsg(&self) -> Vec<&CDriverMsg> {
         let mut res = vec![];
         unsafe {
-            let mut current_ptr = self.data as *const u8;
+            let mut current_ptr = self.data as *mut u8;
             for _ in 0..self.num_ops {
                 if current_ptr.is_null() {
                     break;
                 }
-                let msg = &*(current_ptr as *const CDriverMsg);
-                res.push(msg);
+                let msg_ptr = current_ptr as *mut CDriverMsg;
+                let msg = &mut *msg_ptr;
+
+                // Fixup buffer pointer if it's null or a kernel address
+                let buffer_addr = msg.filepath.buffer as usize;
+                if buffer_addr < 0x1000 || buffer_addr > 0x7FFFFFFFFFFF {
+                    if msg.filepath.length > 0 {
+                        msg.filepath.buffer = current_ptr.add(mem::size_of::<CDriverMsg>()) as *const wchar_t;
+                    }
+                }
+
+                res.push(&*msg_ptr);
                 
                 let name_buffer_size = msg.filepath.length as usize;
-                // Align to 8 bytes
+                // Align to 8 bytes to find the next CDriverMsg
                 let aligned_name_buffer_size = (name_buffer_size + 7) & !7;
                 let total_size = mem::size_of::<CDriverMsg>() + aligned_name_buffer_size;
                 
