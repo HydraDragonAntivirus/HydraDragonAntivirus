@@ -18,13 +18,21 @@ pub struct BehaviorRule {
     pub require_internet: bool,
     
     // Advanced Indicators
+    #[serde(default)]
     pub crypto_apis: Vec<String>,
+    #[serde(default)]
     pub suspicious_parents: Vec<String>,
+    #[serde(default)]
     pub allowlisted_apps: Vec<String>,
+    #[serde(default)]
     pub entropy_threshold: f64,
+    #[serde(default)]
     pub archive_actions: Vec<String>,
+    #[serde(default)]
     pub max_staging_lifetime_ms: u64,
+    #[serde(default)]
     pub closed_process_paths: Vec<String>,
+    #[serde(default)]
     pub conditions_percentage: f32,
 }
 
