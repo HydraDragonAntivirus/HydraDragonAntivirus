@@ -172,51 +172,82 @@ impl BehaviorEngine {
             // Condition Count Logic
             let mut satisfied_conditions = 0;
             let mut total_tracked_conditions = 0;
+            let mut detailed_indicators = Vec::new();
             
             // 1. Multi-browser access
             total_tracked_conditions += 1;
-            if recent_access_count >= rule.multi_access_threshold { satisfied_conditions += 1; }
+            if recent_access_count >= rule.multi_access_threshold { 
+                satisfied_conditions += 1; 
+                let browsers: Vec<String> = state.accessed_browsers.keys().cloned().collect();
+                detailed_indicators.push(format!("MultiBrowserAccess({})", browsers.join(", ")));
+            }
 
             // 2. Data staging
             total_tracked_conditions += 1;
-            if has_staged_data { satisfied_conditions += 1; }
+            if has_staged_data { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push(format!("DataStaging({} files written to Temp)", state.staged_files_written.len()));
+            }
 
             // 3. Internet connectivity
             total_tracked_conditions += 1;
-            if is_online { satisfied_conditions += 1; }
+            if is_online { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push("InternetAccess(Active)".to_string());
+            }
 
             // 4. Suspicious parent
             total_tracked_conditions += 1;
-            if is_suspicious_parent { satisfied_conditions += 1; }
+            if is_suspicious_parent { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push(format!("SuspiciousParent({})", state.parent_name));
+            }
 
             // 5. Sensitive file access
             total_tracked_conditions += 1;
-            if has_sensitive_access { satisfied_conditions += 1; }
+            if has_sensitive_access { 
+                satisfied_conditions += 1; 
+                let files: Vec<String> = state.sensitive_files_read.iter().cloned().collect();
+                detailed_indicators.push(format!("SensitiveFileRead({})", files.join(", ")));
+            }
 
             // 6. High entropy
             total_tracked_conditions += 1;
-            if state.high_entropy_detected { satisfied_conditions += 1; }
+            if state.high_entropy_detected { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push("HighEntropyWrite(Observed)".to_string());
+            }
 
             // 7. Crypto usage
             total_tracked_conditions += 1;
-            if state.crypto_api_count > 0 { satisfied_conditions += 1; }
+            if state.crypto_api_count > 0 { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push(format!("CryptoApiUsage({} calls)", state.crypto_api_count));
+            }
 
             // 8. Archive actions
             total_tracked_conditions += 1;
-            if state.archive_action_detected { satisfied_conditions += 1; }
+            if state.archive_action_detected { 
+                satisfied_conditions += 1; 
+                detailed_indicators.push("ArchiveCreation(Detected)".to_string());
+            }
 
             // 9. Browser state
             if rule.require_browser_closed_recently {
                 total_tracked_conditions += 1;
-                if browser_closed_recently { satisfied_conditions += 1; }
+                if browser_closed_recently { 
+                    satisfied_conditions += 1; 
+                    detailed_indicators.push("BrowserClosedRecently(True)".to_string());
+                }
             }
 
             let satisfied_ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
 
             if satisfied_ratio >= rule.conditions_percentage {
                  Logging::warning(&format!(
-                    "[BehaviorEngine] DETECTION: {} matched rule '{}'. Satisfied {}/{} conditions ({:.1}%)",
-                    precord.appname, rule.name, satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0
+                    "[BehaviorEngine] !!! DETECTION !!!\nProcess: {}\nRule Match: {}\nConfidence: {:.1}% ({}/{})\nIndicators:\n  - {}",
+                    precord.appname, rule.name, satisfied_ratio * 100.0, satisfied_conditions, total_tracked_conditions,
+                    detailed_indicators.join("\n  - ")
                 ));
                 // Set detection flag
                 precord.is_malicious = true;
