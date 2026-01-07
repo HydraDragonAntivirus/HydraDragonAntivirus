@@ -335,6 +335,7 @@ pub mod process_record_handling {
 
     pub trait ProcessRecordIOHandler {
         fn handle_io(&mut self, process_record: &mut ProcessRecord);
+        fn handle_behavior_detection(&mut self, process_record: &mut ProcessRecord);
     }
 
     pub struct ProcessRecordHandlerLive<'a> {
@@ -399,6 +400,32 @@ pub mod process_record_handling {
                         &threat_info,
                     );
                 }
+            }
+        }
+
+        fn handle_behavior_detection(&mut self, precord: &mut ProcessRecord) {
+            if precord.termination_requested {
+                if precord.quarantine_requested {
+                    Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
+                    self.threat_handler.kill_and_quarantine(precord.gid);
+                } else {
+                    Logging::info(&format!("[BehaviorEngine] Terminating: {}", precord.appname));
+                    self.threat_handler.kill(precord.gid);
+                }
+                precord.process_state = ProcessState::Killed;
+
+                // Also run post-kill actions
+                let threat_info = ThreatInfo {
+                    threat_type_label: "Stealer/Malware",
+                    virus_name: "Behavioral Rule Match",
+                    prediction: 1.0, 
+                };
+                ActionsOnKill::new().run_actions_with_info(
+                    self.config,
+                    precord,
+                    &self.predictor_malware.predictor_behavioural.mlp.timesteps,
+                    &threat_info,
+                );
             }
         }
 
@@ -472,6 +499,8 @@ pub mod process_record_handling {
                     .expect("Cannot write csv learn file");
             }
         }
+
+        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl ProcessRecordHandlerReplay {
@@ -547,6 +576,8 @@ pub mod process_record_handling {
                 }
             }
         }
+
+        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl<'a> ProcessRecordHandlerNovelty<'a> {
@@ -894,6 +925,7 @@ pub mod worker_instance {
                 self.behavior_engine.process_event(precord, iomsg);
 
                 if let Some(process_record_handler) = &mut self.process_record_handler {
+                    process_record_handler.handle_behavior_detection(precord);
                     process_record_handler.handle_io(precord);
                 }
                 for postprocessor in &mut self.iomsg_postprocessors {

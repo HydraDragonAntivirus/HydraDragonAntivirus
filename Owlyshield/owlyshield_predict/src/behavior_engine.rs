@@ -29,9 +29,13 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub archive_actions: Vec<String>,
     #[serde(default)]
+    pub archive_locations: Vec<String>,
+    #[serde(default)]
     pub max_staging_lifetime_ms: u64,
     #[serde(default)]
     pub closed_process_paths: Vec<String>,
+    #[serde(default)]
+    pub quarantine: bool,
     #[serde(default)]
     pub conditions_percentage: f32,
 }
@@ -44,6 +48,7 @@ pub struct ProcessBehaviorState {
     pub crypto_api_count: usize,
     pub high_entropy_detected: bool,
     pub archive_action_detected: bool,
+    pub archive_in_temp_detected: bool,
     pub parent_name: String,
 }
 
@@ -127,6 +132,20 @@ impl BehaviorEngine {
             for action in &rule.archive_actions {
                 if filepath.contains(&action.to_lowercase()) {
                     state.archive_action_detected = true;
+                    
+                    // Track archive specifically in staging paths (Temp)
+                    for s_path in &rule.staging_paths {
+                        if filepath.contains(&s_path.to_lowercase()) {
+                            state.archive_in_temp_detected = true;
+                        }
+                    }
+
+                    // Track archive in specific archive locations
+                    for a_loc in &rule.archive_locations {
+                        if filepath.contains(&a_loc.to_lowercase()) {
+                            state.archive_in_temp_detected = true; 
+                        }
+                    }
                 }
             }
         }
@@ -237,7 +256,11 @@ impl BehaviorEngine {
             total_tracked_conditions += 1;
             if state.archive_action_detected { 
                 satisfied_conditions += 1; 
-                detailed_indicators.push("ArchiveCreation(Detected)".to_string());
+                if state.archive_in_temp_detected {
+                    detailed_indicators.push("ArchiveCreationInTemp(Detected)".to_string());
+                } else {
+                    detailed_indicators.push("ArchiveCreation(Detected)".to_string());
+                }
             }
 
             // 9. Target processes closed
@@ -257,8 +280,12 @@ impl BehaviorEngine {
                     precord.appname, rule.name, satisfied_ratio * 100.0, satisfied_conditions, total_tracked_conditions,
                     detailed_indicators.join("\n  - ")
                 ));
-                // Set detection flag
+                // Set detection flags
                 precord.is_malicious = true;
+                precord.termination_requested = true;
+                if rule.quarantine {
+                    precord.quarantine_requested = true;
+                }
             }
         }
     }

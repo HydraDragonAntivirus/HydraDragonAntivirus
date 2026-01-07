@@ -45,6 +45,10 @@
     - "code.exe"
     - "visualstudio.exe"
     - "devenv.exe"
+    - "WindowsPackageManagerServer.exe"
+  quarantine: true
+  archive_locations:
+    - "AppData\\Local\\Temp"
   entropy_threshold: 7.0
   archive_actions:
     - "CreateZip"

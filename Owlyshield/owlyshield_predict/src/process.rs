@@ -114,6 +114,10 @@ pub struct ProcessRecord {
     pub process_state: ProcessState,
     /// Has the process been classified as *malicious*?
     pub is_malicious: bool,
+    /// Termination requested by behavior engine
+    pub termination_requested: bool,
+    /// Quarantine requested by behavior engine
+    pub quarantine_requested: bool,
     /// Time of the main process start
     pub time_started: SystemTime,
     /// Time of the main process kill (if malicious)
@@ -208,6 +212,8 @@ impl ProcessRecord {
             exe_exists: true,
             process_state: ProcessState::Running,
             is_malicious: false,
+            termination_requested: false,
+            quarantine_requested: false,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,
@@ -270,6 +276,8 @@ impl ProcessRecord {
             exe_exists: true,
             process_state: ProcessState::Running,
             is_malicious: false,
+            termination_requested: false,
+            quarantine_requested: false,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,
