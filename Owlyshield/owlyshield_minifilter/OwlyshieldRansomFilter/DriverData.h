@@ -86,6 +86,13 @@ class DriverData {
     // if found return true on found else return false
     ULONGLONG GetProcessGid(ULONG ProcessId, PBOOLEAN found);
 
+    // NEW: Mark a GID as malicious to enable blocking
+    VOID SetGidMalicious(ULONGLONG gid);
+
+    // NEW: Check if a GID or PID belongs to a malicious process
+    BOOLEAN IsGidMalicious(ULONGLONG gid);
+    BOOLEAN IsProcessMalicious(ULONG pid);
+
     //clear all data related to Gid system
     VOID ClearGidsPids();
 

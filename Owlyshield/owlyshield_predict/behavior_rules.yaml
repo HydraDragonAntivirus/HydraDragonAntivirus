@@ -17,11 +17,8 @@
     - "AppData\\Local\\Temp"
   multi_access_threshold: 2
   time_window_ms: 30000
-  # Updated indicator for Upload/Exfiltration detection
-  detect_exfiltration: true # New: Flags suspicious PID to Firewall for entropy-based upload blocking
+  detect_exfiltration: true
   conditions_percentage: 0.5
-  
-  # Advanced Indicators
   crypto_apis:
     - "CryptUnprotectData"
     - "BCryptDecrypt"
@@ -58,10 +55,227 @@
     - "tar"
     - ".zip"
     - ".rar"
-  max_staging_lifetime_ms: 60000
+  max_staging_lifetime_ms: 7200000 # 2 Hours - Established apps are exempt from aggressive heuristics
+  min_evasion_delay_ms: 120000     # 2 Minutes - Detect processes that wait before acting
   closed_process_paths:
     - "chrome.exe"
     - "msedge.exe"
     - "brave.exe"
     - "opera.exe"
     - "discord.exe"
+
+- name: "Aggressive Trojan Persistence & Disability"
+  browser_paths: []
+  sensitive_files: []
+  staging_paths: []
+  multi_access_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false
+  registry_indicators:
+    # AV Disablers
+    - path: "HKLM\\Software\\Policies\\Microsoft\\Windows Defender"
+      value_name: "DisableAntiSpyware"
+      expected_data: "1"
+    - path: "HKLM\\Software\\Microsoft\\Windows Defender"
+      value_name: "DisableAntiSpyware"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features"
+      value_name: "TamperProtection"
+      expected_data: "0"
+    - path: "HKLM\\Software\\Policies\\Microsoft\\Windows Defender"
+      value_name: "DisableScanOnRealTimeEnable"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU"
+      value_name: "NoAutoUpdate"
+      expected_data: "1"
+
+    # Task Manager & Tools Disablers
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableTaskMgr"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableRegistryTools"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableCMD"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableMMC"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoRun"
+      expected_data: "0" # User said 0, but often 1 blocks it. Matching user.
+
+    # Explorer Policies
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoControlPanel"
+      expected_data: "0"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoLogoff"
+      expected_data: "0"
+      
+    # IFEO Debugger Hijacks
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\regedit.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\explorer.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\msconfig.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\cmd.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+
+  quarantine: true
+  conditions_percentage: 1.0
+- name: "Aggressive Source-Target File Protection"
+  source_locations:
+    - "\\Users\\"
+    - "\\Temp\\"
+  target_locations:
+    - "\\Windows\\"
+    - "Program Files"
+    - "System32"
+    - "SysWOW64"
+    - "ProgramData\\Microsoft\\Windows Defender"
+  quarantine: true
+  conditions_percentage: 1.0
+
+- name: "SDK Detection: Signature Monster (Rust)"
+  browser_paths: ["*"]
+  sensitive_files: ["*"]
+  staging_paths: ["*"]
+  multi_access_threshold: 1
+  time_window_ms: 10000
+  detect_exfiltration: true
+  # Massive Indicator List from SM SDK source
+  blacklisted_processes:
+    - "x64dbg.exe"
+    - "x32dbg.exe"
+    - "ollydbg.exe"
+    - "ida64.exe"
+    - "ida.exe"
+    - "windbg.exe"
+    - "dnspy.exe"
+    - "ilspy.exe"
+    - "ghidra.exe"
+    - "pestudio.exe"
+    - "wireshark.exe"
+    - "fiddler.exe"
+    - "httpdebuggerui.exe"
+    - "HTTP Toolkit.exe"
+    - "procmon.exe"
+    - "procmon64.exe"
+    - "processhacker.exe"
+    - "megadumper.exe"
+    - "extremedumper.exe"
+    - "ksdumper.exe"
+    - "ksdumperclient.exe"
+    - "df5serv.exe"
+    - "joeboxcontrol.exe"
+    - "joeboxserver.exe"
+    - "petools.exe"
+    - "hxd.exe"
+    - "protection_id.exe"
+    - "scyllahide.exe"
+    - "de4dot.exe"
+    - "vmtoolsd.exe"
+    - "vmacthlp.exe"
+    - "vgauthservice.exe"
+    - "VBoxService.exe"
+    - "VBoxTray.exe"
+    - "qemu-ga.exe"
+    - "prl_cc.exe"
+    - "prl_tools.exe"
+    - "xenservice.exe"
+    - "DFServ.exe"
+    - "MsMpEng.exe"
+    - "avp.exe"
+    - "avgui.exe"
+    - "avguard.exe"
+    - "bdagent.exe"
+    - "ekrn.exe"
+    - "mbam.exe"
+    - "SophosUI.exe"
+  blacklisted_users:
+    - "Johnson"
+    - "Miller"
+    - "malware"
+    - "maltest"
+    - "CurrentUser"
+    - "Sandbox"
+    - "virus"
+    - "John Doe"
+    - "test user"
+    - "sand box"
+    - "WDAGUtilityAccount"
+    - "Bruno"
+    - "george"
+    - "Harry Johnson"
+    - "analyst"
+    - "admin"
+    - "anyrun"
+  blacklisted_services:
+    - "VMTools"
+    - "VBoxService"
+    - "vmicheartbeat"
+    - "SbieSvc"
+    - "DFServ"
+    - "cmdGuard"
+    - "ShadowDefenderService"
+    - "WinDefend"
+  registry_indicators:
+    - path: "HKLM\\SOFTWARE\\VMware, Inc.\\VMware Tools"
+    - path: "HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Virtual Machine\\Guest\\Parameters"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sandboxie"
+    - path: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard"
+    - path: "HKLM\\SOFTWARE\\ShadowDefender"
+  # Core behavioral indicator of SM SDK
+  registry_security_locking: true
+  archive_actions: ["7z", "zip", "rar", "tar"]
+  max_staging_lifetime_ms: 7200000 # 2 Hours
+  min_evasion_delay_ms: 180000     # 3 Minutes - SDK variants often delay to bypass analysis
+  conditions_percentage: 0.15 # Even 1-2 matches out of many is a strong flag for SM SDK
+
+- name: "Tasia Malware Detection"
+  closed_process_paths:
+    - "explorer.exe"
+    - "taskmgr.exe"
+  registry_indicators:
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableRegistryTools"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableTaskMgr"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableLockWorkstation"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableChangePassword"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Policies\\Microsoft\\Windows\\System"
+      value_name: "DisableCMD"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoLogoff"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoClose"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "HideFastUserSwitching"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System"
+      value_name: "DontDisplayNetworkSelectionUI"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
+      value_name: "Debugger"
+  quarantine: true
+  conditions_percentage: 0.1 # Very sensitive to any of these "lockout" artifacts

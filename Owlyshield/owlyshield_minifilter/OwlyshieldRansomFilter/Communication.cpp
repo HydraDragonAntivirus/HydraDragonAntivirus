@@ -118,6 +118,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQua
     BOOLEAN isGidExist = FALSE;
     ULONGLONG gidSize = driverData->GetGidSize(GID, &isGidExist);
 
+    driverData->SetGidMalicious(GID);
+
     if (gidSize == 0 || isGidExist == FALSE)
     {
         DbgPrint("!!! FS : Gid already ended or no such gid %llu\n", GID);

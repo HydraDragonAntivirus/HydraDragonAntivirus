@@ -68,6 +68,8 @@ pub enum IrpMajorOp {
     IrpCreate,
     /// File object handle has been closed
     _IrpCleanUp, //not used (yet)
+    /// Registry operation
+    IrpRegistry,
 }
 
 impl IrpMajorOp {
@@ -79,6 +81,7 @@ impl IrpMajorOp {
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
             5 => IrpMajorOp::IrpCreate,
+            6 => IrpMajorOp::IrpRegistry,
             _ => IrpMajorOp::IrpNone,
         }
     }

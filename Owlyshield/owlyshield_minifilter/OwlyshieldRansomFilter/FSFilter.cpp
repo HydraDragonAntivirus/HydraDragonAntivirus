@@ -15,6 +15,7 @@ Environment:
 --*/
 
 #include "FsFilter.h"
+#include "Regedit.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -34,6 +35,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath);
 DRIVER_INITIALIZE DriverEntry;
 
 EXTERN_C_END
+
+NTSTATUS FSUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 
 //
 //  Constant FLT_REGISTRATION structure for our filter.  This
@@ -210,6 +213,10 @@ Return Value:
     }
 
     DbgPrint("loaded scanner successfully");
+    
+    // Initialize Registry Protection
+    RegeditDriverEntry();
+
     return STATUS_SUCCESS;
 }
 
@@ -531,6 +538,14 @@ FSProcessPreOperartion(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJEC
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
     newItem->Gid = gid;
+
+    // NEW: Block after predict (if Gid is marked malicious by user-mode)
+    if (driverData->IsGidMalicious(gid)) {
+        DbgPrint("!!! FSFilter: BLOCKING operation from malicious Gid: %llu\n", gid);
+        FltReleaseFileNameInformation(nameInfo);
+        delete newEntry;
+        return STATUS_ACCESS_DENIED;
+    }
 
     // Keeping user's DbgPrint here
     if (IS_DEBUG_IRP)
@@ -1573,4 +1588,33 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
+}
+
+NTSTATUS
+FSUnload (
+    _In_ FLT_FILTER_UNLOAD_FLAGS Flags
+    )
+{
+    UNREFERENCED_PARAMETER( Flags );
+
+    PAGED_CODE();
+
+    // Registry Cleanup
+    RegeditUnloadDriver();
+
+    if (commHandle && commHandle->Filter) {
+        FltUnregisterFilter( commHandle->Filter );
+    }
+
+    if (commHandle) {
+        if (!IsCommClosed()) {
+            CommClose();
+        }
+    }
+    
+    if (driverData) {
+        driverData->Clear();
+    }
+
+    return STATUS_SUCCESS;
 }

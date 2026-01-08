@@ -172,6 +172,7 @@ pub fn run() {
                     worker.process_io(&mut iomsg);
                     if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
                         worker.process_suspended_records(&config, Box::new(WindowsThreatHandler::from(driver)));
+                        worker.behavior_engine.check_registry_indicators();
                         count = 0;
                         timer = SystemTime::now();
                     }

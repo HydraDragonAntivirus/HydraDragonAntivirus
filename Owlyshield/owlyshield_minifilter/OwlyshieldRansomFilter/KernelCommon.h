@@ -102,6 +102,7 @@ struct GID_ENTRY {
     ULONGLONG gid;
     ULONGLONG pidsSize;
     LIST_ENTRY HeadListPids;
+    BOOLEAN IsMalicious;
 
     // gid as input
     GID_ENTRY(ULONGLONG Gid) {
@@ -109,6 +110,7 @@ struct GID_ENTRY {
         InitializeListHead(&HeadListPids);
         InitializeListHead(&GidListEntry);
         pidsSize = 0;
+        IsMalicious = FALSE;
     }
 
     //copy
@@ -119,6 +121,7 @@ struct GID_ENTRY {
         GidListEntry.Blink = a.GidListEntry.Blink;
         gid = a.gid;
         pidsSize = a.pidsSize;
+        IsMalicious = a.IsMalicious;
     }
 
     const GID_ENTRY& operator=(const GID_ENTRY& a) {
@@ -128,7 +131,8 @@ struct GID_ENTRY {
         GidListEntry.Blink = a.GidListEntry.Blink;
         gid = a.gid;
         pidsSize = a.pidsSize;
-        this;
+        IsMalicious = a.IsMalicious;
+        return *this;
     }
 };
 

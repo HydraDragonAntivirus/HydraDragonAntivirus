@@ -11,6 +11,10 @@ pub mod novelty;
 pub mod process;
 pub mod realtime_learning;
 pub mod shared_def;
+pub mod logging;
+pub mod config;
+pub mod utils;
+pub mod behavior_engine;
 
 /// SDK-facing exports used by examples and integrations.
 pub mod sdk {

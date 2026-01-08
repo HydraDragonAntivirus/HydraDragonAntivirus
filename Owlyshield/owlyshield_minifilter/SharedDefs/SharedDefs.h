@@ -89,6 +89,7 @@ enum IRP_MAJOR_OP
     IRP_SETINFO,
     IRP_CREATE,
     IRP_CLEANUP,
+    IRP_REGISTRY,
 };
 
 // NEW: Action types for threat response

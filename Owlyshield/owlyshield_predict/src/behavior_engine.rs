@@ -8,6 +8,15 @@ use crate::logging::Logging;
 use sysinfo::{SystemExt, ProcessExt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryIndicator {
+    pub path: String,
+    #[serde(default)]
+    pub value_name: Option<String>,
+    #[serde(default)]
+    pub expected_data: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
     pub browser_paths: Vec<String>,
@@ -38,24 +47,47 @@ pub struct BehaviorRule {
     pub quarantine: bool,
     #[serde(default)]
     pub conditions_percentage: f32,
+    #[serde(default)]
+    pub registry_indicators: Vec<RegistryIndicator>,
+    #[serde(default)]
+    pub source_locations: Vec<String>,
+    #[serde(default)]
+    pub target_locations: Vec<String>,
+    #[serde(default)]
+    pub blacklisted_processes: Vec<String>,
+    #[serde(default)]
+    pub blacklisted_users: Vec<String>,
+    #[serde(default)]
+    pub blacklisted_services: Vec<String>,
+    #[serde(default)]
+    pub registry_security_locking: bool,
+    #[serde(default)]
+    pub min_evasion_delay_ms: u64,
 }
 
 #[derive(Default)]
 pub struct ProcessBehaviorState {
     pub accessed_browsers: HashMap<String, SystemTime>,
+    pub staged_files_written: HashSet<String>,
+    pub has_active_connection: bool,
+    pub parent_name: String,
     pub sensitive_files_read: HashSet<String>,
-    pub staged_files_written: HashMap<PathBuf, SystemTime>,
-    pub crypto_api_count: usize,
     pub high_entropy_detected: bool,
+    pub crypto_api_count: u32,
     pub archive_action_detected: bool,
     pub archive_in_temp_detected: bool,
-    pub parent_name: String,
-    pub has_active_connection: bool,
+    pub registry_activity: Vec<(String, String)>,
+    pub source_target_violation_detected: bool,
+    pub registry_security_modification_detected: bool,
+    pub first_event_time: Option<SystemTime>,
+    pub startup_latency_ms: u64,
+    pub env_violations: Vec<String>,
 }
 
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
+    sys: sysinfo::System,
 }
 
 impl BehaviorEngine {
@@ -63,6 +95,7 @@ impl BehaviorEngine {
         BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
+            sys: sysinfo::System::new_all(),
         }
     }
 
@@ -90,20 +123,19 @@ impl BehaviorEngine {
         };
 
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-        let filepath = msg.filepathstr.to_lowercase();
-
         // 2. Perform updates to process state using split borrowing
         {
+            // Refresh system state for process lookups (parent, closed processes)
+            self.sys.refresh_processes();
+            
             let states = &mut self.process_states;
             let rules = &self.rules;
 
             let state = states.entry(gid).or_insert_with(|| {
                 let mut s = ProcessBehaviorState::default();
-                let mut sys = sysinfo::System::new_all();
-                sys.refresh_processes();
-                if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
+                if let Some(proc) = self.sys.process(sysinfo::Pid::from(pid as usize)) {
                     if let Some(parent_pid) = proc.parent() {
-                        if let Some(parent_proc) = sys.process(parent_pid) {
+                        if let Some(parent_proc) = self.sys.process(parent_pid) {
                             s.parent_name = parent_proc.name().to_string();
                         }
                     }
@@ -116,6 +148,17 @@ impl BehaviorEngine {
             if has_active_conn {
                 state.has_active_connection = true;
             }
+
+            // 0. Track First Event and Latency
+            if state.first_event_time.is_none() {
+                let now = SystemTime::now();
+                state.first_event_time = Some(now);
+                state.startup_latency_ms = now.duration_since(precord.time_started)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_millis() as u64;
+            }
+
+            let filepath = msg.filepathstr.to_lowercase();
 
             // Track events for ALL rules
             for rule in rules {
@@ -136,7 +179,7 @@ impl BehaviorEngine {
                 // 2. Track Data Staging
                 for s_path in &rule.staging_paths {
                     if filepath.contains(&s_path.to_lowercase()) && irp_op == IrpMajorOp::IrpWrite {
-                        state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
+                        state.staged_files_written.insert(filepath.clone());
                     }
                 }
 
@@ -172,6 +215,34 @@ impl BehaviorEngine {
                         }
                     }
                 }
+
+                // 6. Track Registry Activity
+                if irp_op == IrpMajorOp::IrpRegistry {
+                    state.registry_activity.push((filepath.clone(), msg.extension.clone()));
+                    
+                    if msg.extension.to_uppercase() == "SET_SECURITY" {
+                        state.registry_security_modification_detected = true;
+                    }
+
+                    // Immediate trigger check for specific registry indicators
+                    for indicator in &rule.registry_indicators {
+                        if filepath.contains(&indicator.path.to_lowercase()) {
+                            // If it's a critical path, we could increment a registry match counter
+                            // or satisfy a condition. For now, we'll let check_rules handle it,
+                            // but we ensure it's recorded.
+                        }
+                    }
+                }
+                // 6. Track Source-Target Violations
+                for s_loc in &rule.source_locations {
+                    if precord.appname.to_lowercase().contains(&s_loc.to_lowercase()) {
+                        for t_loc in &rule.target_locations {
+                            if filepath.contains(&t_loc.to_lowercase()) && (irp_op == IrpMajorOp::IrpWrite || irp_op == IrpMajorOp::IrpSetInfo) {
+                                state.source_target_violation_detected = true;
+                            }
+                        }
+                    }
+                }
             }
         } // state and rules borrows are dropped here
 
@@ -189,6 +260,15 @@ impl BehaviorEngine {
             // Skip detection if app is allowlisted
             if rule.allowlisted_apps.iter().any(|app| precord.appname.to_lowercase().contains(&app.to_lowercase())) {
                 continue;
+            }
+
+            // Lifetime Check (False Positive Mitigation)
+            if rule.max_staging_lifetime_ms > 0 {
+                let file_age = self.get_file_age_ms(&precord.exepath);
+                if file_age > rule.max_staging_lifetime_ms {
+                    // This app is long-established on the system, skip aggressive heuristics
+                    continue;
+                }
             }
 
             // Condition A: Multi-Browser Access within time window
@@ -210,12 +290,12 @@ impl BehaviorEngine {
             let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
 
             // Condition G: Specified processes are closed (not running)
-            let any_targeted_process_running = if !rule.closed_process_paths.is_empty() {
-                self.is_any_process_running(&rule.closed_process_paths)
-            } else {
-                false
-            };
-            let target_processes_closed = !rule.closed_process_paths.is_empty() && !any_targeted_process_running;
+            let mut closed_targets = Vec::new();
+            for target in &rule.closed_process_paths {
+                if !self.is_any_process_running(&[target.clone()]) {
+                    closed_targets.push(target.clone());
+                }
+            }
 
             // Condition Count Logic
             let mut satisfied_conditions = 0;
@@ -285,12 +365,73 @@ impl BehaviorEngine {
             }
 
             // 9. Target processes closed
-            if !rule.closed_process_paths.is_empty() {
+            for closed_target in &closed_targets {
                 total_tracked_conditions += 1;
-                if target_processes_closed { 
-                    satisfied_conditions += 1; 
-                    detailed_indicators.push(format!("TargetProcessesClosed({})", rule.closed_process_paths.join(", ")));
+                satisfied_conditions += 1;
+                detailed_indicators.push(format!("TargetProcessClosed({})", closed_target));
+            }
+
+            // 10. Source-Target Violation
+            if !rule.source_locations.is_empty() {
+                total_tracked_conditions += 1;
+                if state.source_target_violation_detected {
+                    satisfied_conditions += 1;
+                    detailed_indicators.push("SourceTargetFileViolation(Suspicious process modifying system file)".to_string());
                 }
+            }
+
+            // 11. Registry Security Modification
+            total_tracked_conditions += 1;
+            if state.registry_security_modification_detected {
+                satisfied_conditions += 1;
+                detailed_indicators.push("RegistrySecurityModification(DACL change detected)".to_string());
+                
+                // If the rule specifically requires registry locking detection
+                if rule.registry_security_locking {
+                     // This already incremented satisfied_conditions above, 
+                     // but we could add more weight here if needed.
+                }
+            }
+
+            // 12. Environmental Violations (Check on every event for aggressive detection)
+            if !rule.blacklisted_processes.is_empty() || !rule.blacklisted_users.is_empty() || !rule.blacklisted_services.is_empty() {
+                total_tracked_conditions += 1;
+                let (violation, reasons) = self.check_environmental_indicators(rule);
+                if violation {
+                    satisfied_conditions += 1;
+                    detailed_indicators.extend(reasons);
+                }
+            }
+
+            // 13. Registry Indicators Matching
+            for indicator in &rule.registry_indicators {
+                total_tracked_conditions += 1;
+                // Check if process has accessed this registry key
+                if state.registry_activity.iter().any(|(p, _)| p.to_lowercase().contains(&indicator.path.to_lowercase())) {
+                    satisfied_conditions += 1;
+                    detailed_indicators.push(format!("RegistryIndicatorMatched({})", indicator.path));
+                }
+            }
+
+            // 14. Anti-Delay / Evasion Detection
+            if rule.min_evasion_delay_ms > 0 {
+                total_tracked_conditions += 1;
+                if state.startup_latency_ms >= rule.min_evasion_delay_ms {
+                    satisfied_conditions += 1;
+                    detailed_indicators.push(format!("StartupDelayDetected({}ms latency)", state.startup_latency_ms));
+                }
+            }
+
+            // 15. Tasia Kill-Chain Correlation
+            let explorer_killed = closed_targets.iter().any(|p| p.to_lowercase() == "explorer.exe");
+            let has_tasia_registry = !rule.registry_indicators.is_empty() && state.registry_activity.iter().any(|(p, _)| {
+                rule.registry_indicators.iter().any(|ind| p.to_lowercase().contains(&ind.path.to_lowercase()))
+            });
+
+            if explorer_killed && has_tasia_registry {
+                total_tracked_conditions += 1;
+                satisfied_conditions += 1;
+                detailed_indicators.push("TasiaKillChain(Explorer Killed + Registry Lockout detected)".to_string());
             }
 
             let satisfied_ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
@@ -312,11 +453,46 @@ impl BehaviorEngine {
     }
 
     #[cfg(target_os = "windows")]
-    fn is_any_process_running(&self, process_names: &[String]) -> bool {
+    fn check_environmental_indicators(&self, rule: &BehaviorRule) -> (bool, Vec<String>) {
+        let mut violations = Vec::new();
         let mut sys = sysinfo::System::new_all();
-        sys.refresh_processes();
+        sys.refresh_all();
+
+        // Check Blacklisted Processes
+        for bad_proc in &rule.blacklisted_processes {
+            if sys.processes().values().any(|p| p.name().to_lowercase().contains(&bad_proc.to_lowercase())) {
+                violations.push(format!("BlacklistedProcess({})", bad_proc));
+            }
+        }
+
+        // Check Blacklisted Users
+        let current_user = std::env::var("USERNAME").unwrap_or_default().to_lowercase();
+        for bad_user in &rule.blacklisted_users {
+            if current_user.contains(&bad_user.to_lowercase()) {
+                violations.push(format!("BlacklistedUser({})", current_user));
+            }
+        }
+
+        // Check Blacklisted Services
+        // Note: Simple check via process list for now as service querying is heavy
+        for bad_service in &rule.blacklisted_services {
+            if sys.processes().values().any(|p| p.name().to_lowercase().contains(&bad_service.to_lowercase())) {
+                violations.push(format!("BlacklistedServiceProcess({})", bad_service));
+            }
+        }
+
+        (!violations.is_empty(), violations)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn check_environmental_indicators(&self, _rule: &BehaviorRule) -> (bool, Vec<String>) {
+        (false, Vec::new())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn is_any_process_running(&self, process_names: &[String]) -> bool {
         for process_name in process_names {
-            if sys.processes().values().any(|p| p.name().to_lowercase() == process_name.to_lowercase()) {
+            if self.sys.processes().values().any(|p| p.name().to_lowercase() == process_name.to_lowercase()) {
                 return true;
             }
         }
@@ -374,5 +550,130 @@ impl BehaviorEngine {
             .open("\\\\.\\pipe\\HydraDragonFirewall") {
             let _ = writeln!(stream, "PID:{} SUSPICIOUS_PID:TRUE", pid);
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn check_registry_indicators(&self) {
+        use windows::Win32::System::Registry::{
+            HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER, HKEY_CLASSES_ROOT, HKEY_USERS, HKEY_CURRENT_CONFIG,
+            RegOpenKeyExA, RegQueryValueExA, KEY_READ, HKEY, REG_DWORD, REG_SZ, REG_EXPAND_SZ, REG_VALUE_TYPE
+        };
+        use windows::core::PCSTR;
+        use std::ffi::CString;
+
+        for rule in &self.rules {
+            for indicator in &rule.registry_indicators {
+                let parts: Vec<&str> = indicator.path.splitn(2, '\\').collect();
+                if parts.len() < 2 { continue; }
+                
+                let root_key = match parts[0].to_uppercase().as_str() {
+                    "HKLM" | "HKEY_LOCAL_MACHINE" => HKEY_LOCAL_MACHINE,
+                    "HKCU" | "HKEY_CURRENT_USER" => HKEY_CURRENT_USER,
+                    "HKCR" | "HKEY_CLASSES_ROOT" => HKEY_CLASSES_ROOT,
+                    "HKU" | "HKEY_USERS" => HKEY_USERS,
+                    "HKCC" | "HKEY_CURRENT_CONFIG" => HKEY_CURRENT_CONFIG,
+                    _ => continue,
+                };
+                
+                let subkey = CString::new(parts[1]).unwrap_or_default();
+                let mut hkey = HKEY::default();
+                
+                unsafe {
+                    if RegOpenKeyExA(root_key, PCSTR(subkey.as_ptr() as *const _), 0, KEY_READ, &mut hkey).is_ok() {
+                        let value_name_opt = indicator.value_name.as_deref();
+                        let expected_data_opt = indicator.expected_data.as_deref();
+
+                        if value_name_opt.is_none() && expected_data_opt.is_none() {
+                            // Path-only indicator: Key exists, so it's a match!
+                            Logging::warning(&format!(
+                                "[BehaviorEngine] !!! REGISTRY DETECTION (PATH) !!!\nRule: {}\nKey: {}\nAction: Malicious Registry Key Presence Detected",
+                                rule.name, indicator.path
+                            ));
+                        } else {
+                            let value_name_str = value_name_opt.unwrap_or("");
+                            let value_name = CString::new(value_name_str).unwrap_or_default();
+                            let mut data_type = REG_VALUE_TYPE::default();
+                            let mut data_size = 0u32;
+                            
+                            // Query size first
+                            if RegQueryValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), None, Some(&mut data_type), None, Some(&mut data_size)).is_ok() {
+                                 let mut buffer = vec![0u8; data_size as usize];
+                                 if RegQueryValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), None, Some(&mut data_type), Some(buffer.as_mut_ptr()), Some(&mut data_size)).is_ok() {
+                                     
+                                     let actual_value = if data_type == REG_DWORD {
+                                         if buffer.len() >= 4 {
+                                             let val = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+                                             val.to_string()
+                                         } else { String::new() }
+                                     } else if data_type == REG_SZ || data_type == REG_EXPAND_SZ {
+                                         // Ansi string (since we used A version)
+                                         // Remove null terminator
+                                         String::from_utf8_lossy(&buffer).trim_end_matches('\0').to_string()
+                                     } else {
+                                         String::from("Unsupported")
+                                     };
+    
+                                     let expected_data = expected_data_opt.unwrap_or("");
+                                     let matched = if data_type == REG_DWORD {
+                                         actual_value == expected_data
+                                     } else {
+                                         // Case insensitive contains for strings
+                                         actual_value.to_lowercase().contains(&expected_data.to_lowercase())
+                                     };
+    
+                                     if matched {
+                                         Logging::warning(&format!(
+                                            "[BehaviorEngine] !!! REGISTRY DETECTION !!!\nRule: {}\nKey: {}\\{:?}\nValue: {}\nExpected: {}\nAction: Malicious Registry Modification Detected - REVERTING...",
+                                            rule.name, indicator.path, indicator.value_name, actual_value, expected_data
+                                         ));
+                                         
+                                         // Revert Logic
+                                         unsafe {
+                                             let vn_lower = value_name_str.to_lowercase();
+                                             if vn_lower == "debugger" {
+                                                 // For IFEO hijacks, remove the Debugger value entirely
+                                                 let _ = windows::Win32::System::Registry::RegDeleteValueA(hkey, PCSTR(value_name.as_ptr() as *const _));
+                                                 Logging::info(&format!("Reverted IFEO Hijack on: {}", indicator.path));
+                                             } else if actual_value == "1" {
+                                                 // For boolean disablers (DisableAntiSpyware=1), set back to 0
+                                                 let zero = 0u32;
+                                                 let zero_bytes = zero.to_le_bytes();
+                                                 let _ = windows::Win32::System::Registry::RegSetValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), 0, REG_DWORD, Some(&zero_bytes));
+                                                 Logging::info(&format!("Reverted Security Policy Change: {:?} = 0", indicator.value_name));
+                                             } else if actual_value == "0" && (vn_lower == "tamperprotection" || vn_lower == "enablelua") {
+                                                 // For critical enablements set to 0, set back to 1
+                                                 let one = 1u32;
+                                                 let one_bytes = one.to_le_bytes();
+                                                 let _ = windows::Win32::System::Registry::RegSetValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), 0, REG_DWORD, Some(&one_bytes));
+                                                 Logging::info(&format!("Reverted Security Policy Change: {:?} = 1", indicator.value_name));
+                                             }
+                                         }
+                                     }
+                                 }
+                            }
+                        }
+                        let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn check_registry_indicators(&self) {}
+
+    fn get_file_age_ms(&self, path: &PathBuf) -> u64 {
+        #[cfg(target_os = "windows")]
+        {
+            use std::fs;
+            if let Ok(metadata) = fs::metadata(path) {
+                if let Ok(created) = metadata.created() {
+                    if let Ok(duration) = SystemTime::now().duration_since(created) {
+                        return duration.as_millis() as u64;
+                    }
+                }
+            }
+        }
+        0 // Return 0 if we can't get metadata, treating it as "new" for safety
     }
 }
