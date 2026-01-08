@@ -32,22 +32,41 @@ impl ThreatHandler for WindowsThreatHandler {
         Logging::alert(format!("Killed Process with Handle {}", proc_handle.0).as_str());
     }
 
-    // New method required by worker.rs
-    fn kill_and_quarantine(&self, gid: u64) {
-        // TODO: if Driver has a quarantine API (e.g. `try_kill_and_quarantine`), call it here.
-        // Fallback: just kill and note that quarantine isn't implemented yet.
-        let proc_handle = self.driver.try_kill(gid).unwrap();
-        println!(
-            "Killed (and QUARANTINE not implemented) Process with Handle {}",
-            proc_handle.0
-        );
-        Logging::alert(
-            format!(
-                "Killed (and QUARANTINE not implemented) Process with Handle {}",
-                proc_handle.0
-            )
-            .as_str(),
-        );
+    fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
+        // 1. Kill the process first to release file handles
+        let _ = self.driver.try_kill(gid);
+        
+        // 2. Small delay to ensure process is dead and handles are closed
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // 3. Prepare quarantine path
+        let quarantine_dir = std::path::Path::new(r"C:\ProgramData\Owlyshield\Quarantine");
+        if !quarantine_dir.exists() {
+            let _ = std::fs::create_dir_all(quarantine_dir);
+        }
+
+        if let Some(filename) = path.file_name() {
+            let dest_path = quarantine_dir.join(filename);
+            
+            // 4. Move the file
+            match std::fs::rename(path, &dest_path) {
+                Ok(_) => {
+                    Logging::alert(&format!("Quarantined malicious file to: {}", dest_path.display()));
+                }
+                Err(e) => {
+                    // If rename fails (e.g. across drives), try copy + delete
+                    match std::fs::copy(path, &dest_path) {
+                        Ok(_) => {
+                            let _ = std::fs::remove_file(path);
+                            Logging::alert(&format!("Quarantined malicious file (copy/delete) to: {}", dest_path.display()));
+                        }
+                        Err(e2) => {
+                            Logging::alert(&format!("Failed to quarantine file {}: {} (Copy error: {})", path.display(), e, e2));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {

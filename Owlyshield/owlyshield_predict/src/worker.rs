@@ -379,7 +379,7 @@ pub mod process_record_handling {
                         }
                         KillPolicy::Kill => {
                             // Use kill_and_quarantine for Owlyshield's own detections
-                            self.threat_handler.kill_and_quarantine(precord.gid);
+                            self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
                             precord.process_state = ProcessState::Killed;
                         }
                         KillPolicy::DoNothing => {}
@@ -407,7 +407,7 @@ pub mod process_record_handling {
             if precord.termination_requested {
                 if precord.quarantine_requested {
                     Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
-                    self.threat_handler.kill_and_quarantine(precord.gid);
+                    self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
                 } else {
                     Logging::info(&format!("[BehaviorEngine] Terminating: {}", precord.appname));
                     self.threat_handler.kill(precord.gid);
@@ -689,7 +689,7 @@ pub mod threat_handling {
     pub trait ThreatHandler {
         fn suspend(&self, proc: &mut ProcessRecord);
         fn kill(&self, gid: u64);
-        fn kill_and_quarantine(&self, gid: u64);
+        fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path);
         fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
     }
 }

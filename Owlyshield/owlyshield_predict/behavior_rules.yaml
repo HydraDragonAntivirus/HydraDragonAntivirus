@@ -1,6 +1,6 @@
-# Advanced Behavior Rules for HydraDragon Browser Protection
-- name: "Unified Browser Stealer Detection"
-  browser_paths:
+# Advanced Behavioral Rules for HydraDragon Attack Pipeline Protection
+- name: "Unified Attack Pipeline Detection"
+  attack_line:
     - "Google\\Chrome\\User Data"
     - "Opera Software\\Opera Stable"
     - "Opera Software\\Opera GX Stable"
@@ -8,14 +8,14 @@
     - "Microsoft\\Edge\\User Data"
     - "Discord\\Local Storage"
     - "Discord\\leveldb"
-  sensitive_files:
+  attack_target:
     - "Cookies"
     - "Login Data"
     - "Web Data"
     - "Local State"
-  staging_paths:
+  attack_staging:
     - "AppData\\Local\\Temp"
-  multi_access_threshold: 2
+  pipeline_threshold: 2
   time_window_ms: 30000
   detect_exfiltration: true
   conditions_percentage: 0.5
@@ -55,8 +55,8 @@
     - "tar"
     - ".zip"
     - ".rar"
-  max_staging_lifetime_ms: 7200000 # 2 Hours - Established apps are exempt from aggressive heuristics
-  min_evasion_delay_ms: 120000     # 2 Minutes - Detect processes that wait before acting
+  max_staging_lifetime_ms: 7200000
+  min_evasion_delay_ms: 120000
   closed_process_paths:
     - "chrome.exe"
     - "msedge.exe"
@@ -65,14 +65,10 @@
     - "discord.exe"
 
 - name: "Aggressive Trojan Persistence & Disability"
-  browser_paths: []
-  sensitive_files: []
-  staging_paths: []
-  multi_access_threshold: 0
+  pipeline_threshold: 0
   time_window_ms: 0
   detect_exfiltration: false
   registry_indicators:
-    # AV Disablers
     - path: "HKLM\\Software\\Policies\\Microsoft\\Windows Defender"
       value_name: "DisableAntiSpyware"
       expected_data: "1"
@@ -88,8 +84,6 @@
     - path: "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU"
       value_name: "NoAutoUpdate"
       expected_data: "1"
-
-    # Task Manager & Tools Disablers
     - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
       value_name: "DisableTaskMgr"
       expected_data: "1"
@@ -104,17 +98,13 @@
       expected_data: "1"
     - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
       value_name: "NoRun"
-      expected_data: "0" # User said 0, but often 1 blocks it. Matching user.
-
-    # Explorer Policies
+      expected_data: "0"
     - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
       value_name: "NoControlPanel"
       expected_data: "0"
     - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
       value_name: "NoLogoff"
       expected_data: "0"
-      
-    # IFEO Debugger Hijacks
     - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
       value_name: 'Debugger'
       expected_data: ''
@@ -130,10 +120,13 @@
     - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\cmd.exe'
       value_name: 'Debugger'
       expected_data: ''
-
   quarantine: true
   conditions_percentage: 1.0
-- name: "Aggressive Source-Target File Protection"
+
+- name: "Aggressive Source-Target Pipeline Protection"
+  pipeline_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false
   source_locations:
     - "\\Users\\"
     - "\\Temp\\"
@@ -146,14 +139,10 @@
   quarantine: true
   conditions_percentage: 1.0
 
-- name: "SDK Detection: Signature Monster (Rust)"
-  browser_paths: ["*"]
-  sensitive_files: ["*"]
-  staging_paths: ["*"]
-  multi_access_threshold: 1
+- name: "SDK Detection: Attack Pipeline (Rust Variant)"
+  pipeline_threshold: 1
   time_window_ms: 10000
   detect_exfiltration: true
-  # Massive Indicator List from SM SDK source
   blacklisted_processes:
     - "x64dbg.exe"
     - "x32dbg.exe"
@@ -236,14 +225,13 @@
     - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sandboxie"
     - path: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard"
     - path: "HKLM\\SOFTWARE\\ShadowDefender"
-  # Core behavioral indicator of SM SDK
   registry_security_locking: true
   archive_actions: ["7z", "zip", "rar", "tar"]
-  max_staging_lifetime_ms: 7200000 # 2 Hours
-  min_evasion_delay_ms: 180000     # 3 Minutes - SDK variants often delay to bypass analysis
-  conditions_percentage: 0.15 # Even 1-2 matches out of many is a strong flag for SM SDK
+  max_staging_lifetime_ms: 7200000
+  min_evasion_delay_ms: 180000
+  conditions_percentage: 0.15
 
-- name: "Tasia Malware Detection"
+- name: "Tasia Correlation Detection"
   closed_process_paths:
     - "explorer.exe"
     - "taskmgr.exe"
@@ -278,4 +266,7 @@
     - path: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
       value_name: "Debugger"
   quarantine: true
-  conditions_percentage: 0.1 # Very sensitive to any of these "lockout" artifacts
+  conditions_percentage: 0.25
+  pipeline_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false

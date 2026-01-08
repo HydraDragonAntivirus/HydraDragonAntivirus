@@ -19,11 +19,17 @@ pub struct RegistryIndicator {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
-    pub browser_paths: Vec<String>,
-    pub sensitive_files: Vec<String>,
-    pub staging_paths: Vec<String>,
-    pub multi_access_threshold: usize,
+    #[serde(default)]
+    pub attack_line: Vec<String>,
+    #[serde(default)]
+    pub attack_target: Vec<String>,
+    #[serde(default)]
+    pub attack_staging: Vec<String>,
+    #[serde(default)]
+    pub pipeline_threshold: usize,
+    #[serde(default)]
     pub time_window_ms: u64,
+    #[serde(default)]
     pub detect_exfiltration: bool,
     
     // Advanced Indicators
@@ -67,11 +73,11 @@ pub struct BehaviorRule {
 
 #[derive(Default)]
 pub struct ProcessBehaviorState {
-    pub accessed_browsers: HashMap<String, SystemTime>,
-    pub staged_files_written: HashSet<String>,
+    pub accessed_attack_lines: HashMap<String, SystemTime>,
+    pub staged_attack_files: HashSet<String>,
     pub has_active_connection: bool,
     pub parent_name: String,
-    pub sensitive_files_read: HashSet<String>,
+    pub accessed_attack_targets: HashSet<String>,
     pub high_entropy_detected: bool,
     pub crypto_api_count: u32,
     pub archive_action_detected: bool,
@@ -82,6 +88,8 @@ pub struct ProcessBehaviorState {
     pub first_event_time: Option<SystemTime>,
     pub startup_latency_ms: u64,
     pub env_violations: Vec<String>,
+    pub appname: String,
+    pub exepath: String,
 }
 
 pub struct BehaviorEngine {
@@ -133,6 +141,9 @@ impl BehaviorEngine {
 
             let state = states.entry(gid).or_insert_with(|| {
                 let mut s = ProcessBehaviorState::default();
+                s.appname = precord.appname.clone();
+                s.exepath = precord.exepath.to_string_lossy().to_string();
+
                 if let Some(proc) = self.sys.process(sysinfo::Pid::from(pid as usize)) {
                     if let Some(parent_pid) = proc.parent() {
                         if let Some(parent_proc) = self.sys.process(parent_pid) {
@@ -162,24 +173,24 @@ impl BehaviorEngine {
 
             // Track events for ALL rules
             for rule in rules {
-                // 1. Track Browser Access
-                for b_path in &rule.browser_paths {
+                // 1. Track Attack Line Access
+                for b_path in &rule.attack_line {
                     if filepath.contains(&b_path.to_lowercase()) {
-                        state.accessed_browsers.insert(b_path.clone(), SystemTime::now());
+                        state.accessed_attack_lines.insert(b_path.clone(), SystemTime::now());
                         
-                        // Track sensitive files
-                        for s_file in &rule.sensitive_files {
+                        // Track attack targets
+                        for s_file in &rule.attack_target {
                             if filepath.contains(&s_file.to_lowercase()) {
-                                state.sensitive_files_read.insert(s_file.clone());
+                                state.accessed_attack_targets.insert(s_file.clone());
                             }
                         }
                     }
                 }
 
                 // 2. Track Data Staging
-                for s_path in &rule.staging_paths {
+                for s_path in &rule.attack_staging {
                     if filepath.contains(&s_path.to_lowercase()) && irp_op == IrpMajorOp::IrpWrite {
-                        state.staged_files_written.insert(filepath.clone());
+                        state.staged_attack_files.insert(filepath.clone());
                     }
                 }
 
@@ -201,7 +212,7 @@ impl BehaviorEngine {
                         state.archive_action_detected = true;
                         
                         // Track archive specifically in staging paths (Temp)
-                        for s_path in &rule.staging_paths {
+                        for s_path in &rule.attack_staging {
                             if filepath.contains(&s_path.to_lowercase()) {
                                 state.archive_in_temp_detected = true;
                             }
@@ -271,17 +282,17 @@ impl BehaviorEngine {
                 }
             }
 
-            // Condition A: Multi-Browser Access within time window
+            // Condition A: Attack Pipeline Access within time window
             let now = SystemTime::now();
-            let recent_access_count = state.accessed_browsers.values()
+            let recent_access_count = state.accessed_attack_lines.values()
                 .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
                 .count();
 
             // Condition B: Data Staging
-            let has_staged_data = !state.staged_files_written.is_empty();
+            let has_staged_data = !state.staged_attack_files.is_empty();
 
-            // Condition E: Sensitive File Access (e.g., Cookies, Local State)
-            let has_sensitive_access = !state.sensitive_files_read.is_empty();
+            // Condition E: Sensitive Access (e.g., Attack Targets)
+            let has_sensitive_access = !state.accessed_attack_targets.is_empty();
 
             // Condition C: Exfiltration (now based on detect_exfiltration rule field and state.has_active_connection)
             let is_uploading = rule.detect_exfiltration && state.has_active_connection && (has_sensitive_access || recent_access_count > 0 || has_staged_data);
@@ -302,19 +313,19 @@ impl BehaviorEngine {
             let mut total_tracked_conditions = 0;
             let mut detailed_indicators = Vec::new();
             
-            // 1. Multi-browser access
+            // 1. Attack Pipeline access
             total_tracked_conditions += 1;
-            if recent_access_count >= rule.multi_access_threshold { 
+            if recent_access_count >= rule.pipeline_threshold { 
                 satisfied_conditions += 1; 
-                let browsers: Vec<String> = state.accessed_browsers.keys().cloned().collect();
-                detailed_indicators.push(format!("MultiBrowserAccess({})", browsers.join(", ")));
+                let lines: Vec<String> = state.accessed_attack_lines.keys().cloned().collect();
+                detailed_indicators.push(format!("AttackPipelineAccess({})", lines.join(", ")));
             }
 
             // 2. Data staging
             total_tracked_conditions += 1;
             if has_staged_data { 
                 satisfied_conditions += 1; 
-                detailed_indicators.push(format!("DataStaging({} files written to Temp)", state.staged_files_written.len()));
+                detailed_indicators.push(format!("DataStaging({} files written to Staging)", state.staged_attack_files.len()));
             }
 
             // 3. Exfiltration / Upload behavior
@@ -331,12 +342,12 @@ impl BehaviorEngine {
                 detailed_indicators.push(format!("SuspiciousParent({})", state.parent_name));
             }
 
-            // 5. Sensitive file access
+            // 5. Sensitive access
             total_tracked_conditions += 1;
             if has_sensitive_access { 
                 satisfied_conditions += 1; 
-                let files: Vec<String> = state.sensitive_files_read.iter().cloned().collect();
-                detailed_indicators.push(format!("SensitiveFileRead({})", files.join(", ")));
+                let targets: Vec<String> = state.accessed_attack_targets.iter().cloned().collect();
+                detailed_indicators.push(format!("AttackTargetRead({})", targets.join(", ")));
             }
 
             // 6. High entropy
@@ -583,11 +594,22 @@ impl BehaviorEngine {
                         let value_name_opt = indicator.value_name.as_deref();
                         let expected_data_opt = indicator.expected_data.as_deref();
 
+                        // Find process that touched this key recently
+                        let mut offending_proc_info = String::from("Unknown Process");
+                        let indicator_path_lower = indicator.path.to_lowercase();
+                        
+                        // Look for the most recent process that touched this key
+                        if let Some(state) = self.process_states.values()
+                            .filter(|s| s.registry_activity.iter().any(|(p, _)| p.to_lowercase().contains(&indicator_path_lower)))
+                            .last() {
+                            offending_proc_info = format!("{} ({})", state.appname, state.exepath);
+                        }
+
                         if value_name_opt.is_none() && expected_data_opt.is_none() {
                             // Path-only indicator: Key exists, so it's a match!
                             Logging::warning(&format!(
-                                "[BehaviorEngine] !!! REGISTRY DETECTION (PATH) !!!\nRule: {}\nKey: {}\nAction: Malicious Registry Key Presence Detected",
-                                rule.name, indicator.path
+                                "[BehaviorEngine] !!! REGISTRY DETECTION (PATH) !!!\nProcess: {}\nRule: {}\nKey: {}\nAction: Malicious Registry Key Presence Detected",
+                                offending_proc_info, rule.name, indicator.path
                             ));
                         } else {
                             let value_name_str = value_name_opt.unwrap_or("");
@@ -606,8 +628,6 @@ impl BehaviorEngine {
                                              val.to_string()
                                          } else { String::new() }
                                      } else if data_type == REG_SZ || data_type == REG_EXPAND_SZ {
-                                         // Ansi string (since we used A version)
-                                         // Remove null terminator
                                          String::from_utf8_lossy(&buffer).trim_end_matches('\0').to_string()
                                      } else {
                                          String::from("Unsupported")
@@ -617,35 +637,31 @@ impl BehaviorEngine {
                                      let matched = if data_type == REG_DWORD {
                                          actual_value == expected_data
                                      } else {
-                                         // Case insensitive contains for strings
                                          actual_value.to_lowercase().contains(&expected_data.to_lowercase())
                                      };
     
                                      if matched {
                                          Logging::warning(&format!(
-                                            "[BehaviorEngine] !!! REGISTRY DETECTION !!!\nRule: {}\nKey: {}\\{:?}\nValue: {}\nExpected: {}\nAction: Malicious Registry Modification Detected - REVERTING...",
-                                            rule.name, indicator.path, indicator.value_name, actual_value, expected_data
+                                            "[BehaviorEngine] !!! REGISTRY DETECTION !!!\nProcess: {}\nRule: {}\nKey: {}\\{}\nValue: {}\nExpected: {}\nAction: Malicious Registry Modification Detected - REVERTING...",
+                                            offending_proc_info, rule.name, indicator.path, indicator.value_name.as_deref().unwrap_or(""), actual_value, expected_data
                                          ));
                                          
                                          // Revert Logic
                                          unsafe {
                                              let vn_lower = value_name_str.to_lowercase();
                                              if vn_lower == "debugger" {
-                                                 // For IFEO hijacks, remove the Debugger value entirely
                                                  let _ = windows::Win32::System::Registry::RegDeleteValueA(hkey, PCSTR(value_name.as_ptr() as *const _));
-                                                 Logging::info(&format!("Reverted IFEO Hijack on: {}", indicator.path));
+                                                 Logging::info(&format!("Reverted IFEO Hijack on: {} (Offending Process: {})", indicator.path, offending_proc_info));
                                              } else if actual_value == "1" {
-                                                 // For boolean disablers (DisableAntiSpyware=1), set back to 0
                                                  let zero = 0u32;
                                                  let zero_bytes = zero.to_le_bytes();
                                                  let _ = windows::Win32::System::Registry::RegSetValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), 0, REG_DWORD, Some(&zero_bytes));
-                                                 Logging::info(&format!("Reverted Security Policy Change: {:?} = 0", indicator.value_name));
+                                                 Logging::info(&format!("Reverted Security Policy Change: {} = 0 (Offending Process: {})", indicator.value_name.as_deref().unwrap_or(""), offending_proc_info));
                                              } else if actual_value == "0" && (vn_lower == "tamperprotection" || vn_lower == "enablelua") {
-                                                 // For critical enablements set to 0, set back to 1
                                                  let one = 1u32;
                                                  let one_bytes = one.to_le_bytes();
                                                  let _ = windows::Win32::System::Registry::RegSetValueExA(hkey, PCSTR(value_name.as_ptr() as *const _), 0, REG_DWORD, Some(&one_bytes));
-                                                 Logging::info(&format!("Reverted Security Policy Change: {:?} = 1", indicator.value_name));
+                                                 Logging::info(&format!("Reverted Security Policy Change: {} = 1 (Offending Process: {})", indicator.value_name.as_deref().unwrap_or(""), offending_proc_info));
                                              }
                                          }
                                      }
