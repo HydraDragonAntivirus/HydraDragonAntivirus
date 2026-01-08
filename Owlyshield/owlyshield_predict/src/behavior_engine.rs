@@ -603,6 +603,10 @@ impl BehaviorEngine {
                             .filter(|s| s.registry_activity.iter().any(|(p, _)| p.to_lowercase().contains(&indicator_path_lower)))
                             .last() {
                             offending_proc_info = format!("{} ({})", state.appname, state.exepath);
+                        } else {
+                            // SKIP if we can't attribute it to a process we are tracking
+                            let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
+                            continue;
                         }
 
                         if value_name_opt.is_none() && expected_data_opt.is_none() {
