@@ -38,4 +38,4 @@ windows = { version = "0.62.2", features = [
 ] }
 shared_no_std = { path = "../../Sanctum/shared_no_std" }
 tokio = { version = "1", features = ["full"] }
-url = "2.5.7"
+url = "2.5.8"
