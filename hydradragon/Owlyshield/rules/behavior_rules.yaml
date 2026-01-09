@@ -1,0 +1,273 @@
+# Advanced Behavioral Rules for HydraDragon Attack Pipeline Protection
+- name: "Unified Attack Pipeline Detection"
+  attack_line:
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "Opera Software\\Opera GX Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
+  attack_target:
+    - "Cookies"
+    - "Login Data"
+    - "Web Data"
+    - "Local State"
+  attack_staging:
+    - "AppData\\Local\\Temp"
+  pipeline_threshold: 2
+  time_window_ms: 30000
+  detect_exfiltration: true
+  conditions_percentage: 0.5
+  crypto_apis:
+    - "CryptUnprotectData"
+    - "BCryptDecrypt"
+    - "NCryptDecrypt"
+    - "DPAPI"
+  suspicious_parents:
+    - "powershell.exe"
+    - "cmd.exe"
+    - "wscript.exe"
+    - "cscript.exe"
+    - "mshta.exe"
+    - "python.exe"
+    - "node.exe"
+  allowlisted_apps:
+    - "chrome.exe"
+    - "msedge.exe"
+    - "brave.exe"
+    - "opera.exe"
+    - "discord.exe"
+    - "codium.exe"
+    - "vscodium.exe"
+    - "code.exe"
+    - "visualstudio.exe"
+    - "devenv.exe"
+    - "WindowsPackageManagerServer.exe"
+  quarantine: true
+  archive_locations:
+    - "AppData\\Local\\Temp"
+  entropy_threshold: 7.0
+  archive_actions:
+    - "CreateZip"
+    - "CreateRar"
+    - "7z"
+    - "tar"
+    - ".zip"
+    - ".rar"
+  max_staging_lifetime_ms: 7200000
+  min_evasion_delay_ms: 120000
+  closed_process_paths:
+    - "chrome.exe"
+    - "msedge.exe"
+    - "brave.exe"
+    - "opera.exe"
+    - "discord.exe"
+
+- name: "Aggressive Trojan Persistence & Disability"
+  pipeline_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false
+  registry_indicators:
+    - path: "HKLM\\Software\\Policies\\Microsoft\\Windows Defender"
+      value_name: "DisableAntiSpyware"
+      expected_data: "1"
+    - path: "HKLM\\Software\\Microsoft\\Windows Defender"
+      value_name: "DisableAntiSpyware"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features"
+      value_name: "TamperProtection"
+      expected_data: "0"
+    - path: "HKLM\\Software\\Policies\\Microsoft\\Windows Defender"
+      value_name: "DisableScanOnRealTimeEnable"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU"
+      value_name: "NoAutoUpdate"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableTaskMgr"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableRegistryTools"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableCMD"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableMMC"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoRun"
+      expected_data: "0"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoControlPanel"
+      expected_data: "0"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoLogoff"
+      expected_data: "0"
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\regedit.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\explorer.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\msconfig.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+    - path: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\cmd.exe'
+      value_name: 'Debugger'
+      expected_data: ''
+  quarantine: true
+  conditions_percentage: 1.0
+
+- name: "Aggressive Source-Target Pipeline Protection"
+  pipeline_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false
+  source_locations:
+    - "\\Users\\"
+    - "\\Temp\\"
+  target_locations:
+    - "\\Windows\\"
+    - "Program Files"
+    - "System32"
+    - "SysWOW64"
+    - "ProgramData\\Microsoft\\Windows Defender"
+  quarantine: true
+  conditions_percentage: 1.0
+
+- name: "SDK Detection: Attack Pipeline (Rust Variant)"
+  pipeline_threshold: 1
+  time_window_ms: 10000
+  detect_exfiltration: true
+  blacklisted_processes:
+    - "x64dbg.exe"
+    - "x32dbg.exe"
+    - "ollydbg.exe"
+    - "ida64.exe"
+    - "ida.exe"
+    - "windbg.exe"
+    - "dnspy.exe"
+    - "ilspy.exe"
+    - "ghidra.exe"
+    - "pestudio.exe"
+    - "wireshark.exe"
+    - "fiddler.exe"
+    - "httpdebuggerui.exe"
+    - "HTTP Toolkit.exe"
+    - "procmon.exe"
+    - "procmon64.exe"
+    - "processhacker.exe"
+    - "megadumper.exe"
+    - "extremedumper.exe"
+  memory_signatures:
+    - "ksdumper.exe"
+    - "ksdumperclient.exe"
+    - "df5serv.exe"
+    - "joeboxcontrol.exe"
+    - "joeboxserver.exe"
+    - "petools.exe"
+    - "hxd.exe"
+    - "protection_id.exe"
+    - "scyllahide.exe"
+    - "de4dot.exe"
+    - "vmtoolsd.exe"
+    - "vmacthlp.exe"
+    - "vgauthservice.exe"
+    - "VBoxService.exe"
+    - "VBoxTray.exe"
+    - "qemu-ga.exe"
+    - "prl_cc.exe"
+    - "prl_tools.exe"
+    - "xenservice.exe"
+    - "DFServ.exe"
+    - "MsMpEng.exe"
+    - "avp.exe"
+    - "avgui.exe"
+    - "avguard.exe"
+    - "bdagent.exe"
+    - "ekrn.exe"
+    - "mbam.exe"
+    - "SophosUI.exe"
+  blacklisted_users:
+    - "Johnson"
+    - "Miller"
+    - "malware"
+    - "maltest"
+    - "CurrentUser"
+    - "Sandbox"
+    - "virus"
+    - "John Doe"
+    - "test user"
+    - "sand box"
+    - "WDAGUtilityAccount"
+    - "Bruno"
+    - "george"
+    - "Harry Johnson"
+    - "analyst"
+    - "admin"
+    - "anyrun"
+  blacklisted_services:
+    - "VMTools"
+    - "VBoxService"
+    - "vmicheartbeat"
+    - "SbieSvc"
+    - "DFServ"
+    - "cmdGuard"
+    - "ShadowDefenderService"
+    - "WinDefend"
+  registry_indicators:
+    - path: "HKLM\\SOFTWARE\\VMware, Inc.\\VMware Tools"
+    - path: "HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Virtual Machine\\Guest\\Parameters"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Sandboxie"
+    - path: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\cmdGuard"
+    - path: "HKLM\\SOFTWARE\\ShadowDefender"
+  registry_security_locking: true
+  archive_actions: ["7z", "zip", "rar", "tar"]
+  max_staging_lifetime_ms: 7200000
+  min_evasion_delay_ms: 180000
+  conditions_percentage: 0.15
+
+- name: "Tasia Correlation Detection"
+  closed_process_paths:
+    - "explorer.exe"
+    - "taskmgr.exe"
+  registry_indicators:
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableRegistryTools"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableTaskMgr"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableLockWorkstation"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "DisableChangePassword"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Policies\\Microsoft\\Windows\\System"
+      value_name: "DisableCMD"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoLogoff"
+      expected_data: "1"
+    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+      value_name: "NoClose"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+      value_name: "HideFastUserSwitching"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System"
+      value_name: "DontDisplayNetworkSelectionUI"
+      expected_data: "1"
+    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
+      value_name: "Debugger"
+  quarantine: true
+  conditions_percentage: 0.25
+  pipeline_threshold: 0
+  time_window_ms: 0
+  detect_exfiltration: false
