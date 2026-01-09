@@ -1,0 +1,33 @@
+# Sandbox Detection Building Blocks (Private Rules)
+
+- name: "VMware Artifacts"
+  description: "Detects VMware related files and registry keys."
+  is_private: true
+  min_stages_satisfied: 1
+  stages:
+    - name: "Registry Keys"
+      conditions:
+        - type: "Registry"
+          op: "Open"
+          key_pattern: "(?i)SOFTWARE\\\\VMware, Inc\\.\\\\VMware Tools"
+    - name: "Files"
+      conditions:
+        - type: "File"
+          op: "Open"
+          path_pattern: "(?i)C:\\\\windows\\\\system32\\\\drivers\\\\vmmouse.sys"
+
+- name: "VirtualBox Artifacts"
+  description: "Detects VirtualBox related files and registry keys."
+  is_private: true
+  min_stages_satisfied: 1
+  stages:
+    - name: "Registry Keys"
+      conditions:
+        - type: "Registry"
+          op: "Open"
+          key_pattern: "(?i)SOFTWARE\\\\Oracle\\\\VirtualBox Guest Additions"
+    - name: "Files"
+      conditions:
+        - type: "File"
+          op: "Open"
+          path_pattern: "(?i)C:\\\\windows\\\\system32\\\\drivers\\\\VBoxMouse.sys"

@@ -1,208 +1,277 @@
-/*
- * ============================================================================
- * HYDRADRAGON ULTIMATE EDR BEHAVIOR ENGINE V4.0 (WINDOWS NATIVE)
- * ============================================================================
- * "Vibe Coding" Level: Deep Kernel-to-User Telemetry Correlation
- * Features:
- * - Granular Module/DLL Load Tracking (Anti-Hooking & LDR Monitoring)
- * - Surgical API Usage Heuristics (Dynamic Resolved & Static Linked)
- * - multi-stage Cyber Kill-Chain Correlation (Attack Pipeline)
- * - Forensic System Journaling & MITRE ATTACK TTP Mapping
- * ============================================================================
- */
-
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
+use regex::Regex;
 
 // --- EDR Telemetry & Framework ---
-use crate::shared_def::{IOMessage, IrpMajorOp, FileChangeInfo};
+use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
-use sysinfo::{SystemExt, ProcessExt, PidExt};
-use num::FromPrimitive;
+use sysinfo::{SystemExt, ProcessExt};
 
 #[cfg(target_os = "windows")]
 use crate::services::ServiceChecker;
 
 // ============================================================================
-// MITRE ATT&CK FRAMEWORK (EDR STANDARD)
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum MitreTactic {
-    InitialAccess, Execution, Persistence, PrivilegeEscalation,
-    DefenseEvasion, CredentialAccess, Discovery, LateralMovement,
-    Collection, CommandAndControl, Exfiltration, Impact,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MitreMapping {
-    pub id: String,         // e.g. T1105
-    pub name: String,       // e.g. Ingress Tool Transfer
-    pub tactic: MitreTactic,
-}
-
-// ============================================================================
-// FORENSIC TELEMETRY DATA TYPES
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryIndicator {
-    pub path: String,
-    #[serde(default)] pub value_name: Option<String>,
-    #[serde(default)] pub expected_data: Option<String>,
-    #[serde(default)] pub auto_revert: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DllDependency {
-    pub name: String,
-    #[serde(default)] pub description: String,
-    #[serde(default)] pub critical: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiIndicator {
-    pub function_name: String,
-    pub module_name: String,
-    #[serde(default)] pub severity_impact: u8,
-}
-
-// ============================================================================
-// THE ULTIMATE BEHAVIORAL RULE SCHEMA (v4.0)
+// GENERIC CONFIGURATION STRUCTURES
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
-    #[serde(default)] pub description: String,
-    #[serde(default)] pub severity: u8,
-    #[serde(default)] pub is_private: bool,
-    #[serde(default)] pub depends_on: Vec<String>,
-    #[serde(default)] pub mitre_mappings: Vec<MitreMapping>,
-
-    // --- Cyber Kill-Chain Pipeline ---
-    #[serde(default)] pub attack_line: Vec<String>,
-    #[serde(default)] pub attack_target: Vec<String>,
-    #[serde(default)] pub attack_staging: Vec<String>,
-    #[serde(default)] pub pipeline_threshold: usize,
-    #[serde(default)] pub time_window_ms: u64,
-
-    // --- DEEP DLL & API MONITORING ---
-    #[serde(default)] pub required_dlls: Vec<DllDependency>,
-    #[serde(default)] pub suspicious_apis: Vec<ApiIndicator>,
-    #[serde(default)] pub suspicious_dll_patterns: Vec<String>,
+    pub description: String,
+    pub severity: u8,
     
-    // --- Advanced Heuristics ---
-    #[serde(default)] pub entropy_threshold: f64,
-    #[serde(default)] pub proc_spawn_threshold: usize,
-    #[serde(default)] pub archive_actions: Vec<String>,
-    #[serde(default)] pub crypto_indicators: Vec<String>,
+    #[serde(default)]
+    pub stages: Vec<AttackStage>,
+    
+    #[serde(default)]
+    pub mapping: Option<RuleMapping>,
 
-    // --- Lineage & Identity ---
-    #[serde(default)] pub suspicious_parents: Vec<String>,
-    #[serde(default)] pub process_search: Vec<String>,
-    #[serde(default)] pub commandline_patterns: Vec<String>,
-    #[serde(default)] pub blacklist_users: Vec<String>,
-    #[serde(default)] pub allowlisted_apps: Vec<String>,
+    /// Minimum number of stages that must be satisfied to trigger the rule
+    #[serde(default = "default_min_stages")]
+    pub min_stages_satisfied: usize,
+    
+    /// Percentage of conditions within stages that must be met (optional alternative)
+    #[serde(default)]
+    pub conditions_percentage: f32,
+    
+    /// Global time window for correlating all stages
+    #[serde(default)]
+    pub time_window_ms: u64,
+    
+    #[serde(default)]
+    pub response: ResponseAction,
 
-    // --- Persistence & System Tampering ---
-    #[serde(default)] pub registry_indicators: Vec<RegistryIndicator>,
-    #[serde(default)] pub registry_locking: bool,
-    #[serde(default)] pub service_stop_patterns: Vec<String>,
+    #[serde(default)]
+    pub is_private: bool,
 
-    // --- Decision Logic ---
-    #[serde(default)] pub conditions_total: usize,
-    #[serde(default)] pub conditions_percentage: f32,
-    #[serde(default)] pub min_evasion_delay_ms: u64,
+    #[serde(default)]
+    pub allowlisted_apps: Vec<String>,
+}
 
-    // --- Automated Response ---
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleMapping {
+    And(Vec<RuleMapping>),
+    Or(Vec<RuleMapping>),
+    Not(Box<RuleMapping>),
+    Stage(String),
+}
+
+fn default_min_stages() -> usize { 1 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttackStage {
+    pub name: String,
+    pub conditions: Vec<RuleCondition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum RuleCondition {
+    File {
+        op: String, // "Open", "Read", "Write", "Delete", "Rename", "Create"
+        path_pattern: String,
+    },
+    Registry {
+        op: String, // "Create", "Delete", "SetValue", "SetSecurity"
+        key_pattern: String,
+        value_name: Option<String>,
+        expected_data: Option<String>,
+    },
+    Process {
+        op: String, // "Spawn", "Terminate", "CommandLine", "Parent"
+        pattern: String,
+    },
+    Service {
+        op: String, // "Start", "Stop", "Delete", "Create"
+        name_pattern: String,
+    },
+    Network {
+        op: String, // "Connect", "Listen"
+        dest_pattern: Option<String>,
+    },
+    Api {
+        name_pattern: String,
+        module_pattern: String,
+    },
+    Heuristic {
+        metric: String, // "Entropy"
+        threshold: f64,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResponseAction {
     #[serde(default)] pub terminate_process: bool,
+    #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
     #[serde(default)] pub block_network: bool,
+    #[serde(default)] pub auto_revert: bool,
+    #[serde(default)] pub signal_firewall: Option<String>,
 }
 
 // ============================================================================
-// COMPREHENSIVE PROCESS BEHAVIOR TRACKER
+// DYNAMIC STATE ENGINE
 // ============================================================================
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ProcessBehaviorState {
     pub gid: u64,
     pub pid: u32,
     pub appname: String,
-    pub exepath: String,
     pub cmdline: String,
     pub parent_name: String,
-    pub user_owner: String,
+    
+    /// Track satisfied stages: Map<RuleName, Set<StageIndex>>
+    pub satisfied_stages: HashMap<String, HashSet<usize>>,
+    
+    /// Track satisfied conditions: Map<RuleName, Map<StageIndex, Set<ConditionIndex>>>
+    pub satisfied_conditions: HashMap<String, HashMap<usize, HashSet<usize>>>,
 
-    // --- Deep Inspection Buffers ---
-    pub modules_loaded: HashSet<String>,      // Tracking DLLs (Kernel + Usermode hooks)
-    pub api_trace_log: HashSet<String>,      // Tracking specific API usage found in strings/imports
-    pub files_managed: HashSet<String>,      // Files opened/created
-    pub modified_registry: HashSet<String>,
-    pub spawn_log: HashSet<u32>,
-    
-    // --- Behavioral Metrics ---
-    pub peak_entropy: f64,
-    pub security_score: u8,
-    pub pipeline_stages: HashSet<String>,    // LINE, TARGET, STAGING
-    pub first_seen_ts: Option<SystemTime>,
-    pub last_telemetry_ts: SystemTime,
-    
-    // --- Forensic Journal ---
-    pub journal: VecDeque<String>,
-    pub matched_rules: HashSet<String>,
-    pub target_mitre_ids: HashSet<String>,
+    pub first_event_ts: Option<SystemTime>,
+    pub last_event_ts: SystemTime,
+
+    // Performance: caching telemetry results
+    pub entropy_max: f64,
+    pub active_connections: bool,
 }
 
-// ============================================================================
-// THE EDR ENGINE
-// ============================================================================
+impl Default for ProcessBehaviorState {
+    fn default() -> Self {
+        Self {
+            gid: 0,
+            pid: 0,
+            appname: String::new(),
+            cmdline: String::new(),
+            parent_name: String::new(),
+            satisfied_stages: HashMap::new(),
+            satisfied_conditions: HashMap::new(),
+            first_event_ts: None,
+            last_event_ts: SystemTime::now(),
+            entropy_max: 0.0,
+            active_connections: false,
+        }
+    }
+}
 
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
-    pub event_history: VecDeque<String>,
+    regex_cache: HashMap<String, Regex>,
     sys: sysinfo::System,
 }
 
 impl BehaviorEngine {
     pub fn new() -> Self {
-        BehaviorEngine {
+        Self {
             rules: Vec::new(),
             process_states: HashMap::new(),
-            event_history: VecDeque::with_capacity(5000),
+            regex_cache: HashMap::new(),
             sys: sysinfo::System::new_all(),
         }
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let file = std::fs::File::open(path)?;
-        let rules: Vec<BehaviorRule> = serde_yaml::from_reader(file)?;
+        let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
-        Logging::info(&format!("[EDR] Vibe Check: {} professional rules loaded.", self.rules.len()));
+        
+        // Pre-compile Regex
+        let mut patterns = HashSet::new();
+        for rule in &self.rules {
+            for stage in &rule.stages {
+                for cond in &stage.conditions {
+                    match cond {
+                        RuleCondition::File { path_pattern, .. } => { patterns.insert(path_pattern.clone()); }
+                        RuleCondition::Registry { key_pattern, .. } => { patterns.insert(key_pattern.clone()); }
+                        RuleCondition::Process { pattern, .. } => { patterns.insert(pattern.clone()); }
+                        RuleCondition::Service { name_pattern, .. } => { patterns.insert(name_pattern.clone()); }
+                        RuleCondition::Network { dest_pattern, .. } => { if let Some(p) = dest_pattern { patterns.insert(p.clone()); } }
+                        RuleCondition::Api { name_pattern, module_pattern } => {
+                            patterns.insert(name_pattern.clone());
+                            patterns.insert(module_pattern.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for pattern in patterns {
+            self.cache_regex(&pattern);
+        }
+        
+        Logging::info(&format!("[EDR]: {} generic rules loaded (including sub-rules).", self.rules.len()));
         Ok(())
     }
 
-    /// Surgical event dispatch.
+    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        let mut rules = Vec::new();
+
+        // Support !include by pre-parsing or using a custom resolver
+        // For simplicity and robustness, we'll look for '!include' lines manually if needed, 
+        // but often users prefer a clean YAML-native inclusion.
+        // Here we'll implement a simple recursive loader that looks for a top-level 'includes' key if parsing fails as a list,
+        // or we preprocess the string.
+        
+        if content.contains("!include") {
+            // Simple preprocessing to resolve !include <path>
+            let mut resolved_content = String::new();
+            for line in content.lines() {
+                if line.trim().starts_with("!include ") {
+                    let include_path_str = line.trim().trim_start_matches("!include ").trim();
+                    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+                    let include_path = parent.join(include_path_str);
+                    let sub_rules = self.load_rules_recursive(&include_path)?;
+                    // Convert sub-rules back to YAML to merge into the stream
+                    resolved_content.push_str(&serde_yaml::to_string(&sub_rules)?);
+                } else {
+                    resolved_content.push_str(line);
+                    resolved_content.push('\n');
+                }
+            }
+            let r: Vec<BehaviorRule> = serde_yaml::from_str(&resolved_content)?;
+            rules.extend(r);
+        } else {
+            let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
+            rules.extend(r);
+        }
+
+        Ok(rules)
+    }
+
+    fn cache_regex(&mut self, pattern: &str) {
+        if !self.regex_cache.contains_key(pattern) {
+            if let Ok(re) = Regex::new(&format!("(?i){}", pattern)) {
+                self.regex_cache.insert(pattern.to_string(), re);
+            }
+        }
+    }
+
+    fn matches(&self, pattern: &str, text: &str) -> bool {
+        if let Some(re) = self.regex_cache.get(pattern) {
+            re.is_match(text)
+        } else {
+            text.to_lowercase().contains(&pattern.to_lowercase())
+        }
+    }
+
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         let gid = msg.gid;
-        let op = IrpMajorOp::from_byte(msg.irp_op);
-        let path = msg.filepathstr.to_lowercase();
-        
-        // 1. Ensure State State Hub
-        if !self.process_states.contains_key(&gid) {
+        let now = SystemTime::now();
+
+        // 1. Ensure state exists
+        let state = self.process_states.entry(gid).or_insert_with(|| {
             self.sys.refresh_processes();
             let mut s = ProcessBehaviorState::default();
-            s.gid = gid; s.pid = msg.pid;
+            s.gid = gid;
+            s.pid = msg.pid;
             s.appname = precord.appname.clone();
-            s.exepath = precord.exepath.to_string_lossy().to_string();
-            s.last_telemetry_ts = SystemTime::now();
-            s.first_seen_ts = Some(precord.time_started);
-
+            s.first_event_ts = Some(now);
+            
             if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
                 s.cmdline = proc.cmd().join(" ");
                 if let Some(parent) = proc.parent() {
@@ -211,204 +280,187 @@ impl BehaviorEngine {
                     }
                 }
             }
-            self.process_states.insert(gid, s);
+            s
+        });
+
+        state.last_event_ts = now;
+
+        // 2. Pre-process global metrics
+        if msg.is_entropy_calc == 1 && msg.entropy > state.entropy_max {
+            state.entropy_max = msg.entropy;
         }
 
-        // 2. Telemetry Ingestion & API/DLL Detection
-        {
-            let s = self.process_states.get_mut(&gid).unwrap();
-            s.last_telemetry_ts = SystemTime::now();
-
-            match op {
-                IrpMajorOp::IrpCreate => {
-                    s.files_managed.insert(path.clone());
-                    // DLL LOAD DETECTION
-                    if path.ends_with(".dll") {
-                        let dll_name = path.split('\\').last().unwrap_or(&path).to_string();
-                        s.modules_loaded.insert(dll_name.clone());
-                        s.journal.push_back(format!("DLL_LOAD: {}", dll_name));
-                    }
-                }
-                IrpMajorOp::IrpWrite => {
-                    s.files_managed.insert(path.clone());
-                    if msg.is_entropy_calc == 1 {
-                        if msg.entropy > s.peak_entropy { s.peak_entropy = msg.entropy; }
-                    }
-                }
-                IrpMajorOp::IrpRegistry => {
-                    s.modified_registry.insert(path.clone());
-                }
-                _ => {}
-            }
-
-            // --- SURGICAL API & SYSTEM INDICATORS ---
-            // We scan the path and cmdline for sensitive API strings (HIPS style)
-            let sensitive_indicators = [
-                "cryptunprotectdata", "bcryptdecrypt", "ntquerysysteminformation", 
-                "zwopensymboliclinkobject", "lsaenumeratelogonsessions", "samrqueryinformationuser",
-                "createpursuit", "ntcreateuserprocess", "winhttpconnect", "shellexecutew"
-            ];
-            for indicator in &sensitive_indicators {
-                if path.contains(indicator) || s.cmdline.to_lowercase().contains(indicator) {
-                    s.api_trace_log.insert(indicator.to_string());
-                }
-            }
-
-            // --- Multi-Stage Pipeline Tracking ---
-            for rule in &self.rules {
-                if rule.attack_line.iter().any(|p| path.contains(&p.to_lowercase())) { s.pipeline_stages.insert(format!("{}:LINE", rule.name)); }
-                if rule.attack_target.iter().any(|p| path.contains(&p.to_lowercase())) { s.pipeline_stages.insert(format!("{}:TARGET", rule.name)); }
-                if rule.attack_staging.iter().any(|p| path.contains(&p.to_lowercase())) { s.pipeline_stages.insert(format!("{}:STAGING", rule.name)); }
-            }
-        }
-
-        // 3. Rule Evaluation HUB
-        self.evaluate_behavioral_rules(precord, gid);
-    }
-
-    fn evaluate_behavioral_rules(&mut self, precord: &mut ProcessRecord, gid: u64) {
-        let state = if let Some(s) = self.process_states.get(&gid) { s.clone() } else { return };
-        let mut alert_queue = Vec::new();
+        // 3. Evaluate each rule's stages
+        let mut triggered_rules = Vec::new();
 
         for rule in &self.rules {
-            if state.matched_rules.contains(&rule.name) { continue; }
-            if !rule.depends_on.iter().all(|dep| state.matched_rules.contains(dep)) { continue; }
+            // Allowlisting
+            if rule.allowlisted_apps.iter().any(|app| state.appname.to_lowercase().contains(&app.to_lowercase())) {
+                continue;
+            }
 
-            let (is_match, reason) = self.check_logic(rule, &state);
-            if is_match {
-                alert_queue.push((rule.name.clone(), rule.mitre_mappings.clone()));
-
-                if !rule.is_private {
-                    Logging::warning(&format!(
-                        "[HYDRADRAGON ALERT] Policy Breached: {} | Process: {} | Indicators: {}", 
-                        rule.name, precord.appname, reason.join(", ")
-                    ));
-
-                    if rule.terminate_process {
-                        precord.is_malicious = true;
-                        precord.termination_requested = true;
-                        if rule.quarantine { precord.quarantine_requested = true; }
+            // Expiration logic
+            if rule.time_window_ms > 0 {
+                if let Some(first) = state.first_event_ts {
+                    if now.duration_since(first).unwrap_or(Duration::from_secs(0)).as_millis() as u64 > rule.time_window_ms {
+                        // Reset progress if window exceeded
+                        state.satisfied_stages.remove(&rule.name);
+                        state.satisfied_conditions.remove(&rule.name);
+                        state.first_event_ts = Some(now);
                     }
+                }
+            }
+
+            for (s_idx, stage) in rule.stages.iter().enumerate() {
+                for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state) {
+                        let rule_conds = state.satisfied_conditions
+                            .entry(rule.name.clone())
+                            .or_insert_with(HashMap::new);
+                        
+                        let stage_conds = rule_conds.entry(s_idx).or_insert_with(HashSet::new);
+                        stage_conds.insert(c_idx);
+
+                        state.satisfied_stages
+                            .entry(rule.name.clone())
+                            .or_insert_with(HashSet::new)
+                            .insert(s_idx);
+                    }
+                }
+            }
+
+            // Check if rule should trigger
+            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+            if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
+                triggered_rules.push(rule.clone());
+            } else if rule.conditions_percentage > 0.01 {
+                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
+                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
+                
+                if (satisfied_conds as f32 / total_conds as f32) >= rule.conditions_percentage {
+                    triggered_rules.push(rule.clone());
                 }
             }
         }
 
-        if !alert_queue.is_empty() {
-            if let Some(target) = self.process_states.get_mut(&gid) {
-                for (name, mitre) in alert_queue {
-                    target.matched_rules.insert(name);
-                    for m in mitre { target.target_mitre_ids.insert(m.id); }
+        // 4. Execution
+        for rule in triggered_rules {
+            if rule.is_private {
+                // Private rules only update state, they don't trigger alerts or actions
+                continue;
+            }
+
+            Logging::warning(&format!("[HYDRADRAGON ALERT] Policy Breached: {} | Process: {}", rule.name, state.appname));
+            
+            if rule.response.terminate_process {
+                precord.termination_requested = true;
+                precord.is_malicious = true;
+                if let Some(proc) = self.sys.process(sysinfo::Pid::from(state.pid as usize)) {
+                    proc.kill();
                 }
+            }
+
+            if rule.response.quarantine {
+                precord.quarantine_requested = true;
+            }
+
+            if let Some(signal) = &rule.response.signal_firewall {
+                Self::signal_firewall_internal(state.pid, signal);
+            }
+
+            if rule.response.auto_revert {
+                Self::revert_registry_internal(msg);
             }
         }
     }
 
-    fn check_logic(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> (bool, Vec<String>) {
-        if rule.allowlisted_apps.iter().any(|app| state.appname.to_lowercase().contains(&app.to_lowercase())) {
-            return (false, Vec::new());
-        }
-
-        let mut indicators = Vec::new();
-        let mut count = 0;
-
-        // 1. Pipeline Stages
-        let rule_line = state.pipeline_stages.contains(&format!("{}:LINE", rule.name));
-        let rule_target = state.pipeline_stages.contains(&format!("{}:TARGET", rule.name));
-        let rule_staging = state.pipeline_stages.contains(&format!("{}:STAGING", rule.name));
+    fn evaluate_condition_internal(regex_cache: &HashMap<String, Regex>, cond: &RuleCondition, msg: &IOMessage, state: &ProcessBehaviorState) -> bool {
+        let op = IrpMajorOp::from_byte(msg.irp_op);
         
-        let pipeline_hits = rule_line as usize + rule_target as usize + rule_staging as usize;
-        if rule.pipeline_threshold > 0 && pipeline_hits >= rule.pipeline_threshold {
-            count += 1; indicators.push(format!("Pipeline({})", pipeline_hits));
-        }
+        match cond {
+            RuleCondition::File { op: f_op, path_pattern } => {
+                let path_match = Self::matches_internal(regex_cache, path_pattern, &msg.filepathstr);
+                if !path_match { return false; }
 
-        // 2. DEEP DLL WATCH
-        for dll in &rule.required_dlls {
-            if state.modules_loaded.contains(&dll.name.to_lowercase()) {
-                count += 1; indicators.push(format!("DLL:{}", dll.name));
-            }
-        }
-        for pattern in &rule.suspicious_dll_patterns {
-            if state.modules_loaded.iter().any(|m| m.contains(&pattern.to_lowercase())) {
-                count += 1; indicators.push(format!("DllPattern:{}", pattern));
-            }
-        }
-
-        // 3. API USAGE WATCH
-        for api in &rule.suspicious_apis {
-            if state.api_trace_log.contains(&api.function_name.to_lowercase()) {
-                count += 1; indicators.push(format!("API:{}", api.function_name));
-            }
-        }
-
-        // 4. Persistence & Services
-        #[cfg(target_os = "windows")]
-        {
-            for svc in &rule.service_stop_patterns {
-                if !ServiceChecker::is_running(svc) {
-                    count += 1; indicators.push(format!("ServiceStopped:{}", svc));
+                match f_op.as_str() {
+                    "Write" => op == IrpMajorOp::IrpWrite,
+                    "Read" | "Open" => op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate,
+                    "Delete" => msg.file_change == 6 || msg.file_change == 7,
+                    "Rename" => msg.file_change == 4,
+                    "Create" => msg.file_change == 3,
+                    _ => false,
                 }
             }
-        }
+            RuleCondition::Registry { op: r_op, key_pattern, value_name, expected_data } => {
+                if op != IrpMajorOp::IrpRegistry { return false; }
+                if !Self::matches_internal(regex_cache, key_pattern, &msg.filepathstr) { return false; }
+                
+                // Optional refinements
+                if let Some(vn) = value_name {
+                    if !msg.filepathstr.contains(vn) { return false; }
+                }
+                if let Some(ed) = expected_data {
+                    if !msg.extension.contains(ed) { return false; }
+                }
 
-        // 5. CMD & Lineage
-        for p in &rule.commandline_patterns {
-            if state.cmdline.to_lowercase().contains(&p.to_lowercase()) {
-                count += 1; indicators.push(format!("Cmd:{}", p));
+                match r_op.as_str() {
+                    "SetValue" => msg.mem_sized_used > 0,
+                    "SetSecurity" => msg.file_change == 10, // Assuming 10 is SET_SECURITY
+                    "Delete" => msg.file_change == 6,
+                    "Create" => msg.file_change == 3,
+                    _ => true,
+                }
             }
-        }
-        for p in &rule.suspicious_parents {
-            if state.parent_name.to_lowercase().contains(&p.to_lowercase()) {
-                count += 1; indicators.push(format!("Parent:{}", p));
+            RuleCondition::Process { op: p_op, pattern } => {
+                match p_op.as_str() {
+                    "CommandLine" => Self::matches_internal(regex_cache, pattern, &state.cmdline),
+                    "Parent" => Self::matches_internal(regex_cache, pattern, &state.parent_name),
+                    "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, pattern, &msg.filepathstr),
+                    _ => false,
+                }
             }
-        }
-
-        // Decision logic
-        if rule.conditions_total > 0 {
-            return (count >= rule.conditions_total, indicators);
-        }
-        if rule.conditions_percentage > 0.01 {
-            let ratio = count as f32 / 10.0; // Normalized
-            return (ratio >= rule.conditions_percentage, indicators);
-        }
-
-        (count > 0 && rule.pipeline_threshold == 0, indicators)
-    }
-
-    /// Registry Locking Implementation.
-    #[cfg(target_os = "windows")]
-    pub fn enforce_registry_protection(&mut self) {
-        use windows::Win32::System::Registry::*;
-        use windows::core::PCSTR;
-        use std::ffi::CString;
-
-        for rule in &self.rules {
-            if !rule.registry_locking { continue; }
-            for reg in &rule.registry_indicators {
-                if let (Some(vname), Some(expected)) = (&reg.value_name, &reg.expected_data) {
-                    let parts: Vec<&str> = reg.path.splitn(2, '\\').collect();
-                    if parts.len() < 2 { continue; }
-                    let h_root = match parts[0].to_uppercase().as_str() {
-                        "HKLM" | "HKEY_LOCAL_MACHINE" => HKEY_LOCAL_MACHINE,
-                        "HKCU" | "HKEY_CURRENT_USER" => HKEY_CURRENT_USER,
-                        _ => continue,
-                    };
-                    let key_cstr = CString::new(parts[1]).unwrap_or_default();
-                    let val_cstr = CString::new(vname.as_str()).unwrap_or_default();
-                    let mut hkey = HKEY::default();
-                    unsafe {
-                        if RegOpenKeyExA(h_root, PCSTR(key_cstr.as_ptr() as *const _), 0, KEY_SET_VALUE, &mut hkey).is_ok() {
-                            let data_cstr = CString::new(expected.as_str()).unwrap_or_default();
-                            let _ = RegSetValueExA(hkey, PCSTR(val_cstr.as_ptr() as *const _), 0, REG_SZ, Some(data_cstr.as_bytes_with_nul()));
-                            let _ = RegCloseKey(hkey);
-                        }
+            RuleCondition::Service { op: s_op, name_pattern } => {
+                #[cfg(target_os = "windows")]
+                {
+                    match s_op.as_str() {
+                        "Stop" => !ServiceChecker::is_running(name_pattern),
+                        _ => Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr),
                     }
                 }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr)
+                }
+            }
+            RuleCondition::Api { name_pattern, module_pattern } => {
+                Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr) && Self::matches_internal(regex_cache, module_pattern, &msg.filepathstr)
+            }
+            RuleCondition::Heuristic { metric, threshold } => {
+                match metric.as_str() {
+                    "Entropy" => msg.is_entropy_calc == 1 && msg.entropy >= *threshold,
+                    _ => false,
+                }
+            }
+            RuleCondition::Network { .. } => {
+                state.active_connections
             }
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub fn enforce_registry_protection(&mut self) {}
-}
+    fn matches_internal(regex_cache: &HashMap<String, Regex>, pattern: &str, text: &str) -> bool {
+        if let Some(re) = regex_cache.get(pattern) {
+            re.is_match(text)
+        } else {
+            text.to_lowercase().contains(&pattern.to_lowercase())
+        }
+    }
 
-// EOF - HYDRADRAGON PROFESSIONAL EDR V4.0
+    fn signal_firewall_internal(pid: u32, signal: &str) {
+        Logging::info(&format!("[FIREWALL] Signaling: {} for PID {}", signal, pid));
+    }
+
+    fn revert_registry_internal(msg: &IOMessage) {
+        Logging::info(&format!("[REGISTRY] Reverting change to {}", msg.filepathstr));
+    }
+}

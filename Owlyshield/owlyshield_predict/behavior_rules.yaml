@@ -1,77 +1,104 @@
-# HydraDragon Ultimate EDR Behavioral Rules V4.0
-# "Vibe Coding" Professional Standards: DLL, API & Cyber Kill-Chain Correlation
+# Main Behavior Rules with Modular Inclusion
 
-- name: "Attack Pipeline: Windows Credential Harvester"
-  description: "Detects multi-stage activity targeting sensitive user data and credentials using specialized APIs."
+!include rules/sandboxes.yaml
+
+- name: "Unified Browser Stealer Detection"
+  description: "Detects multi-stage browser credential theft using a generic attack timeline."
   severity: 10
-  mitre_mappings:
-    - id: "T1539"
-      name: "Steal Web Session Cookie"
-      tactic: "CredentialAccess"
-  # Stages of the attack
-  attack_line: ["Google\\Chrome\\User Data", "Microsoft\\Edge\\User Data", "Mozilla\\Firefox\\Profiles"]
-  attack_target: ["Cookies", "Login Data", "Local State", "Web Data"]
-  attack_staging: ["AppData\\Local\\Temp"]
-  pipeline_threshold: 2
-  
-  # Deep API & DLL Inspection
-  suspicious_dll_patterns: ["crypt32", "bcrypt", "ncrypt", "winhttp"]
-  suspicious_apis:
-    - function_name: "cryptunprotectdata"
-      module_name: "crypt32.dll"
-    - function_name: "bcryptdecrypt"
-      module_name: "bcrypt.dll"
-    - function_name: "winhttpconnect"
-      module_name: "winhttp.dll"
-  
-  suspicious_parents: ["powershell.exe", "cmd.exe", "wscript.exe"]
-  terminate_process: true
-  quarantine: true
+  time_window_ms: 60000
+  min_stages_satisfied: 2
+  stages:
+    - name: "Browser Access"
+      conditions:
+        - type: "File"
+          op: "Read"
+          path_pattern: "(?i)Google\\\\Chrome\\\\User Data.*(Cookies|Login Data|Local State)"
+        - type: "File"
+          op: "Read"
+          path_pattern: "(?i)Opera Software\\\\Opera Stable.*(Cookies|Login Data)"
+        - type: "File"
+          op: "Read"
+          path_pattern: "(?i)Discord\\\\Local Storage"
+    - name: "Credential Decryption"
+      conditions:
+        - type: "Api"
+          name_pattern: "CryptUnprotectData|BCryptDecrypt"
+          module_pattern: "crypt32.dll|bcrypt.dll"
+    - name: "Data Staging"
+      conditions:
+        - type: "File"
+          op: "Write"
+          path_pattern: "(?i)AppData\\\\Local\\\\Temp\\\\.*\\.(zip|rar|7z|tar)"
+        - type: "Heuristic"
+          metric: "Entropy"
+          threshold: 7.0
+  response:
+    terminate_process: true
+    quarantine: true
+    signal_firewall: "Block_Exfiltration"
+  allowlisted_apps: ["chrome.exe", "msedge.exe", "discord.exe"]
 
-- name: "Ransomware: Surgical Encryption Discovery"
-  description: "Detects mass file access combined with high-entropy write primitives and crypto module loading."
-  severity: 10
-  mitre_mappings:
-    - id: "T1486"
-      name: "Data Encrypted for Impact"
-      tactic: "Impact"
-  entropy_threshold: 7.2
-  required_dlls:
-    - name: "advapi32.dll"
-      critical: true
-    - name: "bcrypt.dll"
-      critical: true
-  archive_actions: [".crypt", ".locked", ".enc", ".zip"]
-  conditions_total: 2
-  terminate_process: true
-  quarantine: true
-
-- name: "Trojan: Defense Evasion via System Tampering"
-  description: "Detects service manipulation and Log clearing via command-line and registry."
+- name: "Aggressive Trojan Persistence & Disability"
+  description: "Detects tampering with security services and critical registry keys."
   severity: 9
-  mitre_mappings:
-    - id: "T1562.001"
-      name: "Disable or Modify Tools"
-  service_stop_patterns: ["WinDefend", "Sense", "MpsSvc"]
-  commandline_patterns:
-    - "sc stop WinDefend"
-    - "wevtutil cl System"
-    - "vssadmin delete shadows"
-  registry_indicators:
-    - path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
-      value_name: "DisableTaskMgr"
-      expected_data: "1"
-  registry_locking: true
-  terminate_process: true
+  min_stages_satisfied: 1
+  stages:
+    - name: "Disable Security"
+      conditions:
+        - type: "Registry"
+          op: "SetValue"
+          key_pattern: "(?i)Software\\\\Policies\\\\Microsoft\\\\Windows Defender"
+          value_name: "DisableAntiSpyware"
+          expected_data: "1"
+        - type: "Service"
+          op: "Stop"
+          name_pattern: "WinDefend"
+  response:
+    terminate_process: true
+    auto_revert: true
 
-- name: "Malware Family: Tasia Correlation"
-  description: "High-confidence detection for Tasia family using specific system hijacks."
+- name: "EDR Detection: Signature Monster SDK"
+  description: "Detects Signature Monster SDK anti-analysis checks via PowerShell CIM queries."
+  severity: 7
+  min_stages_satisfied: 1
+  stages:
+    - name: "Hardware Identification Checks"
+      conditions:
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "(?i)powershell.*Get-CimInstance.*(Win32_Processor|Win32_BIOS|Win32_BaseBoard|Win32_ComputerSystemProduct)"
+    - name: "Environment Fingerprinting"
+      conditions:
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "(?i)powershell.*Get-ItemProperty.*(MachineGuid|ProductId|DisplayVersion)"
+  response:
+    terminate_process: true
+    signal_firewall: "Isolate_Process"
+
+- name: "Tasia Malware Detection"
+  description: "Specific lockout and destruction patterns."
   severity: 10
-  process_search: ["utilman.exe"]
-  commandline_patterns: ["Debugger"]
-  registry_indicators:
-    - path: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
-      value_name: "Debugger"
-  conditions_total: 1
-  terminate_process: true
-  quarantine: true
+  conditions_percentage: 0.1
+  stages:
+    - name: "Lockout"
+      conditions:
+        - type: "Registry"
+          op: "SetValue"
+          key_pattern: "(?i)Policies\\\\System"
+          value_name: "DisableTaskMgr"
+          expected_data: "1"
+    - name: "UAC/Utility Hijack"
+      conditions:
+        - type: "Registry"
+          op: "SetValue"
+          key_pattern: "(?i)Image File Execution Options\\\\utilman\\.exe"
+          value_name: "Debugger"
+    - name: "Shell Disruption"
+      conditions:
+        - type: "Process"
+          op: "Terminate"
+          pattern: "explorer.exe"
+  response:
+    terminate_process: true
+    quarantine: true
