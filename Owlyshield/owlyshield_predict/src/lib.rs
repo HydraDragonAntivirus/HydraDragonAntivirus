@@ -14,6 +14,8 @@ pub mod shared_def;
 pub mod logging;
 pub mod config;
 pub mod utils;
+#[cfg(target_os = "windows")]
+pub mod services;
 pub mod behavior_engine;
 
 /// SDK-facing exports used by examples and integrations.
