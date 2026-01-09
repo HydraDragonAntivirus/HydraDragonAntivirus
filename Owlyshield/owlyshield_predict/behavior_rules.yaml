@@ -163,6 +163,7 @@
     - "processhacker.exe"
     - "megadumper.exe"
     - "extremedumper.exe"
+  memory_signatures:
     - "ksdumper.exe"
     - "ksdumperclient.exe"
     - "df5serv.exe"

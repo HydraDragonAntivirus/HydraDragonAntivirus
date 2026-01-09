@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
-use sysinfo::{SystemExt, ProcessExt};
+use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryIndicator {
@@ -69,6 +69,8 @@ pub struct BehaviorRule {
     pub registry_security_locking: bool,
     #[serde(default)]
     pub min_evasion_delay_ms: u64,
+    #[serde(default)]
+    pub memory_signatures: Vec<String>,
 }
 
 #[derive(Default)]
@@ -407,7 +409,7 @@ impl BehaviorEngine {
             // 12. Environmental Violations (Check on every event for aggressive detection)
             if !rule.blacklisted_processes.is_empty() || !rule.blacklisted_users.is_empty() || !rule.blacklisted_services.is_empty() {
                 total_tracked_conditions += 1;
-                let (violation, reasons) = self.check_environmental_indicators(rule);
+                let (violation, reasons) = self.check_environmental_indicators(rule, &self.sys);
                 if violation {
                     satisfied_conditions += 1;
                     detailed_indicators.extend(reasons);
@@ -464,15 +466,26 @@ impl BehaviorEngine {
     }
 
     #[cfg(target_os = "windows")]
-    fn check_environmental_indicators(&self, rule: &BehaviorRule) -> (bool, Vec<String>) {
+    fn check_environmental_indicators(&self, rule: &BehaviorRule, sys: &sysinfo::System) -> (bool, Vec<String>) {
         let mut violations = Vec::new();
-        let mut sys = sysinfo::System::new_all();
-        sys.refresh_all();
 
         // Check Blacklisted Processes
         for bad_proc in &rule.blacklisted_processes {
             if sys.processes().values().any(|p| p.name().to_lowercase().contains(&bad_proc.to_lowercase())) {
                 violations.push(format!("BlacklistedProcess({})", bad_proc));
+            }
+        }
+
+        // Check Memory Signatures
+        if !rule.memory_signatures.is_empty() {
+            for process in sys.processes().values() {
+                let pid = process.pid().as_u32();
+                if pid == 0 || pid == 4 { continue; } // Skip System/Idle
+                
+                if self.scan_process_memory(pid, &rule.memory_signatures) {
+                    violations.push(format!("MemorySignatureDetected(PID: {})", pid));
+                    break; 
+                }
             }
         }
 
@@ -495,8 +508,58 @@ impl BehaviorEngine {
         (!violations.is_empty(), violations)
     }
 
+    #[cfg(target_os = "windows")]
+    fn scan_process_memory(&self, pid: u32, signatures: &[String]) -> bool {
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+        use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+        use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD};
+        use windows::Win32::Foundation::CloseHandle;
+
+        let handle = unsafe {
+            match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+                Ok(h) => h,
+                Err(_) => return false,
+            }
+        };
+
+        let mut address = 0;
+        let mut mbi = MEMORY_BASIC_INFORMATION::default();
+        
+        while unsafe { VirtualQueryEx(handle, Some(address as *const _), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) } != 0 {
+            // Only scan committed and accessible memory
+            let protect = mbi.Protect;
+            let is_accessible = (protect & PAGE_NOACCESS).0 == 0 && (protect & PAGE_GUARD).0 == 0;
+            
+            if mbi.State == MEM_COMMIT && is_accessible {
+                let mut buffer = vec![0u8; mbi.RegionSize];
+                let mut bytes_read = 0;
+                unsafe {
+                    let _ = ReadProcessMemory(handle, mbi.BaseAddress, buffer.as_mut_ptr() as *mut _, mbi.RegionSize, Some(&mut bytes_read));
+                }
+
+                if bytes_read > 0 {
+                    let buffer_slice = &buffer[..bytes_read];
+                    for sig in signatures {
+                        // Simple string search for now. Could be improved with Aho-Corasick.
+                        let sig_bytes = sig.as_bytes();
+                        if buffer_slice.windows(sig_bytes.len()).any(|window| window == sig_bytes) {
+                            unsafe { let _ = CloseHandle(handle); }
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            address = mbi.BaseAddress as usize + mbi.RegionSize;
+            if address >= 0x7FFFFFFF0000 { break; } // Safety break for user space
+        }
+
+        unsafe { let _ = CloseHandle(handle); }
+        false
+    }
+
     #[cfg(not(target_os = "windows"))]
-    fn check_environmental_indicators(&self, _rule: &BehaviorRule) -> (bool, Vec<String>) {
+    fn check_environmental_indicators(&self, _rule: &BehaviorRule, _sys: &sysinfo::System) -> (bool, Vec<String>) {
         (false, Vec::new())
     }
 
