@@ -227,6 +227,7 @@
     - "Get-Process"
   conditions_percentage: 0.2 # Lower because it's trait-based family detection
   quarantine: true
+  blacklisted_users:
     - "malware"
     - "maltest"
     - "CurrentUser"
@@ -261,8 +262,6 @@
   registry_security_locking: true
   archive_actions: ["7z", "zip", "rar", "tar"]
   max_staging_lifetime_ms: 7200000
-  min_evasion_delay_ms: 180000
-  conditions_percentage: 0.15
 
 - name: "Tasia Correlation Detection"
   closed_process_paths:
