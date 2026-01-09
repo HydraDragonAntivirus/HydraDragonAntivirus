@@ -9,12 +9,12 @@
       conditions:
         - type: "Registry"
           op: "Open"
-          key_pattern: "(?i)SOFTWARE\\\\VMware, Inc\\.\\\\VMware Tools"
+          key_pattern: "HKEY_LOCAL_MACHINE\\SOFTWARE\\VMware, Inc.\\VMware Tools"
     - name: "Files"
       conditions:
         - type: "File"
           op: "Open"
-          path_pattern: "(?i)C:\\\\windows\\\\system32\\\\drivers\\\\vmmouse.sys"
+          path_pattern: "C:\\\\windows\\\\system32\\\\drivers\\\\vmmouse.sys"
 
 - name: "VirtualBox Artifacts"
   description: "Detects VirtualBox related files and registry keys."
@@ -25,9 +25,9 @@
       conditions:
         - type: "Registry"
           op: "Open"
-          key_pattern: "(?i)SOFTWARE\\\\Oracle\\\\VirtualBox Guest Additions"
+          key_pattern: "HKEY_LOCAL_MACHINE\\SOFTWARE\\Oracle\\VirtualBox Guest Additions"
     - name: "Files"
       conditions:
         - type: "File"
           op: "Open"
-          path_pattern: "(?i)C:\\\\windows\\\\system32\\\\drivers\\\\VBoxMouse.sys"
+          path_pattern: "C:\\\\windows\\\\system32\\\\drivers\\\\VBoxMouse.sys"

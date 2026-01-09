@@ -35,6 +35,7 @@ lru = "^0.11"
 sysinfo = "0.28"
 md-5 = "0.10.6"
 regex = "1.12.2"
+winreg = "0.55.0"
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]

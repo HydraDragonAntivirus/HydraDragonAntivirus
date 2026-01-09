@@ -135,7 +135,7 @@ impl DriveType {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FileId(pub u64);
 
 impl FileId {
@@ -201,11 +201,32 @@ pub struct IOMessage {
     pub time: SystemTime,
 }
 
+impl Default for IOMessage {
+    fn default() -> Self {
+        Self {
+            extension: String::new(),
+            file_id_id: FileId::default(),
+            mem_sized_used: 0,
+            entropy: 0.0,
+            pid: 0,
+            irp_op: 0,
+            is_entropy_calc: 0,
+            file_change: 0,
+            file_location_info: 0,
+            filepathstr: String::new(),
+            gid: 0,
+            runtime_features: RuntimeFeatures::default(),
+            file_size: 0,
+            time: SystemTime::now(),
+        }
+    }
+}
+
 /// Stores runtime features that come from *`owlyshield_predict`* (and not the minifilter).
 ///
 /// - exepath: The path of the gid root process
 /// - `exe_exists`: Did the root exe file still existed (at the moment of this specific *`DriverMessage`* operation)?
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RuntimeFeatures {
     pub exepath: PathBuf,
     pub exe_still_exists: bool,

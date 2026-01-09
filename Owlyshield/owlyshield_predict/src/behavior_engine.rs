@@ -8,7 +8,7 @@ use regex::Regex;
 use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
-use sysinfo::{SystemExt, ProcessExt};
+use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 #[cfg(target_os = "windows")]
 use crate::services::ServiceChecker;
@@ -174,6 +174,130 @@ impl BehaviorEngine {
         }
     }
 
+    /// Perform a proactive sweep of all running processes to find malware variants based on rules
+    pub fn find_malware_variants(&mut self, _process_records: &mut lru::LruCache<u64, ProcessRecord>) {
+        self.sys.refresh_all();
+        let now = SystemTime::now();
+
+        Logging::info("[BehaviorEngine] Performing initial malware sweep based on rules...");
+        
+        let rules_to_check: Vec<_> = self.rules.iter().cloned().collect();
+
+        for (pid, proc) in self.sys.processes() {
+            let pid_u32 = pid.as_u32();
+            let appname = proc.name().to_string();
+            let cmdline = proc.cmd().join(" ");
+            let parent_name = if let Some(parent) = proc.parent() {
+                self.sys.process(parent).map(|p| p.name().to_string()).unwrap_or_default()
+            } else {
+                String::new()
+            };
+
+            let mut temp_state = ProcessBehaviorState::default();
+            temp_state.pid = pid_u32;
+            temp_state.appname = appname;
+            temp_state.cmdline = cmdline;
+            temp_state.parent_name = parent_name;
+            temp_state.first_event_ts = Some(now);
+
+            let mut dummy_msg = IOMessage::default();
+            dummy_msg.pid = pid_u32;
+            
+            let mut triggered_rules = Vec::new();
+
+            for rule in &rules_to_check {
+                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                    for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                        if let RuleCondition::Process { .. } = condition {
+                            if Self::evaluate_condition_internal(&self.regex_cache, condition, &dummy_msg, &temp_state) {
+                                temp_state.satisfied_conditions
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .entry(s_idx)
+                                    .or_default()
+                                    .insert(c_idx);
+
+                                temp_state.satisfied_stages
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .insert(s_idx);
+                            }
+                        }
+                    }
+                }
+
+                let mut triggered = false;
+                if let Some(mapping) = &rule.mapping {
+                    triggered = Self::evaluate_mapping_internal(mapping, rule, &temp_state);
+                } else {
+                    let satisfied_count = temp_state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+                    if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
+                        triggered = true;
+                    }
+                }
+
+                if triggered && !rule.is_private {
+                    triggered_rules.push(rule.clone());
+                }
+            }
+
+            for rule in triggered_rules {
+                Logging::warning(&format!("[HYDRADRAGON SCAN] Found Malicious Process Variant: {} | Rule: {} | PID: {}", temp_state.appname, rule.name, pid_u32));
+                if rule.response.terminate_process {
+                    proc.kill();
+                }
+            }
+        }
+    }
+
+    /// Periodic check for registry-based threats (persistence, etc.)
+    pub fn check_registry_indicators(&self) {
+        Logging::info("[BehaviorEngine] Checking system for registry indicators...");
+        
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::RegKey;
+            use winreg::enums::*;
+
+            for rule in &self.rules {
+                if rule.is_private { continue; }
+
+                for stage in &rule.stages {
+                    for condition in &stage.conditions {
+                        if let RuleCondition::Registry { key_pattern, value_name, expected_data, .. } = condition {
+                            if key_pattern.contains("\\") && !key_pattern.contains("(" ) && !key_pattern.contains("[" ) {
+                                let (root_enum, subkey) = if key_pattern.to_uppercase().starts_with("HKEY_LOCAL_MACHINE") {
+                                    (HKEY_LOCAL_MACHINE, key_pattern.splitn(2, "\\").nth(1).unwrap_or(""))
+                                } else if key_pattern.to_uppercase().starts_with("HKEY_CURRENT_USER") {
+                                    (HKEY_CURRENT_USER, key_pattern.splitn(2, "\\").nth(1).unwrap_or(""))
+                                } else {
+                                    (HKEY_LOCAL_MACHINE, key_pattern.as_str())
+                                };
+
+                                let root = RegKey::predef(root_enum);
+                                if let Ok(key) = root.open_subkey(subkey) {
+                                    if let Some(vn) = value_name {
+                                        if let Ok(val) = key.get_value::<String, _>(vn) {
+                                            let mut matched = true;
+                                            if let Some(expected) = expected_data {
+                                                if !val.contains(expected) { matched = false; }
+                                            }
+                                            if matched {
+                                                Logging::warning(&format!("[HYDRADRAGON SCAN] Found Malicious Registry Persistence: {} | Rule: {}", key_pattern, rule.name));
+                                            }
+                                        }
+                                    } else {
+                                        Logging::warning(&format!("[HYDRADRAGON SCAN] Found Malicious Registry Key: {} | Rule: {}", key_pattern, rule.name));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
@@ -251,13 +375,6 @@ impl BehaviorEngine {
         }
     }
 
-    fn matches(&self, pattern: &str, text: &str) -> bool {
-        if let Some(re) = self.regex_cache.get(pattern) {
-            re.is_match(text)
-        } else {
-            text.to_lowercase().contains(&pattern.to_lowercase())
-        }
-    }
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         let gid = msg.gid;
@@ -314,33 +431,44 @@ impl BehaviorEngine {
             for (s_idx, stage) in rule.stages.iter().enumerate() {
                 for (c_idx, condition) in stage.conditions.iter().enumerate() {
                     if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state) {
-                        let rule_conds = state.satisfied_conditions
+                        state.satisfied_conditions
                             .entry(rule.name.clone())
-                            .or_insert_with(HashMap::new);
-                        
-                        let stage_conds = rule_conds.entry(s_idx).or_insert_with(HashSet::new);
-                        stage_conds.insert(c_idx);
+                            .or_default()
+                            .entry(s_idx)
+                            .or_default()
+                            .insert(c_idx);
 
                         state.satisfied_stages
                             .entry(rule.name.clone())
-                            .or_insert_with(HashSet::new)
+                            .or_default()
                             .insert(s_idx);
                     }
                 }
             }
 
             // Check if rule should trigger
-            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
-            if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
-                triggered_rules.push(rule.clone());
-            } else if rule.conditions_percentage > 0.01 {
-                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
-                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
-                
-                if (satisfied_conds as f32 / total_conds as f32) >= rule.conditions_percentage {
-                    triggered_rules.push(rule.clone());
+            let mut triggered = false;
+            
+            if let Some(mapping) = &rule.mapping {
+                triggered = Self::evaluate_mapping_internal(mapping, rule, state);
+            } else {
+                // Fallback to simple stage counting
+                let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+                if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
+                    triggered = true;
+                } else if rule.conditions_percentage > 0.01 {
+                    let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+                    let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
+                        .map_or(0, |m| m.values().map(|v| v.len()).sum());
+                    
+                    if (satisfied_conds as f32 / total_conds as f32) >= rule.conditions_percentage {
+                        triggered = true;
+                    }
                 }
+            }
+
+            if triggered {
+                triggered_rules.push(rule.clone());
             }
         }
 
@@ -371,6 +499,21 @@ impl BehaviorEngine {
 
             if rule.response.auto_revert {
                 Self::revert_registry_internal(msg);
+            }
+        }
+    }
+
+    fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
+        match mapping {
+            RuleMapping::And(mappings) => mappings.iter().all(|m| Self::evaluate_mapping_internal(m, rule, state)),
+            RuleMapping::Or(mappings) => mappings.iter().any(|m| Self::evaluate_mapping_internal(m, rule, state)),
+            RuleMapping::Not(m) => !Self::evaluate_mapping_internal(m, rule, state),
+            RuleMapping::Stage(name) => {
+                if let Some(idx) = rule.stages.iter().position(|s| s.name == *name) {
+                    state.satisfied_stages.get(&rule.name).map_or(false, |set| set.contains(&idx))
+                } else {
+                    false
+                }
             }
         }
     }

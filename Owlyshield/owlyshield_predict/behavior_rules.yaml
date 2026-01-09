@@ -1,12 +1,17 @@
-# Main Behavior Rules with Modular Inclusion
+# Main Behavior Rules with Recursive Inclusion and Boolean Logic
 
 !include rules/sandboxes.yaml
 
 - name: "Unified Browser Stealer Detection"
-  description: "Detects multi-stage browser credential theft using a generic attack timeline."
+  description: "Detects multi-stage browser credential theft using advanced logical mapping."
   severity: 10
   time_window_ms: 60000
-  min_stages_satisfied: 2
+  mapping:
+    and:
+      - stage: "Browser Access"
+      - or:
+          - stage: "Credential Decryption"
+          - stage: "Data Staging"
   stages:
     - name: "Browser Access"
       conditions:
@@ -41,15 +46,20 @@
 - name: "Aggressive Trojan Persistence & Disability"
   description: "Detects tampering with security services and critical registry keys."
   severity: 9
-  min_stages_satisfied: 1
+  mapping:
+    or:
+      - stage: "Disable Security"
+      - stage: "Service Tampering"
   stages:
     - name: "Disable Security"
       conditions:
         - type: "Registry"
           op: "SetValue"
-          key_pattern: "(?i)Software\\\\Policies\\\\Microsoft\\\\Windows Defender"
+          key_pattern: "HKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Windows Defender"
           value_name: "DisableAntiSpyware"
           expected_data: "1"
+    - name: "Service Tampering"
+      conditions:
         - type: "Service"
           op: "Stop"
           name_pattern: "WinDefend"
@@ -58,9 +68,16 @@
     auto_revert: true
 
 - name: "EDR Detection: Signature Monster SDK"
-  description: "Detects Signature Monster SDK anti-analysis checks via PowerShell CIM queries."
+  description: "Detects Signature Monster SDK anti-analysis checks via Boolean correlation."
   severity: 7
-  min_stages_satisfied: 1
+  mapping:
+    or:
+      - stage: "Hardware Identification Checks"
+      - and:
+          - stage: "Environment Fingerprinting"
+          - or:
+              - stage: "VMware Artifacts"
+              - stage: "VirtualBox Artifacts"
   stages:
     - name: "Hardware Identification Checks"
       conditions:
@@ -77,22 +94,27 @@
     signal_firewall: "Isolate_Process"
 
 - name: "Tasia Malware Detection"
-  description: "Specific lockout and destruction patterns."
+  description: "Specific lockout and destruction patterns using Boolean logic."
   severity: 10
-  conditions_percentage: 0.1
+  mapping:
+    and:
+      - stage: "Lockout"
+      - or:
+          - stage: "UAC/Utility Hijack"
+          - stage: "Shell Disruption"
   stages:
     - name: "Lockout"
       conditions:
         - type: "Registry"
           op: "SetValue"
-          key_pattern: "(?i)Policies\\\\System"
+          key_pattern: "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
           value_name: "DisableTaskMgr"
           expected_data: "1"
     - name: "UAC/Utility Hijack"
       conditions:
         - type: "Registry"
           op: "SetValue"
-          key_pattern: "(?i)Image File Execution Options\\\\utilman\\.exe"
+          key_pattern: "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
           value_name: "Debugger"
     - name: "Shell Disruption"
       conditions:
