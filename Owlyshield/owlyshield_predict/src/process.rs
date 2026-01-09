@@ -49,7 +49,6 @@ use crate::shared_def::{
 
 use crate::extensions::ExtensionsCount;
 use crate::novelty::DirectoriesContent;
-use crate::logging::Logging;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::av_integration::AVIntegration;
 

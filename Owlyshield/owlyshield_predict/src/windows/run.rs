@@ -165,6 +165,9 @@ pub fn run() {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
                 }
 
+                // Perform initial proactive sweep for malware variants
+                worker.perform_initial_scan();
+
                 let mut count = 0;
                 let mut timer = SystemTime::now();
                 loop {

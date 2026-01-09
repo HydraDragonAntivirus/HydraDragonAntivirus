@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use lru::LruCache;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
@@ -60,7 +61,7 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub target_locations: Vec<String>,
     #[serde(default)]
-    pub blacklisted_processes: Vec<String>,
+    pub process_search: Vec<String>,
     #[serde(default)]
     pub blacklisted_users: Vec<String>,
     #[serde(default)]
@@ -70,7 +71,7 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub min_evasion_delay_ms: u64,
     #[serde(default)]
-    pub memory_signatures: Vec<String>,
+    pub commandline_patterns: Vec<String>,
 }
 
 #[derive(Default)]
@@ -92,6 +93,8 @@ pub struct ProcessBehaviorState {
     pub env_violations: Vec<String>,
     pub appname: String,
     pub exepath: String,
+    pub commandline: String,
+    pub search_target_accessed: HashSet<String>,
 }
 
 pub struct BehaviorEngine {
@@ -114,6 +117,62 @@ impl BehaviorEngine {
         let rules: Vec<BehaviorRule> = serde_yaml::from_reader(file)?;
         self.rules = rules;
         Ok(())
+    }
+
+    /// Proactive sweep of all running processes to find malware variants by behavioral traits.
+    /// This is called on startup and can be called periodically.
+    pub fn find_malware_variants(&mut self, precords: &mut LruCache<u64, ProcessRecord>) {
+        self.sys.refresh_all();
+        
+        let mut processes_to_check = Vec::new();
+        for (pid, process) in self.sys.processes() {
+            processes_to_check.push((pid.as_u32(), process.name().to_string(), process.exe().to_path_buf(), process.cmd().join(" ")));
+        }
+
+        for (pid, name, exe, cmd) in processes_to_check {
+            // Check if we already have a record for this PID (via another GID)
+            let mut found_gid = None;
+            for (gid, precord) in precords.iter() {
+                if precord.appname == name && precord.exepath == exe {
+                    found_gid = Some(*gid);
+                    break;
+                }
+            }
+
+            let gid = found_gid.unwrap_or(pid as u64); // Use PID as GID if not found
+            
+            // Populate state if not exists
+            self.process_states.entry(gid).or_insert_with(|| {
+                let mut s = ProcessBehaviorState::default();
+                s.appname = name.clone();
+                s.exepath = exe.to_string_lossy().to_string();
+                s.commandline = cmd.clone();
+                
+                // Try to get parent name
+                if let Some(proc) = self.sys.process(sysinfo::Pid::from(pid as usize)) {
+                     if let Some(parent_pid) = proc.parent() {
+                        if let Some(parent_proc) = self.sys.process(parent_pid) {
+                            s.parent_name = parent_proc.name().to_string();
+                        }
+                    }
+                }
+                s
+            });
+
+            // Perform a check for this process
+            // We need a dummy ProcessRecord if we don't have one
+            if !precords.contains(&gid) {
+                let mut mock_record = ProcessRecord::new(gid, name.clone(), exe.clone());
+                self.check_rules(&mut mock_record, gid);
+                if mock_record.termination_requested {
+                     // If detected, we should add it to precords so the worker can kill it
+                     precords.put(gid, mock_record);
+                }
+            } else {
+                let mut precord = precords.get_mut(&gid).unwrap();
+                self.check_rules(precord, gid);
+            }
+        }
     }
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
@@ -147,6 +206,7 @@ impl BehaviorEngine {
                 s.exepath = precord.exepath.to_string_lossy().to_string();
 
                 if let Some(proc) = self.sys.process(sysinfo::Pid::from(pid as usize)) {
+                    s.commandline = proc.cmd().join(" ");
                     if let Some(parent_pid) = proc.parent() {
                         if let Some(parent_proc) = self.sys.process(parent_pid) {
                             s.parent_name = parent_proc.name().to_string();
@@ -154,6 +214,7 @@ impl BehaviorEngine {
                     }
                 } else {
                     s.parent_name = "unknown".to_string();
+                    s.commandline = "unknown".to_string();
                 }
                 s
             });
@@ -240,13 +301,20 @@ impl BehaviorEngine {
                     // Immediate trigger check for specific registry indicators
                     for indicator in &rule.registry_indicators {
                         if filepath.contains(&indicator.path.to_lowercase()) {
-                            // If it's a critical path, we could increment a registry match counter
-                            // or satisfy a condition. For now, we'll let check_rules handle it,
-                            // but we ensure it's recorded.
+                            // recorded but handled in check_rules
                         }
                     }
                 }
-                // 6. Track Source-Target Violations
+
+                // 7. Track Security Tool Search in Paths (Files & Registry)
+                for target in &rule.process_search {
+                    let target_lower = target.to_lowercase();
+                    if filepath.contains(&target_lower) && !state.appname.to_lowercase().contains(&target_lower) {
+                        state.search_target_accessed.insert(target.clone());
+                    }
+                }
+
+                // 8. Track Source-Target Violations
                 for s_loc in &rule.source_locations {
                     if precord.appname.to_lowercase().contains(&s_loc.to_lowercase()) {
                         for t_loc in &rule.target_locations {
@@ -407,7 +475,7 @@ impl BehaviorEngine {
             }
 
             // 12. Environmental Violations (Check on every event for aggressive detection)
-            if !rule.blacklisted_processes.is_empty() || !rule.blacklisted_users.is_empty() || !rule.blacklisted_services.is_empty() {
+            if !rule.process_search.is_empty() || !rule.blacklisted_users.is_empty() || !rule.blacklisted_services.is_empty() {
                 total_tracked_conditions += 1;
                 let (violation, reasons) = self.check_environmental_indicators(rule, &self.sys);
                 if violation {
@@ -447,6 +515,33 @@ impl BehaviorEngine {
                 detailed_indicators.push("TasiaKillChain(Explorer Killed + Registry Lockout detected)".to_string());
             }
 
+            // 16. CommandLine Patterns Match
+            for pattern in &rule.commandline_patterns {
+                total_tracked_conditions += 1;
+                if state.commandline.to_lowercase().contains(&pattern.to_lowercase()) {
+                    satisfied_conditions += 1;
+                    detailed_indicators.push(format!("CommandLinePatternMatched({})", pattern));
+                }
+            }
+
+            // 17. Security Tool Search Detection (Unified: CommandLine + Paths)
+            for target in &rule.process_search {
+                total_tracked_conditions += 1;
+                let cmd_lower = state.commandline.to_lowercase();
+                let target_lower = target.to_lowercase();
+                
+                let searched_in_cmd = cmd_lower.contains(&target_lower) && !state.appname.to_lowercase().contains(&target_lower);
+                let searched_in_paths = state.search_target_accessed.contains(target);
+
+                if searched_in_cmd || searched_in_paths {
+                    satisfied_conditions += 1;
+                    let source = if searched_in_cmd && searched_in_paths { "Cmd+Path" } 
+                                else if searched_in_cmd { "CommandLine" } 
+                                else { "FilePath/Registry" };
+                    detailed_indicators.push(format!("SecurityToolSearchDetected(Target: {}, Source: {})", target, source));
+                }
+            }
+
             let satisfied_ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
 
             if satisfied_ratio >= rule.conditions_percentage {
@@ -469,25 +564,13 @@ impl BehaviorEngine {
     fn check_environmental_indicators(&self, rule: &BehaviorRule, sys: &sysinfo::System) -> (bool, Vec<String>) {
         let mut violations = Vec::new();
 
-        // Check Blacklisted Processes
-        for bad_proc in &rule.blacklisted_processes {
-            if sys.processes().values().any(|p| p.name().to_lowercase().contains(&bad_proc.to_lowercase())) {
-                violations.push(format!("BlacklistedProcess({})", bad_proc));
+        // Check Search Targets (Environmental)
+        for target in &rule.process_search {
+            if sys.processes().values().any(|p| p.name().to_lowercase().contains(&target.to_lowercase())) {
+                violations.push(format!("SearchTargetProcessRunning({})", target));
             }
         }
 
-        // Check Memory Signatures
-        if !rule.memory_signatures.is_empty() {
-            for process in sys.processes().values() {
-                let pid = process.pid().as_u32();
-                if pid == 0 || pid == 4 { continue; } // Skip System/Idle
-                
-                if self.scan_process_memory(pid, &rule.memory_signatures) {
-                    violations.push(format!("MemorySignatureDetected(PID: {})", pid));
-                    break; 
-                }
-            }
-        }
 
         // Check Blacklisted Users
         let current_user = std::env::var("USERNAME").unwrap_or_default().to_lowercase();
@@ -508,55 +591,6 @@ impl BehaviorEngine {
         (!violations.is_empty(), violations)
     }
 
-    #[cfg(target_os = "windows")]
-    fn scan_process_memory(&self, pid: u32, signatures: &[String]) -> bool {
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-        use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-        use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD};
-        use windows::Win32::Foundation::CloseHandle;
-
-        let handle = unsafe {
-            match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-                Ok(h) => h,
-                Err(_) => return false,
-            }
-        };
-
-        let mut address = 0;
-        let mut mbi = MEMORY_BASIC_INFORMATION::default();
-        
-        while unsafe { VirtualQueryEx(handle, Some(address as *const _), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) } != 0 {
-            // Only scan committed and accessible memory
-            let protect = mbi.Protect;
-            let is_accessible = (protect & PAGE_NOACCESS).0 == 0 && (protect & PAGE_GUARD).0 == 0;
-            
-            if mbi.State == MEM_COMMIT && is_accessible {
-                let mut buffer = vec![0u8; mbi.RegionSize];
-                let mut bytes_read = 0;
-                unsafe {
-                    let _ = ReadProcessMemory(handle, mbi.BaseAddress, buffer.as_mut_ptr() as *mut _, mbi.RegionSize, Some(&mut bytes_read));
-                }
-
-                if bytes_read > 0 {
-                    let buffer_slice = &buffer[..bytes_read];
-                    for sig in signatures {
-                        // Simple string search for now. Could be improved with Aho-Corasick.
-                        let sig_bytes = sig.as_bytes();
-                        if buffer_slice.windows(sig_bytes.len()).any(|window| window == sig_bytes) {
-                            unsafe { let _ = CloseHandle(handle); }
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            address = mbi.BaseAddress as usize + mbi.RegionSize;
-            if address >= 0x7FFFFFFF0000 { break; } // Safety break for user space
-        }
-
-        unsafe { let _ = CloseHandle(handle); }
-        false
-    }
 
     #[cfg(not(target_os = "windows"))]
     fn check_environmental_indicators(&self, _rule: &BehaviorRule, _sys: &sysinfo::System) -> (bool, Vec<String>) {

@@ -143,27 +143,7 @@
   pipeline_threshold: 1
   time_window_ms: 10000
   detect_exfiltration: true
-  blacklisted_processes:
-    - "x64dbg.exe"
-    - "x32dbg.exe"
-    - "ollydbg.exe"
-    - "ida64.exe"
-    - "ida.exe"
-    - "windbg.exe"
-    - "dnspy.exe"
-    - "ilspy.exe"
-    - "ghidra.exe"
-    - "pestudio.exe"
-    - "wireshark.exe"
-    - "fiddler.exe"
-    - "httpdebuggerui.exe"
-    - "HTTP Toolkit.exe"
-    - "procmon.exe"
-    - "procmon64.exe"
-    - "processhacker.exe"
-    - "megadumper.exe"
-    - "extremedumper.exe"
-  memory_signatures:
+  process_search:
     - "ksdumper.exe"
     - "ksdumperclient.exe"
     - "df5serv.exe"
@@ -192,9 +172,61 @@
     - "ekrn.exe"
     - "mbam.exe"
     - "SophosUI.exe"
+    - "x64dbg.exe"
+    - "x32dbg.exe"
+    - "ollydbg.exe"
+    - "ida64.exe"
+    - "ida.exe"
+    - "windbg.exe"
+    - "dnspy.exe"
+    - "ilspy.exe"
+    - "ghidra.exe"
+    - "pestudio.exe"
+    - "wireshark.exe"
+    - "fiddler.exe"
+    - "httpdebuggerui.exe"
+    - "HTTP Toolkit.exe"
+    - "procmon.exe"
+    - "procmon64.exe"
+    - "processhacker.exe"
+    - "megadumper.exe"
+    - "extremedumper.exe"
+  commandline_patterns:
+    - "MainWindowTitle"
+    - "Get-Process"
+    - "Select-Object Id, ProcessName"
   blacklisted_users:
     - "Johnson"
     - "Miller"
+    - "analyst"
+    - "malware"
+    - "WDAGUtilityAccount"
+  quarantine: true
+  conditions_percentage: 0.1
+
+- name: "Malware Family: SignatureMonster Variant"
+  min_evasion_delay_ms: 10000
+  suspicious_parents:
+    - "explorer.exe"
+    - "cmd.exe"
+    - "powershell.exe"
+  process_search:
+    - "Owlyshield"
+    - "HydraDragon"
+    - "Windows Defender"
+    - "ksdumper"
+    - "x64dbg"
+    - "Wireshark"
+    - "dnSpy"
+    - "Process Hacker"
+    - "Process Monitor"
+    - "ScyllaHide"
+  commandline_patterns:
+    - "-WindowStyle Hidden"
+    - "MainWindowTitle"
+    - "Get-Process"
+  conditions_percentage: 0.2 # Lower because it's trait-based family detection
+  quarantine: true
     - "malware"
     - "maltest"
     - "CurrentUser"
