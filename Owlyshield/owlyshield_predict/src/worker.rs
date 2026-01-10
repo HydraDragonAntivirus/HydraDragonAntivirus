@@ -680,13 +680,45 @@ mod process_records {
     }
 }
 
+pub mod threat_handling {
+    use std::path::Path;
+    use crate::logging::Logging;
+    use crate::process::{ProcessRecord, ProcessState};
+    use crate::driver_com::Driver;
+    use windows::Win32::System::Diagnostics::Debug::{
+        DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
+    };
+
+    /// Trait for handling threat responses (kill, suspend, quarantine, etc.)
+    pub trait ThreatHandler: Send + Sync {
+        fn suspend(&self, proc: &mut ProcessRecord);
+        fn kill(&self, gid: u64);
+        fn kill_and_quarantine(&self, gid: u64, path: &Path);
+        fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
+        fn revert_registry(&self, gid: u64);
+    }
+
+    /// Live implementation of ThreatHandler that communicates with the kernel driver
+    pub struct LiveThreatHandler {
+        driver: Driver,
+    }
+
+    impl LiveThreatHandler {
+        pub fn new(driver: Driver) -> LiveThreatHandler {
+            LiveThreatHandler { driver }
+        }
+    }
+
     impl ThreatHandler for LiveThreatHandler {
-        fn suspend(&self, proc: &mut crate::process::ProcessRecord) {
-            if proc.suspend().is_ok() {
-                Logging::info(&format!("Process {} (PID: {}) suspended.", proc.appname, proc.pid));
-            } else {
-                Logging::error(&format!("Failed to suspend process {} (PID: {}).", proc.appname, proc.pid));
+        fn suspend(&self, proc: &mut ProcessRecord) {
+            proc.process_state = ProcessState::Suspended;
+            proc.time_suspended = Some(std::time::SystemTime::now());
+            for pid in &proc.pids {
+                unsafe {
+                    let _ = DebugActiveProcess(*pid);
+                }
             }
+            Logging::info(&format!("Process {} (GID: {}) suspended.", proc.appname, proc.gid));
         }
 
         fn kill(&self, gid: u64) {
@@ -706,12 +738,15 @@ mod process_records {
             }
         }
 
-        fn awake(&self, proc: &mut crate::process::ProcessRecord, kill_proc_on_exit: bool) {
-            if proc.awake(kill_proc_on_exit).is_ok() {
-                Logging::info(&format!("Process {} (PID: {}) resumed.", proc.appname, proc.pid));
-            } else {
-                Logging::error(&format!("Failed to resume process {} (PID: {}).", proc.appname, proc.pid));
+        fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
+            for pid in &proc.pids {
+                unsafe {
+                    let _ = DebugSetProcessKillOnExit(kill_proc_on_exit);
+                    let _ = DebugActiveProcessStop(*pid);
+                }
             }
+            proc.process_state = ProcessState::Running;
+            Logging::info(&format!("Process {} (GID: {}) resumed.", proc.appname, proc.gid));
         }
 
         fn revert_registry(&self, gid: u64) {
@@ -722,6 +757,7 @@ mod process_records {
             }
         }
     }
+}
 
 pub mod worker_instance {
     use std::path::Path;

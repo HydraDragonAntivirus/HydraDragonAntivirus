@@ -14,7 +14,7 @@ use windows::Win32::Storage::InstallableFileSystems::{
 };
 
 use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::FILE_ID_INFO;

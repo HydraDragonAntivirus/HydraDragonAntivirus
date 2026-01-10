@@ -78,4 +78,15 @@ impl ThreatHandler for WindowsThreatHandler {
         }
         proc.process_state = ProcessState::Running;
     }
+
+    fn revert_registry(&self, gid: u64) {
+        match self.driver.revert_registry_changes(gid) {
+            Ok(_) => {
+                Logging::alert(&format!("[REGISTRY] Revert signal sent for GID: {}", gid));
+            }
+            Err(e) => {
+                Logging::alert(&format!("[REGISTRY] Failed to revert for GID: {}. Error: {:?}", gid, e));
+            }
+        }
+    }
 }
