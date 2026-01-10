@@ -120,7 +120,7 @@ pub struct AutonomousLearningEngine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NormalBehaviorBaseline {
+pub struct NormalBehaviourBaseline {
     // Statistical baselines learned from clean processes
     pub avg_operations_per_second: f32,
     pub std_operations_per_second: f32,
@@ -206,7 +206,7 @@ impl AutonomousLearningEngine {
     pub fn new() -> Self {
         let mut engine = AutonomousLearningEngine {
             behavioral_profiles: HashMap::new(),
-            normal_baseline: NormalBehaviorBaseline {
+            normal_baseline: NormalBehaviourBaseline {
                 avg_operations_per_second: 0.0,
                 std_operations_per_second: 0.0,
                 avg_api_diversity: 0.0,
