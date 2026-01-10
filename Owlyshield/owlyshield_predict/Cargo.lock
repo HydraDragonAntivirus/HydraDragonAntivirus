@@ -1542,6 +1542,7 @@ dependencies = [
  "windows",
  "windows-service",
  "winlog",
+ "winreg 0.55.0",
 ]
 
 [[package]]
@@ -3057,7 +3058,7 @@ dependencies = [
  "regex",
  "sha2",
  "winapi 0.3.9",
- "winreg",
+ "winreg 0.5.1",
 ]
 
 [[package]]
@@ -3067,6 +3068,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a27a759395c1195c4cc5cda607ef6f8f6498f64e78f7900f5de0a127a424704a"
 dependencies = [
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "winreg"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
+dependencies = [
+ "cfg-if 1.0.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

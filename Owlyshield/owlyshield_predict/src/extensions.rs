@@ -219,6 +219,18 @@ impl ExtensionsCount {
         self.categories_set[&cat].len()
     }
 
+    pub fn total_count(&self) -> usize {
+        self.count_all()
+    }
+
+    pub fn docs_media_count(&self) -> usize {
+        self.count_category(ExtensionCategory::DocsMedia)
+    }
+
+    pub fn exe_count(&self) -> usize {
+        self.count_category(ExtensionCategory::Exe)
+    }
+
     pub fn add_cat_extension(&mut self, extension: &str) {
         let extension = extension.trim_matches(char::from(0));
         if !extension.is_empty() {

@@ -14,6 +14,131 @@ use sysinfo::{SystemExt, ProcessExt, PidExt};
 use crate::services::ServiceChecker;
 
 // ============================================================================
+// SUPPORTING TYPES FOR TELEMETRY-BASED DETECTION
+// ============================================================================
+
+/// Comparison operators for threshold-based conditions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Comparison {
+    Gt,   // >
+    Gte,  // >=
+    Lt,   // <
+    Lte,  // <=
+    Eq,   // ==
+    Ne,   // !=
+}
+
+impl Default for Comparison {
+    fn default() -> Self { Comparison::Gte }
+}
+
+/// Match mode for pattern collections (YARA-style)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchMode {
+    /// All patterns must match
+    All,
+    /// At least one pattern must match
+    Any,
+    /// Exactly N patterns must match
+    Count(usize),
+    /// At least N patterns must match
+    #[serde(rename = "at_least")]
+    AtLeast(usize),
+}
+
+impl Default for MatchMode {
+    fn default() -> Self { MatchMode::Any }
+}
+
+/// Aggregation functions for time-windowed metrics (Sigma-style)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AggregationFunction {
+    Count,
+    Sum,
+    Avg,
+    Max,
+    Min,
+    Rate,  // per-second rate
+}
+
+impl Default for AggregationFunction {
+    fn default() -> Self { AggregationFunction::Count }
+}
+
+/// String modifiers for command line and pattern matching (Sigma-style)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StringModifier {
+    /// Case insensitive
+    Nocase,
+    /// Substring match
+    Contains,
+    /// Prefix match
+    Startswith,
+    /// Suffix match
+    Endswith,
+    /// Regex mode
+    Re,
+    /// Base64 decode before matching
+    Base64,
+    /// Negate the match
+    Not,
+}
+
+/// Command line pattern with optional modifiers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandLinePattern {
+    pub pattern: String,
+    #[serde(default)]
+    pub modifiers: Vec<StringModifier>,
+}
+
+/// Sigma-style rule status
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleStatus {
+    #[default]
+    Stable,
+    Experimental,
+    Test,
+    Deprecated,
+}
+
+/// Detection severity level (Sigma-style)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DetectionLevel {
+    Informational,
+    Low,
+    Medium,
+    #[default]
+    High,
+    Critical,
+}
+
+/// Sigma-style log source for categorization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogSource {
+    pub category: String,      // "file_event", "registry_event", "process_creation"
+    #[serde(default)]
+    pub product: Option<String>,
+}
+
+/// Operation history entry for time-windowed aggregations
+#[derive(Clone, Debug)]
+pub struct OpHistoryEntry {
+    pub timestamp: SystemTime,
+    pub op_type: u8,
+    pub file_change: u8,
+    pub bytes: u64,
+    pub path: String,
+    pub extension: String,
+}
+
+// ============================================================================
 // GENERIC CONFIGURATION STRUCTURES
 // ============================================================================
 
@@ -22,7 +147,30 @@ pub struct BehaviorRule {
     pub name: String,
     pub description: String,
     pub severity: u8,
+
+    // --- Sigma-style Metadata ---
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub modified: Option<String>,
+    #[serde(default)]
+    pub status: RuleStatus,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub references: Vec<String>,
+    #[serde(default)]
+    pub false_positives: Vec<String>,
+    #[serde(default)]
+    pub level: DetectionLevel,
+    #[serde(default)]
+    pub mitre_attack: Vec<String>,  // ["T1486", "TA0040"]
+    #[serde(default)]
+    pub logsource: Option<LogSource>,
     
+    // --- Correlation Configuration ---
     #[serde(default)]
     pub stages: Vec<AttackStage>,
     
@@ -71,6 +219,7 @@ pub struct AttackStage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuleCondition {
+    // === EXISTING CONDITIONS ===
     File {
         op: String, // "Open", "Read", "Write", "Delete", "Rename", "Create"
         path_pattern: String,
@@ -100,6 +249,140 @@ pub enum RuleCondition {
     Heuristic {
         metric: String, // "Entropy"
         threshold: f64,
+    },
+
+    // === NEW TELEMETRY-BASED CONDITIONS ===
+
+    /// Count operations matching criteria (YARA-style)
+    OperationCount {
+        op_type: String,           // "Read", "Write", "Delete", "Rename", "Create", "Registry"
+        #[serde(default)]
+        path_pattern: Option<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+
+    /// Extension pattern matching during operations (behavioral)
+    ExtensionPattern {
+        /// Match patterns like "*.encrypted", "*.locked", "*.crypto"
+        patterns: Vec<String>,
+        #[serde(default)]
+        match_mode: MatchMode,
+        op_type: String,           // "Read", "Write"
+    },
+
+    /// Byte transfer thresholds
+    ByteThreshold {
+        direction: String,         // "read", "write", "total"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+
+    /// Entropy-based detection (Sigma-style)
+    EntropyThreshold {
+        metric: String,            // "current", "average", "max"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f64,
+    },
+
+    /// File count thresholds (Sigma-style)
+    FileCount {
+        category: String,          // "read", "written", "deleted", "renamed", "created"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+
+    /// Directory spread detection (Sigma-style)
+    DirectorySpread {
+        category: String,          // "created", "updated", "opened"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+
+    /// Time-windowed aggregation (Sigma-style)
+    TimeWindowAggregation {
+        metric: String,            // "ops_write", "ops_delete", "bytes_written", "files_modified"
+        #[serde(default)]
+        function: AggregationFunction,
+        time_window_ms: u64,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f64,
+    },
+
+    /// Drive-based detection (removable/network)
+    DriveActivity {
+        drive_type: String,        // "removable", "network", "any"
+        op_type: String,           // "read", "write"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u32,
+    },
+
+    /// Process ancestry checks
+    ProcessAncestry {
+        ancestor_pattern: String,
+        #[serde(default)]
+        max_depth: Option<u32>,
+    },
+
+    /// Extension category ratio
+    ExtensionRatio {
+        /// List of extensions to include in the ratio (e.g., ["doc", "docx", "pdf"])
+        extensions: Vec<String>,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f32,            // percentage 0.0 - 1.0
+    },
+
+    /// Rate of change detection
+    RateOfChange {
+        metric: String,            // "files_per_second", "bytes_per_second", "ops_per_second"
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: f64,
+    },
+
+    /// Self-modification detection
+    SelfModification {
+        modification_type: String, // "exe_deleted", "exe_not_exists"
+    },
+
+    /// Extension change velocity
+    ExtensionChangeVelocity {
+        time_window_ms: u64,
+        #[serde(default)]
+        comparison: Comparison,
+        threshold: u64,
+    },
+
+    /// Command line pattern with modifiers
+    CommandLineMatch {
+        patterns: Vec<CommandLinePattern>,
+        #[serde(default)]
+        match_mode: MatchMode,
+    },
+
+    /// Sensitive path access detection (combined pattern)
+    SensitivePathAccess {
+        /// Custom patterns to track (e.g., ["*google\\chrome\\user data*", "*mozilla\\firefox\\profiles*"])
+        patterns: Vec<String>,
+        op_type: String,
+        #[serde(default)]
+        min_unique_paths: Option<u32>,
+    },
+
+    /// Cluster analysis result (for ransomware patterns)
+    ClusterPattern {
+        #[serde(default)]
+        min_clusters: Option<usize>,
+        #[serde(default)]
+        max_clusters: Option<usize>,
     },
 }
 
@@ -134,9 +417,29 @@ pub struct ProcessBehaviorState {
     pub first_event_ts: Option<SystemTime>,
     pub last_event_ts: SystemTime,
 
-    // Performance: caching telemetry results
+    // --- Existing telemetry caching ---
     pub entropy_max: f64,
+    pub entropy_sum: f64,
+    pub entropy_count: u64,
     pub active_connections: bool,
+
+    // --- NEW: Time-series tracking for aggregations ---
+    pub op_history: Vec<OpHistoryEntry>,
+    
+    // --- NEW: Rate tracking ---
+    pub ops_total: u64,
+    pub bytes_total: u64,
+    
+    // --- NEW: Extension counting ---
+    pub extension_changes: u64,
+    pub extension_change_timestamps: Vec<SystemTime>,
+    
+    // --- NEW: Generic state tracking for rule-specified patterns ---
+    // Map<(RuleName, StageIdx, ConditionIdx), Set<UniqueValue>>
+    pub condition_specific_state: HashMap<String, HashSet<String>>,
+    
+    // --- NEW: Process ancestry cache ---
+    pub process_ancestry: Vec<String>,  // parent names chain
 }
 
 impl Default for ProcessBehaviorState {
@@ -152,7 +455,16 @@ impl Default for ProcessBehaviorState {
             first_event_ts: None,
             last_event_ts: SystemTime::now(),
             entropy_max: 0.0,
+            entropy_sum: 0.0,
+            entropy_count: 0,
             active_connections: false,
+            op_history: Vec::new(),
+            ops_total: 0,
+            bytes_total: 0,
+            extension_changes: 0,
+            extension_change_timestamps: Vec::new(),
+            condition_specific_state: HashMap::new(),
+            process_ancestry: Vec::new(),
         }
     }
 }
@@ -203,13 +515,16 @@ impl BehaviorEngine {
             let mut dummy_msg = IOMessage::default();
             dummy_msg.pid = pid_u32;
             
+            // Create a minimal ProcessRecord for condition evaluation
+            let dummy_precord = ProcessRecord::new(0, temp_state.appname.clone(), std::path::PathBuf::new());
+            
             let mut triggered_rules = Vec::new();
 
             for rule in &rules_to_check {
                 for (s_idx, stage) in rule.stages.iter().enumerate() {
                     for (c_idx, condition) in stage.conditions.iter().enumerate() {
                         if let RuleCondition::Process { .. } = condition {
-                            if Self::evaluate_condition_internal(&self.regex_cache, condition, &dummy_msg, &temp_state) {
+                            if Self::evaluate_condition_internal(&self.regex_cache, condition, &dummy_msg, &mut temp_state, &dummy_precord, &rule.name, s_idx, c_idx) {
                                 temp_state.satisfied_conditions
                                     .entry(rule.name.clone())
                                     .or_default()
@@ -391,9 +706,19 @@ impl BehaviorEngine {
             
             if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
                 s.cmdline = proc.cmd().join(" ");
-                if let Some(parent) = proc.parent() {
-                    if let Some(p_proc) = self.sys.process(parent) {
-                        s.parent_name = p_proc.name().to_string();
+                
+                // Build process ancestry chain
+                let mut current_pid = proc.parent();
+                while let Some(parent_pid) = current_pid {
+                    if let Some(p_proc) = self.sys.process(parent_pid) {
+                        if s.parent_name.is_empty() {
+                            s.parent_name = p_proc.name().to_string();
+                        }
+                        s.process_ancestry.push(p_proc.name().to_string());
+                        current_pid = p_proc.parent();
+                        if s.process_ancestry.len() >= 10 { break; } // Limit depth
+                    } else {
+                        break;
                     }
                 }
             }
@@ -402,11 +727,45 @@ impl BehaviorEngine {
 
         state.last_event_ts = now;
 
-        // 2. Pre-process global metrics
-        if msg.is_entropy_calc == 1 && msg.entropy > state.entropy_max {
-            state.entropy_max = msg.entropy;
+        // 2. Pre-process global metrics and update tracking state
+        
+        // Entropy tracking
+        if msg.is_entropy_calc == 1 {
+            if msg.entropy > state.entropy_max {
+                state.entropy_max = msg.entropy;
+            }
+            state.entropy_sum += msg.entropy;
+            state.entropy_count += 1;
         }
 
+        // Operation history for time-windowed aggregations
+        state.op_history.push(OpHistoryEntry {
+            timestamp: now,
+            op_type: msg.irp_op,
+            file_change: msg.file_change,
+            bytes: msg.mem_sized_used,
+            path: msg.filepathstr.clone(),
+            extension: msg.extension.clone(),
+        });
+        
+        // Limit history size to prevent memory bloat (keep last 1000 entries)
+        if state.op_history.len() > 1000 {
+            state.op_history.drain(0..500);
+        }
+
+        // Track totals
+        state.ops_total += 1;
+        state.bytes_total += msg.mem_sized_used;
+
+        // Extension change tracking
+        if msg.file_change == 5 { // EXTENSION_CHANGED
+            state.extension_changes += 1;
+            state.extension_change_timestamps.push(now);
+            // Limit timestamp history
+            if state.extension_change_timestamps.len() > 500 {
+                state.extension_change_timestamps.drain(0..250);
+            }
+        }
         // 3. Evaluate each rule's stages
         let mut triggered_rules = Vec::new();
 
@@ -430,7 +789,7 @@ impl BehaviorEngine {
 
             for (s_idx, stage) in rule.stages.iter().enumerate() {
                 for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state) {
+                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx) {
                         state.satisfied_conditions
                             .entry(rule.name.clone())
                             .or_default()
@@ -518,10 +877,20 @@ impl BehaviorEngine {
         }
     }
 
-    fn evaluate_condition_internal(regex_cache: &HashMap<String, Regex>, cond: &RuleCondition, msg: &IOMessage, state: &ProcessBehaviorState) -> bool {
+    fn evaluate_condition_internal(
+        regex_cache: &HashMap<String, Regex>, 
+        cond: &RuleCondition, 
+        msg: &IOMessage, 
+        state: &mut ProcessBehaviorState,
+        precord: &ProcessRecord,
+        rule_name: &str,
+        s_idx: usize,
+        c_idx: usize
+    ) -> bool {
         let op = IrpMajorOp::from_byte(msg.irp_op);
         
         match cond {
+            // === EXISTING CONDITIONS ===
             RuleCondition::File { op: f_op, path_pattern } => {
                 let path_match = Self::matches_internal(regex_cache, path_pattern, &msg.filepathstr);
                 if !path_match { return false; }
@@ -549,7 +918,7 @@ impl BehaviorEngine {
 
                 match r_op.as_str() {
                     "SetValue" => msg.mem_sized_used > 0,
-                    "SetSecurity" => msg.file_change == 10, // Assuming 10 is SET_SECURITY
+                    "SetSecurity" => msg.file_change == 10,
                     "Delete" => msg.file_change == 6,
                     "Create" => msg.file_change == 3,
                     _ => true,
@@ -588,6 +957,264 @@ impl BehaviorEngine {
             RuleCondition::Network { .. } => {
                 state.active_connections
             }
+
+            // === NEW TELEMETRY-BASED CONDITIONS ===
+
+            RuleCondition::OperationCount { op_type, path_pattern, comparison, threshold } => {
+                let count = match op_type.as_str() {
+                    "Read" => precord.ops_read,
+                    "Write" => precord.ops_written,
+                    "Delete" => precord.files_deleted.len() as u64,
+                    "Rename" => precord.files_renamed.len() as u64,
+                    "Create" => precord.ops_open,
+                    "Registry" => precord.ops_setinfo, // Approximate
+                    _ => 0,
+                };
+                
+                // If path_pattern specified, this is a "potential match" indicator
+                // The count threshold is the main check
+                if let Some(pattern) = path_pattern {
+                    if !Self::matches_internal(regex_cache, pattern, &msg.filepathstr) {
+                        return false; // Path doesn't match the filter
+                    }
+                }
+                
+                Self::compare_u64(count, comparison, *threshold)
+            }
+
+            RuleCondition::ExtensionPattern { patterns, match_mode, op_type } => {
+                // Check if current operation matches the type
+                let is_correct_op = match op_type.as_str() {
+                    "Read" => op == IrpMajorOp::IrpRead,
+                    "Write" => op == IrpMajorOp::IrpWrite,
+                    _ => true,
+                };
+                if !is_correct_op { return false; }
+
+                // Check extension against patterns
+                let ext = format!("*.{}", msg.extension.trim_matches('\0').to_lowercase());
+                let matches: Vec<bool> = patterns.iter()
+                    .map(|p| {
+                        let pattern_lower = p.to_lowercase();
+                        if pattern_lower.starts_with("*.") {
+                            ext.ends_with(&pattern_lower[1..])
+                        } else {
+                            ext.contains(&pattern_lower)
+                        }
+                    })
+                    .collect();
+                
+                Self::evaluate_match_mode(&matches, match_mode)
+            }
+
+            RuleCondition::ByteThreshold { direction, comparison, threshold } => {
+                let bytes = match direction.as_str() {
+                    "read" => precord.bytes_read,
+                    "write" => precord.bytes_written,
+                    "total" => precord.bytes_read + precord.bytes_written,
+                    _ => 0,
+                };
+                Self::compare_u64(bytes, comparison, *threshold)
+            }
+
+            RuleCondition::EntropyThreshold { metric, comparison, threshold } => {
+                let entropy = match metric.as_str() {
+                    "current" => msg.entropy,
+                    "max" => state.entropy_max,
+                    "average" => {
+                        if state.entropy_count > 0 {
+                            state.entropy_sum / state.entropy_count as f64
+                        } else {
+                            0.0
+                        }
+                    }
+                    _ => 0.0,
+                };
+                Self::compare_f64(entropy, comparison, *threshold)
+            }
+
+            RuleCondition::FileCount { category, comparison, threshold } => {
+                let count = match category.as_str() {
+                    "read" => precord.files_read.len() as u64,
+                    "written" => precord.files_written.len() as u64,
+                    "deleted" => precord.files_deleted.len() as u64,
+                    "renamed" => precord.files_renamed.len() as u64,
+                    "created" => precord.fpaths_created.len() as u64,
+                    _ => 0,
+                };
+                Self::compare_u64(count, comparison, *threshold)
+            }
+
+            RuleCondition::DirectorySpread { category, comparison, threshold } => {
+                let count = match category.as_str() {
+                    "created" => precord.dirs_with_files_created.len() as u64,
+                    "updated" => precord.dirs_with_files_updated.len() as u64,
+                    "opened" => precord.dirs_with_files_opened.len() as u64,
+                    _ => 0,
+                };
+                Self::compare_u64(count, comparison, *threshold)
+            }
+
+            RuleCondition::TimeWindowAggregation { metric, function, time_window_ms, comparison, threshold } => {
+                let now = SystemTime::now();
+                let window_start = now.checked_sub(Duration::from_millis(*time_window_ms))
+                    .unwrap_or(now);
+                
+                let relevant_ops: Vec<_> = state.op_history.iter()
+                    .filter(|op_entry| op_entry.timestamp >= window_start)
+                    .collect();
+                
+                let value = match (metric.as_str(), function) {
+                    ("ops_write", AggregationFunction::Count) => {
+                        relevant_ops.iter().filter(|o| o.op_type == 2).count() as f64
+                    }
+                    ("ops_delete", AggregationFunction::Count) => {
+                        relevant_ops.iter().filter(|o| o.file_change == 6 || o.file_change == 7).count() as f64
+                    }
+                    ("ops_rename", AggregationFunction::Count) => {
+                        relevant_ops.iter().filter(|o| o.file_change == 4).count() as f64
+                    }
+                    ("bytes_written", AggregationFunction::Sum) => {
+                        relevant_ops.iter().filter(|o| o.op_type == 2).map(|o| o.bytes as f64).sum()
+                    }
+                    ("files_modified", AggregationFunction::Count) => {
+                        relevant_ops.iter()
+                            .filter(|o| o.op_type == 2 || o.op_type == 3 || o.file_change == 4)
+                            .map(|o| &o.path)
+                            .collect::<HashSet<_>>()
+                            .len() as f64
+                    }
+                    (_, AggregationFunction::Rate) => {
+                        let elapsed = (*time_window_ms as f64) / 1000.0;
+                        if elapsed > 0.0 {
+                            relevant_ops.len() as f64 / elapsed
+                        } else {
+                            0.0
+                        }
+                    }
+                    (_, AggregationFunction::Count) => relevant_ops.len() as f64,
+                    (_, AggregationFunction::Sum) => relevant_ops.iter().map(|o| o.bytes as f64).sum(),
+                    (_, AggregationFunction::Avg) => {
+                        if relevant_ops.is_empty() { 0.0 } 
+                        else { relevant_ops.iter().map(|o| o.bytes as f64).sum::<f64>() / relevant_ops.len() as f64 }
+                    }
+                    (_, AggregationFunction::Max) => {
+                        relevant_ops.iter().map(|o| o.bytes as f64).fold(0.0, f64::max)
+                    }
+                    (_, AggregationFunction::Min) => {
+                        relevant_ops.iter().map(|o| o.bytes as f64).fold(f64::MAX, f64::min)
+                    }
+                };
+                
+                Self::compare_f64(value, comparison, *threshold)
+            }
+
+            RuleCondition::DriveActivity { drive_type, op_type, comparison, threshold } => {
+                let count = match (drive_type.as_str(), op_type.as_str()) {
+                    ("removable", "read") => precord.on_removable_drive_read_count,
+                    ("removable", "write") => precord.on_removable_drive_write_count,
+                    ("network", "read") => precord.on_shared_drive_read_count,
+                    ("network", "write") => precord.on_shared_drive_write_count,
+                    ("any", "read") => precord.on_removable_drive_read_count + precord.on_shared_drive_read_count,
+                    ("any", "write") => precord.on_removable_drive_write_count + precord.on_shared_drive_write_count,
+                    _ => 0,
+                };
+                Self::compare_u32(count, comparison, *threshold)
+            }
+
+            RuleCondition::ProcessAncestry { ancestor_pattern, max_depth } => {
+                let depth = max_depth.unwrap_or(10) as usize;
+                state.process_ancestry.iter()
+                    .take(depth)
+                    .any(|ancestor| Self::matches_internal(regex_cache, ancestor_pattern, ancestor))
+            }
+
+            RuleCondition::ExtensionRatio { extensions, comparison, threshold } => {
+                let total_unique_written = precord.files_written.len();
+                if total_unique_written == 0 { return false; }
+
+                // Dynamic hit tracking for specified extensions
+                let key = format!("{}:{}:{}:ext_hits", rule_name, s_idx, c_idx);
+                if extensions.iter().any(|ext| msg.extension.to_lowercase().contains(&ext.to_lowercase())) {
+                    state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
+                }
+                
+                let unique_extension_hits = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0);
+                let ratio = unique_extension_hits as f32 / total_unique_written as f32;
+                Self::compare_f32(ratio, comparison, *threshold)
+            }
+
+            RuleCondition::RateOfChange { metric, comparison, threshold } => {
+                let elapsed = state.last_event_ts
+                    .duration_since(state.first_event_ts.unwrap_or(state.last_event_ts))
+                    .unwrap_or(Duration::from_secs(1))
+                    .as_secs_f64()
+                    .max(0.1);
+                
+                let rate = match metric.as_str() {
+                    "files_per_second" => precord.files_written.len() as f64 / elapsed,
+                    "bytes_per_second" => precord.bytes_written as f64 / elapsed,
+                    "ops_per_second" => precord.driver_msg_count as f64 / elapsed,
+                    _ => 0.0,
+                };
+                
+                Self::compare_f64(rate, comparison, *threshold)
+            }
+
+            RuleCondition::SelfModification { modification_type } => {
+                match modification_type.as_str() {
+                    "exe_deleted" | "exe_not_exists" => !precord.exe_exists,
+                    _ => false,
+                }
+            }
+
+            RuleCondition::ExtensionChangeVelocity { time_window_ms, comparison, threshold } => {
+                let now = SystemTime::now();
+                let window_start = now.checked_sub(Duration::from_millis(*time_window_ms))
+                    .unwrap_or(now);
+                
+                let count = state.extension_change_timestamps.iter()
+                    .filter(|&&ts| ts >= window_start)
+                    .count() as u64;
+                
+                Self::compare_u64(count, comparison, *threshold)
+            }
+
+            RuleCondition::CommandLineMatch { patterns, match_mode } => {
+                let matches: Vec<bool> = patterns.iter()
+                    .map(|p| Self::matches_with_modifiers(&state.cmdline, p, regex_cache))
+                    .collect();
+                Self::evaluate_match_mode(&matches, match_mode)
+            }
+
+            RuleCondition::SensitivePathAccess { patterns, op_type, min_unique_paths } => {
+                // Check if operation type matches
+                let is_correct_op = match op_type.as_str() {
+                    "Read" => op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate,
+                    "Write" => op == IrpMajorOp::IrpWrite,
+                    _ => true,
+                };
+                if !is_correct_op { return false; }
+
+                // Dynamic hit tracking for specified path patterns
+                let key = format!("{}:{}:{}:path_hits", rule_name, s_idx, c_idx);
+                if patterns.iter().any(|p| Self::matches_internal(regex_cache, p, &msg.filepathstr)) {
+                    state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
+                }
+                
+                let unique_paths = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0);
+                let min_paths = min_unique_paths.unwrap_or(1) as usize;
+                unique_paths >= min_paths
+            }
+
+            RuleCondition::ClusterPattern { min_clusters, max_clusters } => {
+                let cluster_count = precord.clusters.len();
+                
+                let meets_min = min_clusters.map_or(true, |min| cluster_count >= min);
+                let meets_max = max_clusters.map_or(true, |max| cluster_count <= max);
+                
+                meets_min && meets_max
+            }
         }
     }
 
@@ -606,4 +1233,152 @@ impl BehaviorEngine {
     fn revert_registry_internal(msg: &IOMessage) {
         Logging::info(&format!("[REGISTRY] Reverting change to {}", msg.filepathstr));
     }
+
+    // ============================================================================
+    // NEW HELPER FUNCTIONS FOR TELEMETRY-BASED CONDITIONS
+    // ============================================================================
+
+    /// Compare u64 values
+    fn compare_u64(value: u64, comparison: &Comparison, threshold: u64) -> bool {
+        match comparison {
+            Comparison::Gt => value > threshold,
+            Comparison::Gte => value >= threshold,
+            Comparison::Lt => value < threshold,
+            Comparison::Lte => value <= threshold,
+            Comparison::Eq => value == threshold,
+            Comparison::Ne => value != threshold,
+        }
+    }
+
+    /// Compare u32 values
+    fn compare_u32(value: u32, comparison: &Comparison, threshold: u32) -> bool {
+        match comparison {
+            Comparison::Gt => value > threshold,
+            Comparison::Gte => value >= threshold,
+            Comparison::Lt => value < threshold,
+            Comparison::Lte => value <= threshold,
+            Comparison::Eq => value == threshold,
+            Comparison::Ne => value != threshold,
+        }
+    }
+
+    /// Compare f64 values
+    fn compare_f64(value: f64, comparison: &Comparison, threshold: f64) -> bool {
+        match comparison {
+            Comparison::Gt => value > threshold,
+            Comparison::Gte => value >= threshold,
+            Comparison::Lt => value < threshold,
+            Comparison::Lte => value <= threshold,
+            Comparison::Eq => (value - threshold).abs() < 0.0001,
+            Comparison::Ne => (value - threshold).abs() >= 0.0001,
+        }
+    }
+
+    /// Compare f32 values
+    fn compare_f32(value: f32, comparison: &Comparison, threshold: f32) -> bool {
+        match comparison {
+            Comparison::Gt => value > threshold,
+            Comparison::Gte => value >= threshold,
+            Comparison::Lt => value < threshold,
+            Comparison::Lte => value <= threshold,
+            Comparison::Eq => (value - threshold).abs() < 0.0001,
+            Comparison::Ne => (value - threshold).abs() >= 0.0001,
+        }
+    }
+
+
+
+    /// Check if pattern matches using MatchMode logic
+    fn evaluate_match_mode(matches: &[bool], mode: &MatchMode) -> bool {
+        let match_count = matches.iter().filter(|&&m| m).count();
+        let total = matches.len();
+        
+        match mode {
+            MatchMode::All => match_count == total,
+            MatchMode::Any => match_count > 0,
+            MatchMode::Count(n) => match_count == *n,
+            MatchMode::AtLeast(n) => match_count >= *n,
+        }
+    }
+
+    /// Apply string modifiers to a pattern match
+    fn matches_with_modifiers(text: &str, pattern: &CommandLinePattern, regex_cache: &HashMap<String, Regex>) -> bool {
+        let mut text_for_match = text.to_string();
+        let mut pattern_for_match = pattern.pattern.clone();
+        let mut negate = false;
+        let mut use_regex = false;
+        
+        for modifier in &pattern.modifiers {
+            match modifier {
+                StringModifier::Nocase => {
+                    text_for_match = text_for_match.to_lowercase();
+                    pattern_for_match = pattern_for_match.to_lowercase();
+                }
+                StringModifier::Contains => {
+                    // Default behavior
+                }
+                StringModifier::Startswith => {
+                    if !use_regex {
+                        return text_for_match.starts_with(&pattern_for_match) != negate;
+                    }
+                }
+                StringModifier::Endswith => {
+                    if !use_regex {
+                        return text_for_match.ends_with(&pattern_for_match) != negate;
+                    }
+                }
+                StringModifier::Re => {
+                    use_regex = true;
+                }
+                StringModifier::Not => {
+                    negate = true;
+                }
+                StringModifier::Base64 => {
+                    // Attempt base64 decode
+                    if let Ok(decoded) = base64_decode(&text_for_match) {
+                        text_for_match = decoded;
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        let result = if use_regex {
+            if let Some(re) = regex_cache.get(&pattern_for_match) {
+                re.is_match(&text_for_match)
+            } else if let Ok(re) = Regex::new(&format!("(?i){}", &pattern_for_match)) {
+                re.is_match(&text_for_match)
+            } else {
+                text_for_match.contains(&pattern_for_match)
+            }
+        } else {
+            text_for_match.contains(&pattern_for_match)
+        };
+        
+        if negate { !result } else { result }
+    }
+}
+
+/// Simple base64 decode helper
+fn base64_decode(input: &str) -> Result<String, ()> {
+    // Simple implementation - only handles standard base64
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    let input = input.trim().replace('=', "");
+    let mut output = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0;
+    
+    for c in input.chars() {
+        let val = CHARS.iter().position(|&x| x == c as u8).ok_or(())?;
+        buffer = (buffer << 6) | (val as u32);
+        bits += 6;
+        
+        while bits >= 8 {
+            bits -= 8;
+            output.push(((buffer >> bits) & 0xFF) as u8);
+        }
+    }
+    
+    String::from_utf8(output).map_err(|_| ())
 }

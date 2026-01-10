@@ -2,28 +2,29 @@
 
 !include rules/sandboxes.yaml
 
-- name: "Unified Browser Stealer Detection"
-  description: "Detects multi-stage browser credential theft using advanced logical mapping."
+- name: "Advanced Multi-Browser Stealer Detection"
+  description: "Detects multi-stage browser credential theft spanning multiple browsers (Chrome, Edge, Firefox, Opera, Brave, Discord)."
   severity: 10
   time_window_ms: 60000
   mapping:
     and:
-      - stage: "Browser Access"
+      - stage: "Sensitive Browser Access"
       - or:
           - stage: "Credential Decryption"
           - stage: "Data Staging"
   stages:
-    - name: "Browser Access"
+    - name: "Sensitive Browser Access"
       conditions:
-        - type: "File"
-          op: "Read"
-          path_pattern: "(?i)Google\\\\Chrome\\\\User Data.*(Cookies|Login Data|Local State)"
-        - type: "File"
-          op: "Read"
-          path_pattern: "(?i)Opera Software\\\\Opera Stable.*(Cookies|Login Data)"
-        - type: "File"
-          op: "Read"
-          path_pattern: "(?i)Discord\\\\Local Storage"
+        - type: "SensitivePathAccess"
+          patterns: 
+            - "*Google\\Chrome\\User Data*"
+            - "*Microsoft\\Edge\\User Data*"
+            - "*Mozilla\\Firefox\\Profiles*"
+            - "*Opera Software\\Opera*"
+            - "*Brave-Browser*"
+            - "*discord\\local storage*"
+          op_type: "Read"
+          min_unique_paths: 3
     - name: "Credential Decryption"
       conditions:
         - type: "Api"
@@ -41,7 +42,7 @@
     terminate_process: true
     quarantine: true
     signal_firewall: "Block_Exfiltration"
-  allowlisted_apps: ["chrome.exe", "msedge.exe", "discord.exe"]
+  allowlisted_apps: ["chrome.exe", "msedge.exe", "discord.exe", "firefox.exe", "opera.exe", "brave.exe"]
 
 - name: "Aggressive Trojan Persistence & Disability"
   description: "Detects tampering with security services and critical registry keys."
