@@ -406,10 +406,10 @@ pub mod process_record_handling {
         fn handle_behaviour_detection(&mut self, precord: &mut ProcessRecord) {
             if precord.termination_requested {
                 if precord.quarantine_requested {
-                    Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
+                    Logging::info(&format!("[BehaviourEngine] Terminating and Quarantining: {}", precord.appname));
                     self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
                 } else {
-                    Logging::info(&format!("[BehaviorEngine] Terminating: {}", precord.appname));
+                    Logging::info(&format!("[BehaviourEngine] Terminating: {}", precord.appname));
                     self.threat_handler.kill(precord.gid);
                 }
                 precord.process_state = ProcessState::Killed;
@@ -827,7 +827,7 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
-        pub behaviour_engine: crate::behaviour_engine::BehaviorEngine,
+        pub behaviour_engine: crate::behaviour_engine::BehaviourEngine,
     }
 
     impl<'a> Worker<'a> {
@@ -841,7 +841,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behaviour_engine: crate::behaviour_engine::BehaviorEngine::new(),
+                behaviour_engine: crate::behaviour_engine::BehaviourEngine::new(),
 			}
 		}
 
@@ -895,7 +895,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behaviour_engine: crate::behaviour_engine::BehaviorEngine::new(),
+                behaviour_engine: crate::behaviour_engine::BehaviourEngine::new(),
 			}
 		}
 

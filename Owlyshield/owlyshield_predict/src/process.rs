@@ -534,7 +534,7 @@ impl ProcessRecord {
 
     fn update_registry(&mut self, _iomsg: &IOMessage) {
         // Hardcoded generic block removed to prevent false positives (e.g. explorer.exe)
-        // Protection is now handled by granular rules in behaviour_rules.yaml via BehaviorEngine
+        // Protection is now handled by granular rules in behaviour_rules.yaml via BehaviourEngine
     }
 
 
