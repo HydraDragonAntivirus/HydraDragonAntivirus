@@ -344,7 +344,7 @@ impl AutonomousLearningEngine {
                 activity_bursts: Vec::new(),
                 memory_allocation_pattern: memory_allocation_pattern.clone(),
                 file_operation_pattern: file_operation_pattern.clone(),
-                network_behavior: network_behavior.clone(),
+                network_behavior: network_behaviour.clone(),
                 process_interaction: process_interaction.clone(),
                 anomaly_score: 0.0,
                 novelty_score: 0.0,
