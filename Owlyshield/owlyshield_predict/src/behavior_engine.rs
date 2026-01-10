@@ -1332,6 +1332,110 @@ impl BehaviorEngine {
                 
                 meets_min && meets_max
             }
+
+            RuleCondition::TempDirectoryWrite { min_bytes, min_files } => {
+                // Check if current write is to a temp directory
+                let path_lower = msg.filepathstr.to_lowercase();
+                let is_temp = path_lower.contains("\\temp\\") 
+                    || path_lower.contains("\\tmp\\")
+                    || path_lower.contains("\\appdata\\local\\temp");
+                
+                if !is_temp || op != IrpMajorOp::IrpWrite {
+                    return false;
+                }
+
+                // Track temp writes for this condition
+                let key = format!("{}:{}:{}:temp_writes", rule_name, s_idx, c_idx);
+                let bytes_key = format!("{}:{}:{}:temp_bytes", rule_name, s_idx, c_idx);
+                
+                state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
+                let current_files = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0) as u32;
+                
+                // Track bytes (simplified - just use current message bytes)
+                let current_bytes = msg.mem_sized_used;
+                
+                let meets_bytes = min_bytes.map_or(true, |mb| current_bytes >= mb);
+                let meets_files = min_files.map_or(true, |mf| current_files >= mf);
+                
+                meets_bytes || meets_files
+            }
+
+            RuleCondition::ArchiveCreation { extensions, min_size, in_temp } => {
+                let default_exts = vec!["zip", "rar", "7z", "tar", "gz", "bz2", "xz"];
+                let exts_to_check: Vec<&str> = if extensions.is_empty() {
+                    default_exts
+                } else {
+                    extensions.iter().map(|s| s.as_str()).collect()
+                };
+                
+                let ext_lower = msg.extension.to_lowercase();
+                let is_archive = exts_to_check.iter().any(|e| ext_lower.contains(e));
+                
+                if !is_archive {
+                    return false;
+                }
+                
+                if op != IrpMajorOp::IrpWrite && op != IrpMajorOp::IrpCreate {
+                    return false;
+                }
+                
+                // Check temp directory requirement
+                if *in_temp {
+                    let path_lower = msg.filepathstr.to_lowercase();
+                    let is_temp_path = path_lower.contains("\\temp\\") 
+                        || path_lower.contains("\\tmp\\")
+                        || path_lower.contains("\\appdata\\local\\temp");
+                    if !is_temp_path {
+                        return false;
+                    }
+                }
+                
+                // Check size requirement
+                min_size.map_or(true, |ms| msg.mem_sized_used >= ms)
+            }
+
+            RuleCondition::DataExfiltrationPattern { source_patterns, min_source_reads, detect_temp_staging, detect_archive } => {
+                // Track reads from sensitive sources
+                let reads_key = format!("{}:{}:{}:source_reads", rule_name, s_idx, c_idx);
+                let temp_key = format!("{}:{}:{}:temp_staging", rule_name, s_idx, c_idx);
+                let archive_key = format!("{}:{}:{}:archive_created", rule_name, s_idx, c_idx);
+                
+                // Check if current operation is a read from a sensitive source
+                if op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate {
+                    for pattern in source_patterns {
+                        if Self::matches_internal(regex_cache, pattern, &msg.filepathstr) {
+                            state.condition_specific_state.entry(reads_key.clone()).or_default().insert(msg.filepathstr.clone());
+                            break;
+                        }
+                    }
+                }
+                
+                // Check temp staging
+                if *detect_temp_staging && op == IrpMajorOp::IrpWrite {
+                    let path_lower = msg.filepathstr.to_lowercase();
+                    if path_lower.contains("\\temp\\") || path_lower.contains("\\tmp\\") || path_lower.contains("\\appdata\\local\\temp") {
+                        state.condition_specific_state.entry(temp_key.clone()).or_default().insert("true".to_string());
+                    }
+                }
+                
+                // Check archive creation
+                if *detect_archive && (op == IrpMajorOp::IrpWrite || op == IrpMajorOp::IrpCreate) {
+                    let ext_lower = msg.extension.to_lowercase();
+                    if ext_lower.contains("zip") || ext_lower.contains("rar") || ext_lower.contains("7z") {
+                        state.condition_specific_state.entry(archive_key.clone()).or_default().insert("true".to_string());
+                    }
+                }
+                
+                // Evaluate the pattern
+                let source_read_count = state.condition_specific_state.get(&reads_key).map(|s| s.len()).unwrap_or(0) as u32;
+                let min_reads = min_source_reads.unwrap_or(1);
+                let has_enough_reads = source_read_count >= min_reads;
+                
+                let has_temp_staging = !*detect_temp_staging || state.condition_specific_state.get(&temp_key).map(|s| !s.is_empty()).unwrap_or(false);
+                let has_archive = !*detect_archive || state.condition_specific_state.get(&archive_key).map(|s| !s.is_empty()).unwrap_or(false);
+                
+                has_enough_reads && (has_temp_staging || has_archive)
+            }
         }
     }
 
