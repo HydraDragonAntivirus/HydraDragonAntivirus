@@ -103,7 +103,7 @@ class DriverData {
 
     // NEW: Check if a GID or PID belongs to a malicious process
     BOOLEAN IsGidMalicious(ULONGLONG gid);
-    BOOLEAN IsProcessMalicious(ULONG pid);
+    BOOLEAN IsProcessMalicious(ULONG processId);
 
     //clear all data related to Gid system
     VOID ClearGidsPids();

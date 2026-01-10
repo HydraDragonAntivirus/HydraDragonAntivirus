@@ -189,7 +189,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->IsDeletion = TRUE;
                                         backup->Type = pValueInfo->Type;
                                         backup->DataSize = pValueInfo->DataLength;
-                                        RtlCopyMemory(backup->Data, pValueInfo->Data, pValueInfo->DataLength);
+                                        RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
                                         RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
                                         driverData->AddRegistryBackup(backup);
@@ -270,7 +270,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->IsDeletion = FALSE;
                                         backup->Type = pValueInfo->Type;
                                         backup->DataSize = pValueInfo->DataLength;
-                                        RtlCopyMemory(backup->Data, pValueInfo->Data, pValueInfo->DataLength);
+                                        RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
                                         RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
                                         driverData->AddRegistryBackup(backup);

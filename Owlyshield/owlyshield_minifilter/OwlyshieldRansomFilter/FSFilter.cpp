@@ -1358,7 +1358,7 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
 
     do
     {
-        pni = (PUNICODE_STRING)ExAllocatePoolWithTag(NonPagedPool, pniSize, 'RW');
+        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, 'RW');
         if (pni != NULL)
         {
             // FIX: Use local copy instead of global variable
@@ -1472,7 +1472,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     // Prepare rename information
     ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + destPath.Length;
     PFILE_RENAME_INFORMATION renameInfo = (PFILE_RENAME_INFORMATION)
-        ExAllocatePoolWithTag(NonPagedPool, renameInfoSize, 'RW');
+        ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, 'RW');
 
     if (renameInfo == NULL)
     {
@@ -1507,7 +1507,9 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
         RtlInitUnicodeString(&newQuarantinedFileName, newQuarantinedFileNameBuffer);
         RtlAppendUnicodeStringToString(&newQuarantinedFileName, &destPath);
-        RtlAppendUnicodeStringToString(&newQuarantinedFileName, L".quarantined");
+        UNICODE_STRING quarantinedExtension;
+        RtlInitUnicodeString(&quarantinedExtension, L".quarantined");
+        RtlAppendUnicodeStringToString(&newQuarantinedFileName, &quarantinedExtension);
 
         InitializeObjectAttributes(&quarantinedObjAttr, &destPath,
                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
@@ -1523,7 +1525,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
         {
             ULONG newRenameInfoSize = sizeof(FILE_RENAME_INFORMATION) + newQuarantinedFileName.Length;
             PFILE_RENAME_INFORMATION newRenameInfo = (PFILE_RENAME_INFORMATION)
-                ExAllocatePoolWithTag(NonPagedPool, newRenameInfoSize, 'RW');
+                ExAllocatePool2(POOL_FLAG_NON_PAGED, newRenameInfoSize, 'RW');
 
             if (newRenameInfo != NULL)
             {

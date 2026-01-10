@@ -52,7 +52,7 @@ VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
 
     if (path != NULL && path->Length > 0) {
         quarantinePath.MaximumLength = path->Length + sizeof(WCHAR); // + null terminator
-        quarantinePath.Buffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPool, quarantinePath.MaximumLength, 'RW');
+        quarantinePath.Buffer = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, quarantinePath.MaximumLength, 'RW');
         if (quarantinePath.Buffer != NULL) {
             RtlCopyUnicodeString(&quarantinePath, path);
             quarantinePath.Buffer[quarantinePath.Length / sizeof(WCHAR)] = L'\0'; // Null-terminate
@@ -318,9 +318,9 @@ BOOLEAN DriverData::IsGidMalicious(ULONGLONG gid) {
     return ret;
 }
 
-BOOLEAN DriverData::IsProcessMalicious(ULONG pid) {
+BOOLEAN DriverData::IsProcessMalicious(ULONG processId) {
     BOOLEAN found = FALSE;
-    ULONGLONG gid = GetProcessGid(pid, &found);
+    ULONGLONG gid = GetProcessGid(processId, &found);
     if (found) {
         return IsGidMalicious(gid);
     }
@@ -761,12 +761,12 @@ VOID DriverData::RevertRegistryChangesForGid(ULONGLONG gid) {
             if (backup->IsDeletion) {
                 // If it was a deletion, we restore the value
                 DbgPrint("!!! Regedit: Reverting DELETION of %wZ\\%wZ\n", &keyPath, &valueName);
-                ZwSetValueKey(hKey, &valueName, 0, backup->Type, backup->Data, backup->DataSize);
+                ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
             }
             else {
                 // If it was a SetValue, we restore the original value
                 DbgPrint("!!! Regedit: Reverting SET of %wZ\\%wZ\n", &keyPath, &valueName);
-                ZwSetValueKey(hKey, &valueName, 0, backup->Type, backup->Data, backup->DataSize);
+                ZwSetValueKey(hKey, &valueName, 0, backup->Type, (PVOID)backup->RegistryData, backup->DataSize);
             }
             ZwClose(hKey);
         } else {

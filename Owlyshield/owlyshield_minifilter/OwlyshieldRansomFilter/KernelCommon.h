@@ -148,17 +148,17 @@ typedef struct _REGISTRY_BACKUP_ENTRY
     ULONG DataSize;
     WCHAR KeyPath[MAX_FILE_NAME_LENGTH];
     WCHAR ValueName[MAX_FILE_NAME_LENGTH];
-    BYTE Data[1024]; // Max 1KB of data backed up per value
+    UCHAR RegistryData[1024]; // Max 1KB of data backed up per value
 
-    // void* operator new(size_t size) {
-    //     void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
-    //     if (size && ptr != nullptr)
-    //         memset(ptr, 0, size);
-    //     return ptr;
-    // }
+    void* operator new(size_t size) {
+        void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+        if (size && ptr != nullptr)
+            memset(ptr, 0, size);
+        return ptr;
+    }
 
-    // void operator delete(void* ptr) {
-    //     ExFreePoolWithTag(ptr, 'RW');
-    // }
+    void operator delete(void* ptr) {
+        ExFreePoolWithTag(ptr, 'RW');
+    }
 
 } REGISTRY_BACKUP_ENTRY, * PREGISTRY_BACKUP_ENTRY;
