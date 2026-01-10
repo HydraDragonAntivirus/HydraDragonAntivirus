@@ -208,12 +208,12 @@ pub struct BehaviorRule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(untagged)]
 pub enum RuleMapping {
-    And(Vec<RuleMapping>),
-    Or(Vec<RuleMapping>),
-    Not(Box<RuleMapping>),
-    Stage(String),
+    And { and: Vec<RuleMapping> },
+    Or { or: Vec<RuleMapping> },
+    Not { not: Box<RuleMapping> },
+    Stage { stage: String },
 }
 
 fn default_min_stages() -> usize { 1 }
@@ -392,6 +392,44 @@ pub enum RuleCondition {
         #[serde(default)]
         max_clusters: Option<usize>,
     },
+
+    /// Detect writes to temp directories (data staging for exfiltration)
+    TempDirectoryWrite {
+        /// Minimum bytes written to temp to trigger
+        #[serde(default)]
+        min_bytes: Option<u64>,
+        /// Minimum unique files written to temp
+        #[serde(default)]
+        min_files: Option<u32>,
+    },
+
+    /// Detect archive file creation/writes (ZIP, RAR, 7z, etc.)
+    ArchiveCreation {
+        /// Archive extensions to monitor (default: zip, rar, 7z, tar, gz)
+        #[serde(default)]
+        extensions: Vec<String>,
+        /// Minimum archive size in bytes to trigger
+        #[serde(default)]
+        min_size: Option<u64>,
+        /// Must be in temp directory
+        #[serde(default)]
+        in_temp: bool,
+    },
+
+    /// Combined stealer pattern: reads from sensitive paths + writes to temp/archives
+    DataExfiltrationPattern {
+        /// Sensitive path patterns to watch for reads
+        source_patterns: Vec<String>,
+        /// Minimum reads from sensitive paths
+        #[serde(default)]
+        min_source_reads: Option<u32>,
+        /// Detect staging to temp directory
+        #[serde(default)]
+        detect_temp_staging: bool,
+        /// Detect archive creation
+        #[serde(default)]
+        detect_archive: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -401,7 +439,6 @@ pub struct ResponseAction {
     #[serde(default)] pub quarantine: bool,
     #[serde(default)] pub block_network: bool,
     #[serde(default)] pub auto_revert: bool,
-    #[serde(default)] pub signal_firewall: Option<String>,
 }
 
 // ============================================================================
@@ -700,30 +737,55 @@ impl BehaviorEngine {
         let content = std::fs::read_to_string(path)?;
         let mut rules = Vec::new();
 
-        // Support !include by pre-parsing or using a custom resolver
-        // For simplicity and robustness, we'll look for '!include' lines manually if needed, 
-        // but often users prefer a clean YAML-native inclusion.
-        // Here we'll implement a simple recursive loader that looks for a top-level 'includes' key if parsing fails as a list,
-        // or we preprocess the string.
-        
+        // Check if the file uses !include directives
         if content.contains("!include") {
-            // Simple preprocessing to resolve !include <path>
-            let mut resolved_content = String::new();
+            // Process include directives
+            let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            
+            // First, collect all includes and load their rules
             for line in content.lines() {
-                if line.trim().starts_with("!include ") {
-                    let include_path_str = line.trim().trim_start_matches("!include ").trim();
-                    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-                    let include_path = parent.join(include_path_str);
-                    let sub_rules = self.load_rules_recursive(&include_path)?;
-                    // Convert sub-rules back to YAML to merge into the stream
-                    resolved_content.push_str(&serde_yaml::to_string(&sub_rules)?);
-                } else {
-                    resolved_content.push_str(line);
-                    resolved_content.push('\n');
+                let trimmed = line.trim();
+                // Handle both "- !include file.yaml" and "!include file.yaml" formats
+                if trimmed.contains("!include ") {
+                    let include_part = if trimmed.starts_with("- ") {
+                        trimmed.trim_start_matches("- ").trim()
+                    } else {
+                        trimmed
+                    };
+                    
+                    if include_part.starts_with("!include ") {
+                        let include_path_str = include_part.trim_start_matches("!include ").trim();
+                        let include_path = parent.join(include_path_str);
+                        
+                        if include_path.exists() {
+                            match self.load_rules_recursive(&include_path) {
+                                Ok(sub_rules) => rules.extend(sub_rules),
+                                Err(e) => {
+                                    Logging::warning(&format!("[EDR] Failed to load include {}: {}", include_path.display(), e));
+                                }
+                            }
+                        } else {
+                            Logging::warning(&format!("[EDR] Include file not found: {}", include_path.display()));
+                        }
+                    }
                 }
             }
-            let r: Vec<BehaviorRule> = serde_yaml::from_str(&resolved_content)?;
-            rules.extend(r);
+            
+            // Now parse the main file, filtering out include lines
+            let filtered_content: String = content
+                .lines()
+                .filter(|line| !line.contains("!include"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            
+            if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
+                match serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
+                    Ok(main_rules) => rules.extend(main_rules),
+                    Err(_) => {
+                        // Might be empty or only includes, that's OK
+                    }
+                }
+            }
         } else {
             let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
             rules.extend(r);
@@ -903,10 +965,6 @@ impl BehaviorEngine {
                 precord.quarantine_requested = true;
             }
 
-            if let Some(signal) = &rule.response.signal_firewall {
-                Self::signal_firewall_internal(state.pid, signal);
-            }
-
             if rule.response.auto_revert {
                 Self::revert_registry_internal(msg);
             }
@@ -915,10 +973,10 @@ impl BehaviorEngine {
 
     fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
         match mapping {
-            RuleMapping::And(mappings) => mappings.iter().all(|m| Self::evaluate_mapping_internal(m, rule, state)),
-            RuleMapping::Or(mappings) => mappings.iter().any(|m| Self::evaluate_mapping_internal(m, rule, state)),
-            RuleMapping::Not(m) => !Self::evaluate_mapping_internal(m, rule, state),
-            RuleMapping::Stage(name) => {
+            RuleMapping::And { and: mappings } => mappings.iter().all(|m| Self::evaluate_mapping_internal(m, rule, state)),
+            RuleMapping::Or { or: mappings } => mappings.iter().any(|m| Self::evaluate_mapping_internal(m, rule, state)),
+            RuleMapping::Not { not: m } => !Self::evaluate_mapping_internal(m, rule, state),
+            RuleMapping::Stage { stage: name } => {
                 if let Some(idx) = rule.stages.iter().position(|s| s.name == *name) {
                     state.satisfied_stages.get(&rule.name).map_or(false, |set| set.contains(&idx))
                 } else {
@@ -1283,10 +1341,6 @@ impl BehaviorEngine {
         } else {
             text.to_lowercase().contains(&pattern.to_lowercase())
         }
-    }
-
-    fn signal_firewall_internal(pid: u32, signal: &str) {
-        Logging::info(&format!("[FIREWALL] Signaling: {} for PID {}", signal, pid));
     }
 
     fn revert_registry_internal(msg: &IOMessage) {
