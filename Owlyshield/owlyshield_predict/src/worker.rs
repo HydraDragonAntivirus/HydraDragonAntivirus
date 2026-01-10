@@ -335,7 +335,7 @@ pub mod process_record_handling {
 
     pub trait ProcessRecordIOHandler {
         fn handle_io(&mut self, process_record: &mut ProcessRecord);
-        fn handle_behavior_detection(&mut self, process_record: &mut ProcessRecord);
+        fn handle_behaviour_detection(&mut self, process_record: &mut ProcessRecord);
     }
 
     pub struct ProcessRecordHandlerLive<'a> {
@@ -403,7 +403,7 @@ pub mod process_record_handling {
             }
         }
 
-        fn handle_behavior_detection(&mut self, precord: &mut ProcessRecord) {
+        fn handle_behaviour_detection(&mut self, precord: &mut ProcessRecord) {
             if precord.termination_requested {
                 if precord.quarantine_requested {
                     Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
@@ -500,7 +500,7 @@ pub mod process_record_handling {
             }
         }
 
-        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
+        fn handle_behaviour_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl ProcessRecordHandlerReplay {
@@ -577,7 +577,7 @@ pub mod process_record_handling {
             }
         }
 
-        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
+        fn handle_behaviour_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl<'a> ProcessRecordHandlerNovelty<'a> {
@@ -827,7 +827,7 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
-        pub behavior_engine: crate::behavior_engine::BehaviorEngine,
+        pub behaviour_engine: crate::behaviour_engine::BehaviorEngine,
     }
 
     impl<'a> Worker<'a> {
@@ -841,7 +841,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                behaviour_engine: crate::behaviour_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -895,7 +895,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                behaviour_engine: crate::behaviour_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -922,10 +922,10 @@ pub mod worker_instance {
                 }
 
                 // --- ADDED: Process event in behavior engine ---
-                self.behavior_engine.process_event(precord, iomsg);
+                self.behaviour_engine.process_event(precord, iomsg);
 
                 if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_behavior_detection(precord);
+                    process_record_handler.handle_behaviour_detection(precord);
                     process_record_handler.handle_io(precord);
                 }
                 for postprocessor in &mut self.iomsg_postprocessors {
@@ -940,7 +940,7 @@ pub mod worker_instance {
 
         /// Perform an initial behavioral scan of all running processes.
         pub fn perform_initial_scan(&mut self) {
-            self.behavior_engine.find_malware_variants(&mut self.process_records.process_records);
+            self.behaviour_engine.find_malware_variants(&mut self.process_records.process_records);
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {

@@ -110,7 +110,7 @@ pub struct AutonomousLearningEngine {
     anomaly_detector: AnomalyDetector,
 
     // Clustering engine (groups similar behaviors)
-    behavior_clusters: BehaviorClusters,
+    behaviour_clusters: BehaviorClusters,
 
     // Learning statistics
     stats: AutonomousLearningStats,
@@ -167,7 +167,7 @@ pub struct AutonomousLearningStats {
     pub baseline_established_at: Option<SystemTime>,
     pub anomalies_detected: usize,
     pub high_threat_processes: usize,
-    pub behavior_clusters_count: usize,
+    pub behaviour_clusters_count: usize,
     pub profiles_collected: usize,
 }
 
@@ -229,7 +229,7 @@ impl AutonomousLearningEngine {
                 z_score_threshold: 0.0,  // Will be learned adaptively
                 anomalies_detected: 0,
             },
-            behavior_clusters: BehaviorClusters {
+            behaviour_clusters: BehaviorClusters {
                 clusters: Vec::new(),
             },
             stats: AutonomousLearningStats::default(),
@@ -279,7 +279,7 @@ impl AutonomousLearningEngine {
 
         // Update clusters periodically
         if self.stats.total_processes_observed % self.config.clustering_update_frequency == 0 {
-            self.update_behavior_clusters();
+            self.update_behaviour_clusters();
         }
 
         // Determine if this is a threat
@@ -572,7 +572,7 @@ impl AutonomousLearningEngine {
     /// Calculate novelty score (how different from known patterns)
     fn calculate_novelty_score(&self, profile: &BehavioralProfile) -> f32 {
         // Compare to existing clusters
-        if self.behavior_clusters.clusters.is_empty() {
+        if self.behaviour_clusters.clusters.is_empty() {
             return 0.5; // Moderate novelty
         }
 
@@ -580,7 +580,7 @@ impl AutonomousLearningEngine {
         let feature_vector = self.extract_feature_vector(profile);
         let mut min_distance = f32::MAX;
 
-        for cluster in &self.behavior_clusters.clusters {
+        for cluster in &self.behaviour_clusters.clusters {
             let distance = self.euclidean_distance(&feature_vector, &cluster.centroid);
             if distance < min_distance {
                 min_distance = distance;
@@ -617,15 +617,15 @@ impl AutonomousLearningEngine {
     /// Adaptive novelty normalization factor (replaces hardcoded 10.0)
     fn adaptive_novelty_normalization_factor(&self) -> f32 {
         // Learn from observed cluster distances
-        if self.behavior_clusters.clusters.len() > 5 {
+        if self.behaviour_clusters.clusters.len() > 5 {
             // Calculate average inter-cluster distance
             let mut total_distance = 0.0;
             let mut count = 0;
-            for i in 0..self.behavior_clusters.clusters.len() {
-                for j in (i+1)..self.behavior_clusters.clusters.len() {
+            for i in 0..self.behaviour_clusters.clusters.len() {
+                for j in (i+1)..self.behaviour_clusters.clusters.len() {
                     let dist = self.euclidean_distance(
-                        &self.behavior_clusters.clusters[i].centroid,
-                        &self.behavior_clusters.clusters[j].centroid
+                        &self.behaviour_clusters.clusters[i].centroid,
+                        &self.behaviour_clusters.clusters[j].centroid
                     );
                     total_distance += dist;
                     count += 1;
@@ -701,7 +701,7 @@ impl AutonomousLearningEngine {
     }
 
     /// Update behavior clusters (unsupervised learning)
-    fn update_behavior_clusters(&mut self) {
+    fn update_behaviour_clusters(&mut self) {
         // Simple k-means clustering
         // In production, use more sophisticated algorithms
 
@@ -807,7 +807,7 @@ impl AutonomousLearningEngine {
         println!("║  ─────────────────────────────────────────────────     ║");
         println!("║  Anomalies Detected:      {:6}                      ║", self.stats.anomalies_detected);
         println!("║  High Threat Processes:   {:6}                      ║", self.stats.high_threat_processes);
-        println!("║  Behavior Clusters:       {:6}                      ║", self.behavior_clusters.clusters.len());
+        println!("║  Behavior Clusters:       {:6}                      ║", self.behaviour_clusters.clusters.len());
         println!("╚════════════════════════════════════════════════════════╝\n");
     }
 }

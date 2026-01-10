@@ -16,7 +16,7 @@ pub mod config;
 pub mod utils;
 #[cfg(target_os = "windows")]
 pub mod services;
-pub mod behavior_engine;
+pub mod behaviour_engine;
 
 /// SDK-facing exports used by examples and integrations.
 pub mod sdk {
