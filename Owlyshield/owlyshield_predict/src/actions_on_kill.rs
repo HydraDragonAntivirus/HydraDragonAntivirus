@@ -19,7 +19,7 @@ use crate::utils::{FILE_TIME_FORMAT, LONG_TIME_FORMAT};
 #[derive(Debug, Clone)]
 pub struct ThreatInfo<'a> {
     pub threat_type_label: &'a str, // e.g., "Ransomware", "Malware", "PUA"
-    pub virus_name: &'a str,      // e.g., "Behavioural Detection", "Trojan.Generic"
+    pub virus_name: &'a str,      // e.g., "Behavioral Detection", "Trojan.Generic"
     pub prediction: f32,
 }
 

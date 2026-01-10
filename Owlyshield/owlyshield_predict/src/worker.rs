@@ -12,7 +12,7 @@ pub mod predictor {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32>;
     }
 
-    pub trait PredictorHandlerBehavioural: PredictorHandler {
+    pub trait PredictorHandlerBehavioral: PredictorHandler {
         fn is_prediction_required(
             &self,
             threshold_drivermsgs: usize,
@@ -103,14 +103,14 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictionhandlerBehaviouralXGBoost<'a> {
+    pub struct PredictionhandlerBehavioralXGBoost<'a> {
         config: &'a Config,
         predictions_count: usize,
     }
 
-    impl PredictorHandlerBehavioural for PredictionhandlerBehaviouralXGBoost<'_> {}
+    impl PredictorHandlerBehavioral for PredictionhandlerBehavioralXGBoost<'_> {}
 
-    impl PredictorHandler for PredictionhandlerBehaviouralXGBoost<'_> {
+    impl PredictorHandler for PredictionhandlerBehavioralXGBoost<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             if self.is_prediction_required(
                 self.config.threshold_drivermsgs,
@@ -125,25 +125,25 @@ pub mod predictor {
         }
     }
 
-    impl PredictionhandlerBehaviouralXGBoost<'_> {
-        pub fn new(config: &Config) -> PredictionhandlerBehaviouralXGBoost<'_> {
-            PredictionhandlerBehaviouralXGBoost {
+    impl PredictionhandlerBehavioralXGBoost<'_> {
+        pub fn new(config: &Config) -> PredictionhandlerBehavioralXGBoost<'_> {
+            PredictionhandlerBehavioralXGBoost {
                 config,
                 predictions_count: 0,
             }
         }
     }
 
-    pub struct PredictorHandlerBehaviouralMLP<'a> {
+    pub struct PredictorHandlerBehavioralMLP<'a> {
         config: &'a Config,
         pub timesteps: VecvecCappedF32,
         predictions_count: usize,
         tflite_malware: TfLiteMalware,
     }
 
-    impl PredictorHandlerBehavioural for PredictorHandlerBehaviouralMLP<'_> {}
+    impl PredictorHandlerBehavioral for PredictorHandlerBehavioralMLP<'_> {}
 
-    impl PredictorHandler for PredictorHandlerBehaviouralMLP<'_> {
+    impl PredictorHandler for PredictorHandlerBehavioralMLP<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             let timestep = Timestep::from(precord);
             self.timesteps.push_row(timestep.to_vec_f32()).unwrap();
@@ -162,9 +162,9 @@ pub mod predictor {
         }
     }
 
-    impl PredictorHandlerBehaviouralMLP<'_> {
-        pub fn new(config: &Config) -> PredictorHandlerBehaviouralMLP<'_> {
-            PredictorHandlerBehaviouralMLP {
+    impl PredictorHandlerBehavioralMLP<'_> {
+        pub fn new(config: &Config) -> PredictorHandlerBehavioralMLP<'_> {
+            PredictorHandlerBehavioralMLP {
                 config,
                 timesteps: VecvecCappedF32::new(PREDMTRXCOLS, PREDMTRXROWS),
                 predictions_count: 0,
@@ -199,36 +199,36 @@ pub mod predictor {
         }
     }
 
-    pub struct PredictorMalwareBehavioural<'a> {
-        pub mlp: PredictorHandlerBehaviouralMLP<'a>,
-        pub xgboost: PredictionhandlerBehaviouralXGBoost<'a>,
+    pub struct PredictorMalwareBehavioral<'a> {
+        pub mlp: PredictorHandlerBehavioralMLP<'a>,
+        pub xgboost: PredictionhandlerBehavioralXGBoost<'a>,
     }
 
-    impl PredictorHandlerBehavioural for PredictorMalwareBehavioural<'_> {}
+    impl PredictorHandlerBehavioral for PredictorMalwareBehavioral<'_> {}
 
-    impl PredictorHandler for PredictorMalwareBehavioural<'_> {
+    impl PredictorHandler for PredictorMalwareBehavioral<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             self.xgboost.predict(precord)
         }
     }
 
-    impl PredictorMalwareBehavioural<'_> {
-        pub fn new(config: &Config) -> PredictorMalwareBehavioural<'_> {
-            PredictorMalwareBehavioural {
-                mlp: PredictorHandlerBehaviouralMLP::new(config),
-                xgboost: PredictionhandlerBehaviouralXGBoost::new(config),
+    impl PredictorMalwareBehavioral<'_> {
+        pub fn new(config: &Config) -> PredictorMalwareBehavioral<'_> {
+            PredictorMalwareBehavioral {
+                mlp: PredictorHandlerBehavioralMLP::new(config),
+                xgboost: PredictionhandlerBehavioralXGBoost::new(config),
             }
         }
     }
 
     pub struct PredictorMalware<'a> {
-        pub predictor_behavioural: PredictorMalwareBehavioural<'a>,
+        pub predictor_behavioral: PredictorMalwareBehavioral<'a>,
         pub predictor_static: PredictorHandlerStatic,
     }
 
     impl PredictorHandler for PredictorMalware<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            let opt_pred_b = self.predictor_behavioural.predict(precord);
+            let opt_pred_b = self.predictor_behavioral.predict(precord);
             let opt_pred_s = self.predictor_static.predict(precord);
 
             match (opt_pred_s, opt_pred_b) {
@@ -245,7 +245,7 @@ pub mod predictor {
     impl PredictorMalware<'_> {
         pub fn new(config: &Config) -> PredictorMalware<'_> {
             PredictorMalware {
-                predictor_behavioural: PredictorMalwareBehavioural::new(config),
+                predictor_behavioral: PredictorMalwareBehavioral::new(config),
                 predictor_static: PredictorHandlerStatic::new(config),
             }
         }
@@ -335,7 +335,7 @@ pub mod process_record_handling {
 
     pub trait ProcessRecordIOHandler {
         fn handle_io(&mut self, process_record: &mut ProcessRecord);
-        fn handle_behaviour_detection(&mut self, process_record: &mut ProcessRecord);
+        fn handle_behavior_detection(&mut self, process_record: &mut ProcessRecord);
     }
 
     pub struct ProcessRecordHandlerLive<'a> {
@@ -347,20 +347,20 @@ pub mod process_record_handling {
     impl ProcessRecordIOHandler for ProcessRecordHandlerLive<'_> {
         #[cfg(target_os = "windows")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if let Some(prediction_behavioural) = self.predictor_malware.predict(precord) {
-                if prediction_behavioural > self.config.threshold_prediction
+            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
+                if prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM")
                 {
                     Logging::debug(&format!(
                         "MALWARE DETECTED - {} (gid: {}) | Prediction: {:.4} | Threshold: {:.4} | Files opened: {} | Files written: {} | Driver msgs: {}",
                         precord.appname, precord.gid,
-                        prediction_behavioural, self.config.threshold_prediction,
+                        prediction_behavioral, self.config.threshold_prediction,
                         precord.files_opened.len(), precord.files_written.len(), precord.driver_msg_count
                     ));
                     println!("Ransomware Suspected!!!");
                     eprintln!("precord.gid = {:?}", precord.gid);
                     println!("{}", precord.appname);
-                    println!("with {prediction_behavioural} certainty");
+                    println!("with {prediction_behavioral} certainty");
                     println!(
                         "\nSee {}\\threats for details.",
                         self.config[Param::ProcessActivityLogPath]
@@ -388,28 +388,28 @@ pub mod process_record_handling {
                     // Create threat info for reporting
                     let threat_info = ThreatInfo {
                         threat_type_label: "Ransomware",
-                        virus_name: "Behavioural Detection",     
-                        prediction: prediction_behavioural,
+                        virus_name: "Behavioral Detection",     
+                        prediction: prediction_behavioral,
                     };
                     
                     // Run post-kill actions (logging, reporting, notifications)
                     ActionsOnKill::new().run_actions_with_info(
                         self.config,
                         precord,
-                        &self.predictor_malware.predictor_behavioural.mlp.timesteps,
+                        &self.predictor_malware.predictor_behavioral.mlp.timesteps,
                         &threat_info,
                     );
                 }
             }
         }
 
-        fn handle_behaviour_detection(&mut self, precord: &mut ProcessRecord) {
+        fn handle_behavior_detection(&mut self, precord: &mut ProcessRecord) {
             if precord.termination_requested {
                 if precord.quarantine_requested {
-                    Logging::info(&format!("[BehaviourEngine] Terminating and Quarantining: {}", precord.appname));
+                    Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
                     self.threat_handler.kill_and_quarantine(precord.gid, &precord.exepath);
                 } else {
-                    Logging::info(&format!("[BehaviourEngine] Terminating: {}", precord.appname));
+                    Logging::info(&format!("[BehaviorEngine] Terminating: {}", precord.appname));
                     self.threat_handler.kill(precord.gid);
                 }
                 precord.process_state = ProcessState::Killed;
@@ -423,7 +423,7 @@ pub mod process_record_handling {
                 ActionsOnKill::new().run_actions_with_info(
                     self.config,
                     precord,
-                    &self.predictor_malware.predictor_behavioural.mlp.timesteps,
+                    &self.predictor_malware.predictor_behavioral.mlp.timesteps,
                     &threat_info,
                 );
             }
@@ -431,20 +431,20 @@ pub mod process_record_handling {
 
         #[cfg(target_os = "linux")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
-            if let Some(prediction_behavioural) = self.predictor_malware.predict(precord) {
-                if prediction_behavioural > self.config.threshold_prediction
+            if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
+                if prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM")
                 {
                     Logging::debug(&format!(
                         "MALWARE DETECTED - {} (gid: {}) | Prediction: {:.4} | Threshold: {:.4} | Files opened: {} | Files written: {} | Driver msgs: {}",
                         precord.appname, precord.gid,
-                        prediction_behavioural, self.config.threshold_prediction,
+                        prediction_behavioral, self.config.threshold_prediction,
                         precord.files_opened.len(), precord.files_written.len(), precord.driver_msg_count
                     ));
                     println!("Ransomware Suspected!!!");
                     eprintln!("precord.gid = {:?}", precord.gid);
                     println!("{}", precord.appname);
-                    println!("with {} certainty", prediction_behavioural);
+                    println!("with {} certainty", prediction_behavioral);
                     println!(
                         "\nSee {}\\threats for details.",
                         self.config[Param::ProcessActivityLogPath]
@@ -456,14 +456,14 @@ pub mod process_record_handling {
 
                     let threat_info = ThreatInfo {
                         threat_type_label: "Ransomware",
-                        virus_name: "Behavioural Detection",
-                        prediction: prediction_behavioural,
+                        virus_name: "Behavioral Detection",
+                        prediction: prediction_behavioral,
                     };
 
                     ActionsOnKill::new().run_actions_with_info(
                         self.config,
                         precord,
-                        &self.predictor_malware.predictor_behavioural.mlp.timesteps,
+                        &self.predictor_malware.predictor_behavioral.mlp.timesteps,
                         &threat_info,
                     );
                 }
@@ -500,7 +500,7 @@ pub mod process_record_handling {
             }
         }
 
-        fn handle_behaviour_detection(&mut self, _precord: &mut ProcessRecord) {}
+        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl ProcessRecordHandlerReplay {
@@ -577,7 +577,7 @@ pub mod process_record_handling {
             }
         }
 
-        fn handle_behaviour_detection(&mut self, _precord: &mut ProcessRecord) {}
+        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl<'a> ProcessRecordHandlerNovelty<'a> {
@@ -827,7 +827,7 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
-        pub behaviour_engine: crate::behaviour_engine::BehaviourEngine,
+        pub behavior_engine: crate::behavior_engine::BehaviorEngine,
     }
 
     impl<'a> Worker<'a> {
@@ -841,7 +841,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behaviour_engine: crate::behaviour_engine::BehaviourEngine::new(),
+                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -895,7 +895,7 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behaviour_engine: crate::behaviour_engine::BehaviourEngine::new(),
+                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
 			}
 		}
 
@@ -922,10 +922,10 @@ pub mod worker_instance {
                 }
 
                 // --- ADDED: Process event in behavior engine ---
-                self.behaviour_engine.process_event(precord, iomsg);
+                self.behavior_engine.process_event(precord, iomsg);
 
                 if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_behaviour_detection(precord);
+                    process_record_handler.handle_behavior_detection(precord);
                     process_record_handler.handle_io(precord);
                 }
                 for postprocessor in &mut self.iomsg_postprocessors {
@@ -940,7 +940,7 @@ pub mod worker_instance {
 
         /// Perform an initial behavioral scan of all running processes.
         pub fn perform_initial_scan(&mut self) {
-            self.behaviour_engine.find_malware_variants(&mut self.process_records.process_records);
+            self.behavior_engine.find_malware_variants(&mut self.process_records.process_records);
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {

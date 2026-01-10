@@ -131,7 +131,7 @@ impl<'a> AVIntegration<'a> {
         &self,
         event: &AVThreatEvent,
         precord: &ProcessRecord,
-        prediction_behavioural: f32,
+        prediction_behavioral: f32,
     ) {
         // Determine threat label
         let threat_label = if event.detection_type.to_lowercase().contains("pua") 
@@ -151,7 +151,7 @@ impl<'a> AVIntegration<'a> {
             } else { 
                 &event.virus_name 
             },
-            prediction: prediction_behavioural,
+            prediction: prediction_behavioral,
         };
 
         match event.action_required {
@@ -162,7 +162,7 @@ impl<'a> AVIntegration<'a> {
                 ));
                 Logging::info(&format!(
                     "   Type: {} | Certainty: {:.2}% | GID: {}",
-                    threat_label, prediction_behavioural * 100.0, precord.gid
+                    threat_label, prediction_behavioral * 100.0, precord.gid
                 ));
             }
             ThreatAction::KillAndQuarantine => {
@@ -172,7 +172,7 @@ impl<'a> AVIntegration<'a> {
                 ));
                 Logging::info(&format!(
                     "   Type: {} | Certainty: {:.2}% | GID: {}",
-                    threat_label, prediction_behavioural * 100.0, precord.gid
+                    threat_label, prediction_behavioral * 100.0, precord.gid
                 ));
             }
         }
@@ -180,7 +180,7 @@ impl<'a> AVIntegration<'a> {
         ActionsOnKill::new().run_actions_with_info(
             self.config, // config is a borrow, this works
             precord,
-            &self.predictor_malware.predictor_behavioural.mlp.timesteps,
+            &self.predictor_malware.predictor_behavioral.mlp.timesteps,
             &threat_info,
         );
     }

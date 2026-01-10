@@ -160,8 +160,8 @@ pub fn run() {
                 worker = worker.build();
 
                 // Load behavior rules
-                let rules_path = Path::new(&config[Param::RulesPath]).join("behaviour_rules.yaml");
-                if let Err(e) = worker.behaviour_engine.load_rules(&rules_path) {
+                let rules_path = Path::new(&config[Param::RulesPath]).join("behavior_rules.yaml");
+                if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
                 }
 
@@ -175,7 +175,7 @@ pub fn run() {
                     worker.process_io(&mut iomsg);
                     if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
                         worker.process_suspended_records(&config, Box::new(WindowsThreatHandler::from(driver)));
-                        worker.behaviour_engine.check_registry_indicators();
+                        worker.behavior_engine.check_registry_indicators();
                         count = 0;
                         timer = SystemTime::now();
                     }

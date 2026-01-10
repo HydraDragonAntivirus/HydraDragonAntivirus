@@ -39326,7 +39326,7 @@ pub struct cfg80211_bss_select_adjust {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct cfg80211_bss_selection {
-    pub behaviour: nl80211_bss_select_attr::Type,
+    pub behavior: nl80211_bss_select_attr::Type,
     pub param: cfg80211_bss_selection__bindgen_ty_1,
 }
 #[repr(C)]

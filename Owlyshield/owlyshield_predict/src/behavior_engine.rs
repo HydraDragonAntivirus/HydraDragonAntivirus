@@ -148,10 +148,12 @@ pub struct OpHistoryEntry {
 // GENERIC CONFIGURATION STRUCTURES
 // ============================================================================
 
+fn default_severity() -> u8 { 50 } // Medium severity by default
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BehaviourRule {
+pub struct BehaviorRule {
     pub name: String,
     pub description: String,
+    #[serde(default = "default_severity")]
     pub severity: u8,
 
     // --- Sigma-style Metadata ---
@@ -407,7 +409,7 @@ pub struct ResponseAction {
 // ============================================================================
 
 #[derive(Clone)]
-pub struct ProcessBehaviourState {
+pub struct ProcessBehaviorState {
     pub gid: u64,
     pub pid: u32,
     pub appname: String,
@@ -448,7 +450,7 @@ pub struct ProcessBehaviourState {
     pub process_ancestry: Vec<String>,  // parent names chain
 }
 
-impl Default for ProcessBehaviourState {
+impl Default for ProcessBehaviorState {
     fn default() -> Self {
         Self {
             gid: 0,
@@ -475,9 +477,9 @@ impl Default for ProcessBehaviourState {
     }
 }
 
-pub struct BehaviourEngine {
-    pub rules: Vec<BehaviourRule> ,
-    pub process_states: HashMap<u64, ProcessBehaviourState>,
+pub struct BehaviorEngine {
+    pub rules: Vec<BehaviorRule> ,
+    pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: HashMap<String, Regex>,
     sys: sysinfo::System,
     terminated_processes: Vec<TerminatedProcess>,
@@ -485,7 +487,7 @@ pub struct BehaviourEngine {
     last_refresh: SystemTime,
 }
 
-impl BehaviourEngine {
+impl BehaviorEngine {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
@@ -555,7 +557,7 @@ impl BehaviourEngine {
                 String::new()
             };
 
-            let mut temp_state = ProcessBehaviourState::default();
+            let mut temp_state = ProcessBehaviorState::default();
             temp_state.pid = pid_u32;
             temp_state.appname = appname;
             temp_state.cmdline = cmdline;
@@ -694,7 +696,7 @@ impl BehaviourEngine {
         Ok(())
     }
 
-    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviourRule>, Box<dyn std::error::Error>> {
+    fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let mut rules = Vec::new();
 
@@ -720,10 +722,10 @@ impl BehaviourEngine {
                     resolved_content.push('\n');
                 }
             }
-            let r: Vec<BehaviourRule> = serde_yaml::from_str(&resolved_content)?;
+            let r: Vec<BehaviorRule> = serde_yaml::from_str(&resolved_content)?;
             rules.extend(r);
         } else {
-            let r: Vec<BehaviourRule> = serde_yaml::from_str(&content)?;
+            let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
             rules.extend(r);
         }
 
@@ -747,7 +749,7 @@ impl BehaviourEngine {
         // 1. Ensure state exists
         let state = self.process_states.entry(gid).or_insert_with(|| {
             self.sys.refresh_processes();
-            let mut s = ProcessBehaviourState::default();
+            let mut s = ProcessBehaviorState::default();
             s.gid = gid;
             s.pid = msg.pid;
             s.appname = precord.appname.clone();
@@ -911,7 +913,7 @@ impl BehaviourEngine {
         }
     }
 
-    fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviourRule, state: &ProcessBehaviourState) -> bool {
+    fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
         match mapping {
             RuleMapping::And(mappings) => mappings.iter().all(|m| Self::evaluate_mapping_internal(m, rule, state)),
             RuleMapping::Or(mappings) => mappings.iter().any(|m| Self::evaluate_mapping_internal(m, rule, state)),
@@ -930,7 +932,7 @@ impl BehaviourEngine {
         regex_cache: &HashMap<String, Regex>, 
         cond: &RuleCondition, 
         msg: &IOMessage, 
-        state: &mut ProcessBehaviourState,
+        state: &mut ProcessBehaviorState,
         precord: &ProcessRecord,
         rule_name: &str,
         s_idx: usize,
@@ -1372,7 +1374,7 @@ impl BehaviourEngine {
                     pattern_for_match = pattern_for_match.to_lowercase();
                 }
                 StringModifier::Contains => {
-                    // Default behaviour
+                    // Default behavior
                 }
                 StringModifier::Startswith => {
                     if !use_regex {
