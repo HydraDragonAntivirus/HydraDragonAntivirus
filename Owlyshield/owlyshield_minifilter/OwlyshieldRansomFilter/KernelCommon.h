@@ -137,3 +137,28 @@ struct GID_ENTRY {
 };
 
 typedef GID_ENTRY* PGID_ENTRY;
+
+// NEW: list entry for registry backups
+typedef struct _REGISTRY_BACKUP_ENTRY
+{
+    LIST_ENTRY list;
+    ULONGLONG Gid;
+    BOOLEAN IsDeletion;
+    ULONG Type;
+    ULONG DataSize;
+    WCHAR KeyPath[MAX_FILE_NAME_LENGTH];
+    WCHAR ValueName[MAX_FILE_NAME_LENGTH];
+    BYTE Data[1024]; // Max 1KB of data backed up per value
+
+    // void* operator new(size_t size) {
+    //     void* ptr = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'RW');
+    //     if (size && ptr != nullptr)
+    //         memset(ptr, 0, size);
+    //     return ptr;
+    // }
+
+    // void operator delete(void* ptr) {
+    //     ExFreePoolWithTag(ptr, 'RW');
+    // }
+
+} REGISTRY_BACKUP_ENTRY, * PREGISTRY_BACKUP_ENTRY;

@@ -50,6 +50,9 @@ pub enum DriverComMessageType {
     MessageSetPid,
     /// Instruct the minifilter to kill all pids in the family designated by a given gid.
     MessageKillGid,
+    MessageKillAndQuarantineGid,
+    MessageKillOnlyGid,
+    MessageRevertRegistryChanges,
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).

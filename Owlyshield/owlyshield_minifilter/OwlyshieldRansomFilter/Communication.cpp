@@ -338,6 +338,16 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         DbgPrint("!!! FS : MESSAGE_KILL_ONLY_GID received for GID: %llu\n", message->gid);
         return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, FALSE);
     }
+    else if (message->type == MESSAGE_REVERT_REGISTRY_CHANGES)
+    {
+        DbgPrint("!!! FS : MESSAGE_REVERT_REGISTRY_CHANGES received for GID: %llu\n", message->gid);
+        if (message->gid != 0)
+        {
+            driverData->RevertRegistryChangesForGid(message->gid);
+            return STATUS_SUCCESS;
+        }
+        return STATUS_INVALID_PARAMETER;
+    }
 
     return STATUS_INTERNAL_ERROR;
 }

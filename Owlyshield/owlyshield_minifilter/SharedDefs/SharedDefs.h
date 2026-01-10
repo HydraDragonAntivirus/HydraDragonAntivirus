@@ -46,7 +46,8 @@ enum COM_MESSAGE_TYPE
     MESSAGE_SET_PID,
     MESSAGE_KILL_GID,
     MESSAGE_KILL_AND_QUARANTINE_GID, // NEW: Kill process and quarantine files
-    MESSAGE_KILL_ONLY_GID            // NEW: Kill process without quarantine
+    MESSAGE_KILL_ONLY_GID,           // NEW: Kill process without quarantine
+    MESSAGE_REVERT_REGISTRY_CHANGES
 };
 
 // msgs struct that the application send when sending msg to the driver, type member should be one of the

@@ -404,6 +404,11 @@ pub mod process_record_handling {
         }
 
         fn handle_behavior_detection(&mut self, precord: &mut ProcessRecord) {
+            if precord.revert_requested {
+                Logging::info(&format!("[BehaviorEngine] Reverting registry changes for: {}", precord.appname));
+                self.threat_handler.revert_registry(precord.gid);
+            }
+
             if precord.termination_requested {
                 if precord.quarantine_requested {
                     Logging::info(&format!("[BehaviorEngine] Terminating and Quarantining: {}", precord.appname));
@@ -675,24 +680,48 @@ mod process_records {
     }
 }
 
-pub mod threat_handling {
-    use crate::process::ProcessRecord;
+    impl ThreatHandler for LiveThreatHandler {
+        fn suspend(&self, proc: &mut crate::process::ProcessRecord) {
+            if proc.suspend().is_ok() {
+                Logging::info(&format!("Process {} (PID: {}) suspended.", proc.appname, proc.pid));
+            } else {
+                Logging::error(&format!("Failed to suspend process {} (PID: {}).", proc.appname, proc.pid));
+            }
+        }
 
-    /// Threat action types matching kernel driver message types
-    #[allow(dead_code)] // Silencing warning, this enum may be used by other crates
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum ThreatActionType {
-        KillAndQuarantine,
-        KillOnly,
-    }
+        fn kill(&self, gid: u64) {
+            if self.driver.try_kill(gid).is_ok() {
+                Logging::info(&format!("Kill signal sent to process group (GID: {}).", gid));
+            } else {
+                Logging::error(&format!("Failed to send kill signal to GID: {}.", gid));
+            }
+        }
 
-    pub trait ThreatHandler {
-        fn suspend(&self, proc: &mut ProcessRecord);
-        fn kill(&self, gid: u64);
-        fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path);
-        fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
+        fn kill_and_quarantine(&self, gid: u64, path: &Path) {
+            Logging::info(&format!("Quarantining file: {}", path.display()));
+            if self.driver.kill_and_quarantine_driver(gid, path).is_ok() {
+                Logging::info(&format!("Kill and Quarantine signal sent to process group (GID: {}).", gid));
+            } else {
+                Logging::error(&format!("Failed to send Kill and Quarantine signal to GID: {}.", gid));
+            }
+        }
+
+        fn awake(&self, proc: &mut crate::process::ProcessRecord, kill_proc_on_exit: bool) {
+            if proc.awake(kill_proc_on_exit).is_ok() {
+                Logging::info(&format!("Process {} (PID: {}) resumed.", proc.appname, proc.pid));
+            } else {
+                Logging::error(&format!("Failed to resume process {} (PID: {}).", proc.appname, proc.pid));
+            }
+        }
+
+        fn revert_registry(&self, gid: u64) {
+            if self.driver.revert_registry_changes(gid).is_ok() {
+                Logging::info(&format!("[REGISTRY] Revert signal sent to process group (GID: {}).", gid));
+            } else {
+                Logging::error(&format!("[REGISTRY] Failed to send revert signal to GID: {}.", gid));
+            }
+        }
     }
-}
 
 pub mod worker_instance {
     use std::path::Path;

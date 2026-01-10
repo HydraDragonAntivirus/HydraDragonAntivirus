@@ -165,10 +165,43 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
         case RegNtPreDeleteValueKey:
         {
             PREG_DELETE_VALUE_KEY_INFORMATION pInfo = (PREG_DELETE_VALUE_KEY_INFORMATION)Argument2;
-            if (pInfo && pInfo->Object)
+            if (pInfo && pInfo->Object && pInfo->ValueName)
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
+                    // Backup the value before it's deleted
+                    BOOLEAN isGidFound = FALSE;
+                    ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
+                    if (isGidFound) {
+                        HANDLE hKey;
+                        OBJECT_ATTRIBUTES objAttr;
+                        InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+                        NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
+                        if (NT_SUCCESS(openStatus)) {
+                            ULONG resultLength;
+                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
+                            if (pValueInfo) {
+                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
+                                if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
+                                    PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
+                                    if (backup) {
+                                        backup->Gid = gid;
+                                        backup->IsDeletion = TRUE;
+                                        backup->Type = pValueInfo->Type;
+                                        backup->DataSize = pValueInfo->DataLength;
+                                        RtlCopyMemory(backup->Data, pValueInfo->Data, pValueInfo->DataLength);
+                                        RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
+                                        RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
+                                        driverData->AddRegistryBackup(backup);
+                                    }
+                                }
+                                ExFreePoolWithTag(pValueInfo, REG_TAG);
+                            }
+                            ZwClose(hKey);
+                        }
+                    }
+
+
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
                     {
                         RtlAppendUnicodeToString(&RegPath, L"\\");
@@ -213,10 +246,42 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
         case RegNtPreSetValueKey:
         {
              PREG_SET_VALUE_KEY_INFORMATION pInfo = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
-            if (pInfo && pInfo->Object)
+            if (pInfo && pInfo->Object && pInfo->ValueName)
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
+                    // Backup the value before it's set
+                    BOOLEAN isGidFound = FALSE;
+                    ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)hPid, &isGidFound);
+                    if (isGidFound) {
+                        HANDLE hKey;
+                        OBJECT_ATTRIBUTES objAttr;
+                        InitializeObjectAttributes(&objAttr, &RegPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+                        NTSTATUS openStatus = ZwOpenKey(&hKey, KEY_QUERY_VALUE, &objAttr);
+                        if (NT_SUCCESS(openStatus)) {
+                            ULONG resultLength;
+                            PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, REG_TAG);
+                            if (pValueInfo) {
+                                NTSTATUS queryStatus = ZwQueryValueKey(hKey, pInfo->ValueName, KeyValuePartialInformation, pValueInfo, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 1024, &resultLength);
+                                if (NT_SUCCESS(queryStatus) && pValueInfo->DataLength <= 1024) {
+                                    PREGISTRY_BACKUP_ENTRY backup = new REGISTRY_BACKUP_ENTRY();
+                                    if (backup) {
+                                        backup->Gid = gid;
+                                        backup->IsDeletion = FALSE;
+                                        backup->Type = pValueInfo->Type;
+                                        backup->DataSize = pValueInfo->DataLength;
+                                        RtlCopyMemory(backup->Data, pValueInfo->Data, pValueInfo->DataLength);
+                                        RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
+                                        RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
+                                        driverData->AddRegistryBackup(backup);
+                                    }
+                                }
+                                ExFreePoolWithTag(pValueInfo, REG_TAG);
+                            }
+                            ZwClose(hKey);
+                        }
+                    }
+
                     if (pInfo->ValueName && pInfo->ValueName->Length > 0)
                     {
                         RtlAppendUnicodeToString(&RegPath, L"\\");

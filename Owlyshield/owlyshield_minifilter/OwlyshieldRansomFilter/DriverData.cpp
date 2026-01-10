@@ -19,6 +19,13 @@ DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     KeInitializeSpinLock(&GIDSystemLock);  //init spin lock
     gidsSize = 0;
     InitializeListHead(&GidsList);
+
+    registryBackupsSize = 0;
+    InitializeListHead(&registryBackups);
+    KeInitializeSpinLock(&registryBackupsLock);
+
+    // Initialize quarantinePath
+    RtlInitUnicodeString(&quarantinePath, NULL);
 }
 
 DriverData::~DriverData() {
@@ -26,6 +33,64 @@ DriverData::~DriverData() {
 }
 
 DriverData* driverData;
+
+//#######################################################################################
+//# Quarantine Path Handling
+//#######################################################################################
+
+VOID DriverData::SetQuarantinePath(PUNICODE_STRING path) {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&directoriesSpinLock, &oldIrql); // Using directoriesSpinLock for quarantinePath protection
+
+    // Free existing buffer if any
+    if (quarantinePath.Buffer != NULL) {
+        ExFreePoolWithTag(quarantinePath.Buffer, 'RW');
+        quarantinePath.Buffer = NULL;
+        quarantinePath.Length = 0;
+        quarantinePath.MaximumLength = 0;
+    }
+
+    if (path != NULL && path->Length > 0) {
+        quarantinePath.MaximumLength = path->Length + sizeof(WCHAR); // + null terminator
+        quarantinePath.Buffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPool, quarantinePath.MaximumLength, 'RW');
+        if (quarantinePath.Buffer != NULL) {
+            RtlCopyUnicodeString(&quarantinePath, path);
+            quarantinePath.Buffer[quarantinePath.Length / sizeof(WCHAR)] = L'\0'; // Null-terminate
+            DbgPrint("!!! FSFilter: Quarantine path set to: %wZ\n", &quarantinePath);
+        } else {
+            DbgPrint("!!! FSFilter: Failed to allocate memory for quarantine path.\n");
+            RtlInitUnicodeString(&quarantinePath, NULL); // Ensure it's null-initialized on failure
+        }
+    } else {
+        RtlInitUnicodeString(&quarantinePath, NULL); // Clear path if input is null or empty
+    }
+
+    KeReleaseSpinLock(&directoriesSpinLock, oldIrql);
+}
+
+BOOLEAN DriverData::IsPathInQuarantineDir(CONST PUNICODE_STRING path) {
+    if (path == NULL || path->Buffer == NULL || quarantinePath.Buffer == NULL || quarantinePath.Length == 0) {
+        return FALSE;
+    }
+
+    BOOLEAN ret = FALSE;
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&directoriesSpinLock, &oldIrql); // Using directoriesSpinLock for quarantinePath protection
+
+    // Check if the input path starts with the quarantine path
+    if (path->Length >= quarantinePath.Length) {
+        if (RtlCompareMemory(path->Buffer, quarantinePath.Buffer, quarantinePath.Length) == quarantinePath.Length) {
+            // Ensure it's a directory match, not just a prefix of a filename
+            // e.g., "C:\Quarantine" should match "C:\Quarantine\file.txt" but not "C:\Quarantine_Extra"
+            if (path->Length == quarantinePath.Length || path->Buffer[quarantinePath.Length / sizeof(WCHAR)] == L'\\') {
+                ret = TRUE;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&directoriesSpinLock, oldIrql);
+    return ret;
+}
 
 //#######################################################################################
 //# Gid system handling
@@ -594,4 +659,120 @@ VOID DriverData::ClearDirectories() {
     directoryRootsSize = 0;
     InitializeListHead(&rootDirectories);
     KeReleaseSpinLock(&directoriesSpinLock, oldIrql);
+}
+
+//#######################################################################################
+//# Registry handling
+//#######################################################################################
+
+VOID DriverData::AddRegistryBackup(PREGISTRY_BACKUP_ENTRY newEntry) {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
+    if (registryBackupsSize < MAX_OPS_SAVE) { // Reuse MAX_OPS_SAVE for now
+        registryBackupsSize++;
+        InsertTailList(&registryBackups, &newEntry->list);
+    }
+    else {
+        delete newEntry; // Too many backups, discard the new one
+    }
+    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+}
+
+VOID DriverData::ClearRegistryBackups() {
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
+    while (!IsListEmpty(&registryBackups)) {
+        PLIST_ENTRY entry = RemoveHeadList(&registryBackups);
+        PREGISTRY_BACKUP_ENTRY backup =
+            (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
+        delete backup;
+    }
+    registryBackupsSize = 0;
+    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+}
+
+VOID DriverData::ClearGidRegistryBackups(ULONGLONG gid) {
+    LIST_ENTRY toDelete;
+    InitializeListHead(&toDelete);
+
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
+
+    PLIST_ENTRY current = registryBackups.Flink;
+    while (current != &registryBackups) {
+        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(current, REGISTRY_BACKUP_ENTRY, list);
+        PLIST_ENTRY next = current->Flink;
+        if (backup->Gid == gid) {
+            RemoveEntryList(current);
+            registryBackupsSize--;
+            InsertTailList(&toDelete, &backup->list);
+        }
+        current = next;
+    }
+
+    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+
+    while (!IsListEmpty(&toDelete)) {
+        PLIST_ENTRY entry = RemoveHeadList(&toDelete);
+        PREGISTRY_BACKUP_ENTRY backup =
+            (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
+        delete backup;
+    }
+}
+
+VOID DriverData::RevertRegistryChangesForGid(ULONGLONG gid) {
+    LIST_ENTRY toRevert;
+    InitializeListHead(&toRevert);
+
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&registryBackupsLock, &oldIrql);
+
+    // Find all backups for the given GID and move them to a temporary list
+    PLIST_ENTRY current = registryBackups.Flink;
+    while (current != &registryBackups) {
+        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(current, REGISTRY_BACKUP_ENTRY, list);
+        PLIST_ENTRY next = current->Flink;
+        if (backup->Gid == gid) {
+            RemoveEntryList(current);
+            registryBackupsSize--;
+            InsertTailList(&toRevert, &backup->list);
+        }
+        current = next;
+    }
+
+    KeReleaseSpinLock(&registryBackupsLock, oldIrql);
+
+    // Now process the temporary list without holding the lock
+    while (!IsListEmpty(&toRevert)) {
+        PLIST_ENTRY entry = RemoveHeadList(&toRevert);
+        PREGISTRY_BACKUP_ENTRY backup = (PREGISTRY_BACKUP_ENTRY)CONTAINING_RECORD(entry, REGISTRY_BACKUP_ENTRY, list);
+
+        UNICODE_STRING keyPath, valueName;
+        RtlInitUnicodeString(&keyPath, backup->KeyPath);
+        RtlInitUnicodeString(&valueName, backup->ValueName);
+
+        OBJECT_ATTRIBUTES objAttr;
+        InitializeObjectAttributes(&objAttr, &keyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+        HANDLE hKey;
+        NTSTATUS status = ZwOpenKey(&hKey, KEY_SET_VALUE, &objAttr);
+
+        if (NT_SUCCESS(status)) {
+            if (backup->IsDeletion) {
+                // If it was a deletion, we restore the value
+                DbgPrint("!!! Regedit: Reverting DELETION of %wZ\\%wZ\n", &keyPath, &valueName);
+                ZwSetValueKey(hKey, &valueName, 0, backup->Type, backup->Data, backup->DataSize);
+            }
+            else {
+                // If it was a SetValue, we restore the original value
+                DbgPrint("!!! Regedit: Reverting SET of %wZ\\%wZ\n", &keyPath, &valueName);
+                ZwSetValueKey(hKey, &valueName, 0, backup->Type, backup->Data, backup->DataSize);
+            }
+            ZwClose(hKey);
+        } else {
+            DbgPrint("!!! Regedit: Failed to open key %wZ for revert. Status: 0x%X\n", &keyPath, status);
+        }
+
+        delete backup;
+    }
 }

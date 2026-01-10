@@ -217,6 +217,11 @@ Return Value:
     // Initialize Registry Protection
     RegeditDriverEntry();
 
+    // Set the quarantine path
+    UNICODE_STRING quarantinePathString;
+    RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
+    driverData->SetQuarantinePath(&quarantinePathString);
+
     return STATUS_SUCCESS;
 }
 
@@ -521,6 +526,26 @@ FSProcessPreOperartion(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJEC
         // so do NOT call FltReleaseFileNameInformation(nameInfo) here.
         delete newEntry;
         return hr;
+    }
+
+    // Check if the file is in the quarantine directory
+    if (driverData->IsPathInQuarantineDir(FilePath)) {
+        // If the requesting process is NOT the trusted Owlyshield process
+        if (FltGetRequestorProcessId(Data) != driverData->getPID()) {
+            DbgPrint("!!! FSFilter: Blocking access to quarantine folder for untrusted process (PID: %u)\n", FltGetRequestorProcessId(Data));
+            FltReleaseFileNameInformation(nameInfo);
+            delete newEntry;
+            Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+            Data->IoStatus.Information = 0;
+            return FLT_PREOP_COMPLETE; // Block the operation
+        } else {
+            DbgPrint("!!! FSFilter: Allowing access to quarantine folder for trusted Owlyshield process (PID: %u)\n", FltGetRequestorProcessId(Data));
+            // Allow Owlyshield to perform operations on files in quarantine
+            // We still need to release nameInfo and delete newEntry if we're not going to process it further
+            FltReleaseFileNameInformation(nameInfo);
+            delete newEntry;
+            return FLT_PREOP_SUCCESS_NO_CALLBACK; // Allow and don't send to post-op
+        }
     }
 
     // get pid
@@ -1376,7 +1401,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     // Define quarantine path for HydraDragon
     UNICODE_STRING quarantineDir;
-    RtlInitUnicodeString(&quarantineDir, L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\Quarantine");
+    RtlInitUnicodeString(&quarantineDir, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
 
     // Create quarantine directory if it doesn't exist
     InitializeObjectAttributes(&objAttribs, &quarantineDir,
@@ -1473,6 +1498,65 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     if (NT_SUCCESS(status))
     {
         DbgPrint("!!! FSFilter: File quarantined to: %wZ\n", &destPath);
+
+        // Now rename the quarantined file to make it unrunnable
+        HANDLE quarantinedFileHandle;
+        OBJECT_ATTRIBUTES quarantinedObjAttr;
+        UNICODE_STRING newQuarantinedFileName;
+        WCHAR newQuarantinedFileNameBuffer[512];
+
+        RtlInitUnicodeString(&newQuarantinedFileName, newQuarantinedFileNameBuffer);
+        RtlAppendUnicodeStringToString(&newQuarantinedFileName, &destPath);
+        RtlAppendUnicodeStringToString(&newQuarantinedFileName, L".quarantined");
+
+        InitializeObjectAttributes(&quarantinedObjAttr, &destPath,
+                                  OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+        NTSTATUS openQuarantinedStatus = ZwOpenFile(&quarantinedFileHandle,
+                                                   FILE_ALL_ACCESS, // Need write access to rename
+                                                   &quarantinedObjAttr,
+                                                   &ioStatus,
+                                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                                   FILE_SYNCHRONOUS_IO_NONALERT);
+
+        if (NT_SUCCESS(openQuarantinedStatus))
+        {
+            ULONG newRenameInfoSize = sizeof(FILE_RENAME_INFORMATION) + newQuarantinedFileName.Length;
+            PFILE_RENAME_INFORMATION newRenameInfo = (PFILE_RENAME_INFORMATION)
+                ExAllocatePoolWithTag(NonPagedPool, newRenameInfoSize, 'RW');
+
+            if (newRenameInfo != NULL)
+            {
+                newRenameInfo->ReplaceIfExists = TRUE;
+                newRenameInfo->RootDirectory = NULL;
+                newRenameInfo->FileNameLength = newQuarantinedFileName.Length;
+                RtlCopyMemory(newRenameInfo->FileName, newQuarantinedFileName.Buffer, newQuarantinedFileName.Length);
+
+                NTSTATUS renameStatus = ZwSetInformationFile(quarantinedFileHandle,
+                                                            &ioStatus,
+                                                            newRenameInfo,
+                                                            newRenameInfoSize,
+                                                            FileRenameInformation);
+                if (NT_SUCCESS(renameStatus))
+                {
+                    DbgPrint("!!! FSFilter: Quarantined file renamed to: %wZ\n", &newQuarantinedFileName);
+                }
+                else
+                {
+                    DbgPrint("!!! FSFilter: Failed to rename quarantined file: 0x%X\n", renameStatus);
+                }
+                ExFreePoolWithTag(newRenameInfo, 'RW');
+            }
+            else
+            {
+                DbgPrint("!!! FSFilter: Failed to allocate memory for quarantined file rename info.\n");
+            }
+            ZwClose(quarantinedFileHandle);
+        }
+        else
+        {
+            DbgPrint("!!! FSFilter: Failed to open quarantined file for renaming: 0x%X\n", openQuarantinedStatus);
+        }
     }
     else
     {

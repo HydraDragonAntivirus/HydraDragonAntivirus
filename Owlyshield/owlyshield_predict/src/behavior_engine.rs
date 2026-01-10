@@ -966,7 +966,7 @@ impl BehaviorEngine {
             }
 
             if rule.response.auto_revert {
-                Self::revert_registry_internal(msg);
+                precord.revert_requested = true;
             }
         }
     }
@@ -1343,9 +1343,7 @@ impl BehaviorEngine {
         }
     }
 
-    fn revert_registry_internal(msg: &IOMessage) {
-        Logging::info(&format!("[REGISTRY] Reverting change to {}", msg.filepathstr));
-    }
+    
 
     // ============================================================================
     // NEW HELPER FUNCTIONS FOR TELEMETRY-BASED CONDITIONS

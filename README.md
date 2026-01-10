@@ -1,4 +1,4 @@
-# Hydra Dragon Antivirus
+# Hydra Dragon Antivirus/XDR
 
 <p align="center">
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
@@ -10,7 +10,7 @@
 </p>
 
 ## Description
-Dynamic and static analysis with Real Time Protection for Windows, including EDR, ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
+Dynamic and static analysis with Real Time Protection for Windows, including first open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
 
 ## License
 
@@ -119,7 +119,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/HydraDragonAntivirus/Owlyshield
 - https://github.com/HydraDragonAntivirus/Sanctum
 
-- I used these projects for EDR.
+- I used these projects for EDR (Notice newest forks added to main repo instead of other repo).
 
 - https://github.com/HydraDragonAntivirus/MBRFilter
 

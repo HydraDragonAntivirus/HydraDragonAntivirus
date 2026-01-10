@@ -15,6 +15,7 @@ class DriverData {
         [MAX_FILE_NAME_LENGTH];  // system root path, help analyze image files loaded
     ULONG
         pid;  // pid of the current connected user mode application, set by communication
+    UNICODE_STRING quarantinePath; // Path to the quarantine directory
 
     ULONG irpOpsSize;  // number of irp ops waiting in entry_list
     LIST_ENTRY irpOps;  // list entry bdirectional list of irp ops
@@ -32,6 +33,11 @@ class DriverData {
     ULONGLONG gidsSize;  // number of gids currently active
     LIST_ENTRY GidsList;  // list entry of gids, used to clear memory
     KSPIN_LOCK GIDSystemLock;
+
+    /* Registry backup data members */
+    ULONG registryBackupsSize;
+    LIST_ENTRY registryBackups;
+    KSPIN_LOCK registryBackupsLock;
 
   private:
     // call assumes protected code - high IRQL
@@ -60,6 +66,12 @@ class DriverData {
             wcsnlen(L"\\Windows", MAX_FILE_NAME_LENGTH / 2));
         DbgPrint("Set system root path %ls\n", systemRootPath);
     }
+
+    // Sets the path to the quarantine directory
+    VOID SetQuarantinePath(PUNICODE_STRING path);
+
+    // Checks if the given path is within the quarantine directory
+    BOOLEAN IsPathInQuarantineDir(CONST PUNICODE_STRING path);
 
     // remove a process which ended from the GID system, function raise IRQL
     BOOLEAN RemoveProcess(ULONG ProcessId);
@@ -97,6 +109,12 @@ class DriverData {
     VOID ClearGidsPids();
 
     ULONGLONG GidsSize();
+
+    // NEW: Registry backup functions
+    VOID AddRegistryBackup(PREGISTRY_BACKUP_ENTRY newEntry);
+    VOID RevertRegistryChangesForGid(ULONGLONG gid);
+    VOID ClearRegistryBackups();
+    VOID ClearGidRegistryBackups(ULONGLONG gid);
 
     BOOLEAN setFilterStart() {
         return (FilterRun = TRUE);
@@ -163,6 +181,17 @@ class DriverData {
 
         // clear gid system
         ClearGidsPids();
+
+        // clear registry backups
+        ClearRegistryBackups();
+
+        // Free quarantine path buffer if allocated
+        if (quarantinePath.Buffer != NULL) {
+            ExFreePoolWithTag(quarantinePath.Buffer, 'RW');
+            quarantinePath.Buffer = NULL;
+            quarantinePath.Length = 0;
+            quarantinePath.MaximumLength = 0;
+        }
     }
 };
 
