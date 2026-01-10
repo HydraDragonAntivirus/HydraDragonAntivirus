@@ -33,7 +33,7 @@ pub struct BehavioralProfile {
     // Behavioral features
     pub memory_allocation_pattern: MemoryPattern,
     pub file_operation_pattern: FileOperationPattern,
-    pub network_behavior: NetworkBehavior,
+    pub network_behavior: NetworkBehaviour,
     pub process_interaction: ProcessInteraction,
 
     // Anomaly scores (calculated by ML)
@@ -84,7 +84,7 @@ pub struct FileOperationPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkBehavior {
+pub struct NetworkBehaviour {
     pub has_network: bool,
     pub connections_per_minute: f32,
     pub data_transfer_rate: f32,
@@ -103,8 +103,8 @@ pub struct AutonomousLearningEngine {
     // Behavioral profiles database (learned from observation)
     behavioral_profiles: HashMap<u64, BehavioralProfile>,
 
-    // Baseline "normal" behavior (learned automatically)
-    normal_baseline: NormalBehaviorBaseline,
+    // Baseline "normal" behaviour (learned automatically)
+    normal_baseline: NormalBehaviourBaseline,
 
     // Anomaly detection models
     anomaly_detector: AnomalyDetector,
@@ -344,7 +344,7 @@ impl AutonomousLearningEngine {
                 activity_bursts: Vec::new(),
                 memory_allocation_pattern: memory_allocation_pattern.clone(),
                 file_operation_pattern: file_operation_pattern.clone(),
-                network_behavior: network_behaviour.clone(),
+                network_behavior: network_behavior.clone(),
                 process_interaction: process_interaction.clone(),
                 anomaly_score: 0.0,
                 novelty_score: 0.0,
@@ -474,8 +474,8 @@ impl AutonomousLearningEngine {
     }
 
     /// Extract network behavior
-    fn extract_network_behavior(&self, api_tracker: &ApiTracker) -> NetworkBehavior {
-        NetworkBehavior {
+    fn extract_network_behavior(&self, api_tracker: &ApiTracker) -> NetworkBehaviour {
+        NetworkBehaviour {
             has_network: !api_tracker.internet_apis.is_empty(),
             connections_per_minute: api_tracker.network_operations.connections_established as f32,
             data_transfer_rate: (api_tracker.network_operations.data_sent +

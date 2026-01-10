@@ -1396,7 +1396,6 @@ impl BehaviourEngine {
                         text_for_match = decoded;
                     }
                 }
-                _ => {}
             }
         }
         
