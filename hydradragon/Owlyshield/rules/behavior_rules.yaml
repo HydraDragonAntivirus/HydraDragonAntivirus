@@ -410,17 +410,30 @@
   severity: 1
   is_private: true
   record_on_start: ["Exela.exe"]
-  proximity_log_threshold: 20.0
+  proximity_log_threshold: 10.0
+  mapping:
+    and:
+      - stage: "Exela Name Match"
+      - or:
+          - stage: "Activity Tracking"
+          - stage: "Memory Anomalies"
   stages:
+    - name: "Exela Name Match"
+      conditions:
+        - type: "Process"
+          op: "Name"
+          pattern: "(?i)Exela\\.exe"
     - name: "Activity Tracking"
       conditions:
-        - type: "MemoryScan"
-          patterns: ["cmd.exe", "powershell.exe", "http://", "https://", "socket", "connect"]
-          detect_pe_headers: true
         - type: "OperationCount"
           op_type: "Any"
           comparison: "gt"
-          threshold: 0
+          threshold: 5
+    - name: "Memory Anomalies"
+      conditions:
+        - type: "MemoryScan"
+          patterns: ["cmd.exe", "powershell.exe", "socket", "connect", "http://", "https://"]
+          detect_pe_headers: true
   response:
     record: true
 

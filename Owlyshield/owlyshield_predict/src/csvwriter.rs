@@ -48,6 +48,9 @@ impl CsvWriter {
         let process_vec_csv =
             Self::vec_to_string_sep(self, &process_vec).unwrap() + &*String::from("\n");
 
+        if let Some(parent) = self.path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
         let mut file = fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -61,6 +64,9 @@ impl CsvWriter {
 
     pub fn write_irp_csv_files(&mut self, drivermsgs: &[u8]) -> Result<(), std::io::Error> {
         let process_vec_csv = drivermsgs.to_owned();
+        if let Some(parent) = self.path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
         let mut file = fs::OpenOptions::new()
             .create(true)
             .write(true)

@@ -877,24 +877,29 @@ impl BehaviorEngine {
 
         // 1. Ensure state exists
         let state = self.process_states.entry(gid).or_insert_with(|| {
-            self.sys.refresh_processes();
+            // Perform a deep refresh for new processes to ensure ancestry is populated
+            self.sys.refresh_all();
+            
             let mut s = ProcessBehaviorState::default();
             s.gid = gid;
             s.pid = msg.pid;
             s.appname = precord.appname.clone();
             s.first_event_ts = Some(now);
-            
+
             if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
                 s.cmdline = proc.cmd().join(" ");
                 
-                // Build process ancestry chain
+                // Build process ancestry chain (upwards towards root)
                 let mut current_pid = proc.parent();
                 while let Some(parent_pid) = current_pid {
                     if let Some(p_proc) = self.sys.process(parent_pid) {
-                        if s.parent_name.is_empty() {
-                            s.parent_name = p_proc.name().to_string();
+                        let p_name = p_proc.name().to_string();
+                        if !p_name.is_empty() {
+                            if s.parent_name.is_empty() {
+                                s.parent_name = p_name.clone();
+                            }
+                            s.process_ancestry.push(p_name);
                         }
-                        s.process_ancestry.push(p_proc.name().to_string());
                         current_pid = p_proc.parent();
                         if s.process_ancestry.len() >= 10 { break; } // Limit depth
                     } else {
