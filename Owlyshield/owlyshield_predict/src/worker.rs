@@ -992,16 +992,10 @@ pub mod worker_instance {
                             },
                             None => false // Not in whitelist
                         };
-
-                        if !is_whitelisted
-                            && !exepath
-                            .parent()
-                            .unwrap_or_else(|| Path::new("/"))
-                            .starts_with(r"C:\Windows\System32")
-                        {
+                        if !is_whitelisted {
                             let precord = ProcessRecord::from(iomsg, appname, exepath.clone());
                             self.process_records.insert_precord(iomsg.gid, precord);
-                        }
+                        }                                            
                     }
                 }
                 Some(_) => {}

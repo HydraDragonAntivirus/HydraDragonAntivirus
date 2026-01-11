@@ -1402,9 +1402,14 @@ impl BehaviorEngine {
                 match p_op.as_str() {
                     "Name" => Self::matches_internal(regex_cache, pattern, &state.appname),
                     "Path" => {
-                        let exepath_str = precord.exepath.to_string_lossy();
-                        Self::matches_internal(regex_cache, pattern, exepath_str.as_ref())
+                        if precord.exepath.as_os_str().is_empty() {
+                            false // no path -> cannot evaluate Path condition
+                        } else {
+                            let path = precord.exepath.to_string_lossy();
+                            Self::matches_internal(regex_cache, pattern, path.as_ref())
+                        }
                     }
+
                     "CommandLine" => Self::matches_internal(regex_cache, pattern, &state.cmdline),
                     "Parent" => Self::matches_internal(regex_cache, pattern, &state.parent_name),
                     "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, pattern, &msg.filepathstr),
