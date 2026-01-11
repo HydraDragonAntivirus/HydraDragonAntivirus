@@ -11,7 +11,6 @@ use windows::Win32::Security::WinTrust::{
 use windows::Win32::Security::Cryptography::{
     CryptQueryObject, CERT_QUERY_OBJECT_FILE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
     CERT_QUERY_FORMAT_FLAG_BINARY, HCERTSTORE, CertCloseStore, CryptMsgClose,
-    CERT_CONTEXT,
     CertFreeCertificateContext, CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE,
     CertEnumCertificatesInStore,
 };
