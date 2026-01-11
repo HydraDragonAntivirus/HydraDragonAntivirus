@@ -1219,6 +1219,8 @@ impl BehaviorEngine {
             }
             RuleCondition::Process { op: p_op, pattern } => {
                 match p_op.as_str() {
+                    "Name" => Self::matches_internal(regex_cache, pattern, &state.appname),
+                    "Path" => Self::matches_internal(regex_cache, pattern, &precord.exepath),
                     "CommandLine" => Self::matches_internal(regex_cache, pattern, &state.cmdline),
                     "Parent" => Self::matches_internal(regex_cache, pattern, &state.parent_name),
                     "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, pattern, &msg.filepathstr),
