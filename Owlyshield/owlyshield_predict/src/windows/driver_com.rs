@@ -25,7 +25,6 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    DriveType,
 };
 
 pub type BufPath = [wchar_t; 520];

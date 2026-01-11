@@ -78,8 +78,11 @@ pub mod av_integration;
 
 /// SDK-facing exports used by examples and integrations.
 pub mod sdk {
+    #[cfg(feature = "realtime_learning")]
     pub use crate::realtime_learning::behavioral_signature;
+    #[cfg(feature = "realtime_learning")]
     pub use crate::realtime_learning::ml_collector::CollectionMode;
+    #[cfg(feature = "realtime_learning")]
     pub use crate::realtime_learning::{OwlyShieldSDK, PatternType};
     pub use crate::process;
     pub use crate::shared_def;
