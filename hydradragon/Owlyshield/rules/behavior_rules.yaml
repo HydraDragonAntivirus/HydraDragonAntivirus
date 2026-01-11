@@ -7,9 +7,36 @@
 - name: "HEUR/Win32/Trojan.PSW.Stealer.gen"
   description: "Unified heuristic detection for credential stealers targeting browsers, wallets, chat apps, and system credentials."
   severity: 10
+  debug: false  # Set to true to enable verbose debugging
   proximity_log_threshold: 25.0
   time_window_ms: 30000
   min_stages_satisfied: 2
+  
+  # Define logical mapping: Need at least 2 different attack vectors
+  mapping:
+    or:
+      - and:
+          - stage: "Chrome Family Sensitive Access"
+          - or:
+              - stage: "Data Staging & Archiving"
+              - stage: "Network Connection"
+      - and:
+          - stage: "Firefox Sensitive Access"
+          - or:
+              - stage: "Data Staging & Archiving"
+              - stage: "Network Connection"
+      - and:
+          - stage: "Discord Token Access"
+          - stage: "Network Connection"
+      - and:
+          - stage: "Crypto Wallet Access"
+          - or:
+              - stage: "Data Staging & Archiving"
+              - stage: "Network Connection"
+      - and:
+          - stage: "DPAPI & Clipboard Access"
+          - stage: "Credential Decryption API"
+  
   stages:
     # --- Browser Data Theft ---
     - name: "Chrome Family Sensitive Access"
@@ -74,7 +101,6 @@
           patterns:
             - "*Microsoft\\Outlook*\\*.pst"
             - "*Microsoft\\Outlook*\\*.ost"
-            - "*Microsoft\\Outlook*\\Outlook.exe"
             - "*Thunderbird\\Profiles*logins.json*"
             - "*Thunderbird\\Profiles*key4.db*"
             - "*Thunderbird\\Profiles*cert9.db*"
@@ -137,7 +163,6 @@
             - "*\\Microsoft\\Protect\\*"
             - "*\\Credentials\\*"
             - "*\\Vault\\*"
-            - "*Microsoft\\Windows\\Clipboard*"
           op_type: "Read"
           min_unique_paths: 2
 
@@ -145,14 +170,14 @@
     - name: "Credential Decryption API"
       conditions:
         - type: "Api"
-          name_pattern: "CryptUnprotectData|BCryptDecrypt|NCryptDecrypt"
-          module_pattern: "crypt32.dll|bcrypt.dll|ncrypt.dll"
+          name_pattern: "(?i)(CryptUnprotectData|BCryptDecrypt|NCryptDecrypt)"
+          module_pattern: "(?i)(crypt32\\.dll|bcrypt\\.dll|ncrypt\\.dll)"
 
     - name: "Clipboard API Access"
       conditions:
         - type: "Api"
-          name_pattern: "GetClipboardData|OpenClipboard"
-          module_pattern: "user32.dll"
+          name_pattern: "(?i)(GetClipboardData|OpenClipboard)"
+          module_pattern: "(?i)user32\\.dll"
 
     - name: "Browser Termination"
       conditions:
@@ -164,6 +189,7 @@
       conditions:
         - type: "ProcessAncestry"
           ancestor_pattern: "(?i)(powershell|cmd|wscript|cscript|mshta|python|node|rundll32)"
+          max_depth: 5
 
     - name: "Data Staging & Archiving"
       conditions:
@@ -173,6 +199,7 @@
         - type: "ArchiveCreation"
           extensions: ["zip", "rar", "7z", "tar", "gz", "bz2"]
           in_temp: true
+          min_size: 5120
         - type: "Heuristic"
           metric: "Entropy"
           threshold: 6.5
@@ -193,6 +220,7 @@
     terminate_process: true
     quarantine: true
     auto_revert: true
+    record: true
 
   allowlisted_apps:
     - pattern: "chrome.exe"
@@ -233,62 +261,69 @@
     - "devenv.exe"
     - "WindowsPackageManagerServer.exe"
 
+# ============================================================================
+# TASIA MALWARE DETECTION
+# ============================================================================
+
 - name: "Tasia Malware Detection"
   description: "Detects Tasia malware kill-chain including critical system tool disablement, shell disruption, and utility hijacks."
   severity: 10
+  debug: false
   proximity_log_threshold: 25.0
+  
   mapping:
     and:
       - stage: "System Lockout & Persistence"
       - or:
           - stage: "UAC/Utility Hijack"
           - stage: "Shell Disruption"
+  
   stages:
     - name: "System Lockout & Persistence"
       conditions:
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
           value_name: "DisableRegistryTools"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
           value_name: "DisableTaskMgr"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
           value_name: "DisableLockWorkstation"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
           value_name: "DisableChangePassword"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Policies\\Microsoft\\Windows\\System"
+          key_pattern: "*\\Software\\Policies\\Microsoft\\Windows\\System*"
           value_name: "DisableCMD"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer*"
           value_name: "NoLogoff"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
+          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer*"
           value_name: "NoClose"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
           value_name: "HideFastUserSwitching"
           expected_data: "1"
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\SOFTWARE\\Policies\\Microsoft\\Windows\\System"
+          key_pattern: "*\\SOFTWARE\\Policies\\Microsoft\\Windows\\System*"
           value_name: "DontDisplayNetworkSelectionUI"
           expected_data: "1"
 
@@ -296,25 +331,32 @@
       conditions:
         - type: "Registry"
           op: "SetValue"
-          key_pattern: ".*\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe"
+          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe*"
           value_name: "Debugger"
 
     - name: "Shell Disruption"
       conditions:
         - type: "Process"
           op: "Terminate"
-          pattern: "explorer.exe"
+          pattern: "(?i)explorer\\.exe"
 
   response:
     terminate_process: true
     quarantine: true
     auto_revert: true
 
+# ============================================================================
+# EDR DETECTION
+# ============================================================================
+
 - name: "EDR Detection: SignatureMonster SDK (Enhanced)"
   description: "Detects the deep system fingerprinting and anti-analysis checks performed by the SignatureMonster SDK."
   severity: 8
+  debug: false
   proximity_log_threshold: 25.0
   min_stages_satisfied: 2
+  time_window_ms: 60000
+  
   stages:
     - name: "Hardware & Environment Fingerprinting"
       conditions:
@@ -343,18 +385,25 @@
     - name: "Suspicious API Activity (Fingerprinting)"
       conditions:
         - type: "Api"
-          name_pattern: "GetFileAttributesW|FindFirstFileW|RegOpenKeyExW|RegQueryValueExW|GetFileSizeEx"
-          module_pattern: "kernel32.dll|advapi32.dll"
+          name_pattern: "(?i)(GetFileAttributesW|FindFirstFileW|RegOpenKeyExW|RegQueryValueExW|GetFileSizeEx)"
+          module_pattern: "(?i)(kernel32\\.dll|advapi32\\.dll)"
 
   response:
     terminate_process: true
+    record: true
+
+# ============================================================================
+# AGGRESSIVE TROJAN ATTACK
+# ============================================================================
 
 - name: "Super Aggressive Trojan Attack"
   description: "Detects rapid, broad-spectrum file scanning across multiple directories in a 5-second window."
   severity: 10
+  debug: false
   proximity_log_threshold: 25.0
   time_window_ms: 5000
   min_stages_satisfied: 2
+  
   stages:
     - name: "High Volume Access"
       conditions:
@@ -373,18 +422,25 @@
   response:
     terminate_process: true
     quarantine: true
+    record: true
+
+# ============================================================================
+# UNSIGNED CREDENTIAL ACCESS
+# ============================================================================
 
 - name: "Suspicious Unsigned Credential Access"
   description: "Detects untrusted processes attempting to access browser credential stores and calling decryption APIs."
   severity: 9
+  debug: false
   proximity_log_threshold: 25.0
   time_window_ms: 10000
   min_stages_satisfied: 3
+  
   stages:
     - name: "Signature Verification"
       conditions:
         - type: "Signature"
-          is_trusted: false  # Must be untrusted/unsigned
+          is_trusted: false
     
     - name: "Sensitive Path Access"
       conditions:
@@ -393,60 +449,140 @@
             - "*\\User Data*Login Data*"
             - "*\\User Data*Cookies*"
           op_type: "Read"
+          min_unique_paths: 1
     
     - name: "Decryption API Call"
       conditions:
         - type: "Api"
-          name_pattern: "CryptUnprotectData"
-          module_pattern: "crypt32.dll"
+          name_pattern: "(?i)CryptUnprotectData"
+          module_pattern: "(?i)crypt32\\.dll"
 
   response:
     terminate_process: true
     quarantine: true
     auto_revert: true
 
+# ============================================================================
+# MONITORING RULES (Private - No Alerts)
+# ============================================================================
+
 - name: "Monitor: Exela Process Events"
   description: "Detailed recording for Exela.exe process activity and near-detections."
   severity: 1
   is_private: true
+  debug: true  # Enable debug to see what's being tracked
   record_on_start: ["Exela.exe"]
   proximity_log_threshold: 10.0
+  
   mapping:
     and:
       - stage: "Exela Name Match"
       - or:
           - stage: "Activity Tracking"
           - stage: "Memory Anomalies"
+  
   stages:
     - name: "Exela Name Match"
       conditions:
         - type: "Process"
           op: "Name"
           pattern: "(?i)Exela\\.exe"
+    
     - name: "Activity Tracking"
       conditions:
         - type: "OperationCount"
-          op_type: "Any"
+          op_type: "Read"
           comparison: "gt"
           threshold: 5
+    
     - name: "Memory Anomalies"
       conditions:
         - type: "MemoryScan"
           patterns: ["cmd.exe", "powershell.exe", "socket", "connect", "http://", "https://"]
           detect_pe_headers: true
+          private_only: true
+  
   response:
     record: true
+
+# ============================================================================
+# REFLECTIVE LOADING DETECTION
+# ============================================================================
 
 - name: "Reflective Loading Detection"
   description: "Detects PE headers (MZ/PE) in private or unmapped memory regions, indicating reflective loading or process hollowing."
   severity: 9
+  debug: false
   proximity_log_threshold: 25.0
+  
   stages:
     - name: "Memory Payload"
       conditions:
         - type: "MemoryScan"
           detect_pe_headers: true
           private_only: true
+  
   response:
     terminate_process: true
     quarantine: true
+    record: true
+
+# ============================================================================
+# DATA EXFILTRATION DETECTION
+# ============================================================================
+
+- name: "Data Exfiltration Pattern Detection"
+  description: "Detects processes reading sensitive data, staging in temp, and creating archives - classic exfiltration behavior."
+  severity: 9
+  debug: false
+  proximity_log_threshold: 30.0
+  time_window_ms: 60000
+  
+  mapping:
+    and:
+      - stage: "Sensitive Data Access"
+      - or:
+          - stage: "Archive Creation"
+          - stage: "Network Exfiltration"
+  
+  stages:
+    - name: "Sensitive Data Access"
+      conditions:
+        - type: "DataExfiltrationPattern"
+          source_patterns:
+            - "*\\Documents\\*"
+            - "*\\Desktop\\*"
+            - "*\\Downloads\\*"
+            - "*.doc*"
+            - "*.xls*"
+            - "*.pdf"
+            - "*.txt"
+          min_source_reads: 10
+          detect_temp_staging: true
+          detect_archive: false
+    
+    - name: "Archive Creation"
+      conditions:
+        - type: "ArchiveCreation"
+          extensions: ["zip", "rar", "7z", "tar"]
+          min_size: 102400  # 100KB
+          in_temp: false
+    
+    - name: "Network Exfiltration"
+      conditions:
+        - type: "Network"
+          op: "Connect"
+  
+  response:
+    terminate_process: false
+    quarantine: false
+    record: true
+    block_network: true
+
+  allowlisted_apps:
+    - "7zFM.exe"
+    - "WinRAR.exe"
+    - "explorer.exe"
+    - "robocopy.exe"
+    - "xcopy.exe"
+  

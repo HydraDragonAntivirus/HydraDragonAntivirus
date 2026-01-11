@@ -223,6 +223,10 @@ pub struct BehaviorRule {
     /// Executable names that should trigger recording immediately upon process start
     #[serde(default)]
     pub record_on_start: Vec<String>,
+    
+    /// Enable verbose debugging for this rule
+    #[serde(default)]
+    pub debug: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -582,7 +586,7 @@ impl Default for ProcessBehaviorState {
 }
 
 pub struct BehaviorEngine {
-    pub rules: Vec<BehaviorRule> ,
+    pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: HashMap<String, Regex>,
     sys: sysinfo::System,
@@ -680,7 +684,7 @@ impl BehaviorEngine {
                 for (s_idx, stage) in rule.stages.iter().enumerate() {
                     for (c_idx, condition) in stage.conditions.iter().enumerate() {
                         if let RuleCondition::Process { .. } = condition {
-                            if Self::evaluate_condition_internal(&self.regex_cache, condition, &dummy_msg, &mut temp_state, &dummy_precord, &rule.name, s_idx, c_idx, &self.terminated_processes) {
+                            if Self::evaluate_condition_internal(&self.regex_cache, condition, &dummy_msg, &mut temp_state, &dummy_precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
                                 temp_state.satisfied_conditions
                                     .entry(rule.name.clone())
                                     .or_default()
@@ -699,7 +703,7 @@ impl BehaviorEngine {
 
                 let mut triggered = false;
                 if let Some(mapping) = &rule.mapping {
-                    triggered = Self::evaluate_mapping_internal(mapping, rule, &temp_state);
+                    triggered = Self::evaluate_mapping_internal(mapping, rule, &temp_state, rule.debug);
                 } else {
                     let satisfied_count = temp_state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
                     if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
@@ -734,7 +738,7 @@ impl BehaviorEngine {
                 for stage in &rule.stages {
                     for condition in &stage.conditions {
                         if let RuleCondition::Registry { key_pattern, value_name, expected_data, .. } = condition {
-                            if key_pattern.contains("\\") && !key_pattern.contains("(" ) && !key_pattern.contains("[" ) {
+                            if key_pattern.contains("\\") && !key_pattern.contains("(") && !key_pattern.contains("[") {
                                 let (root_enum, subkey) = if key_pattern.to_uppercase().starts_with("HKEY_LOCAL_MACHINE") {
                                     (HKEY_LOCAL_MACHINE, key_pattern.splitn(2, "\\").nth(1).unwrap_or(""))
                                 } else if key_pattern.to_uppercase().starts_with("HKEY_CURRENT_USER") {
@@ -771,20 +775,45 @@ impl BehaviorEngine {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
         
-        // Pre-compile Regex
+        // Pre-compile Regex for all patterns
         let mut patterns = HashSet::new();
         for rule in &self.rules {
             for stage in &rule.stages {
                 for cond in &stage.conditions {
                     match cond {
-                        RuleCondition::File { path_pattern, .. } => { patterns.insert(path_pattern.clone()); }
-                        RuleCondition::Registry { key_pattern, .. } => { patterns.insert(key_pattern.clone()); }
-                        RuleCondition::Process { pattern, .. } => { patterns.insert(pattern.clone()); }
-                        RuleCondition::Service { name_pattern, .. } => { patterns.insert(name_pattern.clone()); }
-                        RuleCondition::Network { dest_pattern, .. } => { if let Some(p) = dest_pattern { patterns.insert(p.clone()); } }
+                        RuleCondition::File { path_pattern, .. } => { 
+                            patterns.insert(Self::wildcard_to_regex(path_pattern)); 
+                        }
+                        RuleCondition::Registry { key_pattern, .. } => { 
+                            patterns.insert(Self::wildcard_to_regex(key_pattern)); 
+                        }
+                        RuleCondition::Process { pattern, .. } => { 
+                            patterns.insert(pattern.clone()); 
+                        }
+                        RuleCondition::Service { name_pattern, .. } => { 
+                            patterns.insert(name_pattern.clone()); 
+                        }
+                        RuleCondition::Network { dest_pattern, .. } => { 
+                            if let Some(p) = dest_pattern { 
+                                patterns.insert(p.clone()); 
+                            } 
+                        }
                         RuleCondition::Api { name_pattern, module_pattern } => {
                             patterns.insert(name_pattern.clone());
                             patterns.insert(module_pattern.clone());
+                        }
+                        RuleCondition::SensitivePathAccess { patterns: pats, .. } => {
+                            for p in pats {
+                                patterns.insert(Self::wildcard_to_regex(p));
+                            }
+                        }
+                        RuleCondition::ProcessAncestry { ancestor_pattern, .. } => {
+                            patterns.insert(ancestor_pattern.clone());
+                        }
+                        RuleCondition::DataExfiltrationPattern { source_patterns, .. } => {
+                            for p in source_patterns {
+                                patterns.insert(Self::wildcard_to_regex(p));
+                            }
                         }
                         _ => {}
                     }
@@ -869,6 +898,29 @@ impl BehaviorEngine {
         }
     }
 
+    /// Convert wildcard patterns (* and ?) to a regex string that matches the whole input.
+    /// Example: "*.rs" -> r"^.*\.rs$"
+    pub fn wildcard_to_regex(pattern: &str) -> String {
+        // reserve some capacity to avoid many reallocations
+        let mut regex = String::with_capacity(pattern.len() * 2);
+        regex.push('^');
+
+        for ch in pattern.chars() {
+            match ch {
+                '*' => regex.push_str(".*"),
+                '?' => regex.push('.'),
+                // escape regex metacharacters
+                '.' | '\\' | '+' | '^' | '$' | '|' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                    regex.push('\\');
+                    regex.push(ch);
+                }
+                other => regex.push(other),
+            }
+        }
+
+        regex.push('$');
+        regex
+    }
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         self.track_process_terminations();
@@ -977,15 +1029,27 @@ impl BehaviorEngine {
                     msg.filepathstr, count, state.appname, state.pid, ancestry));
             }
         }
+        
         // 3. Evaluate each rule's stages
         let mut triggered_rules = Vec::new();
 
         for rule in &self.rules {
-            // Allowlisting
-            if rule.allowlisted_apps.iter().any(|entry| {
+            // DEBUG: Log rule evaluation start
+            if rule.debug {
+                Logging::debug(&format!("[DEBUG] Evaluating rule '{}' for process '{}' (PID: {})", 
+                    rule.name, state.appname, state.pid));
+            }
+
+            // Allowlisting check with debug
+            let allowlisted = rule.allowlisted_apps.iter().any(|entry| {
                 match entry {
                     AllowlistEntry::Simple(pattern) => {
-                        state.appname.to_lowercase().contains(&pattern.to_lowercase())
+                        let matches = state.appname.to_lowercase().contains(&pattern.to_lowercase());
+                        if matches && rule.debug {
+                            Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by simple pattern '{}'", 
+                                rule.name, state.appname, pattern));
+                        }
+                        matches
                     }
                     AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
                         // 1. Check Name
@@ -998,17 +1062,28 @@ impl BehaviorEngine {
                             #[cfg(target_os = "windows")]
                             {
                                 let path = Path::new(&precord.exepath);
-                                if !path.exists() { return false; } // Can't verify missing file
+                                if !path.exists() { 
+                                    if rule.debug {
+                                        Logging::debug(&format!(
+                                            "[DEBUG] Rule '{}': Exe path doesn't exist for signature check: {}",
+                                            rule.name, precord.exepath.display()));
+                                    }
+                                    return false; 
+                                }
                                 
                                 let info = verify_signature(path);
-                                if !info.is_trusted { return false; } // Not trusted -> FAIL
+                                if !info.is_trusted { 
+                                    if rule.debug {
+                                        Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' signature not trusted", 
+                                            rule.name, state.appname));
+                                    }
+                                    return false; 
+                                }
                                 
                                 // 3. Check Signer Patterns (if specific signers required)
                                 if !signers.is_empty() {
                                     if let Some(actual_signer) = &info.signer_name {
-                                        // Check if ANY of the allowed signer patterns match the actual signer
                                         let signer_match = signers.iter().any(|s_pattern| {
-                                            // Try regex match first, then substring as fallback
                                             if let Ok(re) = Regex::new(s_pattern) {
                                                 re.is_match(actual_signer)
                                             } else {
@@ -1016,31 +1091,55 @@ impl BehaviorEngine {
                                             }
                                         });
                                         
-                                        if !signer_match { return false; } // Trusted, but wrong signer
+                                        if !signer_match { 
+                                            if rule.debug {
+                                                Logging::debug(&format!("[DEBUG] Rule '{}': Signer '{}' doesn't match required patterns", 
+                                                    rule.name, actual_signer));
+                                            }
+                                            return false; 
+                                        }
                                     } else {
-                                        return false; // Trusted but no signer name available (and specific signer required)
+                                        if rule.debug {
+                                            Logging::debug(&format!("[DEBUG] Rule '{}': No signer name available", rule.name));
+                                        }
+                                        return false;
                                     }
                                 }
                                 
-                                true // Trusted and (if required) signer matched
+                                if rule.debug {
+                                    Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by complex signature check", 
+                                        rule.name, state.appname));
+                                }
+                                true
                             }
                             #[cfg(not(target_os = "windows"))]
                             {
-                                false // Can't verify -> Block
+                                false
                             }
                         } else {
-                            true // Name matched, no signature required -> Allow
+                            if rule.debug {
+                                Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by complex pattern (no sig required)", 
+                                    rule.name, state.appname));
+                            }
+                            true
                         }
                     }
                 }
-            }) {
+            });
+
+            if allowlisted {
                 continue;
             }
 
-            // Expiration logic
+            // Expiration logic with debug
             if rule.time_window_ms > 0 {
                 if let Some(first) = state.first_event_ts {
-                    if now.duration_since(first).unwrap_or(Duration::from_secs(0)).as_millis() as u64 > rule.time_window_ms {
+                    let elapsed = now.duration_since(first).unwrap_or(Duration::from_secs(0)).as_millis() as u64;
+                    if elapsed > rule.time_window_ms {
+                        if rule.debug {
+                            Logging::debug(&format!("[DEBUG] Rule '{}': Time window expired ({} ms > {} ms), resetting", 
+                                rule.name, elapsed, rule.time_window_ms));
+                        }
                         // Reset progress if window exceeded
                         state.satisfied_stages.remove(&rule.name);
                         state.satisfied_conditions.remove(&rule.name);
@@ -1051,7 +1150,12 @@ impl BehaviorEngine {
 
             for (s_idx, stage) in rule.stages.iter().enumerate() {
                 for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes) {
+                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
+                        if rule.debug {
+                            Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' Condition #{} MATCHED: {:?}", 
+                                rule.name, stage.name, c_idx, condition));
+                        }
+
                         state.satisfied_conditions
                             .entry(rule.name.clone())
                             .or_default()
@@ -1071,20 +1175,32 @@ impl BehaviorEngine {
             let mut triggered = false;
             
             if let Some(mapping) = &rule.mapping {
-                triggered = Self::evaluate_mapping_internal(mapping, rule, state);
+                triggered = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
             } else {
                 // Fallback to simple stage counting
                 let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
                 if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
                     triggered = true;
+                    if rule.debug {
+                        Logging::debug(&format!("[DEBUG] Rule '{}': TRIGGERED via stage count ({} >= {})", 
+                            rule.name, satisfied_count, rule.min_stages_satisfied));
+                    }
                 } else if rule.conditions_percentage > 0.01 {
                     let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
                     let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
                         .map_or(0, |m| m.values().map(|v| v.len()).sum());
                     
-                    if (satisfied_conds as f32 / total_conds as f32) >= rule.conditions_percentage {
+                    let percentage = satisfied_conds as f32 / total_conds as f32;
+                    if percentage >= rule.conditions_percentage {
                         triggered = true;
+                        if rule.debug {
+                            Logging::debug(&format!("[DEBUG] Rule '{}': TRIGGERED via percentage ({:.1}% >= {:.1}%)", 
+                                rule.name, percentage * 100.0, rule.conditions_percentage * 100.0));
+                        }
                     }
+                } else if rule.debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}': Not triggered (stages: {}/{}, no mapping)", 
+                        rule.name, satisfied_count, rule.min_stages_satisfied));
                 }
             }
 
@@ -1094,14 +1210,14 @@ impl BehaviorEngine {
                 let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
                     .map_or(0, |m| m.values().map(|v| v.len()).sum());
                 
-                    if total_conds > 0 && rule.proximity_log_threshold > 0.01 {
-                        let proximity = (satisfied_conds as f32 / total_conds as f32) * 100.0;
-                        if proximity >= rule.proximity_log_threshold { 
-                             let ancestry = state.process_ancestry.join(" -> ");
-                             Logging::debug(&format!("[DETECTION PROXIMITY] Rule '{}' is {:.1}% near for process '{}' (PID: {}) | Ancestry: [{}] ({} / {} conditions)", 
-                                rule.name, proximity, state.appname, state.pid, ancestry, satisfied_conds, total_conds));
-                        }
+                if total_conds > 0 && rule.proximity_log_threshold > 0.01 {
+                    let proximity = (satisfied_conds as f32 / total_conds as f32) * 100.0;
+                    if proximity >= rule.proximity_log_threshold { 
+                        let ancestry = state.process_ancestry.join(" -> ");
+                        Logging::debug(&format!("[DETECTION PROXIMITY] Rule '{}' is {:.1}% near for process '{}' (PID: {}) | Ancestry: [{}] ({} / {} conditions)", 
+                            rule.name, proximity, state.appname, state.pid, ancestry, satisfied_conds, total_conds));
                     }
+                }
             }
 
             if triggered {
@@ -1134,7 +1250,7 @@ impl BehaviorEngine {
 
             if rule.response.quarantine {
                 precord.quarantine_requested = true;
-                precord.termination_requested = true; // Quarantine implies termination
+                precord.termination_requested = true;
                 precord.is_malicious = true;
             }
 
@@ -1144,19 +1260,48 @@ impl BehaviorEngine {
         }
     }
 
-    fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
-        match mapping {
-            RuleMapping::And { and: mappings } => mappings.iter().all(|m| Self::evaluate_mapping_internal(m, rule, state)),
-            RuleMapping::Or { or: mappings } => mappings.iter().any(|m| Self::evaluate_mapping_internal(m, rule, state)),
-            RuleMapping::Not { not: m } => !Self::evaluate_mapping_internal(m, rule, state),
+    fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState, debug: bool) -> bool {
+        let result = match mapping {
+            RuleMapping::And { and: mappings } => {
+                let results: Vec<bool> = mappings.iter().map(|m| Self::evaluate_mapping_internal(m, rule, state, debug)).collect();
+                let all_true = results.iter().all(|&r| r);
+                if debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}': AND mapping -> {:?} = {}", rule.name, results, all_true));
+                }
+                all_true
+            }
+            RuleMapping::Or { or: mappings } => {
+                let results: Vec<bool> = mappings.iter().map(|m| Self::evaluate_mapping_internal(m, rule, state, debug)).collect();
+                let any_true = results.iter().any(|&r| r);
+                if debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}': OR mapping -> {:?} = {}", rule.name, results, any_true));
+                }
+                any_true
+            }
+            RuleMapping::Not { not: m } => {
+                let inner = Self::evaluate_mapping_internal(m, rule, state, debug);
+                let result = !inner;
+                if debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}': NOT mapping -> {} = {}", rule.name, inner, result));
+                }
+                result
+            }
             RuleMapping::Stage { stage: name } => {
                 if let Some(idx) = rule.stages.iter().position(|s| s.name == *name) {
-                    state.satisfied_stages.get(&rule.name).map_or(false, |set| set.contains(&idx))
+                    let satisfied = state.satisfied_stages.get(&rule.name).map_or(false, |set| set.contains(&idx));
+                    if debug {
+                        Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' (idx {}) = {}", rule.name, name, idx, satisfied));
+                    }
+                    satisfied
                 } else {
+                    if debug {
+                        Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' NOT FOUND in rule definition", rule.name, name));
+                    }
                     false
                 }
             }
-        }
+        };
+        result
     }
 
     fn evaluate_condition_internal(
@@ -1168,45 +1313,80 @@ impl BehaviorEngine {
         rule_name: &str,
         s_idx: usize,
         c_idx: usize,
-        terminated_processes: &[TerminatedProcess]
+        terminated_processes: &[TerminatedProcess],
+        debug: bool,
     ) -> bool {
         let op = IrpMajorOp::from_byte(msg.irp_op);
         
-        match cond {
+        let result = match cond {
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
                 // To avoid constant performance impact, we only scan on certain triggers
-                // such as process creation or when recording is enabled, or every 250 messages
                 if op == IrpMajorOp::IrpCreate || state.is_recording || state.ops_total % 250 == 0 {
-                    scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only)
+                    let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
+                    if debug && matched {
+                        Logging::debug(&format!("[DEBUG] MemoryScan matched for PID {}", state.pid));
+                    }
+                    matched
                 } else {
                     false
                 }
             }
 
-            // === EXISTING CONDITIONS ===
             RuleCondition::File { op: f_op, path_pattern } => {
-                let path_match = Self::matches_internal(regex_cache, path_pattern, &msg.filepathstr);
-                if !path_match { return false; }
+                let regex_pattern = Self::wildcard_to_regex(path_pattern);
+                let path_match = Self::matches_internal(regex_cache, &regex_pattern, &msg.filepathstr);
+                if !path_match {
+                    if debug {
+                        Logging::debug(&format!("[DEBUG] File condition: path '{}' didn't match pattern '{}'", 
+                            msg.filepathstr, path_pattern));
+                    }
+                    return false;
+                }
 
-                match f_op.as_str() {
+                let op_match = match f_op.as_str() {
                     "Write" => op == IrpMajorOp::IrpWrite,
                     "Read" | "Open" => op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate,
                     "Delete" => msg.file_change == 6 || msg.file_change == 7,
                     "Rename" => msg.file_change == 4,
                     "Create" => msg.file_change == 3,
                     _ => false,
+                };
+
+                if debug && !op_match {
+                    Logging::debug(&format!("[DEBUG] File condition: operation '{}' didn't match (irp_op: {}, file_change: {})", 
+                        f_op, msg.irp_op, msg.file_change));
                 }
+
+                op_match
             }
+
             RuleCondition::Registry { op: r_op, key_pattern, value_name, expected_data } => {
                 if op != IrpMajorOp::IrpRegistry { return false; }
-                if !Self::matches_internal(regex_cache, key_pattern, &msg.filepathstr) { return false; }
                 
-                // Optional refinements
+                let regex_pattern = Self::wildcard_to_regex(key_pattern);
+                if !Self::matches_internal(regex_cache, &regex_pattern, &msg.filepathstr) { 
+                    if debug {
+                        Logging::debug(&format!("[DEBUG] Registry: key '{}' didn't match pattern '{}'", 
+                            msg.filepathstr, key_pattern));
+                    }
+                    return false; 
+                }
+                
                 if let Some(vn) = value_name {
-                    if !msg.filepathstr.contains(vn) { return false; }
+                    if !msg.filepathstr.contains(vn) { 
+                        if debug {
+                            Logging::debug(&format!("[DEBUG] Registry: value_name '{}' not in path", vn));
+                        }
+                        return false; 
+                    }
                 }
                 if let Some(ed) = expected_data {
-                    if !msg.extension.contains(ed) { return false; }
+                    if !msg.extension.contains(ed) { 
+                        if debug {
+                            Logging::debug(&format!("[DEBUG] Registry: expected_data '{}' not found", ed));
+                        }
+                        return false; 
+                    }
                 }
 
                 match r_op.as_str() {
@@ -1217,15 +1397,19 @@ impl BehaviorEngine {
                     _ => true,
                 }
             }
+
             RuleCondition::Process { op: p_op, pattern } => {
                 match p_op.as_str() {
                     "Name" => Self::matches_internal(regex_cache, pattern, &state.appname),
-                    "Path" => Self::matches_internal(regex_cache, pattern, &precord.exepath),
+                    "Path" => {
+                        let exepath_str = precord.exepath.to_string_lossy();
+                        Self::matches_internal(regex_cache, pattern, exepath_str.as_ref())
+                    }
                     "CommandLine" => Self::matches_internal(regex_cache, pattern, &state.cmdline),
                     "Parent" => Self::matches_internal(regex_cache, pattern, &state.parent_name),
                     "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, pattern, &msg.filepathstr),
                     "Terminate" => {
-                        let rule_window = Duration::from_secs(30); // Default 30s for termination window
+                        let rule_window = Duration::from_secs(30);
                         terminated_processes.iter().any(|tp| {
                             let age = SystemTime::now().duration_since(tp.timestamp).unwrap_or(Duration::from_secs(999));
                             age < rule_window && Self::matches_internal(regex_cache, pattern, &tp.name)
@@ -1234,6 +1418,7 @@ impl BehaviorEngine {
                     _ => false,
                 }
             }
+
             RuleCondition::Service { op: s_op, name_pattern } => {
                 #[cfg(target_os = "windows")]
                 {
@@ -1247,15 +1432,28 @@ impl BehaviorEngine {
                     Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr)
                 }
             }
+
             RuleCondition::Api { name_pattern, module_pattern } => {
-                Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr) && Self::matches_internal(regex_cache, module_pattern, &msg.filepathstr)
+                // NOTE: This assumes IOMessage contains API info in filepathstr or extension
+                // You may need to adjust based on your actual telemetry structure
+                let api_match = Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr);
+                let module_match = Self::matches_internal(regex_cache, module_pattern, &msg.extension);
+                
+                if debug && (!api_match || !module_match) {
+                    Logging::debug(&format!("[DEBUG] API condition: name_match={}, module_match={} (path: '{}', ext: '{}')", 
+                        api_match, module_match, msg.filepathstr, msg.extension));
+                }
+                
+                api_match && module_match
             }
+
             RuleCondition::Heuristic { metric, threshold } => {
                 match metric.as_str() {
                     "Entropy" => msg.is_entropy_calc == 1 && msg.entropy >= *threshold,
                     _ => false,
                 }
             }
+
             RuleCondition::Network { .. } => {
                 state.active_connections
             }
@@ -1271,34 +1469,28 @@ impl BehaviorEngine {
                     let info = verify_signature(path);
                     
                     if *is_trusted {
-                         if !info.is_trusted {
-                             return false;
-                         }
-                         
-                         if let Some(pattern) = signer_pattern {
-                             if let Some(signer) = info.signer_name.as_deref() {
-                                 Self::matches_internal(regex_cache, pattern, signer)
-                             } else {
-                                 // Trusted but no signer name? Validation failure if pattern is strict.
-                                 // However, usually trusted implies signed.
-                                 false
-                             }
-                         } else {
-                             true
-                         }
+                        if !info.is_trusted {
+                            return false;
+                        }
+                        
+                        if let Some(pattern) = signer_pattern {
+                            if let Some(signer) = info.signer_name.as_deref() {
+                                Self::matches_internal(regex_cache, pattern, signer)
+                            } else {
+                                false
+                            }
+                        } else {
+                            true
+                        }
                     } else {
-                        // We strictly want it to be NOT TRUSTED
                         !info.is_trusted
                     }
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    // Not supported on non-Windows yet
                     false 
                 }
             }
-
-            // === NEW TELEMETRY-BASED CONDITIONS ===
 
             RuleCondition::OperationCount { op_type, path_pattern, comparison, threshold } => {
                 let count = match op_type.as_str() {
@@ -1307,15 +1499,14 @@ impl BehaviorEngine {
                     "Delete" => precord.files_deleted.len() as u64,
                     "Rename" => precord.files_renamed.len() as u64,
                     "Create" => precord.ops_open,
-                    "Registry" => precord.ops_setinfo, // Approximate
+                    "Registry" => precord.ops_setinfo,
                     _ => 0,
                 };
                 
-                // If path_pattern specified, this is a "potential match" indicator
-                // The count threshold is the main check
                 if let Some(pattern) = path_pattern {
-                    if !Self::matches_internal(regex_cache, pattern, &msg.filepathstr) {
-                        return false; // Path doesn't match the filter
+                    let regex_pattern = Self::wildcard_to_regex(pattern);
+                    if !Self::matches_internal(regex_cache, &regex_pattern, &msg.filepathstr) {
+                        return false;
                     }
                 }
                 
@@ -1323,7 +1514,6 @@ impl BehaviorEngine {
             }
 
             RuleCondition::ExtensionPattern { patterns, match_mode, op_type } => {
-                // Check if current operation matches the type
                 let is_correct_op = match op_type.as_str() {
                     "Read" => op == IrpMajorOp::IrpRead,
                     "Write" => op == IrpMajorOp::IrpWrite,
@@ -1331,7 +1521,6 @@ impl BehaviorEngine {
                 };
                 if !is_correct_op { return false; }
 
-                // Check extension against patterns
                 let ext = format!("*.{}", msg.extension.trim_matches('\0').to_lowercase());
                 let matches: Vec<bool> = patterns.iter()
                     .map(|p| {
@@ -1473,7 +1662,6 @@ impl BehaviorEngine {
                 let total_unique_written = precord.files_written.len();
                 if total_unique_written == 0 { return false; }
 
-                // Dynamic hit tracking for specified extensions
                 let key = format!("{}:{}:{}:ext_hits", rule_name, s_idx, c_idx);
                 if extensions.iter().any(|ext| msg.extension.to_lowercase().contains(&ext.to_lowercase())) {
                     state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
@@ -1528,18 +1716,32 @@ impl BehaviorEngine {
             }
 
             RuleCondition::SensitivePathAccess { patterns, op_type, min_unique_paths } => {
-                // Check if operation type matches
                 let is_correct_op = match op_type.as_str() {
                     "Read" => op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate,
                     "Write" => op == IrpMajorOp::IrpWrite,
                     _ => true,
                 };
-                if !is_correct_op { return false; }
+                if !is_correct_op { 
+                    if debug {
+                        Logging::debug(&format!("[DEBUG] SensitivePathAccess: wrong op_type (current: {:?}, wanted: {})", 
+                            op, op_type));
+                    }
+                    return false; 
+                }
 
-                // Dynamic hit tracking for specified path patterns
                 let key = format!("{}:{}:{}:path_hits", rule_name, s_idx, c_idx);
-                if patterns.iter().any(|p| Self::matches_internal(regex_cache, p, &msg.filepathstr)) {
+                let matched_any = patterns.iter().any(|p| {
+                    let regex_pattern = Self::wildcard_to_regex(p);
+                    Self::matches_internal(regex_cache, &regex_pattern, &msg.filepathstr)
+                });
+                
+                if matched_any {
                     state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
+                    if debug {
+                        let count = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0);
+                        Logging::debug(&format!("[DEBUG] SensitivePathAccess: matched path '{}' (total unique: {})", 
+                            msg.filepathstr, count));
+                    }
                 }
                 
                 let unique_paths = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0);
@@ -1557,7 +1759,6 @@ impl BehaviorEngine {
             }
 
             RuleCondition::TempDirectoryWrite { min_bytes, min_files } => {
-                // Check if current write is to a temp directory
                 let path_lower = msg.filepathstr.to_lowercase();
                 let is_temp = path_lower.contains("\\temp\\") 
                     || path_lower.contains("\\tmp\\")
@@ -1567,14 +1768,10 @@ impl BehaviorEngine {
                     return false;
                 }
 
-                // Track temp writes for this condition
                 let key = format!("{}:{}:{}:temp_writes", rule_name, s_idx, c_idx);
-                let _bytes_key = format!("{}:{}:{}:temp_bytes", rule_name, s_idx, c_idx);
                 
                 state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
                 let current_files = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0) as u32;
-                
-                // Track bytes (simplified - just use current message bytes)
                 let current_bytes = msg.mem_sized_used;
                 
                 let meets_bytes = min_bytes.map_or(true, |mb| current_bytes >= mb);
@@ -1602,7 +1799,6 @@ impl BehaviorEngine {
                     return false;
                 }
                 
-                // Check temp directory requirement
                 if *in_temp {
                     let path_lower = msg.filepathstr.to_lowercase();
                     let is_temp_path = path_lower.contains("\\temp\\") 
@@ -1613,27 +1809,24 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check size requirement
                 min_size.map_or(true, |ms| msg.mem_sized_used >= ms)
             }
 
             RuleCondition::DataExfiltrationPattern { source_patterns, min_source_reads, detect_temp_staging, detect_archive } => {
-                // Track reads from sensitive sources
                 let reads_key = format!("{}:{}:{}:source_reads", rule_name, s_idx, c_idx);
                 let temp_key = format!("{}:{}:{}:temp_staging", rule_name, s_idx, c_idx);
                 let archive_key = format!("{}:{}:{}:archive_created", rule_name, s_idx, c_idx);
                 
-                // Check if current operation is a read from a sensitive source
                 if op == IrpMajorOp::IrpRead || op == IrpMajorOp::IrpCreate {
                     for pattern in source_patterns {
-                        if Self::matches_internal(regex_cache, pattern, &msg.filepathstr) {
+                        let regex_pattern = Self::wildcard_to_regex(pattern);
+                        if Self::matches_internal(regex_cache, &regex_pattern, &msg.filepathstr) {
                             state.condition_specific_state.entry(reads_key.clone()).or_default().insert(msg.filepathstr.clone());
                             break;
                         }
                     }
                 }
                 
-                // Check temp staging
                 if *detect_temp_staging && op == IrpMajorOp::IrpWrite {
                     let path_lower = msg.filepathstr.to_lowercase();
                     if path_lower.contains("\\temp\\") || path_lower.contains("\\tmp\\") || path_lower.contains("\\appdata\\local\\temp") {
@@ -1641,7 +1834,6 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check archive creation
                 if *detect_archive && (op == IrpMajorOp::IrpWrite || op == IrpMajorOp::IrpCreate) {
                     let ext_lower = msg.extension.to_lowercase();
                     if ext_lower.contains("zip") || ext_lower.contains("rar") || ext_lower.contains("7z") {
@@ -1649,7 +1841,6 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Evaluate the pattern
                 let source_read_count = state.condition_specific_state.get(&reads_key).map(|s| s.len()).unwrap_or(0) as u32;
                 let min_reads = min_source_reads.unwrap_or(1);
                 let has_enough_reads = source_read_count >= min_reads;
@@ -1659,24 +1850,24 @@ impl BehaviorEngine {
                 
                 has_enough_reads && (has_temp_staging || has_archive)
             }
+        };
+
+        if debug && result {
+            Logging::debug(&format!("[DEBUG] Condition MATCHED: {:?}", cond));
         }
+
+        result
     }
 
     fn matches_internal(regex_cache: &HashMap<String, Regex>, pattern: &str, text: &str) -> bool {
         if let Some(re) = regex_cache.get(pattern) {
             re.is_match(text)
         } else {
+            // Fallback to substring match if regex not cached
             text.to_lowercase().contains(&pattern.to_lowercase())
         }
     }
 
-    
-
-    // ============================================================================
-    // NEW HELPER FUNCTIONS FOR TELEMETRY-BASED CONDITIONS
-    // ============================================================================
-
-    /// Compare u64 values
     fn compare_u64(value: u64, comparison: &Comparison, threshold: u64) -> bool {
         match comparison {
             Comparison::Gt => value > threshold,
@@ -1688,7 +1879,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Compare u32 values
     fn compare_u32(value: u32, comparison: &Comparison, threshold: u32) -> bool {
         match comparison {
             Comparison::Gt => value > threshold,
@@ -1700,7 +1890,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Compare f64 values
     fn compare_f64(value: f64, comparison: &Comparison, threshold: f64) -> bool {
         match comparison {
             Comparison::Gt => value > threshold,
@@ -1712,7 +1901,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Compare f32 values
     fn compare_f32(value: f32, comparison: &Comparison, threshold: f32) -> bool {
         match comparison {
             Comparison::Gt => value > threshold,
@@ -1724,9 +1912,6 @@ impl BehaviorEngine {
         }
     }
 
-
-
-    /// Check if pattern matches using MatchMode logic
     fn evaluate_match_mode(matches: &[bool], mode: &MatchMode) -> bool {
         let match_count = matches.iter().filter(|&&m| m).count();
         let total = matches.len();
@@ -1739,7 +1924,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Apply string modifiers to a pattern match
     fn matches_with_modifiers(text: &str, pattern: &CommandLinePattern, regex_cache: &HashMap<String, Regex>) -> bool {
         let mut text_for_match = text.to_string();
         let mut pattern_for_match = pattern.pattern.clone();
@@ -1752,9 +1936,7 @@ impl BehaviorEngine {
                     text_for_match = text_for_match.to_lowercase();
                     pattern_for_match = pattern_for_match.to_lowercase();
                 }
-                StringModifier::Contains => {
-                    // Default behavior
-                }
+                StringModifier::Contains => {}
                 StringModifier::Startswith => {
                     if !use_regex {
                         return text_for_match.starts_with(&pattern_for_match) != negate;
@@ -1772,7 +1954,6 @@ impl BehaviorEngine {
                     negate = true;
                 }
                 StringModifier::Base64 => {
-                    // Attempt base64 decode
                     if let Ok(decoded) = base64_decode(&text_for_match) {
                         text_for_match = decoded;
                     }
@@ -1796,9 +1977,7 @@ impl BehaviorEngine {
     }
 }
 
-/// Simple base64 decode helper
 fn base64_decode(input: &str) -> Result<String, ()> {
-    // Simple implementation - only handles standard base64
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     
     let input = input.trim().replace('=', "");
@@ -1846,7 +2025,6 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
                 if ReadProcessMemory(process_handle, mbi.BaseAddress, buffer.as_mut_ptr() as *mut _, mbi.RegionSize, Some(&mut bytes_read)).as_bool() {
                     let data = &buffer[..bytes_read];
                     
-                    // 1. Check for MZ/PE headers if requested
                     if detect_pe {
                         for i in 0..(data.len().saturating_sub(64)) {
                             if data[i] == b'M' && data[i+1] == b'Z' {
@@ -1865,7 +2043,6 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
                         }
                     }
 
-                    // 2. Check for patterns
                     for pattern in patterns {
                         if data.windows(pattern.len()).any(|window| window == pattern.as_bytes()) {
                             let _ = CloseHandle(process_handle);
@@ -1907,4 +2084,29 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
             u8::from_str_radix(&clean_hex[i..i + 2], 16).unwrap_or(0)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wildcard_to_regex;
+    use regex::Regex;
+
+    #[test]
+    fn basic_wildcards() {
+        let rx = Regex::new(&wildcard_to_regex("*.rs")).unwrap();
+        assert!(rx.is_match("main.rs"));
+        assert!(rx.is_match("lib.rs"));
+        assert!(!rx.is_match("main.rs.bak"));
+
+        let rx2 = Regex::new(&wildcard_to_regex("file?.txt")).unwrap();
+        assert!(rx2.is_match("file1.txt"));
+        assert!(rx2.is_match("fileA.txt"));
+        assert!(!rx2.is_match("file12.txt"));
+    }
+
+    #[test]
+    fn escapes_meta_chars() {
+        let rx = Regex::new(&wildcard_to_regex("version(1).txt")).unwrap();
+        assert!(rx.is_match("version(1).txt"));
+    }
 }
