@@ -25,7 +25,6 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    DriveType::{CDRom, Fixed, NoRootDir, RamDisk, Remote, Removable, Unknown},
     DriveType,
 };
 

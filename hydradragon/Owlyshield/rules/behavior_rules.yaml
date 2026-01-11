@@ -7,6 +7,7 @@
 - name: "HEUR/Win32/Trojan.PSW.Stealer.gen"
   description: "Unified heuristic detection for credential stealers targeting browsers, wallets, chat apps, and system credentials."
   severity: 10
+  proximity_log_threshold: 25.0
   time_window_ms: 30000
   min_stages_satisfied: 2
   stages:
@@ -235,6 +236,7 @@
 - name: "Tasia Malware Detection"
   description: "Detects Tasia malware kill-chain including critical system tool disablement, shell disruption, and utility hijacks."
   severity: 10
+  proximity_log_threshold: 25.0
   mapping:
     and:
       - stage: "System Lockout & Persistence"
@@ -311,6 +313,7 @@
 - name: "EDR Detection: SignatureMonster SDK (Enhanced)"
   description: "Detects the deep system fingerprinting and anti-analysis checks performed by the SignatureMonster SDK."
   severity: 8
+  proximity_log_threshold: 25.0
   min_stages_satisfied: 2
   stages:
     - name: "Hardware & Environment Fingerprinting"
@@ -349,6 +352,7 @@
 - name: "Super Aggressive Trojan Attack"
   description: "Detects rapid, broad-spectrum file scanning across multiple directories in a 5-second window."
   severity: 10
+  proximity_log_threshold: 25.0
   time_window_ms: 5000
   min_stages_satisfied: 2
   stages:
@@ -373,6 +377,7 @@
 - name: "Suspicious Unsigned Credential Access"
   description: "Detects untrusted processes attempting to access browser credential stores and calling decryption APIs."
   severity: 9
+  proximity_log_threshold: 25.0
   time_window_ms: 10000
   min_stages_satisfied: 3
   stages:
@@ -399,3 +404,36 @@
     terminate_process: true
     quarantine: true
     auto_revert: true
+
+- name: "Monitor: Exela Process Events"
+  description: "Detailed recording for Exela.exe process activity and near-detections."
+  severity: 1
+  is_private: true
+  record_on_start: ["Exela.exe"]
+  proximity_log_threshold: 20.0
+  stages:
+    - name: "Activity Tracking"
+      conditions:
+        - type: "MemoryScan"
+          patterns: ["cmd.exe", "powershell.exe", "http://", "https://", "socket", "connect"]
+          detect_pe_headers: true
+        - type: "OperationCount"
+          op_type: "Any"
+          comparison: "gt"
+          threshold: 0
+  response:
+    record: true
+
+- name: "Reflective Loading Detection"
+  description: "Detects PE headers (MZ/PE) in private or unmapped memory regions, indicating reflective loading or process hollowing."
+  severity: 9
+  proximity_log_threshold: 25.0
+  stages:
+    - name: "Memory Payload"
+      conditions:
+        - type: "MemoryScan"
+          detect_pe_headers: true
+          private_only: true
+  response:
+    terminate_process: true
+    quarantine: true

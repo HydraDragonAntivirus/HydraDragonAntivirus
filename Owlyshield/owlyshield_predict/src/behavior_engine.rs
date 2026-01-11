@@ -20,6 +20,14 @@ pub struct TerminatedProcess {
 use crate::services::ServiceChecker;
 #[cfg(target_os = "windows")]
 use crate::signature_verification::verify_signature;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, MEM_PRIVATE};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::CloseHandle;
 
 // ============================================================================
 // SUPPORTING TYPES FOR TELEMETRY-BASED DETECTION
@@ -207,6 +215,14 @@ pub struct BehaviorRule {
 
     #[serde(default)]
     pub allowlisted_apps: Vec<AllowlistEntry>,
+
+    /// Specific threshold to log proximity (0.0 - 100.0)
+    #[serde(default)]
+    pub proximity_log_threshold: f32,
+
+    /// Executable names that should trigger recording immediately upon process start
+    #[serde(default)]
+    pub record_on_start: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,7 +475,22 @@ pub enum RuleCondition {
         #[serde(default)]
         detect_archive: bool,
     },
+
+    /// Detect signatures or PE headers in process memory
+    MemoryScan {
+        /// Signatures to look for (hex or strings)
+        #[serde(default)]
+        patterns: Vec<String>,
+        /// Detect MZ/PE headers in private/mapped memory
+        #[serde(default)]
+        detect_pe_headers: bool,
+        /// Only scan private/unmapped regions (likely payloads)
+        #[serde(default = "default_true")]
+        private_only: bool,
+    },
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResponseAction {
@@ -468,6 +499,7 @@ pub struct ResponseAction {
     #[serde(default)] pub quarantine: bool,
     #[serde(default)] pub block_network: bool,
     #[serde(default)] pub auto_revert: bool,
+    #[serde(default)] pub record: bool,
 }
 
 // ============================================================================
@@ -514,6 +546,10 @@ pub struct ProcessBehaviorState {
     
     // --- NEW: Process ancestry cache ---
     pub process_ancestry: Vec<String>,  // parent names chain
+
+    // --- NEW: Recording & Proximity ---
+    pub is_recording: bool,
+    pub file_op_counts: HashMap<String, u32>,
 }
 
 impl Default for ProcessBehaviorState {
@@ -539,6 +575,8 @@ impl Default for ProcessBehaviorState {
             extension_change_timestamps: Vec::new(),
             condition_specific_state: HashMap::new(),
             process_ancestry: Vec::new(),
+            is_recording: false,
+            file_op_counts: HashMap::new(),
         }
     }
 }
@@ -864,6 +902,19 @@ impl BehaviorEngine {
                     }
                 }
             }
+
+            // --- Enable direct recording if process name matches rule-level override ---
+            for rule in &self.rules {
+                if rule.record_on_start.iter().any(|pattern| {
+                    s.appname.to_lowercase().contains(&pattern.to_lowercase())
+                }) {
+                    s.is_recording = true;
+                    Logging::info(&format!("[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'", 
+                        s.appname, s.pid, rule.name));
+                    break;
+                }
+            }
+
             s
         });
 
@@ -906,6 +957,19 @@ impl BehaviorEngine {
             // Limit timestamp history
             if state.extension_change_timestamps.len() > 500 {
                 state.extension_change_timestamps.drain(0..250);
+            }
+        }
+
+        // --- NEW: Per-file activity tracking ---
+        if state.is_recording && !msg.filepathstr.is_empty() {
+            let count = state.file_op_counts.entry(msg.filepathstr.clone()).or_insert(0);
+            *count += 1;
+            
+            // Log every 5 events for the same file if recording is active
+            if *count % 5 == 0 {
+                let ancestry = state.process_ancestry.join(" -> ");
+                Logging::debug(&format!("[RECORDING] File Activity: '{}' (Ops: {}) | Process: '{}' (PID: {}) | Ancestry: [{}]", 
+                    msg.filepathstr, count, state.appname, state.pid, ancestry));
             }
         }
         // 3. Evaluate each rule's stages
@@ -1019,6 +1083,22 @@ impl BehaviorEngine {
                 }
             }
 
+            if !triggered && state.is_recording {
+                // Log proximity for rules that are partially met
+                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
+                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
+                
+                    if total_conds > 0 && rule.proximity_log_threshold > 0.01 {
+                        let proximity = (satisfied_conds as f32 / total_conds as f32) * 100.0;
+                        if proximity >= rule.proximity_log_threshold { 
+                             let ancestry = state.process_ancestry.join(" -> ");
+                             Logging::debug(&format!("[DETECTION PROXIMITY] Rule '{}' is {:.1}% near for process '{}' (PID: {}) | Ancestry: [{}] ({} / {} conditions)", 
+                                rule.name, proximity, state.appname, state.pid, ancestry, satisfied_conds, total_conds));
+                        }
+                    }
+            }
+
             if triggered {
                 triggered_rules.push(rule.clone());
             }
@@ -1026,6 +1106,12 @@ impl BehaviorEngine {
 
         // 4. Execution
         for rule in triggered_rules {
+            if rule.response.record && !state.is_recording {
+                state.is_recording = true;
+                Logging::info(&format!("[RECORDING ACTIVATED] Rule '{}' enabled detailed tracking for '{}' (PID: {})", 
+                    rule.name, state.appname, state.pid));
+            }
+
             if rule.is_private {
                 // Private rules only update state, they don't trigger alerts or actions
                 continue;
@@ -1082,6 +1168,16 @@ impl BehaviorEngine {
         let op = IrpMajorOp::from_byte(msg.irp_op);
         
         match cond {
+            RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
+                // To avoid constant performance impact, we only scan on certain triggers
+                // such as process creation or when recording is enabled, or every 250 messages
+                if op == IrpMajorOp::IrpCreate || state.is_recording || state.ops_total % 250 == 0 {
+                    scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only)
+                } else {
+                    false
+                }
+            }
+
             // === EXISTING CONDITIONS ===
             RuleCondition::File { op: f_op, path_pattern } => {
                 let path_match = Self::matches_internal(regex_cache, path_pattern, &msg.filepathstr);
@@ -1715,4 +1811,93 @@ fn base64_decode(input: &str) -> Result<String, ()> {
     }
     
     String::from_utf8(output).map_err(|_| ())
+}
+
+#[cfg(target_os = "windows")]
+fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_only: bool) -> bool {
+    let process_handle = unsafe {
+        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).unwrap_or_default()
+    };
+    
+    if process_handle.is_invalid() {
+        return false;
+    }
+
+    let mut address = std::ptr::null();
+    let mut mbi = MEMORY_BASIC_INFORMATION::default();
+
+    unsafe {
+        while VirtualQueryEx(process_handle, Some(address), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) != 0 {
+            let is_commited = mbi.State == MEM_COMMIT;
+            let is_not_noaccess = mbi.Protect != PAGE_NOACCESS;
+            let is_private = mbi.Type == MEM_PRIVATE;
+
+            if is_commited && is_not_noaccess && (!private_only || is_private) {
+                let mut buffer = vec![0u8; mbi.RegionSize];
+                let mut bytes_read = 0;
+                
+                if ReadProcessMemory(process_handle, mbi.BaseAddress, buffer.as_mut_ptr() as *mut _, mbi.RegionSize, Some(&mut bytes_read)).as_bool() {
+                    let data = &buffer[..bytes_read];
+                    
+                    // 1. Check for MZ/PE headers if requested
+                    if detect_pe {
+                        for i in 0..(data.len().saturating_sub(64)) {
+                            if data[i] == b'M' && data[i+1] == b'Z' {
+                                let pe_offset_idx = i + 0x3c;
+                                if pe_offset_idx + 4 <= data.len() {
+                                    let pe_offset = u32::from_le_bytes([data[pe_offset_idx], data[pe_offset_idx+1], data[pe_offset_idx+2], data[pe_offset_idx+3]]) as usize;
+                                    let pe_sig_idx = i + pe_offset;
+                                    if pe_sig_idx + 4 <= data.len() {
+                                        if data[pe_sig_idx] == b'P' && data[pe_sig_idx+1] == b'E' && data[pe_sig_idx+2] == 0 && data[pe_sig_idx+3] == 0 {
+                                            let _ = CloseHandle(process_handle);
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Check for patterns
+                    for pattern in patterns {
+                        if data.windows(pattern.len()).any(|window| window == pattern.as_bytes()) {
+                            let _ = CloseHandle(process_handle);
+                            return true;
+                        }
+                        
+                        if (pattern.starts_with("0x") || pattern.chars().take(2).all(|c| c.is_ascii_hexdigit())) && pattern.len() >= 2 {
+                            let hex_bytes = hex_to_bytes(pattern);
+                            if !hex_bytes.is_empty() && data.windows(hex_bytes.len()).any(|window| window == &hex_bytes[..]) {
+                                let _ = CloseHandle(process_handle);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            address = (mbi.BaseAddress as usize).saturating_add(mbi.RegionSize) as *const _;
+            if address.is_null() { break; }
+        }
+        let _ = CloseHandle(process_handle);
+    }
+    false
+}
+
+#[cfg(not(target_os = "windows"))]
+fn scan_process_memory(_pid: u32, _patterns: &[String], _detect_pe: bool, _private_only: bool) -> bool {
+    false
+}
+
+fn hex_to_bytes(hex: &str) -> Vec<u8> {
+    let clean_hex = hex.replace("0x", "").replace(" ", "").replace("-", "");
+    if clean_hex.len() % 2 != 0 || clean_hex.is_empty() {
+        return Vec::new();
+    }
+    (0..clean_hex.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&clean_hex[i..i + 2], 16).unwrap_or(0)
+        })
+        .collect()
 }

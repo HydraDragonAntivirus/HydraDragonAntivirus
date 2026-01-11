@@ -682,12 +682,8 @@ mod process_records {
 
 pub mod threat_handling {
     use std::path::Path;
-    use crate::logging::Logging;
-    use crate::process::{ProcessRecord, ProcessState};
-    use crate::driver_com::Driver;
-    use windows::Win32::System::Diagnostics::Debug::{
-        DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
-    };
+    use crate::process::ProcessRecord;
+
 
     /// Trait for handling threat responses (kill, suspend, quarantine, etc.)
     pub trait ThreatHandler: Send + Sync {
