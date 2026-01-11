@@ -189,7 +189,7 @@ pub fn run() {
                 if reply_irp.num_ops > 0 {
                     let drivermsgs = CDriverMsgs::new(&reply_irp);
                     for drivermsg in drivermsgs {
-                        let iomsg = IOMessage::from(&drivermsg);
+                        let iomsg = IOMessage::from_driver_msg(&drivermsg);
                         if tx_iomsgs.send(iomsg).is_ok() {
                         } else {
                             // error!("Cannot send iomsg");

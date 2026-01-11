@@ -105,24 +105,27 @@ mod connectors;
 mod csvwriter;
 #[cfg(target_os = "windows")]
 #[path = "windows/driver_com.rs"]
-mod driver_com;
+pub(crate) mod driver_com;
 #[cfg(target_os = "linux")]
 #[path = "linux/driver_com.rs"]
-mod driver_com;
+pub(crate) mod driver_com;
 mod extensions;
 mod jsonrpc;
 mod logging;
 #[cfg(target_os = "windows")]
 #[path = "windows/notifications.rs"]
-mod notifications;
+pub(crate) mod notifications;
 #[cfg(target_os = "linux")]
 #[path = "linux/notifications.rs"]
-mod notifications;
+pub(crate) mod notifications;
 mod predictions;
 mod process;
 #[cfg(target_os = "windows")]
 #[path = "windows/run.rs"]
 mod run;
+#[cfg(target_os = "windows")]
+#[path = "windows/signature_verification.rs"]
+pub mod signature_verification;
 #[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
 #[path = "linux/run.rs"]
 mod run;
@@ -135,11 +138,11 @@ mod run {
         log::info!("Linux runtime skipped (enable `linux-ebpf` to run eBPF monitor)");
     }
 }
-mod shared_def;
+pub(crate) mod shared_def;
 mod utils;
 mod watchlist;
 mod whitelist;
-mod worker;
+pub(crate) mod worker;
 mod novelty;
 #[cfg(target_os = "windows")]
 pub mod services;
@@ -148,10 +151,10 @@ pub mod behavior_engine;
 pub mod realtime_learning;  // OwlyShield realtime-learning module
 #[cfg(target_os = "windows")]
 #[path = "windows/threathandling.rs"]
-mod threathandling;
+pub(crate) mod threathandling;
 #[cfg(target_os = "linux")]
 #[path = "linux/threathandling.rs"]
-mod threathandling;
+pub(crate) mod threathandling;
 
 #[cfg(feature = "service")]
 const SERVICE_NAME: &str = "Owlyshield Service";

@@ -267,7 +267,7 @@ pub mod process_record_handling {
     use std::time::Duration;
 
     #[cfg(target_os = "windows")]
-    use windows::Win32::Foundation::{CloseHandle, GetLastError};
+    use windows::Win32::Foundation::CloseHandle;
     #[cfg(target_os = "windows")]
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
@@ -697,66 +697,6 @@ pub mod threat_handling {
         fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool);
         fn revert_registry(&self, gid: u64);
     }
-
-    /// Live implementation of ThreatHandler that communicates with the kernel driver
-    pub struct LiveThreatHandler {
-        driver: Driver,
-    }
-
-    impl LiveThreatHandler {
-        pub fn new(driver: Driver) -> LiveThreatHandler {
-            LiveThreatHandler { driver }
-        }
-    }
-
-    impl ThreatHandler for LiveThreatHandler {
-        fn suspend(&self, proc: &mut ProcessRecord) {
-            proc.process_state = ProcessState::Suspended;
-            proc.time_suspended = Some(std::time::SystemTime::now());
-            for pid in &proc.pids {
-                unsafe {
-                    let _ = DebugActiveProcess(*pid);
-                }
-            }
-            Logging::info(&format!("Process {} (GID: {}) suspended.", proc.appname, proc.gid));
-        }
-
-        fn kill(&self, gid: u64) {
-            if self.driver.try_kill(gid).is_ok() {
-                Logging::info(&format!("Kill signal sent to process group (GID: {}).", gid));
-            } else {
-                Logging::error(&format!("Failed to send kill signal to GID: {}.", gid));
-            }
-        }
-
-        fn kill_and_quarantine(&self, gid: u64, path: &Path) {
-            Logging::info(&format!("Quarantining file: {}", path.display()));
-            if self.driver.kill_and_quarantine_driver(gid, path).is_ok() {
-                Logging::info(&format!("Kill and Quarantine signal sent to process group (GID: {}).", gid));
-            } else {
-                Logging::error(&format!("Failed to send Kill and Quarantine signal to GID: {}.", gid));
-            }
-        }
-
-        fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
-            for pid in &proc.pids {
-                unsafe {
-                    let _ = DebugSetProcessKillOnExit(kill_proc_on_exit);
-                    let _ = DebugActiveProcessStop(*pid);
-                }
-            }
-            proc.process_state = ProcessState::Running;
-            Logging::info(&format!("Process {} (GID: {}) resumed.", proc.appname, proc.gid));
-        }
-
-        fn revert_registry(&self, gid: u64) {
-            if self.driver.revert_registry_changes(gid).is_ok() {
-                Logging::info(&format!("[REGISTRY] Revert signal sent to process group (GID: {}).", gid));
-            } else {
-                Logging::error(&format!("[REGISTRY] Failed to send revert signal to GID: {}.", gid));
-            }
-        }
-    }
 }
 
 pub mod worker_instance {
@@ -895,6 +835,8 @@ pub mod worker_instance {
         pub behavior_engine: crate::behavior_engine::BehaviorEngine,
     }
 
+    use crate::logging::Logging;
+
     impl<'a> Worker<'a> {
 		pub fn new() -> Worker<'a> {
 			Worker {
@@ -1015,7 +957,47 @@ pub mod worker_instance {
                         let appname = self
                             .appname_from_exepath(&exepath)
                             .unwrap_or_else(|| String::from("DEFAULT"));
-                        if !self.is_app_whitelisted(&appname)
+
+                        // Whitelist Logic: Combine Name Check + Digital Signature Verification
+                        // New: Supports "Specific Signer" requirement
+                        let is_whitelisted = match self.whitelist.as_ref().and_then(|wl| wl.get_required_signer(&appname)) {
+                            Some(required_signer_opt) => {
+                                #[cfg(target_os = "windows")]
+                                {
+                                    use crate::signature_verification::verify_signature;
+                                    let sig_info = verify_signature(exepath);
+                                    
+                                    if sig_info.is_trusted {
+                                        // It is trusted, but does it match the REQUIRED signer?
+                                        match required_signer_opt {
+                                            Some(req_signer) => {
+                                                if let Some(actual_signer) = sig_info.signer_name {
+                                                    if actual_signer.contains(&req_signer) {
+                                                        true // Trusted AND match!
+                                                    } else {
+                                                        Logging::info(&format!("[SECURITY] Whitelist REJECTED: {} is trusted but signer '{}' != '{}'", appname, actual_signer, req_signer));
+                                                        false
+                                                    }
+                                                } else {
+                                                    // Trusted but couldn't extract signer name? Fail safe.
+                                                    Logging::info(&format!("[SECURITY] Whitelist REJECTED: {} is trusted but could not verify signer name against '{}'", appname, req_signer));
+                                                    false
+                                                }
+                                            },
+                                            None => true // Trusted, no specific signer required (Any valid cert)
+                                        }
+                                    } else {
+                                        Logging::info(&format!("[SECURITY] Whitelist Bypass Attempt Blocked: {} is in whitelist but has NO valid signature.", appname));
+                                        false
+                                    }
+                                }
+                                #[cfg(not(target_os = "windows"))]
+                                true // On Linux, fallback until GPG implemented
+                            },
+                            None => false // Not in whitelist
+                        };
+
+                        if !is_whitelisted
                             && !exepath
                             .parent()
                             .unwrap_or_else(|| Path::new("/"))
@@ -1030,12 +1012,7 @@ pub mod worker_instance {
             }
         }
 
-        fn is_app_whitelisted(&self, appname: &str) -> bool {
-            match self.whitelist {
-                None => false,
-                Some(wl) => wl.is_app_whitelisted(appname),
-            }
-        }
+
 
         fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
             exepath.to_str().map(|s| s.to_string())

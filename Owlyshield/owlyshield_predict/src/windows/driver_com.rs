@@ -24,9 +24,9 @@ use crate::shared_def::{
     DriverComMessageType,
     FileId,
     IOMessage,
+    RuntimeFeatures,
     DriveType::{CDRom, Fixed, NoRootDir, RamDisk, Remote, Removable, Unknown},
     DriveType,
-    RuntimeFeatures,
 };
 
 pub type BufPath = [wchar_t; 520];
@@ -353,7 +353,7 @@ impl ReplyIrp {
 }
 
 impl IOMessage {
-    pub fn from(c_drivermsg: &CDriverMsg) -> IOMessage {
+    pub fn from_driver_msg(c_drivermsg: &CDriverMsg) -> IOMessage {
         IOMessage {
             extension: std::ffi::OsString::from_wide(c_drivermsg.extension.split(|&v| v == 0).next().unwrap()).to_string_lossy().into() ,//String::from_utf16_lossy(&c_drivermsg.extension),
             file_id_id: FileId::from(c_drivermsg.file_id.FileId.Identifier),

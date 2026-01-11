@@ -18,6 +18,8 @@ pub struct TerminatedProcess {
 
 #[cfg(target_os = "windows")]
 use crate::services::ServiceChecker;
+#[cfg(target_os = "windows")]
+use crate::signature_verification::verify_signature;
 
 // ============================================================================
 // SUPPORTING TYPES FOR TELEMETRY-BASED DETECTION
@@ -204,7 +206,25 @@ pub struct BehaviorRule {
     pub is_private: bool,
 
     #[serde(default)]
-    pub allowlisted_apps: Vec<String>,
+    pub allowlisted_apps: Vec<AllowlistEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AllowlistEntry {
+    /// Legacy: Simple string match on process name (e.g., "chrome.exe")
+    Simple(String),
+    /// Advanced: Customizable allowlist rule
+    Complex {
+        /// Process name pattern (substring or regex if implemented, historically substring)
+        pattern: String,
+        /// List of allowed signer patterns (Regex allowed). If empty and `must_be_signed` is true, any trusted signer is allowed.
+        #[serde(default)]
+        signers: Vec<String>,
+        /// If true, process MUST be signed by a trusted root.
+        #[serde(default)]
+        must_be_signed: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,6 +322,15 @@ pub enum RuleCondition {
         #[serde(default)]
         comparison: Comparison,
         threshold: u64,
+    },
+
+    /// Digital Signature Verification
+    Signature {
+        /// If true, requires valid signature. If false, requires invalid/missing signature.
+        is_trusted: bool,
+        /// Regex pattern for signer name (e.g. "Microsoft.*"). If None, any signer is accepted (if is_trusted=true).
+        #[serde(default)]
+        signer_pattern: Option<String>,
     },
 
     /// Directory spread detection (Sigma-style)
@@ -884,7 +913,58 @@ impl BehaviorEngine {
 
         for rule in &self.rules {
             // Allowlisting
-            if rule.allowlisted_apps.iter().any(|app| state.appname.to_lowercase().contains(&app.to_lowercase())) {
+            if rule.allowlisted_apps.iter().any(|entry| {
+                match entry {
+                    AllowlistEntry::Simple(pattern) => {
+                        state.appname.to_lowercase().contains(&pattern.to_lowercase())
+                    }
+                    AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
+                        // 1. Check Name
+                        if !state.appname.to_lowercase().contains(&pattern.to_lowercase()) {
+                            return false; 
+                        }
+
+                        // 2. Check Signature Requirements
+                        if *must_be_signed || !signers.is_empty() {
+                            #[cfg(target_os = "windows")]
+                            {
+                                let path = Path::new(&precord.exepath);
+                                if !path.exists() { return false; } // Can't verify missing file
+                                
+                                let info = verify_signature(path);
+                                if !info.is_trusted { return false; } // Not trusted -> FAIL
+                                
+                                // 3. Check Signer Patterns (if specific signers required)
+                                if !signers.is_empty() {
+                                    if let Some(actual_signer) = &info.signer_name {
+                                        // Check if ANY of the allowed signer patterns match the actual signer
+                                        let signer_match = signers.iter().any(|s_pattern| {
+                                            // Try regex match first, then substring as fallback
+                                            if let Ok(re) = Regex::new(s_pattern) {
+                                                re.is_match(actual_signer)
+                                            } else {
+                                                actual_signer.to_lowercase().contains(&s_pattern.to_lowercase())
+                                            }
+                                        });
+                                        
+                                        if !signer_match { return false; } // Trusted, but wrong signer
+                                    } else {
+                                        return false; // Trusted but no signer name available (and specific signer required)
+                                    }
+                                }
+                                
+                                true // Trusted and (if required) signer matched
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            {
+                                false // Can't verify -> Block
+                            }
+                        } else {
+                            true // Name matched, no signature required -> Allow
+                        }
+                    }
+                }
+            }) {
                 continue;
             }
 
@@ -963,6 +1043,8 @@ impl BehaviorEngine {
 
             if rule.response.quarantine {
                 precord.quarantine_requested = true;
+                precord.termination_requested = true; // Quarantine implies termination
+                precord.is_malicious = true;
             }
 
             if rule.response.auto_revert {
@@ -1073,6 +1155,44 @@ impl BehaviorEngine {
             }
             RuleCondition::Network { .. } => {
                 state.active_connections
+            }
+
+            RuleCondition::Signature { is_trusted, signer_pattern } => {
+                #[cfg(target_os = "windows")]
+                {
+                    let path = Path::new(&precord.exepath);
+                    if !path.exists() {
+                        return !is_trusted;
+                    }
+                    
+                    let info = verify_signature(path);
+                    
+                    if *is_trusted {
+                         if !info.is_trusted {
+                             return false;
+                         }
+                         
+                         if let Some(pattern) = signer_pattern {
+                             if let Some(signer) = info.signer_name.as_deref() {
+                                 Self::matches_internal(regex_cache, pattern, signer)
+                             } else {
+                                 // Trusted but no signer name? Validation failure if pattern is strict.
+                                 // However, usually trusted implies signed.
+                                 false
+                             }
+                         } else {
+                             true
+                         }
+                    } else {
+                        // We strictly want it to be NOT TRUSTED
+                        !info.is_trusted
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    // Not supported on non-Windows yet
+                    false 
+                }
             }
 
             // === NEW TELEMETRY-BASED CONDITIONS ===
@@ -1346,7 +1466,7 @@ impl BehaviorEngine {
 
                 // Track temp writes for this condition
                 let key = format!("{}:{}:{}:temp_writes", rule_name, s_idx, c_idx);
-                let bytes_key = format!("{}:{}:{}:temp_bytes", rule_name, s_idx, c_idx);
+                let _bytes_key = format!("{}:{}:{}:temp_bytes", rule_name, s_idx, c_idx);
                 
                 state.condition_specific_state.entry(key.clone()).or_default().insert(msg.filepathstr.clone());
                 let current_files = state.condition_specific_state.get(&key).map(|s| s.len()).unwrap_or(0) as u32;
