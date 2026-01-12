@@ -1046,72 +1046,102 @@ impl BehaviorEngine {
         regex
     }    
 
+    /// Create a new process state with full initialization (ancestry, rules, etc.)
+    fn create_new_process_state(
+        sys: &mut sysinfo::System,
+        rules: &[BehaviorRule],
+        gid: u64,
+        pid: u32,
+        appname: String,
+        now: SystemTime
+    ) -> ProcessBehaviorState {
+        // Perform a refresh for new processes to ensure ancestry is populated
+        // Using refresh_processes() instead of refresh_all() for better performance
+        sys.refresh_processes();
+        
+        let mut s = ProcessBehaviorState::default();
+        s.gid = gid;
+        s.pid = pid;
+        s.appname = appname;
+        s.first_event_ts = Some(now);
+        s.last_event_ts = now;
+
+        if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
+            let proc_name = proc.name().to_string();
+            if !proc_name.is_empty() {
+                s.appname = proc_name;
+            }
+            s.cmdline = proc.cmd().join(" ");
+            
+            // Build process ancestry chain (upwards towards root)
+            let mut current_pid = proc.parent();
+            while let Some(parent_pid) = current_pid {
+                if let Some(p_proc) = sys.process(parent_pid) {
+                    let p_name = p_proc.name().to_string();
+                    if !p_name.is_empty() {
+                        if s.parent_name.is_empty() {
+                            s.parent_name = p_name.clone();
+                        }
+                        s.process_ancestry.push(p_name);
+                    }
+                    current_pid = p_proc.parent();
+                    if s.process_ancestry.len() >= 10 { break; } // Limit depth
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // --- Enable direct recording if process name matches rule-level override ---
+        for rule in rules {
+            if rule.record_on_start.iter().any(|pattern| {
+                s.appname.to_lowercase().contains(&pattern.to_lowercase())
+            }) {
+                s.is_recording = true;
+                Logging::info(&format!("[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'", 
+                    s.appname, s.pid, rule.name));
+                break;
+            }
+        }
+
+        s
+    }
+
+
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         self.track_process_terminations();
         let gid = msg.gid;
         let now = SystemTime::now();
 
-        // 1. Ensure state exists
-        let state = self.process_states.entry(gid).or_insert_with(|| {
-            // Perform a deep refresh for new processes to ensure ancestry is populated
-            self.sys.refresh_all();
+        // 1. Check if we need to initialize or re-initialize state
+        // Re-initialization happens if GID exists but PID has changed (new process reusing GID slot)
+        let needs_init = if let Some(state) = self.process_states.get(&gid) {
+            state.pid != msg.pid
+        } else {
+            true // New GID entry
+        };
+
+        if needs_init {
+            // Create fresh state with full ancestry and rule checks
+            let new_state = Self::create_new_process_state(
+                &mut self.sys,
+                &self.rules,
+                gid,
+                msg.pid,
+                precord.appname.clone(),
+                now
+            );
             
-            let mut s = ProcessBehaviorState::default();
-            s.gid = gid;
-            s.pid = msg.pid;
-            s.appname = precord.appname.clone();
-            s.first_event_ts = Some(now);
-
-            if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
-                s.cmdline = proc.cmd().join(" ");
-                
-                // Build process ancestry chain (upwards towards root)
-                let mut current_pid = proc.parent();
-                while let Some(parent_pid) = current_pid {
-                    if let Some(p_proc) = self.sys.process(parent_pid) {
-                        let p_name = p_proc.name().to_string();
-                        if !p_name.is_empty() {
-                            if s.parent_name.is_empty() {
-                                s.parent_name = p_name.clone();
-                            }
-                            s.process_ancestry.push(p_name);
-                        }
-                        current_pid = p_proc.parent();
-                        if s.process_ancestry.len() >= 10 { break; } // Limit depth
-                    } else {
-                        break;
-                    }
-                }
+            // Log if we are replacing an existing GID's state (context switch)
+            if self.process_states.contains_key(&gid) {
+                // debug log maybe?
             }
-
-            // --- Enable direct recording if process name matches rule-level override ---
-            for rule in &self.rules {
-                if rule.record_on_start.iter().any(|pattern| {
-                    s.appname.to_lowercase().contains(&pattern.to_lowercase())
-                }) {
-                    s.is_recording = true;
-                    Logging::info(&format!("[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'", 
-                        s.appname, s.pid, rule.name));
-                    break;
-                }
-            }
-
-            s
-        });
-
-        // --- UPDATE: Ensure we follow the active process within the GID family ---
-        if state.pid != msg.pid {
-            state.pid = msg.pid;
-            // Update name and cmdline from sysinfo if available
-            if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
-                let current_name = proc.name().to_string();
-                if !current_name.is_empty() {
-                    state.appname = current_name;
-                }
-                state.cmdline = proc.cmd().join(" ");
-            }
+            
+            self.process_states.insert(gid, new_state);
         }
 
+        // Now safe to get mutable reference
+        let state = self.process_states.get_mut(&gid).unwrap();
         state.last_event_ts = now;
 
         // --- NEW: Stealer Tracking Logic (User Snippet) ---
