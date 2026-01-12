@@ -165,9 +165,6 @@ pub fn run() {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
                 }
 
-                // Perform initial proactive sweep for malware variants
-                worker.perform_initial_scan();
-
                 let mut count = 0;
                 let mut timer = SystemTime::now();
                 loop {
@@ -175,7 +172,6 @@ pub fn run() {
                     worker.process_io(&mut iomsg);
                     if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
                         worker.process_suspended_records(&config, Box::new(WindowsThreatHandler::from(driver)));
-                        worker.behavior_engine.check_registry_indicators();
                         count = 0;
                         timer = SystemTime::now();
                     }
@@ -189,7 +185,7 @@ pub fn run() {
                 if reply_irp.num_ops > 0 {
                     let drivermsgs = CDriverMsgs::new(&reply_irp);
                     for drivermsg in drivermsgs {
-                        let iomsg = IOMessage::from_driver_msg(&drivermsg);
+                        let iomsg = IOMessage::from(&drivermsg);
                         if tx_iomsgs.send(iomsg).is_ok() {
                         } else {
                             // error!("Cannot send iomsg");
