@@ -1305,86 +1305,34 @@ impl BehaviorEngine {
                     }
                 }
             }
-
             for (s_idx, stage) in rule.stages.iter().enumerate() {
                 for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                    let should_evaluate = self.should_evaluate_condition(condition, rule, state, msg);
-                    
-                    if !should_evaluate {
-                        continue;
-                    }
+                    let should_eval = self.should_evaluate_condition(condition, rule, state, msg);
+                    if should_eval {
+                        if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
+                            if rule.debug {
+                                Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' Condition #{} MATCHED: {:?}", 
+                                    rule.name, stage.name, c_idx, condition));
+                            }
 
-                    if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
-                        if rule.debug {
-                            Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' Condition #{} MATCHED: {:?}", 
-                                rule.name, stage.name, c_idx, condition));
+                            state.satisfied_conditions
+                                .entry(rule.name.clone())
+                                .or_default()
+                                .entry(s_idx)
+                                .or_default()
+                                .insert(c_idx);
+
+                            state.satisfied_stages
+                                .entry(rule.name.clone())
+                                .or_default()
+                                .insert(s_idx);
                         }
-
-                        state.satisfied_conditions
-                            .entry(rule.name.clone())
-                            .or_default()
-                            .entry(s_idx)
-                            .or_default()
-                            .insert(c_idx);
-
-                        state.satisfied_stages
-                            .entry(rule.name.clone())
-                            .or_default()
-                            .insert(s_idx);
                     }
                 }
             }
 
             // Check if rule should trigger
-            let mut triggered = false;
-            
-            if let Some(mapping) = &rule.mapping {
-                triggered = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
-            } else {
-                // Fallback to simple stage counting
-                let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
-                if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
-                    triggered = true;
-                    if rule.debug {
-                        Logging::debug(&format!("[DEBUG] Rule '{}': TRIGGERED via stage count ({} >= {})", 
-                            rule.name, satisfied_count, rule.min_stages_satisfied));
-                    }
-                } else if rule.conditions_percentage > 0.01 {
-                    let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-                    let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
-                        .map_or(0, |m| m.values().map(|v| v.len()).sum());
-                    
-                    let percentage = satisfied_conds as f32 / total_conds as f32;
-                    if percentage >= rule.conditions_percentage {
-                        triggered = true;
-                        if rule.debug {
-                            Logging::debug(&format!("[DEBUG] Rule '{}': TRIGGERED via percentage ({:.1}% >= {:.1}%)", 
-                                rule.name, percentage * 100.0, rule.conditions_percentage * 100.0));
-                        }
-                    }
-                } else if rule.debug {
-                    Logging::debug(&format!("[DEBUG] Rule '{}': Not triggered (stages: {}/{}, no mapping)", 
-                        rule.name, satisfied_count, rule.min_stages_satisfied));
-                }
-            }
-
-            if !triggered && state.is_recording {
-                // Log proximity for rules that are partially met
-                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
-                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
-                
-                if total_conds > 0 && rule.proximity_log_threshold > 0.01 {
-                    let proximity = (satisfied_conds as f32 / total_conds as f32) * 100.0;
-                    if proximity >= rule.proximity_log_threshold { 
-                        let ancestry = state.process_ancestry.join(" -> ");
-                        Logging::debug(&format!("[DETECTION PROXIMITY] Rule '{}' is {:.1}% near for process '{}' (PID: {}) | Ancestry: [{}] ({} / {} conditions)", 
-                            rule.name, proximity, state.appname, state.pid, ancestry, satisfied_conds, total_conds));
-                    }
-                }
-            }
-
-            if triggered {
+            if self.should_rule_trigger(rule, state) {
                 triggered_rules.push(rule.clone());
             }
         }
