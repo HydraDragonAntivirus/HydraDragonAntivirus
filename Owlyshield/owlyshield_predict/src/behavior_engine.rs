@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use regex::Regex;
@@ -159,10 +159,25 @@ pub struct OpHistoryEntry {
 // ============================================================================
 
 fn default_severity() -> u8 { 50 } // Medium severity by default
+fn default_zero() -> usize { 0 }
+fn default_zero_f64() -> f64 { 0.0 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
     pub description: String,
+
+    // --- Stealer Detection Logic (User Snippet) ---
+    #[serde(default)] pub browser_paths: Vec<String>,
+    #[serde(default)] pub sensitive_files: Vec<String>,
+    #[serde(default)] pub staging_paths: Vec<String>,
+    #[serde(default = "default_zero")] pub multi_access_threshold: usize,
+    #[serde(default)] pub require_internet: bool,
+    #[serde(default)] pub crypto_apis: Vec<String>,
+    #[serde(default)] pub suspicious_parents: Vec<String>,
+    #[serde(default)] pub archive_actions: Vec<String>,
+    #[serde(default)] pub max_staging_lifetime_ms: u64,
+    #[serde(default)] pub require_browser_closed_recently: bool,
+    #[serde(default)] pub entropy_threshold: f64,
     #[serde(default = "default_severity")]
     pub severity: u8,
 
@@ -240,10 +255,6 @@ pub struct MemoryScanConfig {
     #[serde(default)]
     pub target_processes: Vec<String>,
     
-    /// Scan interval in seconds (default: 30)
-    #[serde(default = "default_scan_interval")]
-    pub scan_interval_secs: u64,
-    
     /// Scan on every I/O event for matched processes (expensive!)
     #[serde(default)]
     pub scan_on_io_event: bool,
@@ -252,9 +263,6 @@ pub struct MemoryScanConfig {
     #[serde(default = "default_scan_frequency")]
     pub scan_every_n_ops: u64,
 }
-
-fn default_scan_interval() -> u64 { 30 }
-fn default_scan_frequency() -> u64 { 250 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -545,6 +553,15 @@ pub struct ProcessBehaviorState {
     pub cmdline: String,
     pub parent_name: String,
     
+    // --- Stealer Tracking State (User Snippet) ---
+    pub accessed_browsers: HashMap<String, SystemTime>,
+    pub sensitive_files_read: HashSet<String>,
+    pub staged_files_written: HashMap<PathBuf, SystemTime>,
+    pub last_browser_close: Option<SystemTime>,
+    pub crypto_api_count: usize,
+    pub high_entropy_detected: bool,
+    pub archive_action_detected: bool,
+    
     /// Track satisfied stages: Map<RuleName, Set<StageIndex>>
     pub satisfied_stages: HashMap<String, HashSet<usize>>,
     
@@ -594,6 +611,14 @@ impl Default for ProcessBehaviorState {
             appname: String::new(),
             cmdline: String::new(),
             parent_name: String::new(),
+
+            accessed_browsers: HashMap::new(),
+            sensitive_files_read: HashSet::new(),
+            staged_files_written: HashMap::new(),
+            last_browser_close: None,
+            crypto_api_count: 0,
+            high_entropy_detected: false,
+            archive_action_detected: false,
             satisfied_stages: HashMap::new(),
             satisfied_conditions: HashMap::new(),
             first_event_ts: None,
@@ -624,7 +649,6 @@ pub struct BehaviorEngine {
     terminated_processes: Vec<TerminatedProcess>,
     known_pids: HashMap<u32, String>,
     last_refresh: SystemTime,
-    last_periodic_memory_scan: SystemTime,
 }
 
 impl BehaviorEngine {
@@ -637,129 +661,7 @@ impl BehaviorEngine {
             terminated_processes: Vec::new(),
             known_pids: HashMap::new(),
             last_refresh: SystemTime::now(),
-            last_periodic_memory_scan: SystemTime::now(),
         }
-    }
-
-    /// NEW: Periodic memory scan for ALL processes (call from main loop)
-    pub fn periodic_memory_scan(&mut self) {
-        let now = SystemTime::now();
-        
-        // Refresh process list
-        self.sys.refresh_processes();
-        
-        for rule in &self.rules {
-            // Skip if no memory scan configuration or conditions
-            let memory_scan_config = match &rule.memory_scan_config {
-                Some(config) => config,
-                None => continue,
-            };
-
-            // Check if it's time to scan based on interval
-            if now.duration_since(self.last_periodic_memory_scan).unwrap_or_default().as_secs() 
-                < memory_scan_config.scan_interval_secs {
-                continue;
-            }
-
-            // Find memory scan conditions in the rule
-            let has_memory_scan = rule.stages.iter()
-                .any(|stage| stage.conditions.iter()
-                    .any(|c| matches!(c, RuleCondition::MemoryScan { .. })));
-            
-            if !has_memory_scan { continue; }
-            
-            if rule.debug {
-                Logging::debug(&format!("[PERIODIC SCAN] Starting memory scan for rule '{}'", rule.name));
-            }
-            
-            // Scan all running processes
-            for (pid, proc) in self.sys.processes() {
-                let pid_u32 = pid.as_u32();
-                let proc_name = proc.name().to_string();
-                
-                // Check if process matches target patterns
-                let should_scan = if memory_scan_config.target_processes.is_empty() {
-                    true // Scan all processes if no specific targets
-                } else {
-                    memory_scan_config.target_processes.iter().any(|pattern| {
-                        let regex_pattern = Self::wildcard_to_regex(pattern);
-                        if let Ok(re) = Regex::new(&format!("(?i){}", regex_pattern)) {
-                            re.is_match(&proc_name)
-                        } else {
-                            proc_name.to_lowercase().contains(&pattern.to_lowercase())
-                        }
-                    })
-                };
-                
-                if !should_scan { continue; }
-                
-                // Check allowlist
-                let allowlisted = self.is_process_allowlisted(&proc_name, rule);
-                if allowlisted {
-                    if rule.debug {
-                        Logging::debug(&format!("[PERIODIC SCAN] Process '{}' (PID: {}) is allowlisted", 
-                            proc_name, pid_u32));
-                    }
-                    continue;
-                }
-                
-                if rule.debug {
-                    Logging::debug(&format!("[PERIODIC SCAN] Scanning process '{}' (PID: {})", 
-                        proc_name, pid_u32));
-                }
-                
-                // Scan memory for this process
-                for (s_idx, stage) in rule.stages.iter().enumerate() {
-                    for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                        if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = condition {
-                            let matched = scan_process_memory(
-                                pid_u32, 
-                                patterns, 
-                                *detect_pe_headers, 
-                                *private_only
-                            );
-                            
-                            if matched {
-                                Logging::warning(&format!(
-                                    "[MEMORY SCAN ALERT] Process: {} (PID: {}) matched patterns in rule '{}' (Stage: {}, Condition: {})",
-                                    proc_name, pid_u32, rule.name, stage.name, c_idx
-                                ));
-                                
-                                // Create or update process state
-                                let gid = self.get_or_create_gid_for_pid(pid_u32);
-                                let state = self.process_states.entry(gid).or_insert_with(|| {
-                                    let mut s = ProcessBehaviorState::default();
-                                    s.pid = pid_u32;
-                                    s.appname = proc_name.clone();
-                                    s.first_event_ts = Some(now);
-                                    s
-                                });
-                                
-                                // Mark condition as satisfied
-                                state.satisfied_conditions
-                                    .entry(rule.name.clone())
-                                    .or_default()
-                                    .entry(s_idx)
-                                    .or_default()
-                                    .insert(c_idx);
-
-                                state.satisfied_stages
-                                    .entry(rule.name.clone())
-                                    .or_default()
-                                    .insert(s_idx);
-                                
-                                // Check if rule should trigger
-                                if self.should_rule_trigger(rule, state) {
-                                    self.execute_rule_response(rule, state, &proc_name);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        self.last_periodic_memory_scan = now;
     }
 
     /// Helper to get or create a GID for a PID (for processes not tracked via I/O)
@@ -812,6 +714,72 @@ impl BehaviorEngine {
 
     /// Helper to check if rule should trigger
     fn should_rule_trigger(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
+        let now = SystemTime::now();
+        
+        // 1. Evaluate Stealer-style conditions if any are defined
+        let has_stealer_logic = !rule.browser_paths.is_empty() || !rule.staging_paths.is_empty() || rule.require_internet || !rule.crypto_apis.is_empty();
+        
+        if has_stealer_logic {
+            let mut satisfied = 0;
+            let mut total = 0;
+
+            // Multi-browser access
+            total += 1;
+            let recent_access_count = state.accessed_browsers.values()
+                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
+                .count();
+            if recent_access_count >= rule.multi_access_threshold { satisfied += 1; }
+
+            // Data staging
+            total += 1;
+            if !state.staged_files_written.is_empty() { satisfied += 1; }
+
+            // Internet connectivity
+            total += 1;
+            if !rule.require_internet || self.has_active_connections(state.pid) { satisfied += 1; }
+
+            // Suspicious parent
+            total += 1;
+            let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
+            if is_suspicious_parent { satisfied += 1; }
+
+            // Sensitive file access
+            total += 1;
+            if !state.sensitive_files_read.is_empty() { satisfied += 1; }
+
+            // High entropy
+            total += 1;
+            if state.high_entropy_detected { satisfied += 1; }
+
+            // Crypto usage
+            total += 1;
+            if state.crypto_api_count > 0 { satisfied += 1; }
+
+            // Archive actions
+            total += 1;
+            if state.archive_action_detected { satisfied += 1; }
+
+            // Browser state
+            if rule.require_browser_closed_recently {
+                total += 1;
+                let browser_closed_recently = self.terminated_processes.iter().any(|tp| {
+                    (tp.name.to_lowercase().contains("chrome") || tp.name.to_lowercase().contains("firefox") || tp.name.to_lowercase().contains("msedge"))
+                    && now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
+                });
+                if browser_closed_recently { satisfied += 1; }
+            }
+
+            let ratio = satisfied as f32 / total as f32;
+            if ratio >= rule.conditions_percentage && total > 0 {
+                if rule.debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}': Stealer logic triggered ({}/{} = {:.1}%)", 
+                        rule.name, satisfied, total, ratio * 100.0));
+                }
+                return true;
+            }
+        }
+
+        // 2. Evaluate Sigma-style Mapping if present
         if let Some(mapping) = &rule.mapping {
             Self::evaluate_mapping_internal(mapping, rule, state, rule.debug)
         } else {
@@ -824,6 +792,7 @@ impl BehaviorEngine {
                 let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
                     .map_or(0, |m| m.values().map(|v| v.len()).sum());
                 
+                if total_conds == 0 { return false; }
                 let percentage = satisfied_conds as f32 / total_conds as f32;
                 percentage >= rule.conditions_percentage
             } else {
@@ -892,50 +861,29 @@ impl BehaviorEngine {
         }
     }
 
-    /// Periodic check for registry-based threats (persistence, etc.)
-    pub fn check_registry_indicators(&self) {        
-        #[cfg(target_os = "windows")]
-        {
-            use winreg::RegKey;
-            use winreg::enums::*;
+    #[cfg(target_os = "windows")]
+    fn has_active_connections(&self, pid: u32) -> bool {
+        use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_ALL};
+        use windows::Win32::Networking::WinSock::AF_INET;
 
-            for rule in &self.rules {
-                if rule.is_private { continue; }
+        if pid == 0 { return false; }
 
-                for stage in &rule.stages {
-                    for condition in &stage.conditions {
-                        if let RuleCondition::Registry { key_pattern, value_name, expected_data, .. } = condition {
-                            if key_pattern.contains("\\") && !key_pattern.contains("(") && !key_pattern.contains("[") {
-                                let (root_enum, subkey) = if key_pattern.to_uppercase().starts_with("HKEY_LOCAL_MACHINE") {
-                                    (HKEY_LOCAL_MACHINE, key_pattern.splitn(2, "\\").nth(1).unwrap_or(""))
-                                } else if key_pattern.to_uppercase().starts_with("HKEY_CURRENT_USER") {
-                                    (HKEY_CURRENT_USER, key_pattern.splitn(2, "\\").nth(1).unwrap_or(""))
-                                } else {
-                                    (HKEY_LOCAL_MACHINE, key_pattern.as_str())
-                                };
+        let mut dw_size = 0;
+        unsafe {
+            let _ = GetExtendedTcpTable(None, &mut dw_size, false, AF_INET.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0);
+            if dw_size == 0 { return false; }
 
-                                let root = RegKey::predef(root_enum);
-                                if let Ok(key) = root.open_subkey(subkey) {
-                                    if let Some(vn) = value_name {
-                                        if let Ok(val) = key.get_value::<String, _>(vn) {
-                                            let mut matched = true;
-                                            if let Some(expected) = expected_data {
-                                                if !val.contains(expected) { matched = false; }
-                                            }
-                                            if matched {
-                                                Logging::warning(&format!("[HYDRADRAGON SCAN] Found Malicious Registry Persistence: {} | Rule: {}", key_pattern, rule.name));
-                                            }
-                                        }
-                                    } else {
-                                        Logging::warning(&format!("[HYDRADRAGON SCAN] Found Malicious Registry Key: {} | Rule: {}", key_pattern, rule.name));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            let mut buffer = vec![0u8; dw_size as usize];
+            if GetExtendedTcpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, AF_INET.0 as u32, TCP_TABLE_OWNER_PID_ALL, 0) == 0 {
+                return true; 
             }
         }
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn has_active_connections(&self, _pid: u32) -> bool {
+        false
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -1065,29 +1013,26 @@ impl BehaviorEngine {
         }
     }
 
-    /// Convert wildcard patterns (* and ?) to a regex string that matches the whole input.
-    /// Example: "*.rs" -> r"^.*\.rs$"
     pub fn wildcard_to_regex(pattern: &str) -> String {
-        // reserve some capacity to avoid many reallocations
         let mut regex = String::with_capacity(pattern.len() * 2);
         regex.push('^');
-
+    
         for ch in pattern.chars() {
             match ch {
                 '*' => regex.push_str(".*"),
                 '?' => regex.push('.'),
                 // escape regex metacharacters
-                '.' | '\\' | '+' | '^' | ' | '|' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                '.' | '\\' | '+' | '^' | '|' | '(' | ')' | '[' | ']' | '{' | '}' => {
                     regex.push('\\');
                     regex.push(ch);
                 }
                 other => regex.push(other),
             }
         }
-
-        regex.push(');
+    
+        regex.push('$');
         regex
-    }
+    }    
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         self.track_process_terminations();
@@ -1143,6 +1088,52 @@ impl BehaviorEngine {
         });
 
         state.last_event_ts = now;
+
+        // --- NEW: Stealer Tracking Logic (User Snippet) ---
+        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let filepath = msg.filepathstr.to_lowercase();
+
+        for rule in &self.rules {
+            // 1. Track Browser Access & Sensitive Files
+            for b_path in &rule.browser_paths {
+                if filepath.contains(&b_path.to_lowercase()) {
+                    state.accessed_browsers.insert(b_path.clone(), now);
+                    
+                    // Track sensitive files
+                    for s_file in &rule.sensitive_files {
+                        if filepath.contains(&s_file.to_lowercase()) {
+                            state.sensitive_files_read.insert(s_file.clone());
+                        }
+                    }
+                }
+            }
+
+            // 2. Track Data Staging
+            for s_path in &rule.staging_paths {
+                if filepath.contains(&s_path.to_lowercase()) && irp_op == IrpMajorOp::IrpWrite {
+                    state.staged_files_written.insert(PathBuf::from(&filepath), now);
+                }
+            }
+
+            // 3. Track Entropy
+            if msg.is_entropy_calc == 1 && rule.entropy_threshold > 0.01 && msg.entropy > rule.entropy_threshold {
+                state.high_entropy_detected = true;
+            }
+
+            // 4. Track Crypto APIs
+            for api in &rule.crypto_apis {
+                if filepath.contains(&api.to_lowercase()) {
+                    state.crypto_api_count += 1;
+                }
+            }
+
+            // 5. Track Archive Actions
+            for action in &rule.archive_actions {
+                if filepath.contains(&action.to_lowercase()) {
+                    state.archive_action_detected = true;
+                }
+            }
+        }
 
         // 2. Pre-process global metrics and update tracking state
         
@@ -1453,21 +1444,6 @@ impl BehaviorEngine {
             
             // Default behavior: scan on specific triggers
             if op == IrpMajorOp::IrpCreate || state.is_recording {
-                return true;
-            }
-            
-            // Check if enough time has passed since last scan
-            if let Some(last_scan) = state.last_memory_scan {
-                let scan_interval = rule.memory_scan_config
-                    .as_ref()
-                    .map(|c| c.scan_interval_secs)
-                    .unwrap_or(30);
-                
-                if SystemTime::now().duration_since(last_scan).unwrap_or_default().as_secs() >= scan_interval {
-                    return true;
-                }
-            } else {
-                // Never scanned before
                 return true;
             }
             
@@ -2085,7 +2061,6 @@ impl BehaviorEngine {
         if let Some(re) = regex_cache.get(pattern) {
             re.is_match(text)
         } else {
-            // Fallback to substring match if regex not cached
             text.to_lowercase().contains(&pattern.to_lowercase())
         }
     }
