@@ -941,11 +941,6 @@ pub mod worker_instance {
             self.process_records.process_suspended_procs(config, threat_handler);
         }
 
-        /// Perform an initial behavioral scan of all running processes.
-        pub fn perform_initial_scan(&mut self) {
-            self.behavior_engine.find_malware_variants(&mut self.process_records.process_records);
-        }
-
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
             match self.process_records.get_precord_by_gid(iomsg.gid) {
                 None => {
