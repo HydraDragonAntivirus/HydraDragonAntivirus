@@ -36,7 +36,7 @@ DRIVER_INITIALIZE DriverEntry;
 
 EXTERN_C_END
 
-NTSTATUS FSUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
+
 
 //
 //  Constant FLT_REGISTRATION structure for our filter.  This
@@ -225,8 +225,8 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
-// NTSTATUS
-// FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
+NTSTATUS
+ FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 /*++
 
 Routine Description:
@@ -244,27 +244,48 @@ Return Value:
     Returns the final status of the deallocation routines.
 
 --*/
-/*
+
 {
     UNREFERENCED_PARAMETER(Flags);
 
-    //
-    //  Close the server port.
-    //
-    driverData->setFilterStop();
-    CommClose();
+    PAGED_CODE();
 
-    //
-    //  Unregister the filter
-    //
+    DbgPrint("FSFilter: Unloading driver\n");
 
-    FltUnregisterFilter(driverData->getFilter());
-    delete driverData;
-    delete commHandle;
+    // Registry Cleanup
+    RegeditUnloadDriver();
+
+    // Stop filter processing
+    if (driverData) {
+        driverData->setFilterStop();
+    }
+
+    // Unregister Process Notify
     PsSetCreateProcessNotifyRoutine(AddRemProcessRoutine, TRUE);
+
+    // Close Communication
+    if (commHandle) {
+        if (!IsCommClosed()) {
+            CommClose();
+        }
+
+        if (commHandle->Filter) {
+            FltUnregisterFilter(commHandle->Filter);
+            commHandle->Filter = NULL;
+        }
+        delete commHandle;
+        commHandle = NULL;
+    }
+
+    // Cleanup DriverData
+    if (driverData) {
+        delete driverData;
+        driverData = NULL;
+    }
+
     return STATUS_SUCCESS;
 }
-*/
+
 NTSTATUS
 FSInstanceSetup(_In_ PCFLT_RELATED_OBJECTS FltObjects, _In_ FLT_INSTANCE_SETUP_FLAGS Flags,
                 _In_ DEVICE_TYPE VolumeDeviceType, _In_ FLT_FILESYSTEM_TYPE VolumeFilesystemType)
@@ -980,7 +1001,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     }
     newItem->Gid = gid;
     if (IS_DEBUG_IRP)
-        DbgPrint("!!! FSFilter: Registring new irp for Gid: %d with pid: %d\n", gid,
+        DbgPrint("!!! FSFilter: Registring new irp for Gid: %llu with pid: %d\n", gid,
                  newItem->PID); // TODO: incase it doesnt exist we can add it with our method that checks for system process
 
     // get file id
@@ -1152,6 +1173,9 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 
     NTSTATUS status = STATUS_SUCCESS;
     PIRP_ENTRY entry = (PIRP_ENTRY)CompletionContext;
+    if (entry == nullptr) {
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
     ASSERT(entry != nullptr);
     status = FltLockUserBuffer(Data);
     if (NT_SUCCESS(status))
@@ -1261,8 +1285,7 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
     {
         // FIX: For non-disk volumes (pipes, network shares), this will fail with
         // STATUS_OBJECT_NAME_NOT_FOUND - this is expected, just return the error
-        ObDereferenceObject(devObject);
-        return hr;
+        goto cleanup;
     }
 
     volumeDosNameSize = volumeData.Length;
@@ -1273,13 +1296,14 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
 
     if (uString == NULL)
     {
-        ObDereferenceObject(devObject);
-        return STATUS_INVALID_ADDRESS;
+        hr = STATUS_INVALID_ADDRESS;
+        goto cleanup;
     }
+
     if (volumeNameSize == origNameSize)
     { // file is the volume, don't need to do anything
-        ObDereferenceObject(devObject);
-        return RtlUnicodeStringCopy(uString, &nameInfo->Name);
+        hr = RtlUnicodeStringCopy(uString, &nameInfo->Name);
+        goto cleanup;
     }
 
     // Use the local 'volumeData' instead of the global 'GvolumeData'
@@ -1292,7 +1316,16 @@ FSEntrySetFileName(CONST PFLT_VOLUME Volume, PFLT_FILE_NAME_INFORMATION nameInfo
         uString->Length = (finalNameSize > MAX_FILE_NAME_SIZE) ? MAX_FILE_NAME_SIZE : finalNameSize;
         // DbgPrint("File name: %wZ\n", uString);
     }
-    ObDereferenceObject(devObject);
+
+cleanup:
+    // BUGFIX: IoVolumeDeviceToDosName allocates memory that MUST be freed
+    if (volumeData.Buffer != NULL && volumeData.Buffer != volumeBuffer) {
+        ExFreePool(volumeData.Buffer);
+    }
+
+    if (devObject) {
+        ObDereferenceObject(devObject);
+    }
     return hr;
 }
 
@@ -1505,7 +1538,10 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
         UNICODE_STRING newQuarantinedFileName;
         WCHAR newQuarantinedFileNameBuffer[512];
 
-        RtlInitUnicodeString(&newQuarantinedFileName, newQuarantinedFileNameBuffer);
+        newQuarantinedFileName.Buffer = newQuarantinedFileNameBuffer;
+        newQuarantinedFileName.MaximumLength = sizeof(newQuarantinedFileNameBuffer);
+        newQuarantinedFileName.Length = 0;
+
         RtlAppendUnicodeStringToString(&newQuarantinedFileName, &destPath);
         UNICODE_STRING quarantinedExtension;
         RtlInitUnicodeString(&quarantinedExtension, L".quarantined");
@@ -1569,6 +1605,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 }
 
 // new code process recording
+_Use_decl_annotations_
 VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
     // FIX: Add early safety check for commHandle
@@ -1676,31 +1713,4 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
     }
 }
 
-NTSTATUS
-FSUnload (
-    _In_ FLT_FILTER_UNLOAD_FLAGS Flags
-    )
-{
-    UNREFERENCED_PARAMETER( Flags );
-
-    PAGED_CODE();
-
-    // Registry Cleanup
-    RegeditUnloadDriver();
-
-    if (commHandle && commHandle->Filter) {
-        FltUnregisterFilter( commHandle->Filter );
-    }
-
-    if (commHandle) {
-        if (!IsCommClosed()) {
-            CommClose();
-        }
-    }
-    
-    if (driverData) {
-        driverData->Clear();
-    }
-
-    return STATUS_SUCCESS;
-}
+// FSUnload removed, functionality merged into FSUnloadDriver

@@ -29,8 +29,8 @@ Environment:
 #include "KernelString.h"
 #include "ShanonEntropy.h"
 
-// NTSTATUS
-// FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
+NTSTATUS
+FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 
 FLT_POSTOP_CALLBACK_STATUS
 FSPostOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,

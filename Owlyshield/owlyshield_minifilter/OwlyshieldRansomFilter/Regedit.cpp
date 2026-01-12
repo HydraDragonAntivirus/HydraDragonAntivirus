@@ -191,7 +191,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->DataSize = pValueInfo->DataLength;
                                         RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
+                                        // Fix: pInfo->ValueName->Buffer is not null-terminated
+                                        USHORT valNameLen = min(pInfo->ValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
+                                        RtlCopyMemory(backup->ValueName, pInfo->ValueName->Buffer, valNameLen);
+                                        backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
                                         driverData->AddRegistryBackup(backup);
                                     }
                                 }
@@ -272,7 +275,10 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                                         backup->DataSize = pValueInfo->DataLength;
                                         RtlCopyMemory(backup->RegistryData, pValueInfo->Data, pValueInfo->DataLength);
                                         RtlStringCbCopyW(backup->KeyPath, sizeof(backup->KeyPath), RegPath.Buffer);
-                                        RtlStringCbCopyW(backup->ValueName, sizeof(backup->ValueName), pInfo->ValueName->Buffer);
+                                        // Fix: pInfo->ValueName->Buffer is not null-terminated
+                                        USHORT valNameLen = min(pInfo->ValueName->Length, sizeof(backup->ValueName) - sizeof(WCHAR));
+                                        RtlCopyMemory(backup->ValueName, pInfo->ValueName->Buffer, valNameLen);
+                                        backup->ValueName[valNameLen / sizeof(WCHAR)] = L'\0';
                                         driverData->AddRegistryBackup(backup);
                                     }
                                 }

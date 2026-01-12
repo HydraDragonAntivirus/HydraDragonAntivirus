@@ -171,6 +171,7 @@ BOOLEAN DriverData::RemoveProcess(ULONG ProcessId) {
     return ret;
 }
 
+_Use_decl_annotations_
 BOOLEAN DriverData::RecordNewProcess(
     PUNICODE_STRING ProcessName,
     ULONG ProcessId,
@@ -613,30 +614,54 @@ BOOLEAN DriverData::IsContainingDirectory(CONST PUNICODE_STRING path) {
         return FALSE;
     BOOLEAN ret = FALSE;
     KIRQL oldIrql;
-    //DbgPrint("Looking for path: %ls in lookup dirs", path);
+    
     KeAcquireSpinLock(&directoriesSpinLock, &oldIrql);
     if (directoryRootsSize != 0) {
         PLIST_ENTRY pEntry = rootDirectories.Flink;
         while (pEntry != &rootDirectories) {
             PDIRECTORY_ENTRY pStrct = (PDIRECTORY_ENTRY)
                 CONTAINING_RECORD(pEntry, DIRECTORY_ENTRY, entry);
-            for (ULONG i = 0; i < path->Length; i++) {
+            
+            // Fix: path->Length is in bytes, we need character count
+            ULONG pathChars = path->Length / sizeof(WCHAR);
+            BOOLEAN match = TRUE;
+
+            for (ULONG i = 0; i < MAX_FILE_NAME_LENGTH; i++) {
+                // If we reached the end of the protected root path, it's a match
                 if (pStrct->path[i] == L'\0') {
                     ret = TRUE;
                     break;
                 }
 
-                else if (pStrct->path[i] == path->Buffer[i]) {
-                    continue;
-                } else {
-                    break;  // for loop
+                // If we reached the end of the input path but not the root, no match
+                if (i >= pathChars) {
+                    match = FALSE;
+                    break;
+                }
+
+                // Case-insensitive comparison (recommended for Windows paths)
+                if (RtlUpcaseUnicodeChar(pStrct->path[i]) != RtlUpcaseUnicodeChar(path->Buffer[i])) {
+                    match = FALSE;
+                    break;
                 }
             }
 
-            //ret = (wcsstr(path, pStrct->path) != NULL);
+            if (ret || match) {
+                // Double check if it was a true prefix match or just a partial name match
+                // e.g., C:\Temp matching C:\Temp\file.txt is good, but C:\Temp matching C:\Template is bad
+                if (ret) {
+                    // It matched the whole pStrct->path. 
+                    // Now check if the next char in 'path' is a backslash or if 'path' ended.
+                    ULONG pStrctLen = (ULONG)wcsnlen(pStrct->path, MAX_FILE_NAME_LENGTH);
+                    if (pathChars > pStrctLen && path->Buffer[pStrctLen] != L'\\') {
+                        ret = FALSE; // false positive (e.g. C:\Temp vs C:\Template)
+                    }
+                }
+            }
+
             if (ret)
                 break;
-            //Move to next Entry in list.
+            
             pEntry = pEntry->Flink;
         }
     }

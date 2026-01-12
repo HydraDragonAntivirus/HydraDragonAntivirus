@@ -58,6 +58,7 @@ typedef struct _IRP_ENTRY {
     WCHAR Buffer[MAX_FILE_NAME_LENGTH];  // unicode string buffer for file name
 
     _IRP_ENTRY() {
+        InitializeListHead(&entry);
         filePath.Length = 0;
         filePath.MaximumLength = MAX_FILE_NAME_SIZE;
         filePath.Buffer = Buffer;
