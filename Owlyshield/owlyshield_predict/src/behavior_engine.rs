@@ -163,7 +163,7 @@ fn default_zero() -> usize { 0 }
 fn default_zero_f64() -> f64 { 0.0 }
 fn default_scan_frequency() -> u64 { 100 }
 fn default_one() -> u64 { 1 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
     pub description: String,
@@ -1044,7 +1044,77 @@ impl BehaviorEngine {
     
         regex.push('$');
         regex
-    }    
+    }
+
+    /// Load additional rules from a path and append/replace existing ones
+    pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        if !path.exists() {
+            return Ok(()); // Optional file, ignore if missing
+        }
+
+        let new_rules = self.load_rules_recursive(path)?;
+        
+        // Extend rules
+        self.rules.extend(new_rules);
+        
+        // Re-compile regex cache for new rules
+        let mut patterns = HashSet::new();
+        // Since we are appending, we could optimize this, but for now just re-scanning the NEW rules is safer
+        // Actually, to be safe and simple, let's just scan ALL rules again to ensure cache is complete
+        // Or better: scan the newly added rules only (last N rules)
+        // For simplicity: scan all rules. It happens rarely (startup/reload).
+        for rule in &self.rules {
+             for stage in &rule.stages {
+                for cond in &stage.conditions {
+                    match cond {
+                        RuleCondition::File { path_pattern, .. } => { 
+                            patterns.insert(Self::wildcard_to_regex(path_pattern)); 
+                        }
+                        RuleCondition::Registry { key_pattern, .. } => { 
+                            patterns.insert(Self::wildcard_to_regex(key_pattern)); 
+                        }
+                        RuleCondition::Process { pattern, .. } => { 
+                            patterns.insert(pattern.clone()); 
+                        }
+                        RuleCondition::Service { name_pattern, .. } => { 
+                            patterns.insert(name_pattern.clone()); 
+                        }
+                        RuleCondition::Network { dest_pattern, .. } => { 
+                            if let Some(p) = dest_pattern { 
+                                patterns.insert(p.clone()); 
+                            } 
+                        }
+                        RuleCondition::Api { name_pattern, module_pattern } => {
+                            patterns.insert(name_pattern.clone());
+                            patterns.insert(module_pattern.clone());
+                        }
+                        RuleCondition::SensitivePathAccess { patterns: pats, .. } => {
+                            for p in pats {
+                                patterns.insert(Self::wildcard_to_regex(p));
+                            }
+                        }
+                        RuleCondition::ProcessAncestry { ancestor_pattern, .. } => {
+                            patterns.insert(ancestor_pattern.clone());
+                        }
+                        RuleCondition::DataExfiltrationPattern { source_patterns, .. } => {
+                            for p in source_patterns {
+                                patterns.insert(Self::wildcard_to_regex(p));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for pattern in patterns {
+            self.cache_regex(&pattern);
+        }
+
+        Logging::info(&format!("[EDR]: Loaded additional rules from {:?}", path));
+        Ok(())
+    }
+
 
     /// Create a new process state with full initialization (ancestry, rules, etc.)
     fn create_new_process_state(

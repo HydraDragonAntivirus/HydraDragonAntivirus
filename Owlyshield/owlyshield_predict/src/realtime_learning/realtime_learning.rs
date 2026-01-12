@@ -12,6 +12,19 @@ use crate::process::ProcessRecord;
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, Duration};
+use std::path::{Path, PathBuf};
+use std::fs;
+
+use crate::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus};
+
+#[derive(Debug, Deserialize)]
+pub struct QuarantineEntry {
+    pub filepath: String,
+    pub timestamp: u64,
+    pub reason: String,
+    // Add other fields as necessary from actual JSON structure
+}
+
 
 /// Real-time learning configuration - all values adapt automatically
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -408,6 +421,101 @@ impl RealtimeLearningEngine {
     /// Update configuration
     pub fn update_config(&mut self, config: LearningConfig) {
         self.config = config;
+    }
+
+    /// Process quarantine log and generate blocking rules
+    pub fn process_quarantine_log(&self, log_path: &Path) -> Vec<BehaviorRule> {
+        let mut rules = Vec::new();
+        
+        if !log_path.exists() {
+            return rules;
+        }
+
+        if let Ok(content) = fs::read_to_string(log_path) {
+            if let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content) {
+                for entry in entries {
+                    // Extract filename for simple blocking (in a real scenario, use hash!)
+                    let path = Path::new(&entry.filepath);
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        let rule = BehaviorRule {
+                            name: format!("AutoBlock_Quarantined_{}", filename),
+                            description: format!("Auto-generated rule for quarantined file. Reason: {}", entry.reason),
+                            severity: 100, // Critical
+                            level: DetectionLevel::Critical,
+                            status: RuleStatus::Stable,
+                            
+                            // Target the specific executable on start
+                            record_on_start: vec![filename.to_string()],
+                            
+                            // Response: AUTO REMOVE / QUARANTINE + TERMINATE
+                            response: ResponseAction {
+                                terminate_process: true,
+                                quarantine: true, // This enables "auto removing system" logic
+                                auto_revert: true,
+                                ..Default::default()
+                            },
+                             // Create a simple process match condition
+                             stages: vec![
+                                crate::behavior_engine::AttackStage {
+                                    name: "execution".to_string(),
+                                    conditions: vec![
+                                        crate::behavior_engine::RuleCondition::Process {
+                                            op: "Name".to_string(),
+                                            pattern: filename.to_string(),
+                                        }
+                                    ]
+                                }
+                             ],
+                             ..Default::default() // Use default for other fields
+                        };
+                        rules.push(rule);
+                    }
+                }
+            }
+        }
+        
+        rules
+    }
+
+    /// Generate allowlist rules for benign processes
+    pub fn generate_benign_rules(&self) -> Vec<BehaviorRule> {
+        let mut rules = Vec::new();
+        let mut processed_names = HashSet::new();
+
+        for state in self.process_states.values() {
+            if state.label == LearningLabel::Benign && !processed_names.contains(&state.process_name) {
+                // Generate Allowlist Rule
+                let rule = BehaviorRule {
+                    name: format!("AutoAllow_Benign_{}", state.process_name),
+                    description: format!("Auto-generated allowlist for benign process. Runtime: {}s", 
+                        SystemTime::now().duration_since(state.start_time).unwrap_or(Duration::from_secs(0)).as_secs()),
+                    severity: 0,
+                    level: DetectionLevel::Informational,
+                    status: RuleStatus::Stable,
+                    
+                    allowlisted_apps: vec![
+                        AllowlistEntry::Simple(state.process_name.clone())
+                    ],
+                    
+                    is_private: true, // Internal rule, don't alert on it
+                    ..Default::default()
+                };
+                
+                rules.push(rule);
+                processed_names.insert(state.process_name.clone());
+            }
+        }
+        
+        rules
+    }
+
+    /// Save generates rules to valid YAML file
+    pub fn save_rules_to_yaml(&self, rules: &[BehaviorRule], path: &Path) -> std::io::Result<()> {
+        if let Ok(file) = std::fs::File::create(path) {
+            serde_yaml::to_writer(file, rules).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to create rule file"))
+        }
     }
 }
 

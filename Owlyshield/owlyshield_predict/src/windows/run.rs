@@ -165,6 +165,34 @@ pub fn run() {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
                 }
 
+                // --- REALTIME LEARNING INTEGRATION ---
+                #[cfg(feature = "realtime_learning")]
+                {
+                    use crate::realtime_learning::RealtimeLearningEngine;
+                    let rules_dir = Path::new(&config[Param::RulesPath]);
+                    let learner = RealtimeLearningEngine::new(rules_dir.to_str().unwrap_or("."));
+                    
+                    // 1. Process Quarantine Logs
+                    let quarantine_path = Path::new(r"C:\ProgramData\Owlyshield\Quarantine\quarantine_log.json");
+                    let learned_rules = learner.process_quarantine_log(quarantine_path);
+                    
+                    if !learned_rules.is_empty() {
+                        Logging::info(&format!("Realtime Learning: Generated {} rules from quarantine history", learned_rules.len()));
+                        
+                        // 2. Save Rules
+                        let learned_rules_path = rules_dir.join("learned_rules.yaml");
+                        if let Err(e) = learner.save_rules_to_yaml(&learned_rules, &learned_rules_path) {
+                            Logging::error(&format!("Failed to save learned rules: {}", e));
+                        } else {
+                            // 3. Load Rules into Engine
+                            if let Err(e) = worker.behavior_engine.load_additional_rules(&learned_rules_path) {
+                                Logging::error(&format!("Failed to load learned rules: {}", e));
+                            }
+                        }
+                    }
+                }
+
+
                 let mut count = 0;
                 let mut timer = SystemTime::now();
                 loop {

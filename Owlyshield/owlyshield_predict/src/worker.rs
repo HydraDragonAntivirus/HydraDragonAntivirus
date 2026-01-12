@@ -702,6 +702,9 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
+    // Import LruCache for tracking
+    use lru::LruCache;
+    use std::num::NonZeroUsize;
 
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
@@ -829,6 +832,8 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
         pub behavior_engine: crate::behavior_engine::BehaviorEngine,
+        // Cache to track whitelisted GIDs we've already logged/ignored
+        whitelisted_gids: LruCache<u64, ()>,
     }
 
     use crate::logging::Logging;
@@ -845,6 +850,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
 			}
 		}
 
@@ -899,6 +905,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
 			}
 		}
 
@@ -942,12 +949,20 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
+            // Check if we've already whitelisted this GID to avoid spam/re-processing
+            if self.whitelisted_gids.contains(&iomsg.gid) {
+                return;
+            }
+
             match self.process_records.get_precord_by_gid(iomsg.gid) {
                 None => {
                     if let Some(exepath) = &self.exepath_handler.exepath(iomsg) {
                         let appname = self
                             .appname_from_exepath(&exepath)
                             .unwrap_or_else(|| String::from("DEFAULT"));
+
+                        // LOGGING FIX: Log the scanned process immediately
+                        Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, Path: {})", appname, iomsg.gid, exepath.display()));
 
                         // Whitelist Logic: Combine Name Check + Digital Signature Verification
                         // New: Supports "Specific Signer" requirement
@@ -990,7 +1005,11 @@ pub mod worker_instance {
                         if !is_whitelisted {
                             let precord = ProcessRecord::from(iomsg, appname, exepath.clone());
                             self.process_records.insert_precord(iomsg.gid, precord);
-                        }                                            
+                        } else {
+                            // Whitelisted: Log it and track it so we don't log it again
+                            Logging::info(&format!("[SECURITY] Process Whitelisted: {}", appname));
+                            self.whitelisted_gids.put(iomsg.gid, ());
+                        }                                           
                     }
                 }
                 Some(_) => {}

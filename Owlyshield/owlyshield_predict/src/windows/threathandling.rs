@@ -5,6 +5,18 @@ use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
 };
 use crate::driver_com::Driver;
+use serde::{Serialize, Deserialize};
+
+use std::io::Write;
+use std::time::SystemTime;
+
+#[derive(Serialize, Deserialize, Debug)]
+struct QuarantineLogEntry {
+    filepath: String,
+    timestamp: u64,
+    reason: String,
+}
+
 
 pub struct WindowsThreatHandler {
     driver: Driver,
@@ -67,7 +79,36 @@ impl ThreatHandler for WindowsThreatHandler {
                 }
             }
         }
-    }
+
+            
+            // 5. Log to JSON for Realtime Learning
+            let log_entry = QuarantineLogEntry {
+                filepath: path.to_string_lossy().to_string(),
+                timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
+                reason: "Malicious Behavior Detected".to_string(), // In future pass reason
+            };
+            
+            let log_path = quarantine_dir.join("quarantine_log.json");
+            
+            // Read existing or create new
+            let mut entries: Vec<QuarantineLogEntry> = Vec::new();
+            if log_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&log_path) {
+                    if let Ok(existing) = serde_json::from_str(&content) {
+                        entries = existing;
+                    }
+                }
+            }
+            
+            entries.push(log_entry);
+            
+            if let Ok(json) = serde_json::to_string_pretty(&entries) {
+                if let Ok(mut file) = std::fs::File::create(&log_path) {
+                    let _ = file.write_all(json.as_bytes());
+                }
+            }
+        }
+
 
     fn awake(&self, proc: &mut ProcessRecord, kill_proc_on_exit: bool) {
         for pid in &proc.pids {
