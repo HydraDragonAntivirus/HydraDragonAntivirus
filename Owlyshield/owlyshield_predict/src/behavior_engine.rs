@@ -676,8 +676,12 @@ impl BehaviorEngine {
             dummy_msg.pid = pid_u32;
             
             // Create a minimal ProcessRecord for condition evaluation
-            let dummy_precord = ProcessRecord::new(0, temp_state.appname.clone(), std::path::PathBuf::new());
-            
+            let exepath = proc.exe()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::new());
+        
+            let dummy_precord = ProcessRecord::new(pid_u32 as u64, temp_state.appname.clone(), exepath);
+                    
             let mut triggered_rules = Vec::new();
 
             for rule in &rules_to_check {

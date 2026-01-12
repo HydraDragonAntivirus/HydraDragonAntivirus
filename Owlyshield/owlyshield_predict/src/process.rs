@@ -375,7 +375,6 @@ impl ProcessRecord {
             IrpMajorOp::IrpWrite => self.update_write(iomsg),
             IrpMajorOp::IrpSetInfo => self.update_set(iomsg),
             IrpMajorOp::IrpCreate => self.update_create(iomsg),
-            IrpMajorOp::IrpRegistry => self.update_registry(iomsg),
             _ => {}
         }
         self.update_clusters();
@@ -535,13 +534,6 @@ impl ProcessRecord {
             _ => {}
         }
     }
-
-    fn update_registry(&mut self, _iomsg: &IOMessage) {
-        // Hardcoded generic block removed to prevent false positives (e.g. explorer.exe)
-        // Protection is now handled by granular rules in behavior_rules.yaml via BehaviorEngine
-    }
-
-
 
     /// Sorts the number of bytes transferred according to the defined levels:
     /// * Empty    (0 KB)
