@@ -1099,6 +1099,19 @@ impl BehaviorEngine {
             s
         });
 
+        // --- UPDATE: Ensure we follow the active process within the GID family ---
+        if state.pid != msg.pid {
+            state.pid = msg.pid;
+            // Update name and cmdline from sysinfo if available
+            if let Some(proc) = self.sys.process(sysinfo::Pid::from(msg.pid as usize)) {
+                let current_name = proc.name().to_string();
+                if !current_name.is_empty() {
+                    state.appname = current_name;
+                }
+                state.cmdline = proc.cmd().join(" ");
+            }
+        }
+
         state.last_event_ts = now;
 
         // --- NEW: Stealer Tracking Logic (User Snippet) ---
@@ -1410,7 +1423,7 @@ impl BehaviorEngine {
         
         let result = match cond {
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
+                let matched = scan_process_memory(msg.pid, patterns, *detect_pe_headers, *private_only);
                 
                 // Update last scan timestamp
                 state.last_memory_scan = Some(SystemTime::now());
