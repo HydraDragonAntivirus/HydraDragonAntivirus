@@ -161,6 +161,8 @@ pub struct OpHistoryEntry {
 fn default_severity() -> u8 { 50 } // Medium severity by default
 fn default_zero() -> usize { 0 }
 fn default_zero_f64() -> f64 { 0.0 }
+fn default_scan_frequency() -> u64 { 100 }
+fn default_one() -> u64 { 1 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
@@ -713,7 +715,7 @@ impl BehaviorEngine {
     }
 
     /// Helper to check if rule should trigger
-    fn should_rule_trigger(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
+    fn should_rule_trigger(rule: &BehaviorRule, state: &ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
         let now = SystemTime::now();
         
         // 1. Evaluate Stealer-style conditions if any are defined
@@ -736,7 +738,7 @@ impl BehaviorEngine {
 
             // Internet connectivity
             total += 1;
-            if !rule.require_internet || self.has_active_connections(state.pid) { satisfied += 1; }
+            if !rule.require_internet || Self::static_has_active_connections(state.pid) { satisfied += 1; }
 
             // Suspicious parent
             total += 1;
@@ -762,7 +764,7 @@ impl BehaviorEngine {
             // Browser state
             if rule.require_browser_closed_recently {
                 total += 1;
-                let browser_closed_recently = self.terminated_processes.iter().any(|tp| {
+                let browser_closed_recently = terminated_processes.iter().any(|tp| {
                     (tp.name.to_lowercase().contains("chrome") || tp.name.to_lowercase().contains("firefox") || tp.name.to_lowercase().contains("msedge"))
                     && now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
                 });
@@ -862,7 +864,7 @@ impl BehaviorEngine {
     }
 
     #[cfg(target_os = "windows")]
-    fn has_active_connections(&self, pid: u32) -> bool {
+    fn static_has_active_connections(pid: u32) -> bool {
         use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_ALL};
         use windows::Win32::Networking::WinSock::AF_INET;
 
@@ -879,6 +881,16 @@ impl BehaviorEngine {
             }
         }
         false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn static_has_active_connections(_pid: u32) -> bool {
+        false
+    }
+
+    #[cfg(target_os = "windows")]
+    fn has_active_connections(&self, pid: u32) -> bool {
+        Self::static_has_active_connections(pid)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1191,153 +1203,85 @@ impl BehaviorEngine {
         // 3. Evaluate each rule's stages
         let mut triggered_rules = Vec::new();
 
-        for rule in &self.rules {
-            // DEBUG: Log rule evaluation start
-            if rule.debug {
-                Logging::debug(&format!("[DEBUG] Evaluating rule '{}' for process '{}' (PID: {})", 
-                    rule.name, state.appname, state.pid));
-            }
+        {
+            let state = self.process_states.get_mut(&gid).unwrap();
+            for rule in &self.rules {
+                // DEBUG: Log rule evaluation start
+                if rule.debug {
+                    Logging::debug(&format!("[DEBUG] Evaluating rule '{}' for process '{}' (PID: {})", 
+                        rule.name, state.appname, state.pid));
+                }
 
-            // Allowlisting check with debug
-            let allowlisted = rule.allowlisted_apps.iter().any(|entry| {
-                match entry {
-                    AllowlistEntry::Simple(pattern) => {
-                        let matches = state.appname.to_lowercase().contains(&pattern.to_lowercase());
-                        if matches && rule.debug {
-                            Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by simple pattern '{}'", 
-                                rule.name, state.appname, pattern));
+                // Allowlisting check
+                let allowlisted = rule.allowlisted_apps.iter().any(|entry| {
+                    match entry {
+                        AllowlistEntry::Simple(pattern) => {
+                            state.appname.to_lowercase().contains(&pattern.to_lowercase())
                         }
-                        matches
+                        AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
+                            if !state.appname.to_lowercase().contains(&pattern.to_lowercase()) {
+                                return false; 
+                            }
+                            if *must_be_signed || !signers.is_empty() {
+                                #[cfg(target_os = "windows")]
+                                {
+                                    let path = Path::new(&precord.exepath);
+                                    if !path.exists() { return false; }
+                                    let info = verify_signature(path);
+                                    if !info.is_trusted { return false; }
+                                    if !signers.is_empty() {
+                                        if let Some(actual_signer) = &info.signer_name {
+                                            signers.iter().any(|s_pattern| {
+                                                if let Ok(re) = Regex::new(s_pattern) {
+                                                    re.is_match(actual_signer)
+                                                } else {
+                                                    actual_signer.to_lowercase().contains(&s_pattern.to_lowercase())
+                                                }
+                                            })
+                                        } else { false }
+                                    } else { true }
+                                }
+                                #[cfg(not(target_os = "windows"))] { false }
+                            } else { true }
+                        }
                     }
-                    AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
-                        // 1. Check Name
-                        if !state.appname.to_lowercase().contains(&pattern.to_lowercase()) {
-                            return false; 
-                        }
+                });
 
-                        // 2. Check Signature Requirements
-                        if *must_be_signed || !signers.is_empty() {
-                            #[cfg(target_os = "windows")]
-                            {
-                                let path = Path::new(&precord.exepath);
-                                if !path.exists() { 
-                                    if rule.debug {
-                                        Logging::debug(&format!(
-                                            "[DEBUG] Rule '{}': Exe path doesn't exist for signature check: {}",
-                                            rule.name, precord.exepath.display()));
-                                    }
-                                    return false; 
-                                }
-                                
-                                let info = verify_signature(path);
-                                if !info.is_trusted { 
-                                    if rule.debug {
-                                        Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' signature not trusted", 
-                                            rule.name, state.appname));
-                                    }
-                                    return false; 
-                                }
-                                
-                                // 3. Check Signer Patterns (if specific signers required)
-                                if !signers.is_empty() {
-                                    if let Some(actual_signer) = &info.signer_name {
-                                        let signer_match = signers.iter().any(|s_pattern| {
-                                            if let Ok(re) = Regex::new(s_pattern) {
-                                                re.is_match(actual_signer)
-                                            } else {
-                                                actual_signer.to_lowercase().contains(&s_pattern.to_lowercase())
-                                            }
-                                        });
-                                        
-                                        if !signer_match { 
-                                            if rule.debug {
-                                                Logging::debug(&format!("[DEBUG] Rule '{}': Signer '{}' doesn't match required patterns", 
-                                                    rule.name, actual_signer));
-                                            }
-                                            return false; 
-                                        }
-                                    } else {
-                                        if rule.debug {
-                                            Logging::debug(&format!("[DEBUG] Rule '{}': No signer name available", rule.name));
-                                        }
-                                        return false;
-                                    }
-                                }
-                                
-                                if rule.debug {
-                                    Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by complex signature check", 
-                                        rule.name, state.appname));
-                                }
-                                true
-                            }
-                            #[cfg(not(target_os = "windows"))]
-                            {
-                                false
-                            }
-                        } else {
-                            if rule.debug {
-                                Logging::debug(&format!("[DEBUG] Rule '{}': Process '{}' allowlisted by complex pattern (no sig required)", 
-                                    rule.name, state.appname));
-                            }
-                            true
+                if allowlisted { continue; }
+
+                // Expiration logic
+                if rule.time_window_ms > 0 {
+                    if let Some(first) = state.first_event_ts {
+                        if now.duration_since(first).unwrap_or(Duration::from_secs(0)).as_millis() as u64 > rule.time_window_ms {
+                            state.satisfied_stages.remove(&rule.name);
+                            state.satisfied_conditions.remove(&rule.name);
+                            state.first_event_ts = Some(now);
                         }
                     }
                 }
-            });
 
-            if allowlisted {
-                continue;
-            }
-
-            // Expiration logic with debug
-            if rule.time_window_ms > 0 {
-                if let Some(first) = state.first_event_ts {
-                    let elapsed = now.duration_since(first).unwrap_or(Duration::from_secs(0)).as_millis() as u64;
-                    if elapsed > rule.time_window_ms {
-                        if rule.debug {
-                            Logging::debug(&format!("[DEBUG] Rule '{}': Time window expired ({} ms > {} ms), resetting", 
-                                rule.name, elapsed, rule.time_window_ms));
-                        }
-                        // Reset progress if window exceeded
-                        state.satisfied_stages.remove(&rule.name);
-                        state.satisfied_conditions.remove(&rule.name);
-                        state.first_event_ts = Some(now);
-                    }
-                }
-            }
-            for (s_idx, stage) in rule.stages.iter().enumerate() {
-                for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                    let should_eval = self.should_evaluate_condition(condition, rule, state, msg);
-                    if should_eval {
-                        if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
-                            if rule.debug {
-                                Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' Condition #{} MATCHED: {:?}", 
-                                    rule.name, stage.name, c_idx, condition));
+                // Loop stages
+                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                    for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                        let should_eval = Self::should_evaluate_condition_refactored(condition, rule, state.ops_total, state.is_recording, msg);
+                        if should_eval {
+                            if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
+                                state.satisfied_conditions.entry(rule.name.clone()).or_default().entry(s_idx).or_default().insert(c_idx);
+                                state.satisfied_stages.entry(rule.name.clone()).or_default().insert(s_idx);
                             }
-
-                            state.satisfied_conditions
-                                .entry(rule.name.clone())
-                                .or_default()
-                                .entry(s_idx)
-                                .or_default()
-                                .insert(c_idx);
-
-                            state.satisfied_stages
-                                .entry(rule.name.clone())
-                                .or_default()
-                                .insert(s_idx);
                         }
                     }
                 }
-            }
 
-            // Check if rule should trigger
-            if self.should_rule_trigger(rule, state) {
-                triggered_rules.push(rule.clone());
+                // Trigger check
+                if Self::should_rule_trigger(rule, state, &self.terminated_processes) {
+                    triggered_rules.push(rule.clone());
+                }
             }
         }
 
         // 4. Execution
+        let state = self.process_states.get_mut(&gid).unwrap();
         for rule in triggered_rules {
             if rule.response.record && !state.is_recording {
                 state.is_recording = true;
@@ -1373,7 +1317,7 @@ impl BehaviorEngine {
     }
 
     /// NEW: Determine if a condition should be evaluated based on memory scan config
-    fn should_evaluate_condition(&self, condition: &RuleCondition, rule: &BehaviorRule, state: &ProcessBehaviorState, msg: &IOMessage) -> bool {
+    fn should_evaluate_condition_refactored(condition: &RuleCondition, rule: &BehaviorRule, ops_total: u64, is_recording: bool, msg: &IOMessage) -> bool {
         if let RuleCondition::MemoryScan { .. } = condition {
             let op = IrpMajorOp::from_byte(msg.irp_op);
             
@@ -1385,13 +1329,13 @@ impl BehaviorEngine {
                 }
                 
                 // Scan every N operations
-                if state.ops_total % config.scan_every_n_ops == 0 {
+                if ops_total % config.scan_every_n_ops == 0 {
                     return true;
                 }
             }
             
             // Default behavior: scan on specific triggers
-            if op == IrpMajorOp::IrpCreate || state.is_recording {
+            if op == IrpMajorOp::IrpCreate || is_recording {
                 return true;
             }
             
@@ -1400,6 +1344,10 @@ impl BehaviorEngine {
             // Non-memory-scan conditions are always evaluated
             true
         }
+    }
+
+    fn should_evaluate_condition(&self, condition: &RuleCondition, rule: &BehaviorRule, state: &ProcessBehaviorState, msg: &IOMessage) -> bool {
+        Self::should_evaluate_condition_refactored(condition, rule, state.ops_total, state.is_recording, msg)
     }
 
     fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState, debug: bool) -> bool {
