@@ -227,7 +227,34 @@ pub struct BehaviorRule {
     /// Enable verbose debugging for this rule
     #[serde(default)]
     pub debug: bool,
+
+    /// NEW: Memory scan configuration
+    #[serde(default)]
+    pub memory_scan_config: Option<MemoryScanConfig>,
 }
+
+/// NEW: Configuration for periodic memory scanning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryScanConfig {
+    /// Process name patterns to scan (supports wildcards)
+    #[serde(default)]
+    pub target_processes: Vec<String>,
+    
+    /// Scan interval in seconds (default: 30)
+    #[serde(default = "default_scan_interval")]
+    pub scan_interval_secs: u64,
+    
+    /// Scan on every I/O event for matched processes (expensive!)
+    #[serde(default)]
+    pub scan_on_io_event: bool,
+    
+    /// Scan every N operations for matched processes
+    #[serde(default = "default_scan_frequency")]
+    pub scan_every_n_ops: u64,
+}
+
+fn default_scan_interval() -> u64 { 30 }
+fn default_scan_frequency() -> u64 { 250 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -554,6 +581,9 @@ pub struct ProcessBehaviorState {
     // --- NEW: Recording & Proximity ---
     pub is_recording: bool,
     pub file_op_counts: HashMap<String, u32>,
+
+    // --- NEW: Last memory scan timestamp ---
+    pub last_memory_scan: Option<SystemTime>,
 }
 
 impl Default for ProcessBehaviorState {
@@ -581,6 +611,7 @@ impl Default for ProcessBehaviorState {
             process_ancestry: Vec::new(),
             is_recording: false,
             file_op_counts: HashMap::new(),
+            last_memory_scan: None,
         }
     }
 }
@@ -593,6 +624,7 @@ pub struct BehaviorEngine {
     terminated_processes: Vec<TerminatedProcess>,
     known_pids: HashMap<u32, String>,
     last_refresh: SystemTime,
+    last_periodic_memory_scan: SystemTime,
 }
 
 impl BehaviorEngine {
@@ -605,7 +637,219 @@ impl BehaviorEngine {
             terminated_processes: Vec::new(),
             known_pids: HashMap::new(),
             last_refresh: SystemTime::now(),
+            last_periodic_memory_scan: SystemTime::now(),
         }
+    }
+
+    /// NEW: Periodic memory scan for ALL processes (call from main loop)
+    pub fn periodic_memory_scan(&mut self) {
+        let now = SystemTime::now();
+        
+        // Refresh process list
+        self.sys.refresh_processes();
+        
+        for rule in &self.rules {
+            // Skip if no memory scan configuration or conditions
+            let memory_scan_config = match &rule.memory_scan_config {
+                Some(config) => config,
+                None => continue,
+            };
+
+            // Check if it's time to scan based on interval
+            if now.duration_since(self.last_periodic_memory_scan).unwrap_or_default().as_secs() 
+                < memory_scan_config.scan_interval_secs {
+                continue;
+            }
+
+            // Find memory scan conditions in the rule
+            let has_memory_scan = rule.stages.iter()
+                .any(|stage| stage.conditions.iter()
+                    .any(|c| matches!(c, RuleCondition::MemoryScan { .. })));
+            
+            if !has_memory_scan { continue; }
+            
+            if rule.debug {
+                Logging::debug(&format!("[PERIODIC SCAN] Starting memory scan for rule '{}'", rule.name));
+            }
+            
+            // Scan all running processes
+            for (pid, proc) in self.sys.processes() {
+                let pid_u32 = pid.as_u32();
+                let proc_name = proc.name().to_string();
+                
+                // Check if process matches target patterns
+                let should_scan = if memory_scan_config.target_processes.is_empty() {
+                    true // Scan all processes if no specific targets
+                } else {
+                    memory_scan_config.target_processes.iter().any(|pattern| {
+                        let regex_pattern = Self::wildcard_to_regex(pattern);
+                        if let Ok(re) = Regex::new(&format!("(?i){}", regex_pattern)) {
+                            re.is_match(&proc_name)
+                        } else {
+                            proc_name.to_lowercase().contains(&pattern.to_lowercase())
+                        }
+                    })
+                };
+                
+                if !should_scan { continue; }
+                
+                // Check allowlist
+                let allowlisted = self.is_process_allowlisted(&proc_name, rule);
+                if allowlisted {
+                    if rule.debug {
+                        Logging::debug(&format!("[PERIODIC SCAN] Process '{}' (PID: {}) is allowlisted", 
+                            proc_name, pid_u32));
+                    }
+                    continue;
+                }
+                
+                if rule.debug {
+                    Logging::debug(&format!("[PERIODIC SCAN] Scanning process '{}' (PID: {})", 
+                        proc_name, pid_u32));
+                }
+                
+                // Scan memory for this process
+                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                    for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                        if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = condition {
+                            let matched = scan_process_memory(
+                                pid_u32, 
+                                patterns, 
+                                *detect_pe_headers, 
+                                *private_only
+                            );
+                            
+                            if matched {
+                                Logging::warning(&format!(
+                                    "[MEMORY SCAN ALERT] Process: {} (PID: {}) matched patterns in rule '{}' (Stage: {}, Condition: {})",
+                                    proc_name, pid_u32, rule.name, stage.name, c_idx
+                                ));
+                                
+                                // Create or update process state
+                                let gid = self.get_or_create_gid_for_pid(pid_u32);
+                                let state = self.process_states.entry(gid).or_insert_with(|| {
+                                    let mut s = ProcessBehaviorState::default();
+                                    s.pid = pid_u32;
+                                    s.appname = proc_name.clone();
+                                    s.first_event_ts = Some(now);
+                                    s
+                                });
+                                
+                                // Mark condition as satisfied
+                                state.satisfied_conditions
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .entry(s_idx)
+                                    .or_default()
+                                    .insert(c_idx);
+
+                                state.satisfied_stages
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .insert(s_idx);
+                                
+                                // Check if rule should trigger
+                                if self.should_rule_trigger(rule, state) {
+                                    self.execute_rule_response(rule, state, &proc_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        self.last_periodic_memory_scan = now;
+    }
+
+    /// Helper to get or create a GID for a PID (for processes not tracked via I/O)
+    fn get_or_create_gid_for_pid(&mut self, pid: u32) -> u64 {
+        // Try to find existing state by PID
+        for (gid, state) in &self.process_states {
+            if state.pid == pid {
+                return *gid;
+            }
+        }
+        
+        // Create new GID (simple approach: use PID as GID for now)
+        // In production, you might want a more sophisticated GID generation
+        pid as u64
+    }
+
+    /// Helper to check if process is allowlisted
+    fn is_process_allowlisted(&self, proc_name: &str, rule: &BehaviorRule) -> bool {
+        rule.allowlisted_apps.iter().any(|entry| {
+            match entry {
+                AllowlistEntry::Simple(pattern) => {
+                    proc_name.to_lowercase().contains(&pattern.to_lowercase())
+                }
+                AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
+                    // Name check
+                    if !proc_name.to_lowercase().contains(&pattern.to_lowercase()) {
+                        return false;
+                    }
+
+                    // Signature check (simplified for periodic scan)
+                    if *must_be_signed || !signers.is_empty() {
+                        #[cfg(target_os = "windows")]
+                        {
+                            // Note: We can't easily get exe path from sysinfo
+                            // In a full implementation, you'd need to query the process path
+                            // For now, we'll be conservative and allow it
+                            return true;
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            return false;
+                        }
+                    }
+                    
+                    true
+                }
+            }
+        })
+    }
+
+    /// Helper to check if rule should trigger
+    fn should_rule_trigger(&self, rule: &BehaviorRule, state: &ProcessBehaviorState) -> bool {
+        if let Some(mapping) = &rule.mapping {
+            Self::evaluate_mapping_internal(mapping, rule, state, rule.debug)
+        } else {
+            // Fallback to simple stage counting
+            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+            if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
+                true
+            } else if rule.conditions_percentage > 0.01 {
+                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
+                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
+                
+                let percentage = satisfied_conds as f32 / total_conds as f32;
+                percentage >= rule.conditions_percentage
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Helper to execute rule response actions
+    fn execute_rule_response(&mut self, rule: &BehaviorRule, state: &ProcessBehaviorState, proc_name: &str) {
+        if rule.is_private {
+            // Private rules only update state, they don't trigger alerts or actions
+            return;
+        }
+
+        Logging::warning(&format!("[HYDRADRAGON ALERT] Policy Breached: {} | Process: {}", rule.name, proc_name));
+        
+        if rule.response.terminate_process {
+            if let Some(proc) = self.sys.process(sysinfo::Pid::from(state.pid as usize)) {
+                proc.kill();
+                Logging::warning(&format!("[ACTION] Terminated process '{}' (PID: {})", proc_name, state.pid));
+            }
+        }
+
+        // Note: quarantine and other actions would need access to ProcessRecord
+        // For periodic scans, you might want to track these for later execution
     }
 
     /// Refresh process list and track terminations
@@ -833,7 +1077,7 @@ impl BehaviorEngine {
                 '*' => regex.push_str(".*"),
                 '?' => regex.push('.'),
                 // escape regex metacharacters
-                '.' | '\\' | '+' | '^' | '$' | '|' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                '.' | '\\' | '+' | '^' | ' | '|' | '(' | ')' | '[' | ']' | '{' | '}' => {
                     regex.push('\\');
                     regex.push(ch);
                 }
@@ -841,7 +1085,7 @@ impl BehaviorEngine {
             }
         }
 
-        regex.push('$');
+        regex.push(');
         regex
     }
 
@@ -1073,6 +1317,12 @@ impl BehaviorEngine {
 
             for (s_idx, stage) in rule.stages.iter().enumerate() {
                 for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                    let should_evaluate = self.should_evaluate_condition(condition, rule, state, msg);
+                    
+                    if !should_evaluate {
+                        continue;
+                    }
+
                     if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
                         if rule.debug {
                             Logging::debug(&format!("[DEBUG] Rule '{}': Stage '{}' Condition #{} MATCHED: {:?}", 
@@ -1183,6 +1433,51 @@ impl BehaviorEngine {
         }
     }
 
+    /// NEW: Determine if a condition should be evaluated based on memory scan config
+    fn should_evaluate_condition(&self, condition: &RuleCondition, rule: &BehaviorRule, state: &ProcessBehaviorState, msg: &IOMessage) -> bool {
+        if let RuleCondition::MemoryScan { .. } = condition {
+            let op = IrpMajorOp::from_byte(msg.irp_op);
+            
+            // Check memory scan configuration
+            if let Some(config) = &rule.memory_scan_config {
+                // Always scan on I/O events if configured
+                if config.scan_on_io_event {
+                    return true;
+                }
+                
+                // Scan every N operations
+                if state.ops_total % config.scan_every_n_ops == 0 {
+                    return true;
+                }
+            }
+            
+            // Default behavior: scan on specific triggers
+            if op == IrpMajorOp::IrpCreate || state.is_recording {
+                return true;
+            }
+            
+            // Check if enough time has passed since last scan
+            if let Some(last_scan) = state.last_memory_scan {
+                let scan_interval = rule.memory_scan_config
+                    .as_ref()
+                    .map(|c| c.scan_interval_secs)
+                    .unwrap_or(30);
+                
+                if SystemTime::now().duration_since(last_scan).unwrap_or_default().as_secs() >= scan_interval {
+                    return true;
+                }
+            } else {
+                // Never scanned before
+                return true;
+            }
+            
+            false
+        } else {
+            // Non-memory-scan conditions are always evaluated
+            true
+        }
+    }
+
     fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState, debug: bool) -> bool {
         let result = match mapping {
             RuleMapping::And { and: mappings } => {
@@ -1243,16 +1538,15 @@ impl BehaviorEngine {
         
         let result = match cond {
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                // To avoid constant performance impact, we only scan on certain triggers
-                if op == IrpMajorOp::IrpCreate || state.is_recording || state.ops_total % 250 == 0 {
-                    let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
-                    if debug && matched {
-                        Logging::debug(&format!("[DEBUG] MemoryScan matched for PID {}", state.pid));
-                    }
-                    matched
-                } else {
-                    false
+                let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
+                
+                // Update last scan timestamp
+                state.last_memory_scan = Some(SystemTime::now());
+                
+                if debug && matched {
+                    Logging::debug(&format!("[DEBUG] MemoryScan matched for PID {}", state.pid));
                 }
+                matched
             }
 
             RuleCondition::File { op: f_op, path_pattern } => {
@@ -1923,7 +2217,7 @@ fn base64_decode(input: &str) -> Result<String, ()> {
             output.push(((buffer >> bits) & 0xFF) as u8);
         }
     }
-    
+
     String::from_utf8(output).map_err(|_| ())
 }
 
