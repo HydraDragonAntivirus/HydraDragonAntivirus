@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use regex::Regex;
@@ -680,6 +679,12 @@ impl BehaviorEngine {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::new());
         
+            let exepath = if proc.exe().as_os_str().is_empty() {
+                PathBuf::new()
+            } else {
+                proc.exe().to_path_buf()
+            };            
+
             let dummy_precord = ProcessRecord::new(pid_u32 as u64, temp_state.appname.clone(), exepath);
                     
             let mut triggered_rules = Vec::new();
