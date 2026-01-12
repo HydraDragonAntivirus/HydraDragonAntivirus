@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use regex::Regex;
@@ -675,10 +676,6 @@ impl BehaviorEngine {
             dummy_msg.pid = pid_u32;
             
             // Create a minimal ProcessRecord for condition evaluation
-            let exepath = proc.exe()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| std::path::PathBuf::new());
-        
             let exepath = if proc.exe().as_os_str().is_empty() {
                 PathBuf::new()
             } else {
