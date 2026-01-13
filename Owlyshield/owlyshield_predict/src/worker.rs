@@ -94,6 +94,9 @@ pub mod predictor {
         }
     }
 
+    // Import LruCache for tracking
+    use lru::LruCache;
+    use std::num::NonZeroUsize;
     use std::path::PathBuf;
 
     pub struct PredictorHandlerStatic {
@@ -638,10 +641,6 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
-    // Import LruCache for tracking
-    use lru::LruCache;
-    use std::num::NonZeroUsize;
-
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
     use crate::ExepathLive;
