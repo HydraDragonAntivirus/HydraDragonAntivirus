@@ -55,11 +55,9 @@ pub mod predictor {
         }
     }
 
-    use std::collections::HashMap;
-
     pub struct PredictorHandlerBehavioralMLP<'a> {
         config: &'a Config,
-        pub timesteps: HashMap<u64, VecvecCappedF32>,
+        pub timesteps: VecvecCappedF32,
         predictions_count: usize,
         tflite_malware: TfLiteMalware,
     }
@@ -69,20 +67,14 @@ pub mod predictor {
     impl PredictorHandler for PredictorHandlerBehavioralMLP<'_> {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
             let timestep = Timestep::from(precord);
-            
-            let timesteps = self.timesteps.entry(precord.gid).or_insert_with(|| {
-                 VecvecCappedF32::new(PREDMTRXCOLS, PREDMTRXROWS)
-            });
-
-            timesteps.push_row(timestep.to_vec_f32()).unwrap();
-            
-            if timesteps.rows_len() > 0 {
+            self.timesteps.push_row(timestep.to_vec_f32()).unwrap();
+            if self.timesteps.rows_len() > 0 {
                 if self.is_prediction_required(
                     self.config.threshold_drivermsgs,
                     self.predictions_count,
                     precord,
                 ) {
-                    let prediction = self.tflite_malware.make_prediction(&timesteps);
+                    let prediction = self.tflite_malware.make_prediction(&self.timesteps);
                     return Some(prediction);
                 }
                 self.predictions_count += 1;
@@ -95,7 +87,7 @@ pub mod predictor {
         pub fn new(config: &Config) -> PredictorHandlerBehavioralMLP<'_> {
             PredictorHandlerBehavioralMLP {
                 config,
-                timesteps: HashMap::new(),
+                timesteps: VecvecCappedF32::new(PREDMTRXCOLS, PREDMTRXROWS),
                 predictions_count: 0,
                 tflite_malware: TfLiteMalware::new(config),
             }
