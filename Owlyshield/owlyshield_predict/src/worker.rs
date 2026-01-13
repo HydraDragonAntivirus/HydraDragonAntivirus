@@ -847,8 +847,6 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
         pub behavior_engine: crate::behavior_engine::BehaviorEngine,
-        // Cache to track whitelisted GIDs we've already logged/ignored
-        whitelisted_gids: LruCache<u64, ()>,
         #[cfg(feature = "realtime_learning")]
         pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
         #[cfg(feature = "realtime_learning")]
@@ -869,7 +867,6 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
-                whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
                 #[cfg(feature = "realtime_learning")]
@@ -928,7 +925,6 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
-                whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
                 #[cfg(feature = "realtime_learning")]
@@ -1023,12 +1019,7 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            // FIX: Use a more unique key for whitelisted cache to avoid GID 0/family clashes
             let cache_key = if iomsg.gid == 0 { (iomsg.pid as u64) | 0x80000000_00000000 } else { iomsg.gid };
-
-            if self.whitelisted_gids.contains(&cache_key) {
-                return;
-            }
 
             match self.process_records.get_precord_by_gid(cache_key) {
                 None => {
@@ -1049,47 +1040,18 @@ pub mod worker_instance {
                     Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, TrackingID: {:X}, Path: {})", 
                         appname, iomsg.gid, iomsg.pid, cache_key, exepath.display()));
 
-                    // Whitelist Logic
-                    let is_whitelisted = match self.whitelist.as_ref().and_then(|wl| wl.get_required_signer(&appname)) {
-                        Some(required_signer_opt) => {
-                            #[cfg(target_os = "windows")]
-                            {
-                                use crate::signature_verification::verify_signature;
-                                if exepath.exists() {
-                                    let sig_info = verify_signature(&exepath);
-                                    if sig_info.is_trusted {
-                                        match required_signer_opt {
-                                            Some(req_signer) => {
-                                                if let Some(actual_signer) = sig_info.signer_name {
-                                                    actual_signer.contains(&req_signer)
-                                                } else { false }
-                                            },
-                                            None => true
-                                        }
-                                    } else { false }
-                                } else { false }
-                            }
-                            #[cfg(not(target_os = "windows"))]
-                            true
-                        },
-                        None => false
-                    };
-
-                    if !is_whitelisted {
-                        let mut precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                        precord.gid = cache_key; // Use tracking key for internal state
-                        self.process_records.insert_precord(cache_key, precord);
-                        
-                        // Track in learning engine
-                        #[cfg(feature = "realtime_learning")]
-                        {
-                            self.learning_engine.track_process(cache_key, appname.clone());
-                            self.api_trackers.insert(cache_key, ApiTracker::new(cache_key, appname));
-                        }
-                    } else {
-                        Logging::info(&format!("[SECURITY] Process Whitelisted: {}", &appname));
-                        self.whitelisted_gids.put(cache_key, ());
-                    }                                           
+                    // Always track the process, ignoring whitelist logic as requested
+                    let mut precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
+                    precord.gid = cache_key; // Use tracking key for internal state
+                    self.process_records.insert_precord(cache_key, precord);
+                    
+                    // Track in learning engine
+                    #[cfg(feature = "realtime_learning")]
+                    {
+                        self.learning_engine.track_process(cache_key, appname.clone());
+                        self.api_trackers.insert(cache_key, ApiTracker::new(cache_key, appname));
+                    }
+                                           
                 }
                 Some(_) => {}
             }
