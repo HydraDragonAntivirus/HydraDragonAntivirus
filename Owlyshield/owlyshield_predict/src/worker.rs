@@ -696,7 +696,7 @@ pub mod threat_handling {
 }
 
 pub mod worker_instance {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc::{channel, Sender};
     use std::thread;
     use chrono::{DateTime, Utc};
@@ -834,6 +834,10 @@ pub mod worker_instance {
         pub behavior_engine: crate::behavior_engine::BehaviorEngine,
         // Cache to track whitelisted GIDs we've already logged/ignored
         whitelisted_gids: LruCache<u64, ()>,
+        #[cfg(feature = "realtime_learning")]
+        pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
+        #[cfg(feature = "realtime_learning")]
+        pub api_trackers: HashMap<u64, ApiTracker>,
     }
 
     use crate::logging::Logging;
@@ -851,6 +855,10 @@ pub mod worker_instance {
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
                 whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
+                #[cfg(feature = "realtime_learning")]
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
+                #[cfg(feature = "realtime_learning")]
+                api_trackers: std::collections::HashMap::new(),
 			}
 		}
 
@@ -906,6 +914,8 @@ pub mod worker_instance {
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
                 whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
+                #[cfg(feature = "realtime_learning")]
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
 			}
 		}
 
@@ -934,6 +944,15 @@ pub mod worker_instance {
                 // --- ADDED: Process event in behavior engine ---
                 self.behavior_engine.process_event(precord, iomsg);
 
+                // --- ADDED: Update learning engine activity ---
+                #[cfg(feature = "realtime_learning")]
+                {
+                    self.learning_engine.update_activity(iomsg.gid);
+                    if let Some(tracker) = self.api_trackers.get_mut(&iomsg.gid) {
+                        tracker.track_io_operation(iomsg, precord);
+                    }
+                }
+
                 if let Some(process_record_handler) = &mut self.process_record_handler {
                     process_record_handler.handle_behavior_detection(precord);
                     process_record_handler.handle_io(precord);
@@ -946,71 +965,111 @@ pub mod worker_instance {
 
         pub fn process_suspended_records(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             self.process_records.process_suspended_procs(config, threat_handler);
+
+            // --- ADDED: Learn on Exit (Scan for terminated processes) ---
+            #[cfg(feature = "realtime_learning")]
+            {
+                let mut terminated_gids = Vec::new();
+                let now = std::time::SystemTime::now();
+
+                // Check which processes are likely dead
+                for (gid, proc) in self.process_records.process_records.iter() {
+                    // Heuristic: If last message was > 10s ago and it's not a long-poll system process
+                    let inactive_duration = now.duration_since(proc.last_irp_time).unwrap_or(std::time::Duration::from_secs(0));
+                    
+                    if inactive_duration > std::time::Duration::from_secs(30) {
+                        // Check if at least one PID in the family is still alive
+                        let mut family_dead = true;
+                        for pid in &proc.pids {
+                            if crate::is_process_alive(*pid) {
+                                family_dead = false;
+                                break;
+                            }
+                        }
+
+                        if family_dead {
+                            terminated_gids.push(*gid);
+                        }
+                    }
+                }
+
+                // Finalize learning for terminated processes
+                for gid in terminated_gids {
+                    if let Some(precord) = self.process_records.process_records.pop(&gid) {
+                        if let Some(tracker) = self.api_trackers.remove(&gid) {
+                             self.learning_engine.process_terminated(gid, &tracker, &precord);
+                        }
+                    }
+                }
+            }
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            // Check if we've already whitelisted this GID to avoid spam/re-processing
-            if self.whitelisted_gids.contains(&iomsg.gid) {
+            // FIX: Use a more unique key for whitelisted cache to avoid GID 0/family clashes
+            let cache_key = if iomsg.gid == 0 { (iomsg.pid as u64) | 0x80000000_00000000 } else { iomsg.gid };
+
+            if self.whitelisted_gids.contains(&cache_key) {
                 return;
             }
 
             match self.process_records.get_precord_by_gid(iomsg.gid) {
                 None => {
-                    if let Some(exepath) = &self.exepath_handler.exepath(iomsg) {
-                        let appname = self
-                            .appname_from_exepath(&exepath)
-                            .unwrap_or_else(|| String::from("DEFAULT"));
+                    // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
+                    let exepath_opt = self.exepath_handler.exepath(iomsg);
+                    let (exepath, appname): (PathBuf, String) = match exepath_opt {
+                        Some(path) => {
+                            let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
+                            (path, name)
+                        }
+                        None => {
+                            // Use PID as name if path unknown to ensure everything is "scanned"
+                            (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                        }
+                    };
 
-                        // LOGGING FIX: Log the scanned process immediately
-                        Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, Path: {})", appname, iomsg.gid, exepath.display()));
+                    // LOGGING FIX: Log the scanned process immediately
+                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", appname, iomsg.gid, iomsg.pid, exepath.display()));
 
-                        // Whitelist Logic: Combine Name Check + Digital Signature Verification
-                        // New: Supports "Specific Signer" requirement
-                        let is_whitelisted = match self.whitelist.as_ref().and_then(|wl| wl.get_required_signer(&appname)) {
-                            Some(required_signer_opt) => {
-                                #[cfg(target_os = "windows")]
-                                {
-                                    use crate::signature_verification::verify_signature;
-                                    let sig_info = verify_signature(exepath);
-                                    
+                    // Whitelist Logic
+                    let is_whitelisted = match self.whitelist.as_ref().and_then(|wl| wl.get_required_signer(&appname)) {
+                        Some(required_signer_opt) => {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use crate::signature_verification::verify_signature;
+                                if exepath.exists() {
+                                    let sig_info = verify_signature(&exepath);
                                     if sig_info.is_trusted {
-                                        // It is trusted, but does it match the REQUIRED signer?
                                         match required_signer_opt {
                                             Some(req_signer) => {
                                                 if let Some(actual_signer) = sig_info.signer_name {
-                                                    if actual_signer.contains(&req_signer) {
-                                                        true // Trusted AND match!
-                                                    } else {
-                                                        Logging::info(&format!("[SECURITY] Whitelist REJECTED: {} is trusted but signer '{}' != '{}'", appname, actual_signer, req_signer));
-                                                        false
-                                                    }
-                                                } else {
-                                                    // Trusted but couldn't extract signer name? Fail safe.
-                                                    Logging::info(&format!("[SECURITY] Whitelist REJECTED: {} is trusted but could not verify signer name against '{}'", appname, req_signer));
-                                                    false
-                                                }
+                                                    actual_signer.contains(&req_signer)
+                                                } else { false }
                                             },
-                                            None => true // Trusted, no specific signer required (Any valid cert)
+                                            None => true
                                         }
-                                    } else {
-                                        Logging::info(&format!("[SECURITY] Whitelist Bypass Attempt Blocked: {} is in whitelist but has NO valid signature.", appname));
-                                        false
-                                    }
-                                }
-                                #[cfg(not(target_os = "windows"))]
-                                true // On Linux, fallback until GPG implemented
-                            },
-                            None => false // Not in whitelist
-                        };
-                        if !is_whitelisted {
-                            let precord = ProcessRecord::from(iomsg, appname, exepath.clone());
-                            self.process_records.insert_precord(iomsg.gid, precord);
-                        } else {
-                            // Whitelisted: Log it and track it so we don't log it again
-                            Logging::info(&format!("[SECURITY] Process Whitelisted: {}", appname));
-                            self.whitelisted_gids.put(iomsg.gid, ());
-                        }                                           
-                    }
+                                    } else { false }
+                                } else { false }
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            true
+                        },
+                        None => false
+                    };
+
+                    if !is_whitelisted {
+                        let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
+                        self.process_records.insert_precord(iomsg.gid, precord);
+                        
+                        // Track in learning engine
+                        #[cfg(feature = "realtime_learning")]
+                        {
+                            self.learning_engine.track_process(iomsg.gid, appname.clone());
+                            self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
+                        }
+                    } else {
+                        Logging::info(&format!("[SECURITY] Process Whitelisted: {}", &appname));
+                        self.whitelisted_gids.put(cache_key, ());
+                    }                                           
                 }
                 Some(_) => {}
             }

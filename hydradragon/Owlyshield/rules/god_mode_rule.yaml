@@ -13,7 +13,7 @@
 
 - name: "HEUR/Win32/Trojan/GODMode/gen"
   description: "Universal trojan detection based on first-move attack patterns. Detects 90%+ of trojans by identifying their initial system compromise behaviors including: initial execution vectors, privilege escalation attempts, defense evasion, credential access, persistence establishment, and C2 communication setup."
-  author: "Advanced Threat Research"
+  author: "Emirhan Ucan"
   date: "2026-01-12"
   severity: 10
   status: stable

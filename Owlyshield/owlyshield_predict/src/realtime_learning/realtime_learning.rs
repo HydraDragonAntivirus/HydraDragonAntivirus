@@ -9,13 +9,20 @@
 use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
-use serde::{Serialize, Deserialize};
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, Duration};
-use std::path::{Path, PathBuf};
-use std::fs;
-
+use crate::logging::Logging;
 use crate::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus};
+
+use serde::{Serialize, Deserialize};
+
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, Duration};
+
+// Hashing imports
+use sha2::{Sha256, Digest};
+
 
 #[derive(Debug, Deserialize)]
 pub struct QuarantineEntry {
@@ -319,7 +326,7 @@ impl RealtimeLearningEngine {
         }
     }
 
-    /// Process terminated - final chance to collect
+    /// Process terminated - final chance to collect and generate rules
     pub fn process_terminated(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
         if let Some(state) = self.process_states.get_mut(&gid) {
             // If still unlabeled but ran for a while with no issues, mark as benign
@@ -341,6 +348,17 @@ impl RealtimeLearningEngine {
 
                     println!("[Real-Time Learning] 📘 Process terminated, labeled BENIGN: {} (GID: {})",
                              state.process_name, gid);
+                             
+                    // Trigger dynamic rule generation and persistence immediately
+                    let benign_rules = self.generate_benign_rules();
+                    if !benign_rules.is_empty() {
+                         let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
+                         if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
+                             eprintln!("Failed to save rules on exit: {}", e);
+                         } else {
+                             println!("[Real-Time Learning] 🛡️ Auto-rule PERSISTED for {} on exit", state.process_name);
+                         }
+                    }
                 }
             }
         }
@@ -434,12 +452,14 @@ impl RealtimeLearningEngine {
         if let Ok(content) = fs::read_to_string(log_path) {
             if let Ok(entries) = serde_json::from_str::<Vec<QuarantineEntry>>(&content) {
                 for entry in entries {
-                    // Extract filename for simple blocking (in a real scenario, use hash!)
                     let path = Path::new(&entry.filepath);
                     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        // Calculate hash for reference
+                        let hash_ref = self.calculate_sha256(path).unwrap_or_else(|| "unknown".to_string());
+                        
                         let rule = BehaviorRule {
                             name: format!("AutoBlock_Quarantined_{}", filename),
-                            description: format!("Auto-generated rule for quarantined file. Reason: {}", entry.reason),
+                            description: format!("Auto-generated rule for quarantined file. Reason: {}. HWID/Hash Ref: {}", entry.reason, hash_ref),
                             severity: 100, // Critical
                             level: DetectionLevel::Critical,
                             status: RuleStatus::Stable,
@@ -475,6 +495,24 @@ impl RealtimeLearningEngine {
         }
         
         rules
+    }
+
+    /// Helper to calculate SHA256 of a file
+    fn calculate_sha256(&self, path: &Path) -> Option<String> {
+        if let Ok(mut file) = fs::File::open(path) {
+            let mut hasher = Sha256::new();
+            let mut buffer = [0; 1024];
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => hasher.update(&buffer[..n]),
+                    Err(_) => return None,
+                }
+            }
+            Some(hex::encode(hasher.finalize()))
+        } else {
+            None
+        }
     }
 
     /// Generate allowlist rules for benign processes
