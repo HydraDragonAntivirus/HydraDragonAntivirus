@@ -347,6 +347,11 @@ pub mod process_record_handling {
     impl ProcessRecordIOHandler for ProcessRecordHandlerLive<'_> {
         #[cfg(target_os = "windows")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
+            // OPTIMIZATION: Don't re-process killed processes
+            if precord.process_state == ProcessState::Killed {
+                return;
+            }
+
             if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
                 if prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM")
@@ -436,6 +441,11 @@ pub mod process_record_handling {
 
         #[cfg(target_os = "linux")]
         fn handle_io(&mut self, precord: &mut ProcessRecord) {
+            // OPTIMIZATION: Don't re-process killed processes
+            if precord.process_state == ProcessState::Killed {
+                return;
+            }
+
             if let Some(prediction_behavioral) = self.predictor_malware.predict(precord) {
                 if prediction_behavioral > self.config.threshold_prediction
                     || precord.appname.contains("TEST-OLRANSOM")
@@ -719,8 +729,10 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::worker::threat_handling::ThreatHandler;
+    #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::api_tracker::ApiTracker;
     use crate::utils::is_process_alive;
+    #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
 
     pub trait IOMsgPostProcessor {
