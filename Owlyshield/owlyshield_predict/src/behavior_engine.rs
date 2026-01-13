@@ -823,24 +823,51 @@ impl BehaviorEngine {
         // For periodic scans, you might want to track these for later execution
     }
 
-    /// Refresh process list and track terminations
+    /// Refresh process list, track terminations, AND detect new processes
     fn track_process_terminations(&mut self) {
         let now = SystemTime::now();
-        if now.duration_since(self.last_refresh).unwrap_or(Duration::from_secs(0)) < Duration::from_millis(1000) {
-            return;
-        }
+
         self.last_refresh = now;
         
+        // 2. Snapshot current processes
         self.sys.refresh_processes();
         
         let mut current_pids = HashSet::new();
+        
+        // 3. Iterate current processes
         for (pid, proc) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
             current_pids.insert(pid_u32);
-            self.known_pids.entry(pid_u32).or_insert_with(|| proc.name().to_string());
+            
+            // --- FIX START: Detect New Processes ---
+            if !self.known_pids.contains_key(&pid_u32) {
+                let proc_name = proc.name().to_string();
+                
+                // A. Log the event
+                Logging::info(&format!("[NEW PROCESS DETECTED] {} (PID: {})", proc_name, pid_u32));
+                
+                // B. Add to known list
+                self.known_pids.insert(pid_u32, proc_name.clone());
+
+                // C. CRITICAL: Initialize State Immediately
+                // This ensures we have ancestry/cmdline ready before the first I/O event
+                let gid = self.get_or_create_gid_for_pid(pid_u32);
+                if !self.process_states.contains_key(&gid) {
+                    let new_state = Self::create_new_process_state(
+                        &mut self.sys,
+                        &self.rules,
+                        gid,
+                        pid_u32,
+                        proc_name,
+                        now
+                    );
+                    self.process_states.insert(gid, new_state);
+                }
+            }
+            // --- FIX END ---
         }
         
-        // Find pids that are in known_pids but not in current_pids
+        // 4. Detect Terminated Processes (Existing Logic)
         let vanished_pids: Vec<u32> = self.known_pids.keys()
             .filter(|pid| !current_pids.contains(pid))
             .cloned()
@@ -848,6 +875,8 @@ impl BehaviorEngine {
             
         for pid in vanished_pids {
             if let Some(name) = self.known_pids.remove(&pid) {
+                Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
+                
                 self.terminated_processes.push(TerminatedProcess {
                     name,
                     timestamp: now,
@@ -855,7 +884,7 @@ impl BehaviorEngine {
             }
         }
         
-        // Cleanup old terminations (older than 5 minutes)
+        // 5. Cleanup old termination logs
         if self.terminated_processes.len() > 1000 {
             self.terminated_processes.retain(|tp| {
                 now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(300)
@@ -1179,12 +1208,13 @@ impl BehaviorEngine {
 
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
-        self.track_process_terminations();
+        // 1. Refresh process list (Throttled internally to 1s to prevent lag)
+        self.track_process_terminations(); 
+
         let gid = msg.gid;
         let now = SystemTime::now();
 
-        // 1. Check if we need to initialize or re-initialize state
-        // Re-initialization happens if GID exists but PID has changed (new process reusing GID slot)
+        // 2. Check if we need to initialize or re-initialize state
         let needs_init = if let Some(state) = self.process_states.get(&gid) {
             state.pid != msg.pid
         } else {
@@ -1217,8 +1247,6 @@ impl BehaviorEngine {
         // --- NEW: Stealer Tracking Logic (User Snippet) ---
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase();
-
-        self.sys.refresh_processes();
 
         for rule in &self.rules {
             // 1. Track Browser Access & Sensitive Files
@@ -1262,7 +1290,7 @@ impl BehaviorEngine {
             }
         }
 
-        // 2. Pre-process global metrics and update tracking state
+        // 3. Pre-process global metrics and update tracking state
         
         // Entropy tracking
         if msg.is_entropy_calc == 1 {
@@ -1315,7 +1343,7 @@ impl BehaviorEngine {
             }
         }
         
-        // 3. Evaluate each rule's stages
+        // 4. Evaluate each rule's stages
         let mut triggered_rules = Vec::new();
 
         {
@@ -1395,7 +1423,7 @@ impl BehaviorEngine {
             }
         }
 
-        // 4. Execution
+        // 5. Execution
         let state = self.process_states.get_mut(&gid).unwrap();
         for rule in triggered_rules {
             if rule.response.record && !state.is_recording {
