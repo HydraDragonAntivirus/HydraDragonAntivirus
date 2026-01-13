@@ -1121,15 +1121,15 @@ impl BehaviorEngine {
 
     /// Create a new process state with full initialization (ancestry, rules, etc.)
     fn create_new_process_state(
-        sys: &mut sysinfo::System,
+        *sys: &mut sysinfo::System,
         rules: &[BehaviorRule],
         gid: u64,
         pid: u32,
         appname: String,
         now: SystemTime
     ) -> ProcessBehaviorState {
-        // Recreate System to get fresh process list
-        *sys = sysinfo::System::new_all();
+        // CRITICAL FIX: Recreate System to get fresh process list
+        *sys = System::new_all();
 
         let mut s = ProcessBehaviorState::default();
         s.gid = gid;
@@ -1138,14 +1138,13 @@ impl BehaviorEngine {
         s.first_event_ts = Some(now);
         s.last_event_ts = now;
 
-        // Look up this process
         if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
             let proc_name = proc.name().to_string();
             if !proc_name.is_empty() {
                 s.appname = proc_name;
             }
             s.cmdline = proc.cmd().join(" ");
-
+            
             // Build process ancestry chain (upwards towards root)
             let mut current_pid = proc.parent();
             while let Some(parent_pid) = current_pid {
@@ -1158,10 +1157,7 @@ impl BehaviorEngine {
                         s.process_ancestry.push(p_name);
                     }
                     current_pid = p_proc.parent();
-
-                    if s.process_ancestry.len() >= 10 {
-                        break;
-                    }
+                    if s.process_ancestry.len() >= 10 { break; } // Limit depth
                 } else {
                     break;
                 }
@@ -1171,21 +1167,18 @@ impl BehaviorEngine {
         // --- Enable direct recording if process name matches rule-level override ---
         for rule in rules {
             if rule.record_on_start.iter().any(|pattern| {
-                s.appname
-                    .to_lowercase()
-                    .contains(&pattern.to_lowercase())
+                s.appname.to_lowercase().contains(&pattern.to_lowercase())
             }) {
                 s.is_recording = true;
-                Logging::info(&format!(
-                    "[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'",
-                    s.appname, s.pid, rule.name
-                ));
+                Logging::info(&format!("[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'", 
+                    s.appname, s.pid, rule.name));
                 break;
             }
         }
 
         s
     }
+
 
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
         self.track_process_terminations();
