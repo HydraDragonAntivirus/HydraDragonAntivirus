@@ -1019,7 +1019,7 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            match self.process_records.get_precord_by_gid() {
+            match self.process_records.get_precord_by_gid(iomsg.gid) {
                 None => {
                     // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
                     let exepath_opt = self.exepath_handler.exepath(iomsg);
@@ -1035,19 +1035,18 @@ pub mod worker_instance {
                     };
 
                     // LOGGING FIX: Log the scanned process immediately
-                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, TrackingID: {:X}, Path: {})", 
+                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
                         appname, iomsg.gid, iomsg.pid, exepath.display()));
 
                     // Always track the process, ignoring whitelist logic as requested
-                    let mut precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                    precord.gid = precord_gid;
-                    self.process_records.insert_precord(precord_gid, precord);
+                    let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
+                    self.process_records.insert_precord(iomsg.gid, precord);
                     
                     // Track in learning engine
                     #[cfg(feature = "realtime_learning")]
                     {
-                        self.learning_engine.track_process(precord_gid, appname.clone());
-                        self.api_trackers.insert(precord_gid, ApiTracker::new(precord_gid, appname));
+                        self.learning_engine.track_process(iomsg.gid, appname.clone());
+                        self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
                     }
                                            
                 }
