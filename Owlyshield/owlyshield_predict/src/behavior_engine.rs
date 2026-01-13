@@ -825,36 +825,36 @@ impl BehaviorEngine {
 
     /// Refresh process list, track terminations, AND detect new processes
     fn track_process_terminations(&mut self) {
-        let now = SystemTime::now();
+            let now = SystemTime::now();
 
-        self.last_refresh = now;
-        
-        // 2. Snapshot current processes
-        self.sys.refresh_processes();
-        
-        let mut current_pids = HashSet::new();
-        
-        // 3. Iterate current processes
-        for (pid, proc) in self.sys.processes() {
-            let pid_u32 = pid.as_u32();
-            current_pids.insert(pid_u32);
+            self.last_refresh = now;
             
-            // --- FIX START: Detect New Processes ---
-            if !self.known_pids.contains_key(&pid_u32) {
-                let proc_name = proc.name().to_string();
+            self.sys.refresh_processes();
+            
+            // --- FIX: Collect data first to release the borrow on self.sys ---
+            let mut current_pids = HashSet::new();
+            let mut new_processes_to_init = Vec::new();
+
+            for (pid, proc) in self.sys.processes() {
+                let pid_u32 = pid.as_u32();
+                current_pids.insert(pid_u32);
                 
-                // A. Log the event
-                Logging::info(&format!("[NEW PROCESS DETECTED] {} (PID: {})", proc_name, pid_u32));
+                if !self.known_pids.contains_key(&pid_u32) {
+                    // Just store the info we need for later
+                    new_processes_to_init.push((pid_u32, proc.name().to_string()));
+                }
+            }
+
+            // --- Now self.sys is no longer borrowed by the loop, we can mutate self ---
+            for (pid_u32, proc_name) in new_processes_to_init {
+                //Logging::info(&format!("[NEW PROCESS DETECTED] {} (PID: {})", proc_name, pid_u32));
                 
-                // B. Add to known list
                 self.known_pids.insert(pid_u32, proc_name.clone());
 
-                // C. CRITICAL: Initialize State Immediately
-                // This ensures we have ancestry/cmdline ready before the first I/O event
                 let gid = self.get_or_create_gid_for_pid(pid_u32);
                 if !self.process_states.contains_key(&gid) {
                     let new_state = Self::create_new_process_state(
-                        &mut self.sys,
+                        &mut self.sys, // Safe to borrow mutably now
                         &self.rules,
                         gid,
                         pid_u32,
@@ -864,33 +864,30 @@ impl BehaviorEngine {
                     self.process_states.insert(gid, new_state);
                 }
             }
-            // --- FIX END ---
-        }
-        
-        // 4. Detect Terminated Processes (Existing Logic)
-        let vanished_pids: Vec<u32> = self.known_pids.keys()
-            .filter(|pid| !current_pids.contains(pid))
-            .cloned()
-            .collect();
             
-        for pid in vanished_pids {
-            if let Some(name) = self.known_pids.remove(&pid) {
-                Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
+            // Handle vanished processes (Existing logic)
+            let vanished_pids: Vec<u32> = self.known_pids.keys()
+                .filter(|pid| !current_pids.contains(pid))
+                .cloned()
+                .collect();
                 
-                self.terminated_processes.push(TerminatedProcess {
-                    name,
-                    timestamp: now,
+            for pid in vanished_pids {
+                if let Some(name) = self.known_pids.remove(&pid) {
+                    Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
+                    
+                    self.terminated_processes.push(TerminatedProcess {
+                        name,
+                        timestamp: now,
+                    });
+                }
+            }
+            
+            if self.terminated_processes.len() > 1000 {
+                self.terminated_processes.retain(|tp| {
+                    now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(300)
                 });
             }
         }
-        
-        // 5. Cleanup old termination logs
-        if self.terminated_processes.len() > 1000 {
-            self.terminated_processes.retain(|tp| {
-                now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(300)
-            });
-        }
-    }
 
     #[cfg(target_os = "windows")]
     fn static_has_active_connections(pid: u32) -> bool {
