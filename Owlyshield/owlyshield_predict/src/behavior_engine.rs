@@ -1218,7 +1218,7 @@ impl BehaviorEngine {
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase();
 
-        sys.refresh_processes();
+        self.sys.refresh_processes();
 
         for rule in &self.rules {
             // 1. Track Browser Access & Sensitive Files
