@@ -8,7 +8,7 @@ use regex::Regex;
 use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
-use sysinfo::{SystemExt, ProcessExt, PidExt, ProcessRefreshKind};
+use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 #[derive(Clone, Debug)]
 pub struct TerminatedProcess {
@@ -831,8 +831,7 @@ impl BehaviorEngine {
         }
         self.last_refresh = now;
         
-        // Initial population of process list
-        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
+        self.sys.refresh_processes();
         
         let mut current_pids = HashSet::new();
         for (pid, proc) in self.sys.processes() {
@@ -1126,9 +1125,10 @@ impl BehaviorEngine {
         appname: String,
         now: SystemTime
     ) -> ProcessBehaviorState {
-        // Initial population of process list
-        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
-    
+        // Perform a refresh for new processes to ensure ancestry is populated
+        // Using refresh_processes() instead of refresh_all() for better performance
+        sys.refresh_processes();
+        
         let mut s = ProcessBehaviorState::default();
         s.gid = gid;
         s.pid = pid;
