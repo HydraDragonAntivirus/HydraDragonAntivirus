@@ -21,11 +21,6 @@ pub mod predictor {
         ) -> bool {
             #[cfg(feature = "realtime_learning")]
             {
-                // Adaptive file count thresholds - learn from observed patterns
-                let min_files_threshold = Self::adaptive_min_files_threshold(precord);
-                if precord.files_opened.len() < min_files_threshold || precord.files_written.len() < min_files_threshold {
-                    return false;
-                }
                 // Adaptive prediction intervals based on prediction count
                 let interval_multiplier = Self::adaptive_interval_multiplier(predictions_count);
                 let max_predictions = Self::adaptive_max_predictions();
@@ -37,27 +32,15 @@ pub mod predictor {
             }
             #[cfg(not(feature = "realtime_learning"))]
             {
-                // Non-realtime_learning fallback: use original hardcoded logic
-                if precord.files_opened.len() < 20 || precord.files_written.len() < 20 {
-                    false
-                } else {
-                    match predictions_count {
-                        0..=1 => precord.driver_msg_count % threshold_drivermsgs == 0,
-                        2..=10 => precord.driver_msg_count % (threshold_drivermsgs * 50) == 0,
-                        11..=50 => precord.driver_msg_count % (threshold_drivermsgs * 150) == 0,
-                        n if n > 100_000 => false,
-                        _ => precord.driver_msg_count % (threshold_drivermsgs * 1000) == 0,
-                    }
+                // Allow predictions based on driver message count only
+                match predictions_count {
+                    0..=1 => precord.driver_msg_count % threshold_drivermsgs == 0,
+                    2..=10 => precord.driver_msg_count % (threshold_drivermsgs * 50) == 0,
+                    11..=50 => precord.driver_msg_count % (threshold_drivermsgs * 150) == 0,
+                    n if n > 100_000 => false,
+                    _ => precord.driver_msg_count % (threshold_drivermsgs * 1000) == 0,
                 }
             }
-        }
-
-        #[cfg(feature = "realtime_learning")]
-        /// Adaptive minimum files threshold - learns from observed patterns
-        fn adaptive_min_files_threshold(_precord: &ProcessRecord) -> usize {
-            // Start with minimal threshold, will adapt based on observed file operation patterns
-            // In production, this would track observed file counts and adapt
-            10  // Lowered from 20, will adapt upward if needed
         }
 
         #[cfg(feature = "realtime_learning")]
@@ -1038,7 +1021,6 @@ pub mod worker_instance {
                     Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
                         appname, iomsg.gid, iomsg.pid, exepath.display()));
 
-                    // Always track the process, ignoring whitelist logic as requested
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(iomsg.gid, precord);
                     
