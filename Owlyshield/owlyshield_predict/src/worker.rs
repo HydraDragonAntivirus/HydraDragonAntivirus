@@ -94,19 +94,27 @@ pub mod predictor {
         }
     }
 
+    use lru::LruCache;
+    use std::num::NonZeroUsize;
+    use std::path::PathBuf;
+
     pub struct PredictorHandlerStatic {
         predictor_static: TfLiteStatic,
-        prediction: Option<f32>,
-        is_prediction_calculated: bool,
+        cache: LruCache<PathBuf, f32>,
     }
 
     impl PredictorHandler for PredictorHandlerStatic {
         fn predict(&mut self, precord: &ProcessRecord) -> Option<f32> {
-            if !self.is_prediction_calculated {
-                self.prediction = self.predictor_static.make_prediction(&precord.exepath);
-                self.is_prediction_calculated = true;
+            if let Some(score) = self.cache.get(&precord.exepath) {
+                return Some(*score);
             }
-            self.prediction
+            
+            if let Some(score) = self.predictor_static.make_prediction(&precord.exepath) {
+                self.cache.push(precord.exepath.clone(), score);
+                return Some(score);
+            }
+            
+            None
         }
     }
 
@@ -114,8 +122,7 @@ pub mod predictor {
         pub fn new(config: &Config) -> PredictorHandlerStatic {
             PredictorHandlerStatic {
                 predictor_static: TfLiteStatic::new(config),
-                prediction: None,
-                is_prediction_calculated: false,
+                cache: LruCache::new(NonZeroUsize::new(1000).unwrap()),
             }
         }
     }
