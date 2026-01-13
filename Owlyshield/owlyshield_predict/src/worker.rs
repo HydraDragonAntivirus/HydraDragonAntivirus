@@ -1019,8 +1019,6 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            let cache_key = if iomsg.gid == 0 { (iomsg.pid as u64) | 0x80000000_00000000 } else { iomsg.gid };
-
             match self.process_records.get_precord_by_gid(cache_key) {
                 None => {
                     // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
