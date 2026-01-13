@@ -8,7 +8,7 @@ use regex::Regex;
 use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
-use sysinfo::{SystemExt, ProcessExt, PidExt, ProcessRefreshKind};
+use sysinfo::{System, SystemExt, ProcessExt, PidExt};
 
 #[derive(Clone, Debug)]
 pub struct TerminatedProcess {
@@ -655,11 +655,13 @@ pub struct BehaviorEngine {
 
 impl BehaviorEngine {
     pub fn new() -> Self {
+        let sys = System::new_all();  // Use new_all() for initial load
+        
         Self {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: HashMap::new(),
-            sys: sysinfo::System::new_all(),
+            sys,
             terminated_processes: Vec::new(),
             known_pids: HashMap::new(),
             last_refresh: SystemTime::now(),
@@ -831,9 +833,9 @@ impl BehaviorEngine {
         }
         self.last_refresh = now;
         
-        // Initial population of process list
-        self.sys.refresh_processes_specifics(ProcessRefreshKind::everything());
-        
+        // CRITICAL FIX: Use new() to clear and reload ALL processes
+        self.sys = System::new_all();
+
         let mut current_pids = HashSet::new();
         for (pid, proc) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
@@ -1119,16 +1121,16 @@ impl BehaviorEngine {
 
     /// Create a new process state with full initialization (ancestry, rules, etc.)
     fn create_new_process_state(
-        sys: &mut sysinfo::System,
+        *sys: &mut sysinfo::System,
         rules: &[BehaviorRule],
         gid: u64,
         pid: u32,
         appname: String,
         now: SystemTime
     ) -> ProcessBehaviorState {
-        // Initial population of process list
-        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
-    
+        // CRITICAL FIX: Recreate System to get fresh process list
+        *sys = System::new_all();
+
         let mut s = ProcessBehaviorState::default();
         s.gid = gid;
         s.pid = pid;
