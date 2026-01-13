@@ -47,6 +47,7 @@ pub use crate::worker::worker_instance::{Worker, IOMsgPostProcessorMqtt, IOMsgPo
 pub use crate::worker::process_record_handling::{ExepathLive, ProcessRecordHandlerLive, ProcessRecordHandlerNovelty};
 pub use crate::connectors::register::Connectors;
 pub use crate::watchlist::WatchList;
+pub use crate::utils::is_process_alive;
 
 #[cfg(target_os = "windows")]
 pub use crate::windows::driver_com;
@@ -88,24 +89,3 @@ pub mod sdk {
     pub use crate::shared_def;
 }
 
-/// Check if a process is still alive by its PID.
-pub fn is_process_alive(pid: u32) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-        use windows::Win32::Foundation::CloseHandle;
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if let Ok(h) = handle {
-                CloseHandle(h);
-                true
-            } else {
-                false
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::path::Path::new(&format!("/proc/{}", pid)).exists()
-    }
-}

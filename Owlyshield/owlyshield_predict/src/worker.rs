@@ -719,6 +719,9 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::worker::threat_handling::ThreatHandler;
+    use crate::realtime_learning::api_tracker::ApiTracker;
+    use crate::utils::is_process_alive;
+    use std::collections::HashMap;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -916,6 +919,8 @@ pub mod worker_instance {
                 whitelisted_gids: LruCache::new(NonZeroUsize::new(1024).unwrap()),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
+                #[cfg(feature = "realtime_learning")]
+                api_trackers: HashMap::new(),
 			}
 		}
 
@@ -975,13 +980,13 @@ pub mod worker_instance {
                 // Check which processes are likely dead
                 for (gid, proc) in self.process_records.process_records.iter() {
                     // Heuristic: If last message was > 10s ago and it's not a long-poll system process
-                    let inactive_duration = now.duration_since(proc.last_irp_time).unwrap_or(std::time::Duration::from_secs(0));
+                    let inactive_duration = now.duration_since(proc.time).unwrap_or(std::time::Duration::from_secs(0));
                     
                     if inactive_duration > std::time::Duration::from_secs(30) {
                         // Check if at least one PID in the family is still alive
                         let mut family_dead = true;
                         for pid in &proc.pids {
-                            if crate::is_process_alive(*pid) {
+                            if is_process_alive(*pid) {
                                 family_dead = false;
                                 break;
                             }

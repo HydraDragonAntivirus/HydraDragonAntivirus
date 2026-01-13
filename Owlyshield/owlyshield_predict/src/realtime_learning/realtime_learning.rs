@@ -1,15 +1,15 @@
 //! Real-Time Learning Module
 //!
 //! Fully automated self-learning system - NO user interaction required
-//! - Processes flagged as malicious → labeled as malware samples
-//! - Processes with no malicious activity → labeled as benign samples
+//! - Processes flagged as malicious -> labeled as malware samples
+//! - Processes with no malicious activity -> labeled as benign samples
 //! - Continuous learning from real-world EDR deployment
 //! - All thresholds and parameters adapt automatically
 
 use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
-use crate::logging::Logging;
+// use crate::logging::Logging;
 use crate::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus};
 
 use serde::{Serialize, Deserialize};
@@ -17,7 +17,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, Duration};
 
 // Hashing imports
@@ -201,23 +201,31 @@ impl RealtimeLearningEngine {
 
     /// Mark process as detected malicious (by realtime learning)
     pub fn mark_detected_malicious(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
+        let mut should_collect = false;
+        let mut pname = String::new();
+
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.detection_count += 1;
             state.label = LearningLabel::Malicious;
 
-            // Collect sample immediately
             if !state.collected {
-                self.collector.collect_sample(api_tracker, precord, true);
                 state.collected = true;
-                self.stats.malicious_collected += 1;
-                self.stats.detections_count += 1;
-
-                println!("[Real-Time Learning] 🦠 Collected MALICIOUS sample: {} (GID: {})",
-                         state.process_name, gid);
-                
-                // Adapt thresholds based on detection patterns
-                self.adapt_thresholds_from_detection();
+                pname = state.process_name.clone();
+                should_collect = true;
             }
+        }
+
+        if should_collect {
+            // Collect sample immediately
+            self.collector.collect_sample(api_tracker, precord, true);
+            self.stats.malicious_collected += 1;
+            self.stats.detections_count += 1;
+
+            println!("[Real-Time Learning] Collected MALICIOUS sample: {} (GID: {})",
+                     pname, gid);
+            
+            // Adapt thresholds based on detection patterns
+            self.adapt_thresholds_from_detection();
         }
     }
     
@@ -275,20 +283,25 @@ impl RealtimeLearningEngine {
 
         // Collect benign samples
         for gid in to_label_benign {
-            if let Some(api_tracker) = api_trackers.get(&gid) {
-                if let Some(precord) = process_records.get(&gid) {
-                    if let Some(state) = self.process_states.get_mut(&gid) {
-                        state.label = LearningLabel::Benign;
-                        state.collected = true;
+            let mut pname = String::new();
+            let mut success = false;
 
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                state.label = LearningLabel::Benign;
+                state.collected = true;
+                pname = state.process_name.clone();
+                success = true;
+            }
+
+            if success {
+                if let Some(api_tracker) = api_trackers.get(&gid) {
+                    if let Some(precord) = process_records.get(&gid) {
                         self.collector.collect_sample(api_tracker, precord, false);
                         self.stats.benign_collected += 1;
                         self.stats.auto_labeled_benign += 1;
 
-                        println!("[Real-Time Learning] 📗 Auto-labeled BENIGN: {} (GID: {}, Runtime: {}s, Ops: {})",
-                                 state.process_name, gid,
-                                 SystemTime::now().duration_since(state.start_time).unwrap_or(Duration::from_secs(0)).as_secs(),
-                                 state.operation_count);
+                        println!("[Real-Time Learning] Auto-labeled BENIGN: {} (GID: {})",
+                                 pname, gid);
                     }
                 }
             }
@@ -328,6 +341,9 @@ impl RealtimeLearningEngine {
 
     /// Process terminated - final chance to collect and generate rules
     pub fn process_terminated(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
+        let mut should_generate_rules = false;
+        let mut proc_name = String::new();
+
         if let Some(state) = self.process_states.get_mut(&gid) {
             // If still unlabeled but ran for a while with no issues, mark as benign
             if state.label == LearningLabel::Unlabeled && !state.collected {
@@ -346,20 +362,25 @@ impl RealtimeLearningEngine {
                     self.stats.benign_collected += 1;
                     self.stats.auto_labeled_benign += 1;
 
-                    println!("[Real-Time Learning] 📘 Process terminated, labeled BENIGN: {} (GID: {})",
+                    println!("[Real-Time Learning] Process terminated, labeled BENIGN: {} (GID: {})",
                              state.process_name, gid);
-                             
-                    // Trigger dynamic rule generation and persistence immediately
-                    let benign_rules = self.generate_benign_rules();
-                    if !benign_rules.is_empty() {
-                         let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
-                         if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
-                             eprintln!("Failed to save rules on exit: {}", e);
-                         } else {
-                             println!("[Real-Time Learning] 🛡️ Auto-rule PERSISTED for {} on exit", state.process_name);
-                         }
-                    }
+                    
+                    should_generate_rules = true;
+                    proc_name = state.process_name.clone();
                 }
+            }
+        }
+
+        if should_generate_rules {
+            // Trigger dynamic rule generation and persistence immediately
+            let benign_rules = self.generate_benign_rules();
+            if !benign_rules.is_empty() {
+                 let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
+                 if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
+                     eprintln!("Failed to save rules on exit: {}", e);
+                 } else {
+                     println!("[Real-Time Learning] Auto-rule PERSISTED for {} on exit", proc_name);
+                 }
             }
         }
     }
@@ -380,7 +401,7 @@ impl RealtimeLearningEngine {
         let (mal_count, ben_count) = self.collector.get_counts();
         self.stats.samples_exported += mal_count + ben_count;
 
-        println!("[Real-Time Learning] 💾 Exported {} samples (Malicious: {}, Benign: {})",
+        println!("[Real-Time Learning] Exported {} samples (Malicious: {}, Benign: {})",
                  mal_count + ben_count, mal_count, ben_count);
         println!("  JSON: {}", json_path);
         println!("  CSV: {}", csv_path);
@@ -403,21 +424,21 @@ impl RealtimeLearningEngine {
 
     /// Print statistics
     pub fn print_stats(&self) {
-        println!("\n╔════════════════════════════════════════════════════════╗");
-        println!("║        Real-Time Learning Statistics                  ║");
-        println!("╠════════════════════════════════════════════════════════╣");
-        println!("║  Total Processes Tracked: {:6}                      ║", self.stats.total_processes_tracked);
-        println!("║  ─────────────────────────────────────────────────     ║");
-        println!("║  Malicious Collected:     {:6}                      ║", self.stats.malicious_collected);
-        println!("║    - By Detection:        {:6}                      ║", self.stats.detections_count);
-        println!("║  ─────────────────────────────────────────────────     ║");
-        println!("║  Benign Collected:        {:6}                      ║", self.stats.benign_collected);
-        println!("║    - Auto-labeled:        {:6}                      ║", self.stats.auto_labeled_benign);
-        println!("║  ─────────────────────────────────────────────────     ║");
-        println!("║  Total Samples:           {:6}                      ║",
+        println!("\n+--------------------------------------------------------+");
+        println!("|        Real-Time Learning Statistics                  |");
+        println!("+--------------------------------------------------------+");
+        println!("|  Total Processes Tracked: {:6}                      |", self.stats.total_processes_tracked);
+        println!("|  -------------------------------------------------     |");
+        println!("|  Malicious Collected:     {:6}                      |", self.stats.malicious_collected);
+        println!("|    - By Detection:        {:6}                      |", self.stats.detections_count);
+        println!("|  -------------------------------------------------     |");
+        println!("|  Benign Collected:        {:6}                      |", self.stats.benign_collected);
+        println!("|    - Auto-labeled:        {:6}                      |", self.stats.auto_labeled_benign);
+        println!("|  -------------------------------------------------     |");
+        println!("|  Total Samples:           {:6}                      |",
                  self.stats.malicious_collected + self.stats.benign_collected);
-        println!("║  Samples Exported:        {:6}                      ║", self.stats.samples_exported);
-        println!("╚════════════════════════════════════════════════════════╝\n");
+        println!("|  Samples Exported:        {:6}                      |", self.stats.samples_exported);
+        println!("+--------------------------------------------------------+");
     }
 
     /// Check if buffer is full and needs export
