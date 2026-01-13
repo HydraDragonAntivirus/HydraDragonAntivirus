@@ -94,6 +94,7 @@ pub mod predictor {
         }
     }
 
+    use lru::LruCache;
     use std::num::NonZeroUsize;
     use std::path::PathBuf;
 
@@ -863,27 +864,6 @@ pub mod worker_instance {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
-                // FIXED: Retry path resolution if it initially failed
-                if precord.exepath.to_string_lossy() == "UNKNOWN" {
-                     if let Some(path) = self.exepath_handler.exepath(iomsg) {
-                         precord.exepath = path.clone();
-                         // Update appname if we successfully resolved the path
-                         if let Some(name) = self.appname_from_exepath(&path) {
-                             precord.appname = name;
-                         }
-                         Logging::info(&format!("[KERNEL SCAN] Resolved Path for GID {}: {}", precord.gid, precord.exepath.display()));
-                     }
-                }
-
-                // FIXED: Cleanup and ignore killed processes to prevent zombies
-                if precord.process_state == ProcessState::Killed {
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.api_trackers.remove(&tracking_key);
-                    }
-                    return;
-                }
-
                 // Get AVIntegration from self if hydradragon feature is enabled
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 {

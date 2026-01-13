@@ -1183,16 +1183,9 @@ impl BehaviorEngine {
         let gid = msg.gid;
         let now = SystemTime::now();
 
-        // 1. Check if we need to initialize or re-initialize state
-        // Re-initialization happens if GID exists but PID has changed (new process reusing GID slot)
-        let needs_init = if let Some(state) = self.process_states.get(&gid) {
-            state.pid != msg.pid
-        } else {
-            true // New GID entry
-        };
-
-        if needs_init {
-            // Create fresh state with full ancestry and rule checks
+        // Fix: Properly create or get process state with full initialization
+        let state = if !self.process_states.contains_key(&gid) {
+            // Create new state with full initialization
             let new_state = Self::create_new_process_state(
                 &mut self.sys,
                 &self.rules,
@@ -1201,24 +1194,17 @@ impl BehaviorEngine {
                 precord.appname.clone(),
                 now
             );
-            
-            // Log if we are replacing an existing GID's state (context switch)
-            if self.process_states.contains_key(&gid) {
-                // debug log maybe?
-            }
-            
             self.process_states.insert(gid, new_state);
-        }
+            self.process_states.get_mut(&gid).unwrap()
+        } else {
+            self.process_states.get_mut(&gid).unwrap()
+        };
 
-        // Now safe to get mutable reference
-        let state = self.process_states.get_mut(&gid).unwrap();
         state.last_event_ts = now;
 
         // --- NEW: Stealer Tracking Logic (User Snippet) ---
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase();
-
-        self.sys.refresh_processes();
 
         for rule in &self.rules {
             // 1. Track Browser Access & Sensitive Files
