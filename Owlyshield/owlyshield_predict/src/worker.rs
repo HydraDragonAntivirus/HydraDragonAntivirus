@@ -102,7 +102,6 @@ pub mod predictor {
         }
     }
 
-    use lru::LruCache;
     use std::num::NonZeroUsize;
     use std::path::PathBuf;
 
