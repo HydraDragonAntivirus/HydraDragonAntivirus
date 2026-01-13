@@ -934,7 +934,7 @@ pub mod worker_instance {
 
         pub fn process_io(&mut self, iomsg: &mut IOMessage) {
             self.register_precord(iomsg);
-            let tracking_key = if iomsg.gid == 0 { (iomsg.pid as u64) | 0x80000000_00000000 } else { iomsg.gid };
+            let tracking_key = iomsg.gid;
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // Get AVIntegration from self if hydradragon feature is enabled
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
