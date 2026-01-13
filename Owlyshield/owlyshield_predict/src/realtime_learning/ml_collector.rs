@@ -214,7 +214,7 @@ impl MLCollector {
         }
 
         // Auto-save if threshold reached
-        if self.total_samples() % self.auto_save_threshold == 0 && self.total_samples() > 0 {
+        if self.auto_save_threshold > 0 && self.total_samples() % self.auto_save_threshold == 0 && self.total_samples() > 0 {
             self.auto_save();
         }
     }

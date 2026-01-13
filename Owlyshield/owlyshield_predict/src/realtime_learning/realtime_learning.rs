@@ -59,12 +59,12 @@ impl Default for LearningConfig {
     fn default() -> Self {
         // Initial values - will adapt automatically based on observed behavior
         LearningConfig {
-            min_runtime_for_benign: 0,  // Will be learned from baseline
-            min_operations_for_benign: 0,  // Will be learned from baseline
-            auto_save_interval: 0,  // Will adapt based on system performance
-            max_samples_buffer: 0,  // Will adapt based on available memory
+            min_runtime_for_benign: 60,  // Initial 1 minute
+            min_operations_for_benign: 50,  // Initial 50 ops
+            auto_save_interval: 100,  // Initial 100 samples
+            max_samples_buffer: 1000,  // Initial 1000 samples
             auto_label_benign: true,
-            benign_confidence_threshold: 0.0,  // Will be learned from statistical analysis
+            benign_confidence_threshold: 0.8,  
         }
     }
 }
@@ -133,7 +133,7 @@ impl RealtimeLearningEngine {
             collector: MLCollector::with_config(
                 crate::realtime_learning::ml_collector::CollectionMode::Both,
                 std::path::PathBuf::from(output_dir),
-                0,  // Will adapt automatically
+                100,  // Initial threshold, will adapt automatically
             ),
             process_states: HashMap::new(),
             pending_collection: HashSet::new(),
