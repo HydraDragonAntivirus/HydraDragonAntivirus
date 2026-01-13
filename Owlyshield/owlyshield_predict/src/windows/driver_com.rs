@@ -141,10 +141,16 @@ impl Driver {
     /// Ask the minifilter to kill all pids related to the given *gid*. Pids are killed in drivermode
     /// by calls to `NtClose`.
     pub fn try_kill(&self, gid: c_ulonglong) -> Result<windows::core::HRESULT, Error> {
+        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
+            (0, (gid & !0x80000000_00000000) as c_ulong)
+        } else {
+            (gid, 0)
+        };
+
         let mut killmsg = DriverComMessage {
             r#type: DriverComMessageType::MessageKillGid as c_ulong,
-            pid: 0, //get_current_pid().unwrap() as u32,
-            gid,
+            pid: real_pid,
+            gid: real_gid,
             path: [0; 520],
             quarantine_path: [0; 520],
         };
@@ -166,10 +172,16 @@ impl Driver {
     }
 
     pub fn revert_registry_changes(&self, gid: c_ulonglong) -> Result<(), Error> {
+        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
+            (0, (gid & !0x80000000_00000000) as c_ulong)
+        } else {
+            (gid, 0)
+        };
+
         let mut revert_msg = DriverComMessage {
             r#type: DriverComMessageType::MessageRevertRegistryChanges as c_ulong,
-            pid: 0,
-            gid,
+            pid: real_pid,
+            gid: real_gid,
             path: [0; 520],
             quarantine_path: [0; 520],
         };
@@ -189,10 +201,16 @@ impl Driver {
     }
 
     pub fn kill_and_quarantine_driver(&self, gid: c_ulonglong, path: &Path) -> Result<windows::core::HRESULT, Error> {
+        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
+            (0, (gid & !0x80000000_00000000) as c_ulong)
+        } else {
+            (gid, 0)
+        };
+
         let mut kill_quarantine_msg = DriverComMessage {
             r#type: DriverComMessageType::MessageKillAndQuarantineGid as c_ulong,
-            pid: 0,
-            gid,
+            pid: real_pid,
+            gid: real_gid,
             path: [0; 520],
             quarantine_path: Driver::string_to_commessage_buffer(path.to_str().unwrap_or("")),
         };

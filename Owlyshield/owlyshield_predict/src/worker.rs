@@ -926,7 +926,8 @@ pub mod worker_instance {
 
         pub fn process_io(&mut self, iomsg: &mut IOMessage) {
             self.register_precord(iomsg);
-            if let Some(precord) = self.process_records.get_precord_mut_by_gid(iomsg.gid) {
+            let tracking_key = if iomsg.gid == 0 { (iomsg.pid as u64) | 0x80000000_00000000 } else { iomsg.gid };
+            if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // Get AVIntegration from self if hydradragon feature is enabled
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 {
@@ -952,8 +953,8 @@ pub mod worker_instance {
                 // --- ADDED: Update learning engine activity ---
                 #[cfg(feature = "realtime_learning")]
                 {
-                    self.learning_engine.update_activity(iomsg.gid);
-                    if let Some(tracker) = self.api_trackers.get_mut(&iomsg.gid) {
+                    self.learning_engine.update_activity(tracking_key);
+                    if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
                         tracker.track_io_operation(iomsg, precord);
                     }
                 }
@@ -1017,7 +1018,7 @@ pub mod worker_instance {
                 return;
             }
 
-            match self.process_records.get_precord_by_gid(iomsg.gid) {
+            match self.process_records.get_precord_by_gid(cache_key) {
                 None => {
                     // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
                     let exepath_opt = self.exepath_handler.exepath(iomsg);
@@ -1033,7 +1034,8 @@ pub mod worker_instance {
                     };
 
                     // LOGGING FIX: Log the scanned process immediately
-                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", appname, iomsg.gid, iomsg.pid, exepath.display()));
+                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, TrackingID: {:X}, Path: {})", 
+                        appname, iomsg.gid, iomsg.pid, cache_key, exepath.display()));
 
                     // Whitelist Logic
                     let is_whitelisted = match self.whitelist.as_ref().and_then(|wl| wl.get_required_signer(&appname)) {
@@ -1062,14 +1064,15 @@ pub mod worker_instance {
                     };
 
                     if !is_whitelisted {
-                        let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                        self.process_records.insert_precord(iomsg.gid, precord);
+                        let mut precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
+                        precord.gid = cache_key; // Use tracking key for internal state
+                        self.process_records.insert_precord(cache_key, precord);
                         
                         // Track in learning engine
                         #[cfg(feature = "realtime_learning")]
                         {
-                            self.learning_engine.track_process(iomsg.gid, appname.clone());
-                            self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
+                            self.learning_engine.track_process(cache_key, appname.clone());
+                            self.api_trackers.insert(cache_key, ApiTracker::new(cache_key, appname));
                         }
                     } else {
                         Logging::info(&format!("[SECURITY] Process Whitelisted: {}", &appname));
