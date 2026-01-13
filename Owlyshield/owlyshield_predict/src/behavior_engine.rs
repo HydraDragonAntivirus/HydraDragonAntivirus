@@ -832,7 +832,7 @@ impl BehaviorEngine {
         self.last_refresh = now;
         
         // Initial population of process list
-        self.sys.refresh_processes_specifics(ProcessRefreshKind::everything());
+        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
         
         let mut current_pids = HashSet::new();
         for (pid, proc) in self.sys.processes() {
