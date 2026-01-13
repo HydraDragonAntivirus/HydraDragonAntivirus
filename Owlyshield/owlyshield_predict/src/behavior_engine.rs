@@ -873,7 +873,7 @@ impl BehaviorEngine {
                 
             for pid in vanished_pids {
                 if let Some(name) = self.known_pids.remove(&pid) {
-                    Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
+                    //Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
                     
                     self.terminated_processes.push(TerminatedProcess {
                         name,
