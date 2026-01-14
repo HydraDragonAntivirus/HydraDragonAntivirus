@@ -1434,13 +1434,71 @@ impl BehaviorEngine {
                 continue;
             }
 
-            Logging::warning(&format!("[HYDRADRAGON ALERT] Policy Breached: {} | Process: {}", rule.name, state.appname));
+            // Enhanced alert with full details
+            let satisfied_stages_list: Vec<String> = state.satisfied_stages
+                .get(&rule.name)
+                .map(|stages| {
+                    stages.iter()
+                        .filter_map(|idx| rule.stages.get(*idx).map(|s| s.name.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let ancestry = if state.process_ancestry.is_empty() {
+                "Unknown".to_string()
+            } else {
+                state.process_ancestry.join(" -> ")
+            };
+
+            Logging::warning(&format!(
+                "\n╔═══════════════════════════════════════════════════════════╗\n\
+                ║ [HYDRADRAGON ALERT] Policy Breach Detected               ║\n\
+                ╠═══════════════════════════════════════════════════════════╣\n\
+                ║ Rule:        {:50}║\n\
+                ║ Severity:    {:<50}║\n\
+                ║ Level:       {:?} {:<42}║\n\
+                ║ Description: {:50}║\n\
+                ╠═══════════════════════════════════════════════════════════╣\n\
+                ║ Process:     {:50}║\n\
+                ║ PID:         {:<50}║\n\
+                ║ Path:        {:50}║\n\
+                ║ Command:     {:50}║\n\
+                ║ Parent:      {:50}║\n\
+                ║ Ancestry:    {:50}║\n\
+                ╠═══════════════════════════════════════════════════════════╣\n\
+                ║ Matched Stages: {:<43}║\n\
+                ║ File Ops:    R:{:<5} W:{:<5} D:{:<5} Created:{:<5}        ║\n\
+                ║ Bytes:       Read:{:<10} Written:{:<10}           ║\n\
+                ║ Entropy:     Max:{:.2} Avg:{:.2}                          ║\n\
+                ╚═══════════════════════════════════════════════════════════╝",
+                truncate(&rule.name, 50),
+                truncate(&format!("{}", rule.severity), 50),
+                rule.level,
+                "",
+                truncate(&rule.description, 50),
+                truncate(&state.appname, 50),
+                state.pid,
+                truncate(&precord.exepath.to_string_lossy(), 50),
+                truncate(&state.cmdline, 50),
+                truncate(&state.parent_name, 50),
+                truncate(&ancestry, 50),
+                truncate(&satisfied_stages_list.join(", "), 43),
+                precord.ops_read,
+                precord.ops_written,
+                precord.files_deleted.len(),
+                precord.fpaths_created.len(),
+                precord.bytes_read,
+                precord.bytes_written,
+                state.entropy_max,
+                if state.entropy_count > 0 { state.entropy_sum / state.entropy_count as f64 } else { 0.0 }
+            ));
             
             if rule.response.terminate_process {
                 precord.termination_requested = true;
                 precord.is_malicious = true;
                 if let Some(proc) = self.sys.process(sysinfo::Pid::from(state.pid as usize)) {
                     proc.kill();
+                    Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) TERMINATED", state.appname, state.pid));
                 }
             }
 
@@ -1448,10 +1506,21 @@ impl BehaviorEngine {
                 precord.quarantine_requested = true;
                 precord.termination_requested = true;
                 precord.is_malicious = true;
+                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) QUARANTINED", state.appname, state.pid));
             }
 
             if rule.response.auto_revert {
                 precord.revert_requested = true;
+                Logging::warning(&format!("[ACTION] Auto-revert enabled for process '{}' (PID: {})", state.appname, state.pid));
+            }
+        }
+
+        // Helper function to add at the top of the impl block
+        fn truncate(s: &str, max_len: usize) -> String {
+            if s.len() <= max_len {
+                format!("{:width$}", s, width = max_len)
+            } else {
+                format!("{}..{:width$}", &s[..max_len-3], "", width = 3)
             }
         }
     }
