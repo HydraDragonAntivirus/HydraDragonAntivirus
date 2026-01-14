@@ -176,7 +176,7 @@ impl Connector for Community {
         }
         match notify(
             config,
-            &format!("Ransomware detected! {}", proc.appname),
+            &format!("PUA or Malware detected! {}", proc.appname),
             report_path.to_str().unwrap_or(""),
         ) {
             Ok(()) => Ok(()),
