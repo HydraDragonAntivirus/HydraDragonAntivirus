@@ -1,0 +1,68 @@
+- name: "Trusted Signer Whitelist"
+  description: "This rule enforces that only executables signed by trusted vendors are allowed to run. Applications signed by vendors in the allowlist are permitted."
+  severity: 10
+  level: Critical
+  status: Stable
+  
+  stages:
+    - name: "Signature Check"
+      conditions:
+        - type: "Signature"
+          is_trusted: false
+
+  response:
+    terminate_process: true
+    quarantine: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: ".exe"
+      must_be_signed: true
+      signers:
+        - "ORACLE AMERICA, INC."
+        - "QUALCOMM ATHEROS"
+        - "DELL INC."
+        - "INTEL CORPORATION - INTELВ® RAPID STORAGE TECHNOLOGY"
+        - "INTEL CORPORATION - INTELВ® MANAGEMENT ENGINE FIRMWARE"
+        - "INTELВ® SERVICES MANAGER"
+        - "SAMSUNG ELECTRONICS CO., LTD."
+        - "INTEL CORPORATION - SOFTWARE AND FIRMWARE PRODUCTS"
+        - "MCAFEE, INC."
+        - "MALWAREBYTES CORPORATION"
+        - "MICROSOFT DYNAMIC CODE PUBLISHER"
+        - "NVIDIA CORPORATION"
+        - "ADVANCED MICRO DEVICES, INC."
+        - "ADOBE SYSTEMS INCORPORATED"
+        - "SKYPE SOFTWARE SARL"
+        - "OPERA SOFTWARE ASA"
+        - "MOZILLA CORPORATION"
+        - "AVG TECHNOLOGIES USA, INC."
+        - "HEWLETT-PACKARD COMPANY"
+        - "SYMANTEC CORPORATION"
+        - "GLARYSOFT LTD"
+        - "BITDEFENDER SRL"
+        - "AUTODESK, INC"
+        - "ASUSTEK COMPUTER INC."
+        - "AVAST SOFTWARE A.S."
+        - "ADOBE SYSTEMS, INCORPORATED"
+        - "REALTEK SEMICONDUCTOR CORP"
+        - "PARAGON TECHNOLOGIE GMBH"
+        - "REALNETWORKS, INC."
+        - "INTEL CORPORATION"
+        - "MOTOROLA SOLUTIONS INC."
+        - "INSOFT LLC"
+        - "HUAWEI TECHNOLOGIES CO., LTD."
+        - "COMODO SECURITY SOLUTIONS"
+        - "DOCTOR WEB LTD."
+        - "DROPBOX, INC"
+        - "CITRIX ONLINE"
+        - "WESTERN DIGITAL TECHNOLOGIES, INC."
+        - "PIRIFORM LTD"
+        - "MICROSOFT CORPORATION"
+        - "MICRO-STAR INTERNATIONAL CO., LTD."
+        - "CREATIVE TECHNOLOGY LTD"
+        - "AVG TECHNOLOGIES CZ, S.R.O."
+        - "SURFRIGHT B.V."
+        - "MICROSOFT WINDOWS PUBLISHER"
+        - "VMWARE, INC."
+        - "GOOGLE LLC"
