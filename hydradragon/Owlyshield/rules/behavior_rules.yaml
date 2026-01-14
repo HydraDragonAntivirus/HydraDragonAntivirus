@@ -471,7 +471,7 @@
   description: "Detailed recording for Exela.exe process activity and near-detections."
   severity: 1
   is_private: true
-  debug: false  # Enable debug to see what's being tracked
+  debug: false # Enable debug to see what's being tracked
   record_on_start: ["Exela.exe"]
   proximity_log_threshold: 10.0
   
