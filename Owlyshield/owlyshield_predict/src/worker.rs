@@ -793,7 +793,7 @@ pub mod worker_instance {
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(".", Some("WinVerifyTrust.yaml")),
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
 			}
@@ -851,7 +851,7 @@ pub mod worker_instance {
                 av_integration: None,
                 behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new("."),
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(".", Some("WinVerifyTrust.yaml")),
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
 			}

@@ -128,8 +128,8 @@ pub struct LearningStats {
     pub samples_exported: usize,
 }
 
-use crate::behavior_engine::{BehaviorRule, AllowlistEntry}; // Add this line
-use crate::windows::signature_verification::verify_signature; // Add this line
+#[cfg(target_os = "windows")]
+use crate::windows::signature_verification::verify_signature;
 
 impl RealtimeLearningEngine {
     /// Create a new real-time learning engine
@@ -314,7 +314,8 @@ impl RealtimeLearningEngine {
                         let info = verify_signature(path);
                         if info.is_trusted {
                             if let Some(signer) = info.signer_name {
-                                self.trusted_signer_patterns.iter().any(|p| signer.contains(p))
+                                // FIX: Add .as_str() to make types compatible
+                                self.trusted_signer_patterns.iter().any(|p| signer.contains(p.as_str()))
                             } else {
                                 false
                             }

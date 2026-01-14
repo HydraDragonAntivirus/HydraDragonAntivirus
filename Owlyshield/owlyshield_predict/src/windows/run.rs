@@ -170,10 +170,10 @@ pub fn run() {
                 {
                     use crate::realtime_learning::RealtimeLearningEngine;
                     let rules_dir = Path::new(&config[Param::RulesPath]);
-                    let learner = RealtimeLearningEngine::new(rules_dir.to_str().unwrap_or("."));
+                    let learner = RealtimeLearningEngine::new(rules_dir.to_str().unwrap_or("."), Some("WinVerifyTrust.yaml"));
                     
                     // 1. Process Quarantine Logs
-                    let quarantine_path = Path::new(r"C:\ProgramData\Owlyshield\Quarantine\quarantine_log.json");
+                    let quarantine_path = Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine_Log\quarantine_log.json");
                     let learned_rules = learner.process_quarantine_log(quarantine_path);
                     
                     if !learned_rules.is_empty() {

@@ -73,7 +73,7 @@ impl OwlyShieldSDK {
             None
         };
         let realtime_learning = if realtime_learning_enabled {
-            Some(RealtimeLearningEngine::new("./ml_data/realtime"))
+            Some(RealtimeLearningEngine::new("./ml_data/realtime", Some("WinVerifyTrust.yaml")))
         } else {
             None
         };

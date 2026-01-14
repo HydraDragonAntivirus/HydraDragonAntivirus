@@ -52,7 +52,7 @@ impl ThreatHandler for WindowsThreatHandler {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // 3. Prepare quarantine path
-        let quarantine_dir = std::path::Path::new(r"C:\ProgramData\Owlyshield\Quarantine");
+        let quarantine_dir = std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");
         if !quarantine_dir.exists() {
             let _ = std::fs::create_dir_all(quarantine_dir);
         }
