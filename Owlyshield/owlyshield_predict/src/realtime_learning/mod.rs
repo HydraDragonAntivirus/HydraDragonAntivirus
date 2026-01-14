@@ -272,7 +272,7 @@ impl OwlyShieldSDK {
     /// Export autonomous learned data
     pub fn export_autonomous_data(&mut self) -> Result<(), std::io::Error> {
         if let Some(ref mut autonomous) = self.autonomous_engine {
-            autonomous.export_learned_data()
+            autonomous.export_learned_rules_to_yaml()
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
