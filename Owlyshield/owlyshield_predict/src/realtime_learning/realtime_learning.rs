@@ -113,6 +113,9 @@ pub struct RealtimeLearningEngine {
 
     /// Output directory
     output_dir: String,
+
+    /// Trusted signer patterns loaded from WinVerifyTrust.yaml
+    trusted_signer_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -125,9 +128,12 @@ pub struct LearningStats {
     pub samples_exported: usize,
 }
 
+use crate::behavior_engine::{BehaviorRule, AllowlistEntry}; // Add this line
+use crate::windows::signature_verification::verify_signature; // Add this line
+
 impl RealtimeLearningEngine {
     /// Create a new real-time learning engine
-    pub fn new(output_dir: &str) -> Self {
+    pub fn new(output_dir: &str, trusted_signers_path: Option<&str>) -> Self {
         let mut engine = RealtimeLearningEngine {
             config: LearningConfig::default(),
             collector: MLCollector::with_config(
@@ -139,6 +145,7 @@ impl RealtimeLearningEngine {
             pending_collection: HashSet::new(),
             stats: LearningStats::default(),
             output_dir: output_dir.to_string(),
+            trusted_signer_patterns: Self::load_trusted_signer_patterns(trusted_signers_path),
         };
         // Initialize adaptive thresholds from system baseline
         engine.initialize_adaptive_thresholds();
@@ -157,7 +164,7 @@ impl RealtimeLearningEngine {
     }
 
     /// Create with custom configuration
-    pub fn with_config(config: LearningConfig, output_dir: &str) -> Self {
+    pub fn with_config(config: LearningConfig, output_dir: &str, trusted_signers_path: Option<&str>) -> Self {
         RealtimeLearningEngine {
             collector: MLCollector::with_config(
                 crate::realtime_learning::ml_collector::CollectionMode::Both,
@@ -169,7 +176,36 @@ impl RealtimeLearningEngine {
             pending_collection: HashSet::new(),
             stats: LearningStats::default(),
             output_dir: output_dir.to_string(),
+            trusted_signer_patterns: Self::load_trusted_signer_patterns(trusted_signers_path),
         }
+    }
+
+    /// Load trusted signer patterns from a YAML file
+    fn load_trusted_signer_patterns(path: Option<&str>) -> Vec<String> {
+        let mut patterns = Vec::new();
+        if let Some(p) = path {
+            let file_path = Path::new(p);
+            if file_path.exists() {
+                if let Ok(content) = fs::read_to_string(file_path) {
+                    if let Ok(rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
+                        for rule in rules {
+                            for entry in rule.allowlisted_apps {
+                                if let AllowlistEntry::Complex { signers, .. } = entry {
+                                    patterns.extend(signers);
+                                }
+                            }
+                        }
+                    } else {
+                        eprintln!("Failed to parse trusted signers YAML: {}", p);
+                    }
+                } else {
+                    eprintln!("Failed to read trusted signers file: {}", p);
+                }
+            } else {
+                eprintln!("Trusted signers file not found: {}", p);
+            }
+        }
+        patterns
     }
 
     /// Track a process (called when first seen)
@@ -269,13 +305,42 @@ impl RealtimeLearningEngine {
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs();
 
+            // Check if the process is signed by a trusted vendor
+            let is_trusted_signed_process = if let Some(precord) = process_records.get(gid) {
+                #[cfg(target_os = "windows")]
+                {
+                    let path = Path::new(&precord.exepath);
+                    if path.exists() {
+                        let info = verify_signature(path);
+                        if info.is_trusted {
+                            if let Some(signer) = info.signer_name {
+                                self.trusted_signer_patterns.iter().any(|p| signer.contains(p))
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    false
+                }
+            } else {
+                false
+            };
+
             // Criteria for benign (using adaptive thresholds):
             // 1. Running for minimum time (adaptive)
             // 2. Has minimum operations (adaptive)
-            // 3. No detections
-            if runtime >= self.config.min_runtime_for_benign
+            // 3. No detections OR is a trusted signed process
+            if (runtime >= self.config.min_runtime_for_benign
                 && state.operation_count >= self.config.min_operations_for_benign
-                && state.detection_count == 0
+                && state.detection_count == 0)
+                || is_trusted_signed_process
             {
                 to_label_benign.push(*gid);
             }
