@@ -10,8 +10,68 @@
 use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::process::ProcessRecord;
 use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
+use serde_yaml;
+use std::collections::{HashMap, BTreeMap};
 use std::time::{SystemTime, Duration};
+use chrono::{DateTime, Utc};
+
+// =================================================================================================
+// YAML Rule Structures (for serialization)
+// =================================================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct YamlRule {
+    name: String,
+    description: String,
+    author: String,
+    date: String,
+    severity: u8,
+    status: String,
+    level: String,
+    mitre_attack: Vec<String>,
+    tags: Vec<String>,
+    references: Vec<String>,
+    debug: bool,
+    time_window_ms: u64,
+    min_stages_satisfied: u8,
+    mapping: BTreeMap<String, Vec<BTreeMap<String, String>>>,
+    stages: Vec<YamlStage>,
+    response: YamlResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct YamlStage {
+    name: String,
+    conditions: Vec<YamlCondition>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct YamlCondition {
+    #[serde(rename = "type")]
+    condition_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    op: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    module_pattern: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct YamlResponse {
+    terminate_process: bool,
+    quarantine: bool,
+    auto_revert: bool,
+    record: bool,
+    block_network: bool,
+}
+
+
+// =================================================================================================
+// Original Behavioral Profile Structures
+// =================================================================================================
 
 /// Behavioral profile learned from process execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,16 +344,21 @@ impl AutonomousLearningEngine {
 
         // Determine if this is a threat
         let is_threat = threat_probability >= self.config.threat_threshold;
+        let reasoning = self.generate_reasoning(&profile, is_threat); // Generate reasoning here
 
         if is_threat {
             self.stats.high_threat_processes += 1;
-            println!("[Autonomous Learning] 🚨 HIGH THREAT detected: {} (GID: {}, Threat: {:.1}%, Anomaly: {:.2}, Novelty: {:.2})",
-                     profile.process_name, gid, threat_probability * 100.0, anomaly_score, novelty_score);
+            println!("[Autonomous Learning] 🚨 HIGH THREAT detected: {} (GID: {})
+  - Threat Probability: {:.1}%
+  - Anomaly Score:      {:.2}
+  - Novelty Score:      {:.2}
+  - Reasoning: {}",
+                     profile.process_name, gid, threat_probability * 100.0, anomaly_score, novelty_score, reasoning);
         }
 
         // Auto-export if needed
         if self.stats.profiles_collected % self.config.auto_export_interval == 0 {
-            let _ = self.export_learned_data();
+            let _ = self.export_learned_rules_to_yaml();
         }
 
         ThreatAssessment {
@@ -302,7 +367,7 @@ impl AutonomousLearningEngine {
             threat_probability,
             anomaly_score,
             novelty_score,
-            reasoning: self.generate_reasoning(&profile),
+            reasoning, // Pass reasoning to ThreatAssessment
         }
     }
 
@@ -741,54 +806,205 @@ impl AutonomousLearningEngine {
         }
     }
 
-    /// Generate human-readable reasoning
-    fn generate_reasoning(&self, profile: &BehavioralProfile) -> String {
+    /// **[MODIFIED]** Generate more detailed human-readable reasoning
+    fn generate_reasoning(&self, profile: &BehavioralProfile, is_threat: bool) -> String {
         let mut reasons = Vec::new();
 
         if profile.anomaly_score > self.config.anomaly_threshold {
-            reasons.push(format!("Statistical anomaly detected (score: {:.2})", profile.anomaly_score));
+            reasons.push(format!("High statistical anomaly (score: {:.2})", profile.anomaly_score));
         }
 
         let novelty_threshold = self.adaptive_novelty_threshold();
         if profile.novelty_score > novelty_threshold {
-            reasons.push(format!("Novel behavior pattern (novelty: {:.2})", profile.novelty_score));
+            reasons.push(format!("Novel/unseen behavior pattern (novelty: {:.2})", profile.novelty_score));
         }
 
         let injection_threshold = self.adaptive_injection_threshold();
         if profile.api_categories_ratio.injection_ratio > injection_threshold {
-            reasons.push("High injection API usage".to_string());
+            reasons.push(format!("High ratio of process injection APIs ({:.1}%)", profile.api_categories_ratio.injection_ratio * 100.0));
+        }
+        
+        if profile.process_interaction.injects_into_processes {
+            reasons.push("Observed injection into other processes".to_string());
         }
 
         if profile.memory_allocation_pattern.external_allocation {
-            reasons.push("External memory allocation detected".to_string());
+            reasons.push("Allocated memory in an external process".to_string());
         }
 
         if profile.file_operation_pattern.mass_operations {
-            reasons.push("Mass file operations detected".to_string());
+            reasons.push("Conducted mass file operations (potential ransomware)".to_string());
+        }
+        
+        if profile.file_operation_pattern.entropy_average > 7.0 {
+            reasons.push(format!("High entropy file writes ({:.2}), suggesting encryption", profile.file_operation_pattern.entropy_average));
+        }
+        
+        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2 {
+            reasons.push(format!("Suspicious network activity (connections/min: {:.1})", profile.network_behavior.connections_per_minute));
         }
 
         if reasons.is_empty() {
-            "Normal behavior".to_string()
+            if is_threat { "Behavioral profile matches known threat patterns.".to_string() } else { "Normal behavior".to_string() }
         } else {
             reasons.join("; ")
         }
     }
 
-    /// Export learned behavioral data
-    pub fn export_learned_data(&self) -> Result<(), std::io::Error> {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    /// **[NEW]** Generate a single Owlyshield YAML rule from a behavioral profile.
+    fn generate_owlyshield_rule(&self, profile: &BehavioralProfile) -> YamlRule {
+        let now: DateTime<Utc> = Utc::now();
+        let mut stages = Vec::new();
+        let mut stage_names = Vec::new();
 
-        let filename = format!("./ml_data/autonomous/learned_behaviors_{}.json", timestamp);
+        // Stage: Process Injection
+        if profile.api_categories_ratio.injection_ratio > self.adaptive_injection_threshold() || profile.process_interaction.injects_into_processes {
+            let stage_name = "Suspicious Process Behavior".to_string();
+            stages.push(YamlStage {
+                name: stage_name.clone(),
+                conditions: vec![
+                    YamlCondition {
+                        condition_type: "Api".to_string(),
+                        op: None,
+                        pattern: None,
+                        name_pattern: Some("(?i)(VirtualAllocEx|WriteProcessMemory|CreateRemoteThread|NtCreateThreadEx|QueueUserAPC)".to_string()),
+                        module_pattern: Some("(?i)(kernel32|kernelbase|ntdll)\\.dll".to_string()),
+                    },
+                ],
+            });
+            stage_names.push(stage_name);
+        }
 
-        let data = serde_json::to_string_pretty(&self.behavioral_profiles)?;
-        std::fs::create_dir_all("./ml_data/autonomous")?;
-        std::fs::write(&filename, data)?;
+        // Stage: Defense Evasion
+        if profile.api_categories_ratio.evasion_ratio > self.adaptive_evasion_threshold() {
+            let stage_name = "Defense Evasion".to_string();
+            stages.push(YamlStage {
+                name: stage_name.clone(),
+                conditions: vec![
+                    YamlCondition {
+                        condition_type: "Process".to_string(),
+                        op: Some("CommandLine".to_string()),
+                        pattern: Some("(?i)(netsh.*firewall.*set.*disable|wevtutil.*cl)".to_string()),
+                        name_pattern: None,
+                        module_pattern: None,
+                    },
+                ],
+            });
+            stage_names.push(stage_name);
+        }
 
-        println!("[Autonomous Learning] 💾 Exported {} behavioral profiles to: {}",
-                 self.behavioral_profiles.len(), filename);
+        // Stage: Ransomware Behavior
+        if profile.file_operation_pattern.mass_operations || profile.api_categories_ratio.ransomware_ratio > 0.1 {
+            let stage_name = "Ransomware Precursors".to_string();
+            stages.push(YamlStage {
+                name: stage_name.clone(),
+                conditions: vec![
+                    YamlCondition {
+                        condition_type: "Process".to_string(),
+                        op: Some("CommandLine".to_string()),
+                        pattern: Some("(?i)(vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete)".to_string()),
+                        name_pattern: None,
+                        module_pattern: None,
+                    },
+                ],
+            });
+            stage_names.push(stage_name);
+        }
+        
+        // Stage: Network C2
+        if profile.network_behavior.has_network && profile.api_categories_ratio.internet_ratio > 0.2 {
+            let stage_name = "Network C2 Patterns".to_string();
+            stages.push(YamlStage {
+                name: stage_name.clone(),
+                conditions: vec![
+                    YamlCondition {
+                        condition_type: "Network".to_string(),
+                        op: Some("Connect".to_string()),
+                        pattern: None,
+                        name_pattern: None,
+                        module_pattern: None,
+                    },
+                ],
+            });
+            stage_names.push(stage_name);
+        }
+
+        // Create the mapping
+        let mut mapping = BTreeMap::new();
+        let mut or_conditions = Vec::new();
+        for name in &stage_names {
+            let mut stage_map = BTreeMap::new();
+            stage_map.insert("stage".to_string(), name.clone());
+            or_conditions.push(stage_map);
+        }
+        mapping.insert("or".to_string(), or_conditions);
+
+        YamlRule {
+            name: format!("HEUR/ML.Learned.Win32.{}.{}", profile.process_name.replace(".exe", ""), profile.gid),
+            description: format!("Automatically generated rule for {}. Threat Score: {:.1}%. Details: {}", profile.process_name, profile.threat_probability * 100.0, self.generate_reasoning(profile, true)),
+            author: "HydraDragon Autonomous Engine".to_string(),
+            date: now.format("%Y-%m-%d").to_string(),
+            severity: (profile.threat_probability * 10.0) as u8,
+            status: "generated".to_string(),
+            level: "critical".to_string(),
+            mitre_attack: vec!["T1055".to_string(), "T1562".to_string()], // Placeholder
+            tags: vec!["machine_learning".to_string(), "autonomous_rule".to_string(), "heuristic".to_string()],
+            references: vec!["Internal Observation".to_string()],
+            debug: false,
+            time_window_ms: 120000,
+            min_stages_satisfied: 1,
+            mapping,
+            stages,
+            response: YamlResponse {
+                terminate_process: true,
+                quarantine: true,
+                auto_revert: false,
+                record: true,
+                block_network: profile.network_behavior.has_network,
+            },
+        }
+    }
+
+    /// **[MODIFIED]** Export learned rules to a single YAML file.
+    pub fn export_learned_rules_to_yaml(&self) -> Result<(), std::io::Error> {
+        const FILENAME: &str = "learned_rules.yaml";
+        let mut new_rules = Vec::new();
+
+        for profile in self.behavioral_profiles.values() {
+            if profile.threat_probability >= self.config.threat_threshold {
+                let rule = self.generate_owlyshield_rule(profile);
+                new_rules.push(rule);
+            }
+        }
+
+        if new_rules.is_empty() {
+            return Ok(()); // Nothing to export
+        }
+
+        // Read existing rules if the file exists
+        let mut all_rules: Vec<YamlRule> = if std::path::Path::new(FILENAME).exists() {
+            let file = std::fs::File::open(FILENAME)?;
+            serde_yaml::from_reader(file).unwrap_or_else(|e| {
+                println!("[Autonomous Learning] ⚠️ Could not parse existing YAML file '{}': {}. Starting fresh.", FILENAME, e);
+                Vec::new()
+            })
+        } else {
+            Vec::new()
+        };
+
+        // Add new rules, avoiding duplicates by name
+        for new_rule in new_rules {
+            if !all_rules.iter().any(|r| r.name == new_rule.name) {
+                all_rules.push(new_rule);
+            }
+        }
+
+        // Write all rules back to the file
+        let yaml_data = serde_yaml::to_string(&all_rules).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(FILENAME, yaml_data)?;
+
+        println!("[Autonomous Learning] 💾 Exported {} total learned rules to: {}",
+                 all_rules.len(), FILENAME);
 
         Ok(())
     }
