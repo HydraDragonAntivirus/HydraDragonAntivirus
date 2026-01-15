@@ -1441,7 +1441,7 @@ impl BehaviorEngine {
             };
 
             // Prepare dummy matrix (since this is rule-based, not ML)
-            let pred_mtrx = VecvecCappedF32::default();
+            let pred_mtrx = VecvecCappedF32::new(crate::predictions::prediction::PREDMTRXCOLS, crate::predictions::prediction::PREDMTRXROWS);
 
             if rule.response.terminate_process {
                 precord.termination_requested = true;

@@ -35,7 +35,7 @@ pub fn run() {
 
     // Load config and app settings once and reuse
     let config = config::Config::new();
-    let current_exe_path = std::env::current_exe().unwrap();
+    let _current_exe_path = std::env::current_exe().unwrap();
     let rules_dir = PathBuf::from(&config[Param::RulesPath]);
     let app_settings = AppSettings::load(&rules_dir)
         .expect("Failed to load app settings from rules/settings.yaml");
@@ -83,7 +83,7 @@ pub fn run() {
 
             match rmp_serde::from_slice(&buf[0..cursor_record_end]) {
                 Ok(mut iomsg) => {
-                    worker.process_io(&mut iomsg);
+                    worker.process_io(&mut iomsg, &config);
                 }
                 Err(_e) => {
                     println!("Error deserializing buffer {cursor_index}"); // buffer is too small
@@ -228,7 +228,7 @@ pub fn run() {
 
             loop {
                 let mut iomsg = rx_iomsgs.recv().unwrap();
-                worker.process_io(&mut iomsg);
+                worker.process_io(&mut iomsg, &thread_config);
 
                 if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
                     worker.process_suspended_records(&thread_config, Box::new(WindowsThreatHandler::from(driver)));

@@ -1,17 +1,18 @@
-- name: "Unified Browser Stealer Detection"
-  description: "Detects multi-stage browser credential theft: Access -> Collection -> Staging -> Exfiltration."
+- name: "Unified Advanced Stealer Detection"
+  description: "Detects multi-stage browser theft, Discord injection, and Exela-style persistence with certificate validation."
   
-  # --- Metadata (Matches Rust structs) ---
-  severity: 90
+  # --- Metadata ---
+  severity: 95
   level: critical
   status: stable
   mitre_attack:
     - "T1555.003" # Credentials from Web Browsers
     - "T1074.001" # Data Staged
     - "T1560"     # Archive Collected Data
-  
-  # --- Legacy Stealer Logic (Still supported by lines 453-500) ---
-  # Keeping these ensures the 'has_stealer_logic' check in Rust (line 456) passes immediately
+    - "T1574.002" # Hijack Execution Flow (Discord Injection)
+    - "T1053.005" # Scheduled Task (Persistence)
+
+  # --- Legacy Stealer Logic (Maintained for Rust line 456 check) ---
   browser_paths:
     - "Google\\Chrome\\User Data"
     - "Opera Software\\Opera Stable"
@@ -25,81 +26,105 @@
     - "Local State"
   staging_paths:
     - "AppData\\Local\\Temp"
-  
-  # --- NEW: Stage-Based Logic (The core of the new engine) ---
-  # This maps to the `stages` Vec<AttackStage> in your Rust code (line 217)
+
+  # --- NEW: Stage-Based Behavioral Logic ---
   min_stages_satisfied: 2
-  time_window_ms: 60000  # Correlate events within 60 seconds
-  
+  time_window_ms: 60000 
+
   stages:
-    - name: "Sensitive_File_Access"
+    # STAGE 1: Browser & Crypto Harvesting
+    - name: "Sensitive_Data_Access"
       conditions:
-        # Check 1: Reading sensitive files (Uses RuleCondition::File)
         - type: "File"
           op: "Read"
           path_pattern: "*\\User Data\\*\\Login Data"
         
-        # Check 2: High Entropy Read (Uses RuleCondition::Heuristic)
+        # High Entropy check for encrypted DB reads
         - type: "Heuristic"
           metric: "Entropy"
-          threshold: 6.5
+          threshold: 6.8
           
-        # Check 3: Accessing multiple distinct browser paths (Uses RuleCondition::SensitivePathAccess)
+        # Exela specific: Detects access to multiple Wallet Extension IDs
         - type: "SensitivePathAccess"
           op_type: "Read"
           min_unique_paths: 2
           patterns:
-            - "*\\Google\\Chrome\\User Data\\*"
-            - "*\\Microsoft\\Edge\\User Data\\*"
-            - "*\\BraveSoftware\\*"
+            - "*\\nkbihfbeogaeaoehlefnkodbefgpgknn\\*" # MetaMask
+            - "*\\bfnaelmomeimhlpmgjnjophhpkkoljpa\\*" # Phantom
+            - "*\\Local Storage\\leveldb\\*.ldb"        # Discord/Electron Tokens
 
-    - name: "Data_Staging_Archive"
+    # STAGE 2: Discord Injection & Modification
+    - name: "Client_Integrity_Violation"
       conditions:
-        # Check 1: Writing to Temp (Uses RuleCondition::TempDirectoryWrite)
-        - type: "TempDirectoryWrite"
-          min_bytes: 1024  # 1KB minimum
-          min_files: 1
-          
-        # Check 2: Creating Archives (Uses RuleCondition::ArchiveCreation)
-        - type: "ArchiveCreation"
-          extensions: ["zip", "rar", "7z", "tar"]
-          in_temp: true
-          
-        # Check 3: Extension Pattern match (Uses RuleCondition::ExtensionPattern)
-        - type: "ExtensionPattern"
-          op_type: "Write"
-          match_mode: "any"
-          patterns: ["*.zip", "*.tmp", "*.dat"]
+        # Exela's Injection method: Writing to the Discord core index.js
+        - type: "File"
+          op: "Write"
+          path_pattern: "*\\modules\\discord_desktop_core\\index.js"
+        
+        # Killing Discord to unlock files for injection
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "*taskkill* /IM *discord.exe*"
 
+    # STAGE 3: Persistence & Recon (Exela Initialization)
+    - name: "Persistence_and_Recon"
+      conditions:
+        # Detects Exela's specific 'schtasks' persistence and VM checks
+        - type: "CommandLineMatch"
+          match_mode: "any"
+          patterns:
+            - pattern: "*schtasks*/create*/tn*UpdateService*" # Exela default task
+            - pattern: "*wmic*csproduct*get*uuid*"            # Anti-VM/ID Fingerprint
+            - pattern: "*reg*add*CurrentVersion\\Run*"
+        
+        # File-based persistence
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\AppData\\Local\\*UpdateService\\*.exe"
+
+    # STAGE 4: Exfiltration & Staging
     - name: "Exfiltration_Attempt"
       conditions:
-        # Check 1: Network Activity (Uses RuleCondition::Network)
-        - type: "Network"
-          op: "Connect"
-        
-        # Check 2: Bytes Sent/Written Threshold (Uses RuleCondition::ByteThreshold)
+        - type: "ArchiveCreation"
+          extensions: ["zip", "rar", "7z"]
+          in_temp: true
+          min_size: 20480 # 20KB min to avoid noise
+          
         - type: "ByteThreshold"
           direction: "write"
           comparison: "gt"
-          threshold: 50000 # >50KB written
+          threshold: 204800 # 200KB upload/write threshold
 
-  # --- Advanced Config ---
+  # --- Advanced Certificate-Based Allowlisting ---
+  # Only allows these apps if they are signed by the official vendor
   allowlisted_apps:
-    # Uses AllowlistEntry::Simple
-    - "chrome.exe"
-    - "msedge.exe"
-    - "brave.exe"
-    - "opera.exe"
-    # Uses AllowlistEntry::Complex (New feature in your code!)
+    - pattern: "explorer.exe"
+      must_be_signed: true
+      signers: ["Microsoft Windows", "Microsoft Corporation"]
+    
+    - pattern: "chrome.exe"
+      must_be_signed: true
+      signers: ["Google LLC"]
+    
+    - pattern: "msedge.exe"
+      must_be_signed: true
+      signers: ["Microsoft Corporation"]
+    
     - pattern: "firefox.exe"
       must_be_signed: true
-      signers: 
-        - "Mozilla Corporation"
-        - "Mozilla Foundation"
+      signers: ["Mozilla Corporation", "Mozilla Foundation"]
+    
+    - pattern: "brave.exe"
+      must_be_signed: true
+      signers: ["Brave Software, Inc."]
+    
+    - pattern: "opera.exe"
+      must_be_signed: true
+      signers: ["Opera Software.*", "Opera Norway AS"]
 
-  # --- Response Actions (Matches ResponseAction struct) ---
+  # --- Response Actions ---
   response:
-    record: true          # Triggers 'state.is_recording = true'
+    record: true
     terminate_process: true
     quarantine: true
     auto_revert: false

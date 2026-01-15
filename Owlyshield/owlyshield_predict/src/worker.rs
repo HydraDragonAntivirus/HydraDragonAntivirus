@@ -861,7 +861,7 @@ pub mod worker_instance {
 			}
 		}
 
-        pub fn process_io(&mut self, iomsg: &mut IOMessage) {
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
@@ -884,9 +884,8 @@ pub mod worker_instance {
                     precord.add_irp_record(iomsg, None);
                 }
 
-                // --- ADDED: Process event in behavior engine ---
-                self.behavior_engine.process_event(precord, iomsg);
-
+                // Pass the config argument directly to the behavior engine
+                self.behavior_engine.process_event(precord, iomsg, config);
                 // --- ADDED: Update learning engine activity ---
                 #[cfg(feature = "realtime_learning")]
                 {
