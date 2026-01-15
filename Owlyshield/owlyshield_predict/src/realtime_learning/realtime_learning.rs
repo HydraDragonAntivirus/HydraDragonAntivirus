@@ -196,13 +196,13 @@ impl RealtimeLearningEngine {
                             }
                         }
                     } else {
-                        eprintln!("Failed to parse trusted signers YAML: {}", p);
+                        crate::logging::Logging::error(&format!("Failed to parse trusted signers YAML: {}", p));
                     }
                 } else {
-                    eprintln!("Failed to read trusted signers file: {}", p);
+                    crate::logging::Logging::error(&format!("Failed to read trusted signers file: {}", p));
                 }
             } else {
-                eprintln!("Trusted signers file not found: {}", p);
+                crate::logging::Logging::error(&format!("Trusted signers file not found: {}", p));
             }
         }
         patterns
@@ -314,7 +314,11 @@ impl RealtimeLearningEngine {
                         let info = verify_signature(path);
                         if info.is_trusted {
                             if let Some(signer) = info.signer_name {
-                                self.trusted_signer_patterns.iter().any(|p| signer.as_str().contains(p.as_str()))
+                                let is_trusted_pattern = self.trusted_signer_patterns.iter().any(|p| signer.as_str().contains(p.as_str()));
+                                if is_trusted_pattern {
+                                    crate::logging::Logging::info(&format!("Process {} (GID: {}) is signed by trusted vendor: {}", state.process_name, state.gid, signer));
+                                }
+                                is_trusted_pattern
                             } else {
                                 false
                             }

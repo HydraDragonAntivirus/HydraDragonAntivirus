@@ -9,6 +9,7 @@ extern crate num_derive;
 
 pub mod actions_on_kill;
 pub mod config;
+pub mod app_settings;
 pub mod connectors;
 pub mod csvwriter;
 pub mod extensions;

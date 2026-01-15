@@ -101,6 +101,7 @@ use crate::worker::worker_instance::{IOMsgPostProcessorMqtt, IOMsgPostProcessorR
 
 mod actions_on_kill;
 mod config;
+mod app_settings;
 mod connectors;
 mod csvwriter;
 #[cfg(target_os = "windows")]

@@ -1,0 +1,2 @@
+behavior_rules_path: "behavior_rules.yaml"
+win_verify_trust_path: "WinVerifyTrust.yaml"
