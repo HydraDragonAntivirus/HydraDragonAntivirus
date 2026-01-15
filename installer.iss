@@ -97,6 +97,14 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: 0; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788"; 
+ValueType: string; ValueName: "DisplayName"; 
+ValueData: "HydraDragon Antivirus"; Flags: uninsdeletekey
+
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\8C19967B-1D27-4E6A-85CD-5059912C2788"; 
+ValueType: string; ValueName: "IconUri"; 
+ValueData: "{app}\hydradragon\assets\HydraDragonAV.ico"
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
