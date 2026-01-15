@@ -154,26 +154,20 @@ impl Connector for Community {
         _prediction: f32,
     ) -> Result<(), ConnectorError> {
         let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
+        if let Err(e) = std::fs::create_dir_all(&report_dir) {
+            error!("Cannot create report directory: {}", e);
+            Logging::error(format!("Cannot create report directory: {}", e).as_str());
+            // even if we can't create the dir, we can still send a notification without a path
+        }
         let now = (DateTime::from(SystemTime::now()) as DateTime<Local>)
             .format(FILE_TIME_FORMAT)
             .to_string();
-        let report_path = if !report_dir.exists() {
-            PathBuf::from("")
-        } else {
-            report_dir.join(Path::new(&format!(
-                "{}_{}_report_{}.html",
-                &proc.appname.replace('.', "_"),
-                now,
-                &proc.gid,
-            )))
-        };
-        if !report_dir.exists() {
-            error!(
-                "Cannot read report file: dir does not exist: {}",
-                report_dir.to_str().unwrap()
-            );
-            Logging::error(format!("Cannot read report file: dir does not exist: {}", report_dir.to_str().unwrap()).as_str());
-        }
+        let report_path = report_dir.join(Path::new(&format!(
+            "{}_{}_report_{}.html",
+            &proc.appname.replace('.', "_"),
+            now,
+            &proc.gid,
+        )));
         match notify(
             config,
             &format!("PUA or Malware detected! {}", proc.appname),

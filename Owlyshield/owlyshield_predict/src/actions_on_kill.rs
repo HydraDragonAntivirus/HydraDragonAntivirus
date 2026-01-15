@@ -87,13 +87,7 @@ impl ActionOnKill for WriteReportFile {
         now: &str,
     ) -> Result<(), Box<dyn Error>> {
         let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
-        if !report_dir.exists() {
-            error!(
-                "Cannot Write report file: dir does not exist: {}",
-                report_dir.to_str().unwrap()
-            );
-            Logging::error(format!("Cannot Write report file: dir does not exist: {}", report_dir.to_str().unwrap()).as_str());
-        } else {
+        std::fs::create_dir_all(&report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
             let temp = report_dir.join(Path::new(&format!(
                 "{}_{}_report_{}.log",
@@ -128,7 +122,6 @@ impl ActionOnKill for WriteReportFile {
             for f in &proc.fpaths_updated {
                 file.write_all(format!("\t{f:?}\n").as_bytes())?;
             }
-        }
         Ok(())
     }
 }
@@ -144,13 +137,7 @@ impl ActionOnKill for WriteReportHtmlFile {
         now: &str,
     ) -> Result<(), Box<dyn Error>> {
         let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
-        if !report_dir.exists() {
-            error!(
-                "Cannot Write report file: dir does not exist: {}",
-                report_dir.to_str().unwrap()
-            );
-            Logging::error(format!("Cannot Write report file: dir does not exist: {}", report_dir.to_str().unwrap()).as_str());
-        } else {
+        std::fs::create_dir_all(&report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
             let temp = match proc.process_state {
                 ProcessState::Suspended => report_dir.join(Path::new(&format!(
@@ -208,7 +195,6 @@ impl ActionOnKill for WriteReportHtmlFile {
             file.write_all(b"</select></td></tr></table></div>\n")?;
             file.write_all(b"<script>function openTab(evt, tab) {	var i, tabcontent, tablinks;	tabcontent = document.getElementsByClassName('tabcontent');	for (i = 0; i != tabcontent.length; i++) {		tabcontent[i].style.display = 'none';	}	tablinks = document.getElementsByClassName('tablinks');	for (i = 0; i != tablinks.length; i++) {		tablinks[i].className = tablinks[i].className.replace(' active', '');	}	document.getElementById(tab).style.display = 'block';	evt.currentTarget.className += ' active';}document.getElementById('defaultOpen').click();</script>\n")?;
             file.write_all(b"</body></html>")?;
-        }
         Ok(())
     }
 }
