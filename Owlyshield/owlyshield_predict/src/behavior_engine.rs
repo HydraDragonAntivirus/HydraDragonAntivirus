@@ -6,8 +6,12 @@ use regex::Regex;
 
 // --- EDR Telemetry & Framework ---
 use crate::shared_def::{IOMessage, IrpMajorOp};
-use crate::process::ProcessRecord;
+use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
+use crate::config::Config;
+use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+use crate::predictions::prediction::input_tensors::VecvecCappedF32;
+
 use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 #[derive(Clone, Debug)]
@@ -802,26 +806,6 @@ impl BehaviorEngine {
         }
     }
 
-    /// Helper to execute rule response actions
-    fn execute_rule_response(&mut self, rule: &BehaviorRule, state: &ProcessBehaviorState, proc_name: &str) {
-        if rule.is_private {
-            // Private rules only update state, they don't trigger alerts or actions
-            return;
-        }
-
-        Logging::warning(&format!("[HYDRADRAGON ALERT] Policy Breached: {} | Process: {}", rule.name, proc_name));
-        
-        if rule.response.terminate_process {
-            if let Some(proc) = self.sys.process(sysinfo::Pid::from(state.pid as usize)) {
-                proc.kill();
-                Logging::warning(&format!("[ACTION] Terminated process '{}' (PID: {})", proc_name, state.pid));
-            }
-        }
-
-        // Note: quarantine and other actions would need access to ProcessRecord
-        // For periodic scans, you might want to track these for later execution
-    }
-
     /// Refresh process list, track terminations, AND detect new processes
     fn track_process_terminations(&mut self) {
             let now = SystemTime::now();
@@ -1203,7 +1187,7 @@ impl BehaviorEngine {
     }
 
 
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config) {
         // 1. Refresh process list (Throttled internally to 1s to prevent lag)
         self.track_process_terminations(); 
 
@@ -1448,57 +1432,42 @@ impl BehaviorEngine {
             } else {
                 state.process_ancestry.join(" -> ")
             };
-
-            Logging::warning(&format!(
-                "\n╔═══════════════════════════════════════════════════════════╗\n\
-                ║ [HYDRADRAGON ALERT] Policy Breach Detected               ║\n\
-                ╠═══════════════════════════════════════════════════════════╣\n\
-                ║ Rule:        {:50}║\n\
-                ║ Severity:    {:<50}║\n\
-                ║ Level:       {:?} {:<42}║\n\
-                ║ Description: {:50}║\n\
-                ╠═══════════════════════════════════════════════════════════╣\n\
-                ║ Process:     {:50}║\n\
-                ║ PID:         {:<50}║\n\
-                ║ Path:        {:50}║\n\
-                ║ Command:     {:50}║\n\
-                ║ Parent:      {:50}║\n\
-                ║ Ancestry:    {:50}║\n\
-                ╠═══════════════════════════════════════════════════════════╣\n\
-                ║ Matched Stages: {:<43}║\n\
-                ║ File Ops:    R:{:<5} W:{:<5} D:{:<5} Created:{:<5}        ║\n\
-                ║ Bytes:       Read:{:<10} Written:{:<10}           ║\n\
-                ║ Entropy:     Max:{:.2} Avg:{:.2}                          ║\n\
-                ╚═══════════════════════════════════════════════════════════╝",
-                truncate(&rule.name, 50),
-                truncate(&format!("{}", rule.severity), 50),
-                rule.level,
-                "",
-                truncate(&rule.description, 50),
-                truncate(&state.appname, 50),
-                state.pid,
-                truncate(&precord.exepath.to_string_lossy(), 50),
-                truncate(&state.cmdline, 50),
-                truncate(&state.parent_name, 50),
-                truncate(&ancestry, 50),
-                truncate(&satisfied_stages_list.join(", "), 43),
-                precord.ops_read,
-                precord.ops_written,
-                precord.files_deleted.len(),
-                precord.fpaths_created.len(),
-                precord.bytes_read,
-                precord.bytes_written,
-                state.entropy_max,
-                if state.entropy_count > 0 { state.entropy_sum / state.entropy_count as f64 } else { 0.0 }
-            ));
             
+            // Construct ThreatInfo for ActionsOnKill
+            let threat_info = ThreatInfo {
+                threat_type_label: "Behavioral Rule",
+                virus_name: &rule.name,
+                prediction: 1.0, 
+            };
+
+            // Prepare dummy matrix (since this is rule-based, not ML)
+            let pred_mtrx = VecvecCappedF32::default();
+
             if rule.response.terminate_process {
                 precord.termination_requested = true;
                 precord.is_malicious = true;
-                if let Some(proc) = self.sys.process(sysinfo::Pid::from(state.pid as usize)) {
-                    proc.kill();
-                    Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) TERMINATED", state.appname, state.pid));
-                }
+                precord.time_killed = Some(SystemTime::now());
+
+                // Use ActionsOnKill instead of manual kill/logging
+                ActionsOnKill::new().run_actions_with_info(
+                    config,
+                    precord,
+                    &pred_mtrx,
+                    &threat_info,
+                );
+            }
+
+            if rule.response.suspend_process {
+                // For suspend, we also trigger kernel-based actions (reporting/logging)
+                precord.termination_requested = true; // Signal intent to driver if supported, or treat as kill flow
+                precord.process_state = ProcessState::Suspended; // Update state for the report
+                
+                ActionsOnKill::new().run_actions_with_info(
+                    config,
+                    precord,
+                    &pred_mtrx,
+                    &threat_info,
+                );
             }
 
             if rule.response.quarantine {
