@@ -85,16 +85,18 @@ public class DecompileAndSave extends GhidraScript {
             return;
         }
 
-        // Determine program file size (best-effort). Use DomainFile if available, otherwise
-        // fall back to summing memory block sizes.
+        // Determine program file size by summing memory block sizes
         long programSize = -1;
         try {
-            DomainFile df = program.getDomainFile();
-            if (df != null) {
-                programSize = df.getLength();
+            programSize = 0;
+            for (MemoryBlock block : program.getMemory().getBlocks()) {
+                if (block.isInitialized() && !block.isOverlay()) {
+                    programSize += block.getSize();
+                }
             }
         } catch (Exception e) {
-            // ignore and fallback below
+            // If we can't determine, set -1 to indicate unknown
+            programSize = -1;
         }
 
         if (programSize < 0) {
