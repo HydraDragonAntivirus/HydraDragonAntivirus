@@ -539,7 +539,7 @@ def main():
 
     # 7. Update Hayabusa rules
     HAYABUSA_DIR = HYDRADRAGON_PATH / "hayabusa"
-    HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.6.0-win-x64.exe"
+    HAYABUSA_EXE = HAYABUSA_DIR / "hayabusa-3.7.0-win-x64.exe"
 
     if HAYABUSA_EXE.exists():
         # Change to Hayabusa directory so it can find its DLLs
