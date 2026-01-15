@@ -1104,58 +1104,74 @@
     # ========================================================================
     # STAGE 30: RANSOMWARE PRECURSORS
     # ========================================================================
+
     - name: "Ransomware Precursors"
-      conditions:
-        # Backup deletion commands (from Sigma God Mode)
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)(vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete|wbadmin.*delete.*catalog|bcdedit.*/set.*recoveryenabled)"
-        
-        # Mass file operations
-        - type: "RateOfChange"
-          metric: "files_per_second"
-          comparison: "gte"
-          threshold: 5.0
-        
-        # Extension changes
-        - type: "ExtensionChangeVelocity"
-          time_window_ms: 30000
-          comparison: "gte"
-          threshold: 50
-        
-        # Ransom note creation
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\(HOW_TO_DECRYPT|README|DECRYPT|RESTORE|RECOVERY)*.(txt|html)"
+      level: critical
+      status: stable
+
+      min_stages_satisfied: 2   # Must hit at least 2 conditions
+
+      stages:
+        - name: "Precursor Detection"
+          conditions:
+
+            # Shadow copy deletion commands (strict match)
+            - type: "Process"
+              op: "CommandLine"
+              pattern: '(?i)^(vssadmin|wmic|wbadmin)(\.exe)?\s+.*delete.*shadow'
+
+            # High-volume file rewrite typical of encryption
+            - type: "RateOfChange"
+              metric: "files_per_second"
+              comparison: "gte"
+              threshold: 50.0
+
+            # Rapid extension rewrite (encryption behavior)
+            - type: "ExtensionChangeVelocity"
+              time_window_ms: 30000
+              comparison: "gte"
+              threshold: 500
+
+            # Ransom note creation
+            - type: "File"
+              op: "Create"
+              path_pattern: '*\\(HOW_TO_DECRYPT|_READ_ME_).(txt|html)'
+
 
     # ========================================================================
-    # STAGE 31: SHADOW COPY TAMPERING
+    # STAGE 31: SHADOW COPY TAMPERING (FALSE-POSITIVE SAFE)
     # ========================================================================
+
     - name: "Shadow Copy Tampering"
-      conditions:
-        # VSS deletion (from YARA God Mode)
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)(vssadmin.*delete.*shadows|vssadmin.exe.*delete.*shadows)"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)(\\.exe.*delete.*shadows)"
-        
-        # WMIC shadow deletion
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)(wmic.*shadowcopy.*delete|shadowcopy.*delete)"
-        
-        # Wbadmin catalog deletion
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)(wbadmin.*delete.*catalog.*-quiet)"
-        
-        # Volume Shadow Service manipulation
-        - type: "Service"
-          op: "Stop"
-          name_pattern: "VSS"
+      level: critical
+      status: stable
+
+      # Require TWO separate hits before triggering
+      min_stages_satisfied: 2
+
+      stages:
+        - name: "Shadow Deletion Attempt"
+          conditions:
+
+            # Exact vssadmin delete shadows
+            - type: "Process"
+              op: "CommandLine"
+              pattern: '(?i)^vssadmin(\.exe)?\s+delete\s+shadows'
+
+            # Exact wmic shadowcopy delete
+            - type: "Process"
+              op: "CommandLine"
+              pattern: '(?i)^wmic(\.exe)?\s+shadowcopy\s+delete'
+
+            # Exact wbadmin delete catalog
+            - type: "Process"
+              op: "CommandLine"
+              pattern: '(?i)^wbadmin(\.exe)?\s+delete\s+catalog'
+
+            # Attempt to stop Volume Shadow Copy service
+            - type: "Service"
+              op: "Stop"
+              name_pattern: '^VSS$'
 
     # ========================================================================
     # STAGE 32: MASS FILE ENCRYPTION PREP
