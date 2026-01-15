@@ -1,8 +1,8 @@
 - name: "Trusted Signer Whitelist"
   description: "This rule enforces that only executables signed by trusted vendors are allowed to run. Applications signed by vendors in the allowlist are permitted."
   severity: 10
-  level: Critical
-  status: Stable
+  level: critical
+  status: stable
   
   stages:
     - name: "Signature Check"
