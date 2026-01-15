@@ -538,7 +538,6 @@ pub struct ResponseAction {
     #[serde(default)] pub terminate_process: bool,
     #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
-    #[serde(default)] pub block_network: bool, // TODO: Finish this based on firewall
     #[serde(default)] pub auto_revert: bool,
     #[serde(default)] pub record: bool,
 }
