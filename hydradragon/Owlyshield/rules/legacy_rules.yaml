@@ -1,0 +1,105 @@
+- name: "Unified Browser Stealer Detection"
+  description: "Detects multi-stage browser credential theft: Access -> Collection -> Staging -> Exfiltration."
+  
+  # --- Metadata (Matches Rust structs) ---
+  severity: 90
+  level: critical
+  status: stable
+  mitre_attack:
+    - "T1555.003" # Credentials from Web Browsers
+    - "T1074.001" # Data Staged
+    - "T1560"     # Archive Collected Data
+  
+  # --- Legacy Stealer Logic (Still supported by lines 453-500) ---
+  # Keeping these ensures the 'has_stealer_logic' check in Rust (line 456) passes immediately
+  browser_paths:
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+  sensitive_files:
+    - "Cookies"
+    - "Login Data"
+    - "Web Data"
+    - "Local State"
+  staging_paths:
+    - "AppData\\Local\\Temp"
+  
+  # --- NEW: Stage-Based Logic (The core of the new engine) ---
+  # This maps to the `stages` Vec<AttackStage> in your Rust code (line 217)
+  min_stages_satisfied: 2
+  time_window_ms: 60000  # Correlate events within 60 seconds
+  
+  stages:
+    - name: "Sensitive_File_Access"
+      conditions:
+        # Check 1: Reading sensitive files (Uses RuleCondition::File)
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\User Data\\*\\Login Data"
+        
+        # Check 2: High Entropy Read (Uses RuleCondition::Heuristic)
+        - type: "Heuristic"
+          metric: "Entropy"
+          threshold: 6.5
+          
+        # Check 3: Accessing multiple distinct browser paths (Uses RuleCondition::SensitivePathAccess)
+        - type: "SensitivePathAccess"
+          op_type: "Read"
+          min_unique_paths: 2
+          patterns:
+            - "*\\Google\\Chrome\\User Data\\*"
+            - "*\\Microsoft\\Edge\\User Data\\*"
+            - "*\\BraveSoftware\\*"
+
+    - name: "Data_Staging_Archive"
+      conditions:
+        # Check 1: Writing to Temp (Uses RuleCondition::TempDirectoryWrite)
+        - type: "TempDirectoryWrite"
+          min_bytes: 1024  # 1KB minimum
+          min_files: 1
+          
+        # Check 2: Creating Archives (Uses RuleCondition::ArchiveCreation)
+        - type: "ArchiveCreation"
+          extensions: ["zip", "rar", "7z", "tar"]
+          in_temp: true
+          
+        # Check 3: Extension Pattern match (Uses RuleCondition::ExtensionPattern)
+        - type: "ExtensionPattern"
+          op_type: "Write"
+          match_mode: "any"
+          patterns: ["*.zip", "*.tmp", "*.dat"]
+
+    - name: "Exfiltration_Attempt"
+      conditions:
+        # Check 1: Network Activity (Uses RuleCondition::Network)
+        - type: "Network"
+          op: "Connect"
+        
+        # Check 2: Bytes Sent/Written Threshold (Uses RuleCondition::ByteThreshold)
+        - type: "ByteThreshold"
+          direction: "write"
+          comparison: "gt"
+          threshold: 50000 # >50KB written
+
+  # --- Advanced Config ---
+  allowlisted_apps:
+    # Uses AllowlistEntry::Simple
+    - "chrome.exe"
+    - "msedge.exe"
+    - "brave.exe"
+    - "opera.exe"
+    # Uses AllowlistEntry::Complex (New feature in your code!)
+    - pattern: "firefox.exe"
+      must_be_signed: true
+      signers: 
+        - "Mozilla Corporation"
+        - "Mozilla Foundation"
+
+  # --- Response Actions (Matches ResponseAction struct) ---
+  response:
+    record: true          # Triggers 'state.is_recording = true'
+    terminate_process: true
+    quarantine: true
+    auto_revert: false
