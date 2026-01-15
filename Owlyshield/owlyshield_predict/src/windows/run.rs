@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use std::sync::mpsc::channel;
@@ -36,7 +36,7 @@ pub fn run() {
     // Load config and app settings once and reuse
     let config = config::Config::new();
     let current_exe_path = std::env::current_exe().unwrap();
-    let rules_dir = current_exe_path.parent().unwrap().join("rules");
+    let rules_dir = PathBuf::from(&config[Param::RulesPath]);
     let app_settings = AppSettings::load(&rules_dir)
         .expect("Failed to load app settings from rules/settings.yaml");
 
