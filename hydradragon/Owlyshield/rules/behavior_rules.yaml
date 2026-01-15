@@ -1,6 +1,5 @@
 !include sandboxes.yaml
 !include god_mode_rule.yaml
-!include WinVerifyTrust.yaml
 
 # ============================================================================
 # STEALER DETECTION RULES - Comprehensive Browser & Application Data Theft
