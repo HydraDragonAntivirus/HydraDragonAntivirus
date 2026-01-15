@@ -1447,33 +1447,21 @@ impl BehaviorEngine {
                 precord.termination_requested = true;
                 precord.is_malicious = true;
                 precord.time_killed = Some(SystemTime::now());
-
-                // Use ActionsOnKill instead of manual kill/logging
-                ActionsOnKill::new().run_actions_with_info(
-                    config,
-                    precord,
-                    &pred_mtrx,
-                    &threat_info,
-                );
+                precord.triggered_rule_name = Some(rule.name.clone());
             }
 
             if rule.response.suspend_process {
                 // For suspend, we also trigger kernel-based actions (reporting/logging)
                 precord.termination_requested = true; // Signal intent to driver if supported, or treat as kill flow
                 precord.process_state = ProcessState::Suspended; // Update state for the report
-                
-                ActionsOnKill::new().run_actions_with_info(
-                    config,
-                    precord,
-                    &pred_mtrx,
-                    &threat_info,
-                );
+                precord.triggered_rule_name = Some(rule.name.clone());
             }
 
             if rule.response.quarantine {
                 precord.quarantine_requested = true;
                 precord.termination_requested = true;
                 precord.is_malicious = true;
+                precord.triggered_rule_name = Some(rule.name.clone());
                 Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) QUARANTINED", state.appname, state.pid));
             }
 

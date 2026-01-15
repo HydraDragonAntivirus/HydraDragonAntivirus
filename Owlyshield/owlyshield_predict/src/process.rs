@@ -120,6 +120,8 @@ pub struct ProcessRecord {
     pub quarantine_requested: bool,
     /// Registry revert requested by behavior engine
     pub revert_requested: bool,
+    /// Name of the rule that was triggered
+    pub triggered_rule_name: Option<String>,
     /// Time of the main process start
     pub time_started: SystemTime,
     /// Time of the main process kill (if malicious)
@@ -217,6 +219,7 @@ impl ProcessRecord {
             termination_requested: false,
             quarantine_requested: false,
             revert_requested: false,
+            triggered_rule_name: None,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,
@@ -282,6 +285,7 @@ impl ProcessRecord {
             termination_requested: false,
             quarantine_requested: false,
             revert_requested: false,
+            triggered_rule_name: None,
             time_started: SystemTime::now(),
             time_killed: None,
             driver_msg_count: 0,

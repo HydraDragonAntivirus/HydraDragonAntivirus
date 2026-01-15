@@ -354,9 +354,11 @@ pub mod process_record_handling {
                 precord.process_state = ProcessState::Killed;
 
                 // Also run post-kill actions
+                let default_rule_name = "Behavioral Rule Match".to_string();
+                let virus_name_str = precord.triggered_rule_name.as_ref().unwrap_or(&default_rule_name);
                 let threat_info = ThreatInfo {
                     threat_type_label: "Stealer/Malware",
-                    virus_name: "Behavioral Rule Match",
+                    virus_name: virus_name_str,
                     prediction: 1.0, 
                 };
                 ActionsOnKill::new().run_actions_with_info(
