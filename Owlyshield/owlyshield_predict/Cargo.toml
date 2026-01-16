@@ -94,4 +94,5 @@ jsonrpc = []
 mqtt = []
 novelty = []
 hydradragon = []
-realtime_learning = []  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection
+behavior_engine = []
+realtime_learning = ["behavior_engine"]  # Enable OwlyShield realtime-learning for behavioral analysis and ML data collection

@@ -663,6 +663,8 @@ pub mod worker_instance {
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
     use sysinfo::{SystemExt, ProcessExt, PidExt};
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::windows::behavior_engine::BehaviorEngine;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -775,7 +777,8 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
-        pub behavior_engine: crate::windows::behavior_engine::BehaviorEngine,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        pub behavior_engine: BehaviorEngine,
         #[cfg(feature = "realtime_learning")]
         pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
         #[cfg(feature = "realtime_learning")]
@@ -797,7 +800,8 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::windows::behavior_engine::BehaviorEngine::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                behavior_engine: BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
                 #[cfg(feature = "realtime_learning")]
@@ -879,7 +883,8 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::windows::behavior_engine::BehaviorEngine::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                behavior_engine: BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
                 #[cfg(feature = "realtime_learning")]
@@ -913,6 +918,7 @@ pub mod worker_instance {
                 }
 
                 // Pass the config argument directly to the behavior engine
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 self.behavior_engine.process_event(precord, iomsg, config);
                 // --- ADDED: Update learning engine activity ---
                 #[cfg(feature = "realtime_learning")]

@@ -10,7 +10,8 @@ use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
 // use crate::logging::Logging;
-use crate::windows::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus};
+#[cfg(target_os = "windows")]
+use crate::windows::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
 
 use serde::{Serialize, Deserialize};
 
@@ -566,10 +567,10 @@ impl RealtimeLearningEngine {
                             },
                              // Create a simple process match condition
                              stages: vec![
-                                crate::windows::behavior_engine::AttackStage {
+                                AttackStage {
                                     name: "execution".to_string(),
                                     conditions: vec![
-                                        crate::windows::behavior_engine::RuleCondition::Process {
+                                        RuleCondition::Process {
                                             op: "Name".to_string(),
                                             pattern: filename.to_string(),
                                         }

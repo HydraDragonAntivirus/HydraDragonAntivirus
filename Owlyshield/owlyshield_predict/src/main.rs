@@ -40,6 +40,10 @@ use std::{env, path::Path, sync::OnceLock};
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 #[path = "windows/av_integration.rs"]
 pub mod av_integration;
+// Conditionally compile AVIntegration `use` statement
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+#[path = "windows/behavior_engine.rs"]
+pub mod behavior_engine;
 
 // ============================================================================
 // HYDRADRAGON INTEGRATION - CORRECTED APPROACH
