@@ -1612,6 +1612,7 @@ impl BehaviorEngine {
             state,  // Pass entire state
             msg
         );
+        should_eval
     }
 
     fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState, debug: bool) -> bool {
