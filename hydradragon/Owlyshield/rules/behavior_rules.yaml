@@ -465,49 +465,6 @@
     auto_revert: true
 
 # ============================================================================
-# MONITORING RULES (Private - No Alerts)
-# ============================================================================
-
-- name: "Monitor: Exela Process Events"
-  description: "Detailed recording for Exela.exe process activity and near-detections."
-  severity: 1
-  is_private: true
-  debug: false # Enable debug to see what's being tracked
-  record_on_start: ["Exela.exe"]
-  proximity_log_threshold: 10.0
-  
-  mapping:
-    and:
-      - stage: "Exela Name Match"
-      - or:
-          - stage: "Activity Tracking"
-          - stage: "Memory Anomalies"
-  
-  stages:
-    - name: "Exela Name Match"
-      conditions:
-        - type: "Process"
-          op: "Name"
-          pattern: "(?i)Exela\\.exe"
-    
-    - name: "Activity Tracking"
-      conditions:
-        - type: "OperationCount"
-          op_type: "Read"
-          comparison: "gt"
-          threshold: 5
-    
-    - name: "Memory Anomalies"
-      conditions:
-        - type: "MemoryScan"
-          patterns: ["cmd.exe", "powershell.exe", "socket", "connect", "http://", "https://"]
-          detect_pe_headers: true
-          private_only: true
-  
-  response:
-    record: true
-
-# ============================================================================
 # REFLECTIVE LOADING DETECTION
 # ============================================================================
 

@@ -209,7 +209,7 @@
         - type: "MemoryScan"
           patterns:
             - "dQw4w9WgXcQ:"
-            - '[\w-]{24}\.[\w-]{6}\.[\w-]{25,110}'
+            - "[\\w-]{24}\\.[\\w-]{6}\\.[\\w-]{25,110}"
           detect_pe_headers: false
           private_only: false
         
