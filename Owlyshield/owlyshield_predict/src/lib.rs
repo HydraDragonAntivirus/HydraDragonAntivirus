@@ -62,6 +62,9 @@ pub use crate::windows::signature_verification;
 #[cfg(target_os = "windows")]
 pub use crate::windows::threathandling;
 
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+pub use windows::behavior_engine::BehaviorEngine;
+
 #[cfg(target_os = "linux")]
 pub use crate::linux::driver_com;
 #[cfg(target_os = "linux")]
@@ -72,10 +75,6 @@ pub use crate::linux::run;
 pub use crate::linux::notifications;
 #[cfg(target_os = "linux")]
 pub use crate::linux::threathandling;
-
-#[cfg(all(target_os = "windows", feature = "hydradragon"))]
-#[path = "windows/av_integration.rs"]
-pub mod av_integration;
 
 /// SDK-facing exports used by examples and integrations.
 pub mod sdk {

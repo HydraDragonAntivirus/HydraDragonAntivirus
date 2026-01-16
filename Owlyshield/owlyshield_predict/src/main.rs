@@ -18,16 +18,13 @@ use std::time::Duration;
 #[cfg(feature = "service")]
 use crate::mpsc::channel;
 
-#[cfg(target_os = "windows")]
-#[cfg(feature = "service")]
+#[cfg(all(target_os = "windows", feature = "service"))]
 use windows_service::service::{
     ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
 };
-#[cfg(target_os = "windows")]
-#[cfg(feature = "service")]
+#[cfg(all(target_os = "windows", feature = "service"))]
 use windows_service::service_control_handler::ServiceControlHandlerResult;
-#[cfg(target_os = "windows")]
-#[cfg(feature = "service")]
+#[cfg(all(target_os = "windows", feature = "service"))]
 use windows_service::{define_windows_service, service_control_handler, service_dispatcher};
 
 use crate::connectors::register::Connectors;
@@ -151,7 +148,7 @@ pub(crate) mod worker;
 mod novelty;
 #[cfg(target_os = "windows")]
 pub mod services;
-#[cfg(feature = "realtime_learning")]
+#[cfg(all, (target_os = "windows", feature = "realtime_learning"))]
 pub mod realtime_learning;  // OwlyShield realtime-learning module
 #[cfg(target_os = "windows")]
 #[path = "windows/threathandling.rs"]
