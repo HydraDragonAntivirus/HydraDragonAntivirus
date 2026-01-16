@@ -659,12 +659,12 @@ pub mod worker_instance {
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::api_tracker::ApiTracker;
     use crate::utils::is_process_alive;
-    use crate::app_settings::AppSettings;
+    use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
     use sysinfo::{SystemExt, ProcessExt, PidExt};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use crate::windows::behavior_engine::BehaviorEngine;
+    use crate::behavioral::behavior_engine::BehaviorEngine;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);

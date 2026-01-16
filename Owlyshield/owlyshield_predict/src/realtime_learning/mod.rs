@@ -54,7 +54,7 @@ impl OwlyShieldSDK {
     /// # Arguments
     /// * `ml_mode_enabled` - Enable machine learning data collection mode
     /// * `malapi_json_path` - Path to malapi.json configuration
-    pub fn new(ml_mode_enabled: bool, malapi_json_path: &str, app_settings: &crate::app_settings::AppSettings) -> Self {
+    pub fn new(ml_mode_enabled: bool, malapi_json_path: &str, app_settings: &crate::behavioral::app_settings::AppSettings) -> Self {
         Self::with_realtime_learning(ml_mode_enabled, false, malapi_json_path, app_settings)
     }
 
@@ -64,7 +64,7 @@ impl OwlyShieldSDK {
     /// * `ml_mode_enabled` - Enable machine learning data collection mode
     /// * `realtime_learning_enabled` - Enable real-time learning from running processes
     /// * `malapi_json_path` - Path to malapi.json configuration
-    pub fn with_realtime_learning(ml_mode_enabled: bool, realtime_learning_enabled: bool, malapi_json_path: &str, app_settings: &crate::app_settings::AppSettings) -> Self {
+    pub fn with_realtime_learning(ml_mode_enabled: bool, realtime_learning_enabled: bool, malapi_json_path: &str, app_settings: &crate::behavioral::app_settings::AppSettings) -> Self {
         let signature_engine = Some(behavioral_signature::SignatureEngine::new(malapi_json_path));
         let pattern_matcher = Some(PatternMatcher::new(malapi_json_path));
         let ml_collector = if ml_mode_enabled {

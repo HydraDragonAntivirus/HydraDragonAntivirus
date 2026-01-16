@@ -11,7 +11,7 @@ use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
 // use crate::logging::Logging;
 #[cfg(target_os = "windows")]
-use crate::windows::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
+use crate::behavioral::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
 
 use serde::{Serialize, Deserialize};
 

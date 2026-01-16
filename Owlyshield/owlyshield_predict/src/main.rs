@@ -38,9 +38,7 @@ use std::{env, path::Path, sync::OnceLock};
 #[path = "windows/av_integration.rs"]
 pub mod av_integration;
 // Conditionally compile AVIntegration `use` statement
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-#[path = "windows/behavior_engine.rs"]
-pub mod behavior_engine;
+mod behavioral;
 
 // ============================================================================
 // HYDRADRAGON INTEGRATION - CORRECTED APPROACH
@@ -102,7 +100,7 @@ use crate::worker::worker_instance::{IOMsgPostProcessorMqtt, IOMsgPostProcessorR
 
 mod actions_on_kill;
 mod config;
-mod app_settings;
+// mod app_settings; // removed, now in behavioral
 mod connectors;
 mod csvwriter;
 #[cfg(target_os = "windows")]
@@ -148,7 +146,7 @@ pub(crate) mod worker;
 mod novelty;
 #[cfg(target_os = "windows")]
 pub mod services;
-#[cfg(all, (target_os = "windows", feature = "realtime_learning"))]
+#[cfg(all(target_os = "windows", feature = "realtime_learning"))]
 pub mod realtime_learning;  // OwlyShield realtime-learning module
 #[cfg(target_os = "windows")]
 #[path = "windows/threathandling.rs"]

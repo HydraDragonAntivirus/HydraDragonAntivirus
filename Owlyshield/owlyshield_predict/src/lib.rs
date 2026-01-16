@@ -9,7 +9,7 @@ extern crate num_derive;
 
 pub mod actions_on_kill;
 pub mod config;
-pub mod app_settings;
+pub mod behavioral;
 pub mod connectors;
 pub mod csvwriter;
 pub mod extensions;
@@ -63,7 +63,7 @@ pub use crate::windows::signature_verification;
 pub use crate::windows::threathandling;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-pub use windows::behavior_engine::BehaviorEngine;
+pub use behavioral::behavior_engine::BehaviorEngine;
 
 #[cfg(target_os = "linux")]
 pub use crate::linux::driver_com;

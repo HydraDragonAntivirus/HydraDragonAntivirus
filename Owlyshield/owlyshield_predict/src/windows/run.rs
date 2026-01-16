@@ -12,7 +12,7 @@ use crate::{
 };
 use crate::config::Param;
 use crate::watchlist::WatchList;
-use crate::app_settings::AppSettings;
+use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
 
 pub fn run() {
