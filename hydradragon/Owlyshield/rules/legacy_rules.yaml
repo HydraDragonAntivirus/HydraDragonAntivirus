@@ -1,49 +1,40 @@
-- name: "Exela_Stealer_Complete_Detection"
-  description: "Comprehensive detection for Exela stealer covering all attack stages: browser data theft, crypto wallets, Discord injection, game session hijacking, telegram sessions, memory scanning, and multi-platform exfiltration"
+- name: "Exela_Stealer_Enhanced_Detection"
+  description: "Python-focused detection for Exela stealer with unique behavioral signatures, memory patterns, and file operations"
   
-  # --- Metadata ---
   author: "Emirhan Ucan"
   severity: 99
   level: critical
   status: stable
+  
   mitre_attack: 
-    - "T1555.003"
-    - "T1539"
-    - "T1552.001"
-    - "T1005"
-    - "T1560"
-    - "T1041"
-    - "T1573"
-    - "T1574.002"
-    - "T1055"
-    - "T1547.001"
-    - "T1053.005"
-    - "T1140"
-    - "T1012"
-    - "T1082"
-    - "T1518.001"
+    - "T1059.006"  # Python
+    - "T1555.003"  # Credentials from Web Browsers
+    - "T1539"      # Steal Web Session Cookie
+    - "T1005"      # Data from Local System
+    - "T1074.001"  # Local Data Staging
+    - "T1560"      # Archive Collected Data
+    - "T1041"      # Exfiltration Over C2 Channel
   
   tags:
-    - "stealer"
+    - "exela"
+    - "python_stealer"
     - "credential_theft"
     - "browser_hijacking"
     - "discord_injection"
-    - "crypto_wallet_theft"
-    - "session_hijacking"
-    - "telegram_theft"
-    - "game_account_theft"
-    - "anti_vm"
-    - "anti_debug"
-    - "persistence"
-    - "exfiltration"
   
-  # Logic tuning
+  # Lower thresholds for Python processes
   require_internet: true
-  multi_access_threshold: 3
-  entropy_threshold: 6.5
-  conditions_percentage: 0.45
-  min_stages_satisfied: 3
-  time_window_ms: 120000
+  multi_access_threshold: 2
+  entropy_threshold: 6.0
+  conditions_percentage: 0.40
+  min_stages_satisfied: 2
+  time_window_ms: 180000  # 3 minutes for Python's slower execution
+  
+  # Python process names to monitor
+  record_on_start:
+    - "python.exe"
+    - "pythonw.exe"
+    - "python3.exe"
   
   browser_paths:
     - "*\\Google\\Chrome\\User Data*"
@@ -60,311 +51,369 @@
     - "Local State"
     - "cookies.sqlite"
     - "places.sqlite"
-    - "formhistory.sqlite"
   
   staging_paths:
     - "*\\AppData\\Local\\Temp*"
     - "*\\Temp*"
   
-  crypto_apis:
-    - "CryptUnprotectData"
-  
   suspicious_parents:
     - "cmd.exe"
     - "powershell.exe"
     - "wscript.exe"
-    - "mshta.exe"
-  
-  archive_actions:
-    - ".zip"
-    - ".rar"
+    - "explorer.exe"
   
   stages:
     # ============================================================================
-    # STAGE 1: Anti-Analysis & Evasion
+    # STAGE 1: Exela-Specific Identifiers (UNIQUE TO EXELA)
     # ============================================================================
-    - name: "Anti_Analysis_Checks"
+    - name: "Exela_Unique_Identifiers"
       conditions:
+        # Mutex pattern (Line 140)
+        - type: "MemoryScan"
+          patterns:
+            - "Exela | Stealar | on top |"
+            - "Exela"
+            - "quicaxd"
+          detect_pe_headers: false
+          private_only: false
+        
+        # Telegram branding
+        - type: "MemoryScan"
+          patterns:
+            - "t.me/ExelaStealer"
+            - "ExelaStealer"
+            - "github.com/quicaxd/Exela"
+          detect_pe_headers: false
+          private_only: false
+        
+        # Specific directory creation
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\ExelaUpdateService\\*"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\StealedFilesByExela\\*"
+        
+        # Injection URL
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*raw.githubusercontent.com/justforExela/injection*"
+
+    # ============================================================================
+    # STAGE 2: Python Process with Browser Database Copying
+    # ============================================================================
+    - name: "Python_Browser_Database_Theft"
+      conditions:
+        # Python process ancestry
+        - type: "ProcessAncestry"
+          ancestor_pattern: "*python*"
+          max_depth: 3
+        
+        # Specific temp database files (Lines 282-291)
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\Logins.db"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\Web.db"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\Cookies.db"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\HistoryData.db"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\AutofillData.db"
+        
+        # Read browser Local State for decryption key
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\User Data\\Local State"
+
+    # ============================================================================
+    # STAGE 3: WMIC UUID Enumeration Pattern
+    # ============================================================================
+    - name: "UUID_Based_AntiVM_AntiDebug"
+      conditions:
+        # UUID retrieval (Line 145, 773)
         - type: "Process"
           op: "CommandLine"
           pattern: "*wmic*csproduct*get*uuid*"
         
+        # Computer name retrieval
         - type: "Process"
           op: "CommandLine"
-          pattern: "*wmic*path*win32_VideoController*"
+          pattern: "*computername*"
         
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*taskkill*/F*/IM*wireshark*"
+        # Banned UUID checks (hardcoded VM detection)
+        - type: "MemoryScan"
+          patterns:
+            - "7AB5C494-39F5-4941-9163-47F54D6D5016"
+            - "032E02B4-0499-05C3-0806-3C0700080009"
+            - "ADEEEE9E-EF0A-6B84-B14B-B83A54AFC548"
+          detect_pe_headers: false
+          private_only: false
         
+        # Banned process names
         - type: "Process"
           op: "CommandLine"
           pattern: "*taskkill*/F*/IM*processhacker*"
         
         - type: "Process"
           op: "CommandLine"
-          pattern: "*tasklist*"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "D:\\Tools*"
+          pattern: "*taskkill*/F*/IM*wireshark*"
 
     # ============================================================================
-    # STAGE 2: Browser Data Harvesting
+    # STAGE 4: CryptUnprotectData & Browser Decryption
     # ============================================================================
-    - name: "Browser_Credential_Theft"
+    - name: "DPAPI_Browser_Decryption"
       conditions:
-        - type: "SensitivePathAccess"
-          op_type: "Read"
-          min_unique_paths: 3
+        # Memory scan for DPAPI structures (Lines 63-93)
+        - type: "MemoryScan"
           patterns:
-            - "*\\User Data\\*\\Login Data"
-            - "*\\User Data\\*\\Cookies"
-            - "*\\User Data\\*\\Web Data"
-            - "*\\User Data\\Local State"
-            - "*\\Network\\Cookies"
+            - "CryptUnprotectData"
+            - "Crypt32"
+            - "os_crypt"
+            - "encrypted_key"
+          detect_pe_headers: false
+          private_only: false
         
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\Firefox\\Profiles\\*\\cookies.sqlite"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\Firefox\\Profiles\\*\\places.sqlite"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*taskkill*/F*/IM*chrome.exe*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*taskkill*/F*/IM*firefox.exe*"
-        
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\Temp\\*.db"
-        
-        - type: "Heuristic"
-          metric: "Entropy"
-          threshold: 6.5
-
-    # ============================================================================
-    # STAGE 3: Cryptocurrency Wallet Theft
-    # ============================================================================
-    - name: "Crypto_Wallet_Harvesting"
-      conditions:
-        - type: "SensitivePathAccess"
-          op_type: "Read"
-          min_unique_paths: 2
+        # AES-GCM decryption patterns (v10/v11 format)
+        - type: "MemoryScan"
           patterns:
-            - "*\\Local Extension Settings\\nkbihfbeogaeaoehlefnkodbefgpgknn\\*"
-            - "*\\Local Extension Settings\\fhbohimaelbohpjbbldcngcnapndodjp\\*"
-            - "*\\Local Extension Settings\\bfnaelmomeimhlpmgjnjophhpkkoljpa\\*"
-            - "*\\Local Extension Settings\\hnfanknocfeofbddgcijnmhnfnkdnaad\\*"
-            - "*\\Local Extension Settings\\fnjhmkhhmkbjkkabndcnnogagogbneec\\*"
-            - "*\\Local Extension Settings\\aholpfdialjgjfhomihkjbmgjidlcdno\\*"
-            - "*\\Bitcoin\\wallets\\*"
-            - "*\\Exodus\\exodus.wallet\\*"
-            - "*\\Ethereum\\keystore\\*"
-            - "*\\Electrum\\wallets\\*"
+            - "v10"
+            - "v11"
+            - "GCM"
+          detect_pe_headers: false
+          private_only: false
         
-        - type: "File"
-          op: "Write"
-          path_pattern: "*\\Temp\\*\\Wallets\\*"
-
-    # ============================================================================
-    # STAGE 4: Discord Token & Injection
-    # ============================================================================
-    - name: "Discord_Token_Theft_And_Injection"
-      conditions:
+        # Read Local State JSON
         - type: "SensitivePathAccess"
           op_type: "Read"
           min_unique_paths: 1
           patterns:
-            - "*\\discord\\Local Storage\\leveldb\\*.ldb"
-            - "*\\discord\\Local Storage\\leveldb\\*.log"
-            - "*\\discordcanary\\Local Storage\\leveldb\\*.ldb"
-            - "*\\discordptb\\Local Storage\\leveldb\\*.ldb"
-        
+            - "*\\Local State"
+
+    # ============================================================================
+    # STAGE 5: Discord Injection with Specific Pattern
+    # ============================================================================
+    - name: "Discord_Injection_Exela_Pattern"
+      conditions:
+        # Token regex pattern (Line 708)
         - type: "MemoryScan"
           patterns:
             - "dQw4w9WgXcQ:"
+            - "[\w-]{24}\.[\w-]{6}\.[\w-]{25,110}"
           detect_pe_headers: false
           private_only: false
         
+        # Discord API validation
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*discord.com/api/v8/users/@me*"
+        
+        # Fetch injection script from GitHub
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*raw.githubusercontent.com*injection*"
+        
+        # Modify Discord core
         - type: "File"
           op: "Write"
-          path_pattern: "*\\discord\\app-*\\modules\\discord_desktop_core*\\index.js"
+          path_pattern: "*\\discord_desktop_core\\index.js"
         
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*taskkill*/F*/IM*Discord.exe*"
-        
+        # Restart Discord
         - type: "Process"
           op: "CommandLine"
           pattern: "*Update.exe*--processStart*Discord.exe*"
-        
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*discord.com/api/v*/users/@me*"
 
     # ============================================================================
-    # STAGE 5: Social Media Session Hijacking
+    # STAGE 6: Specific Social Media API Patterns
     # ============================================================================
-    - name: "Social_Media_Session_Theft"
+    - name: "Social_Media_API_Harvesting"
       conditions:
+        # Instagram mobile API (Line 458)
         - type: "Network"
           op: "Connect"
-          dest_pattern: "*i.instagram.com/api/v1/accounts/current_user*"
+          dest_pattern: "*i.instagram.com/api/v1/accounts/current_user/?edit=true*"
         
+        # TikTok wallet API (Line 504)
         - type: "Network"
           op: "Connect"
-          dest_pattern: "*tiktok.com/passport/web/account/info*"
+          dest_pattern: "*webcast.tiktok.com/webcast/wallet_api/diamond_buy/permission*"
         
+        # Twitter OAuth2 (Line 557)
+        - type: "MemoryScan"
+          patterns:
+            - "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
+            - "x-twitter-auth-type"
+            - "OAuth2Session"
+          detect_pe_headers: false
+          private_only: false
+        
+        # Reddit OAuth (Line 630)
         - type: "Network"
           op: "Connect"
-          dest_pattern: "*twitter.com/i/api/*/account/update_profile*"
+          dest_pattern: "*accounts.reddit.com/api/access_token*"
         
+        - type: "MemoryScan"
+          patterns:
+            - "Basic b2hYcG9xclpZdWIxa2c6"
+          detect_pe_headers: false
+          private_only: false
+        
+        # Roblox currency API (Line 677)
         - type: "Network"
           op: "Connect"
-          dest_pattern: "*oauth.reddit.com/api/v1/me*"
+          dest_pattern: "*economy.roblox.com/v1/users/*/currency*"
         
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*spotify.com/api/account-settings*"
-        
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*roblox.com/my/account/json*"
-        
+        # Twitch GraphQL (Line 606)
         - type: "Network"
           op: "Connect"
           dest_pattern: "*gql.twitch.tv/gql*"
+        
+        - type: "MemoryScan"
+          patterns:
+            - "bitsBalance"
+            - "hasPrime"
+            - "isPartner"
+          detect_pe_headers: false
+          private_only: false
 
     # ============================================================================
-    # STAGE 6: Gaming Platform Theft
+    # STAGE 7: Steam API with Specific Key
     # ============================================================================
-    - name: "Gaming_Session_Hijacking"
+    - name: "Steam_API_Session_Theft"
       conditions:
-        - type: "File"
-          op: "Read"
-          path_pattern: "C:\\Program Files (x86)\\Steam\\config\\loginusers.vdf"
+        # Hardcoded API key (Line 714)
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=440D7F4D810EF9298D25EDDF37C1F902*"
         
         - type: "Network"
           op: "Connect"
-          dest_pattern: "*api.steampowered.com/ISteamUser/GetPlayerSummaries*"
+          dest_pattern: "*api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key=440D7F4D810EF9298D25EDDF37C1F902*"
         
-        - type: "File"
-          op: "Write"
-          path_pattern: "*\\Temp\\*\\Games\\Steam\\*"
+        # Steam ID regex
+        - type: "MemoryScan"
+          patterns:
+            - "7656[0-9]{13}"
+          detect_pe_headers: false
+          private_only: false
         
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\Ubisoft Game Launcher\\*"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\EpicGamesLauncher\\Saved\\Config\\Windows\\*"
-        
+        # loginusers.vdf
         - type: "File"
           op: "Read"
-          path_pattern: "*\\Growtopia\\save.dat"
+          path_pattern: "*\\Steam\\config\\loginusers.vdf"
 
     # ============================================================================
-    # STAGE 7: Telegram Session Theft
+    # STAGE 8: Network Geolocation API
     # ============================================================================
-    - name: "Telegram_Session_Hijacking"
+    - name: "Network_Reconnaissance_IPAPI"
       conditions:
+        # Specific geolocation API (Line 189)
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*ip-api.com/json*"
+        
+        - type: "MemoryScan"
+          patterns:
+            - "ip-api.com"
+            - "query"
+            - "country"
+            - "timezone"
+          detect_pe_headers: false
+          private_only: false
+
+    # ============================================================================
+    # STAGE 9: WiFi Password Extraction Pattern
+    # ============================================================================
+    - name: "WiFi_Credential_Harvesting"
+      conditions:
+        # WiFi enumeration (Line 207)
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "*netsh*wlan*show*profiles*"
+        
+        # WiFi password extraction (Line 215)
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "*netsh*wlan*show*profile*key=clear*"
+        
+        # Key content regex
+        - type: "MemoryScan"
+          patterns:
+            - "Key content"
+            - "All User Profile"
+          detect_pe_headers: false
+          private_only: false
+
+    # ============================================================================
+    # STAGE 10: PowerShell Screenshot with Specific Encoding
+    # ============================================================================
+    - name: "PowerShell_Screenshot_Capture"
+      conditions:
+        # Specific Base64 command (Line 782)
+        - type: "Process"
+          op: "CommandLine"
+          pattern: "*powershell*-EncodedCommand*JABzAG8AdQByAGMAZQAgAD0AIABAACIA*"
+        
+        # Screenshot class
+        - type: "MemoryScan"
+          patterns:
+            - "CaptureScreens"
+            - "CopyFromScreen"
+            - "System.Drawing"
+            - "System.Windows.Forms"
+          detect_pe_headers: false
+          private_only: false
+        
+        # Display PNG files
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Display (*).png"
+
+    # ============================================================================
+    # STAGE 11: Telegram Session Theft Pattern
+    # ============================================================================
+    - name: "Telegram_tdata_Theft"
+      conditions:
+        # Kill Telegram (Line 738)
         - type: "Process"
           op: "CommandLine"
           pattern: "*taskkill*/F*/IM*Telegram.exe*"
         
+        # tdata directory access
         - type: "SensitivePathAccess"
           op_type: "Read"
           min_unique_paths: 2
           patterns:
             - "*\\Telegram Desktop\\tdata\\*"
             - "*\\Telegram Desktop\\tdata\\D877F783D5D3EF8C*"
+            - "*\\Telegram Desktop\\tdata\\key_datas*"
         
-        - type: "File"
-          op: "Write"
-          path_pattern: "*\\Temp\\*\\Telegram Session\\*"
+        # Blacklisted directory names
+        - type: "MemoryScan"
+          patterns:
+            - "dumps"
+            - "emojis"
+            - "tdummy"
+            - "user_data#"
+          detect_pe_headers: false
+          private_only: false
 
     # ============================================================================
-    # STAGE 8: System Reconnaissance
+    # STAGE 12: UUID-Based Directory Structure
     # ============================================================================
-    - name: "System_Reconnaissance"
+    - name: "UUID_Staging_Directory"
       conditions:
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*systeminfo*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*hostname*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*wmic*logicaldisk*get*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*net*user*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*ipconfig*/all*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*netstat*-ano*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*netsh*wlan*show*profiles*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*netsh*wlan*show*profile*key=clear*"
-        
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*ip-api.com/json*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*tasklist*/FO*LIST*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*powershell*Get-Clipboard*"
-
-    # ============================================================================
-    # STAGE 9: Screenshot Capture
-    # ============================================================================
-    - name: "Screen_Capture"
-      conditions:
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*powershell*-EncodedCommand*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*System.Drawing*"
-        
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*CopyFromScreen*"
-        
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\Display (*).png"
-
-    # ============================================================================
-    # STAGE 10: Data Staging & Archiving
-    # ============================================================================
-    - name: "Data_Exfiltration_Staging"
-      conditions:
+        # UUID-based temp folder (Line 773)
         - type: "File"
           op: "Create"
           path_pattern: "*\\Temp\\*\\Browsers\\*"
@@ -382,44 +431,24 @@
           path_pattern: "*\\Temp\\*\\Wallets\\*"
         
         - type: "File"
+          op: "Create"
+          path_pattern: "*\\Temp\\*\\Games\\*"
+        
+        # Specific text files
+        - type: "File"
           op: "Write"
           path_pattern: "*\\Temp\\*\\Passwords.txt"
         
         - type: "File"
           op: "Write"
-          path_pattern: "*\\Temp\\*\\Cookies.txt"
-        
-        - type: "ArchiveCreation"
-          extensions: ["zip"]
-          in_temp: true
-          min_size: 50000
-        
-        - type: "ByteThreshold"
-          direction: "write"
-          comparison: "gt"
-          threshold: 102400
+          path_pattern: "*\\Temp\\*\\system_info.txt"
 
     # ============================================================================
-    # STAGE 11: Exfiltration via Discord Webhook
+    # STAGE 13: GoFile Upload Pattern
     # ============================================================================
-    - name: "Webhook_Exfiltration"
+    - name: "GoFile_Exfiltration"
       conditions:
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*discord.com/api/webhooks/*"
-        
-        - type: "Network"
-          op: "Connect"
-          dest_pattern: "*discordapp.com/api/webhooks/*"
-        
-        - type: "MemoryScan"
-          patterns:
-            - "https://discord.com/api/webhooks/"
-            - "https://discordapp.com/api/webhooks/"
-            - "webhook"
-          detect_pe_headers: false
-          private_only: false
-        
+        # GoFile API calls (Line 963)
         - type: "Network"
           op: "Connect"
           dest_pattern: "*api.gofile.io/getServer*"
@@ -430,129 +459,129 @@
         
         - type: "MemoryScan"
           patterns:
-            - "Exela Stealer"
-            - "t.me/ExelaStealer"
+            - "gofile.io"
+            - "uploadFile"
+            - "downloadPage"
           detect_pe_headers: false
           private_only: false
 
     # ============================================================================
-    # STAGE 12: Persistence Mechanisms
+    # STAGE 14: Discord Webhook with Embed Structure
     # ============================================================================
-    - name: "Persistence_Installation"
+    - name: "Discord_Webhook_Exfiltration"
       conditions:
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\AppData\\Local\\*UpdateService\\*.exe"
+        # Webhook connection
+        - type: "Network"
+          op: "Connect"
+          dest_pattern: "*discord.com/api/webhooks/*"
         
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\AppData\\Local\\ExelaUpdateService\\Exela.exe"
+        # Specific embed structure (Line 421+)
+        - type: "MemoryScan"
+          patterns:
+            - "***Exela Stealer***"
+            - "Exela Stealer"
+            - "embeds"
+            - "thumbnail"
+          detect_pe_headers: false
+          private_only: false
         
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "*attrib*+h*+s*UpdateService*"
-        
+        # i.hizliresim.com thumbnails
+        - type: "MemoryScan"
+          patterns:
+            - "i.hizliresim.com"
+            - "qxnzimj.jpg"
+            - "6t31tw2.jpg"
+          detect_pe_headers: false
+          private_only: false
+
+    # ============================================================================
+    # STAGE 15: Persistence with Specific Names
+    # ============================================================================
+    - name: "ExelaUpdateService_Persistence"
+      conditions:
+        # Specific scheduled task names (Line 1022)
         - type: "Process"
           op: "CommandLine"
           pattern: "*schtasks*/create*/tn*ExelaUpdateService*"
         
         - type: "Process"
           op: "CommandLine"
-          pattern: "*schtasks*/create*/sc*onlogon*/rl*highest*"
+          pattern: "*schtasks*/query*/TN*ExelaUpdateService*"
         
+        # Registry persistence
         - type: "Registry"
           op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Run*"
+          key_pattern: "*\\CurrentVersion\\Run*"
           value_name: "Exela Update Service"
         
+        # File hiding
         - type: "Process"
           op: "CommandLine"
-          pattern: "*reg*add*CurrentVersion\\Run*/v*Exela Update Service*"
+          pattern: "*attrib*+h*+s*ExelaUpdateService*"
         
+        # Startup folder
         - type: "File"
           op: "Create"
-          path_pattern: "*\\Start Menu\\Programs\\Startup\\Exela.exe"
+          path_pattern: "*\\Startup\\Exela.exe"
 
     # ============================================================================
-    # STAGE 13: Document And File Theft
+    # STAGE 16: Fake Error Dialog Pattern
     # ============================================================================
-    - name: "Document_And_File_Theft"
+    - name: "Fake_DLL_Error_Social_Engineering"
       conditions:
-        - type: "SensitivePathAccess"
-          op_type: "Read"
-          min_unique_paths: 3
-          patterns:
-            - "*\\Desktop\\*.txt"
-            - "*\\Desktop\\*.pdf"
-            - "*\\Desktop\\*.doc*"
-            - "*\\Documents\\*.txt"
-            - "*\\Documents\\*.pdf"
-            - "*\\Downloads\\*.txt"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*secret*"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*password*"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*wallet*"
-        
-        - type: "File"
-          op: "Write"
-          path_pattern: "*\\Temp\\StealedFilesByExela\\*"
-
-    # ============================================================================
-    # STAGE 14: Social Engineering Distraction
-    # ============================================================================
-    - name: "Social_Engineering_Distraction"
-      conditions:
+        # mshta JavaScript popup (Line 1157)
         - type: "Process"
           op: "CommandLine"
           pattern: "*mshta*javascript*WScript.Shell*Popup*"
         
+        # Specific DLL error message
         - type: "Process"
           op: "CommandLine"
           pattern: "*api-ms-win-crt-runtime*missing*"
-        
-        - type: "Process"
-          op: "Spawn"
-          pattern: "*mshta.exe*"
 
   # --- Correlation Logic ---
   mapping:
     or:
+      # High confidence: Unique identifiers + any credential theft
       - and:
-          - stage: "Browser_Credential_Theft"
-          - stage: "Data_Exfiltration_Staging"
-          - stage: "Webhook_Exfiltration"
+          - stage: "Exela_Unique_Identifiers"
+          - stage: "Python_Browser_Database_Theft"
+      
+      # High confidence: Python + Discord injection + webhook
       - and:
-          - stage: "Crypto_Wallet_Harvesting"
-          - stage: "Webhook_Exfiltration"
+          - stage: "Python_Browser_Database_Theft"
+          - stage: "Discord_Injection_Exela_Pattern"
+          - stage: "Discord_Webhook_Exfiltration"
+      
+      # High confidence: UUID pattern + persistence + exfiltration
       - and:
-          - stage: "Discord_Token_Theft_And_Injection"
-          - stage: "Webhook_Exfiltration"
+          - stage: "UUID_Staging_Directory"
+          - stage: "ExelaUpdateService_Persistence"
+          - stage: "GoFile_Exfiltration"
+      
+      # Medium confidence: Anti-VM + browser theft + webhook
       - and:
-          - stage: "Gaming_Session_Hijacking"
-          - stage: "Data_Exfiltration_Staging"
+          - stage: "UUID_Based_AntiVM_AntiDebug"
+          - stage: "Python_Browser_Database_Theft"
+          - stage: "Discord_Webhook_Exfiltration"
+      
+      # Medium confidence: Steam + social media + exfiltration
       - and:
-          - stage: "Telegram_Session_Hijacking"
-          - stage: "Data_Exfiltration_Staging"
-      - and:
-          - stage: "Anti_Analysis_Checks"
-          - stage: "Persistence_Installation"
-          - stage: "Webhook_Exfiltration"
+          - stage: "Steam_API_Session_Theft"
+          - stage: "Social_Media_API_Harvesting"
+          - stage: "Discord_Webhook_Exfiltration"
 
   # --- Memory Scan Configuration ---
   memory_scan_config:
-    target_processes: ["python*", "pythonw*", "*.exe"]
+    target_processes: 
+      - "python*"
+      - "pythonw*"
+      - "py.exe"
+      - "*.exe"
     scan_on_io_event: false
-    scan_every_n_ops: 250
+    scan_every_n_ops: 100  # More frequent scanning for Python
 
-  # --- Certificate Allowlisting ---
+  # --- Allowlisting ---
   allowlisted_apps:
     - pattern: "explorer.exe"
       must_be_signed: true
@@ -569,18 +598,14 @@
     - pattern: "firefox.exe"
       must_be_signed: true
       signers: ["Mozilla Corporation", "Mozilla Foundation"]
-    
-    - pattern: "brave.exe"
-      must_be_signed: true
-      signers: ["Brave Software, Inc."]
 
-  # --- Automated Response ---
+  # --- Response ---
   response:
     record: true
     terminate_process: true
     quarantine: true
     suspend_process: false
-    auto_revert: false
+    auto_revert: true  # Revert file changes
   
-  proximity_log_threshold: 70.0
-  debug: false
+  proximity_log_threshold: 60.0
+  debug: true  # Enable detailed logging for Python processes

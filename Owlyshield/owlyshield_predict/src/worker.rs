@@ -662,6 +662,7 @@ pub mod worker_instance {
     use crate::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
+    use sysinfo::{SystemExt, ProcessExt, PidExt};
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -774,12 +775,13 @@ pub mod worker_instance {
         // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
-        pub behavior_engine: crate::behavior_engine::BehaviorEngine,
+        pub behavior_engine: crate::windows::behavior_engine::BehaviorEngine,
         #[cfg(feature = "realtime_learning")]
         pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
         #[cfg(feature = "realtime_learning")]
         pub api_trackers: HashMap<u64, ApiTracker>,
         pub app_settings: AppSettings,
+        sys: sysinfo::System,
     }
 
     use crate::logging::Logging;
@@ -795,12 +797,13 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                behavior_engine: crate::windows::behavior_engine::BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
                 app_settings, // Initialize app_settings
+                sys: sysinfo::System::new_all(),
 			}
 		}
 
@@ -844,6 +847,28 @@ pub mod worker_instance {
             self
         }
 
+        pub fn scan_processes(&mut self) {
+            self.sys.refresh_processes();
+            for (pid, process) in self.sys.processes() {
+                let gid = pid.as_u32() as u64;
+        
+                if self.process_records.get_precord_by_gid(gid).is_none() {
+                    let exepath = process.exe().to_path_buf();
+                    let appname = process.name().to_string();
+        
+                    if exepath.to_str().unwrap_or("").is_empty() {
+                        continue;
+                    }
+        
+                    let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    self.process_records.insert_precord(gid, precord);
+        
+                    Logging::info(&format!("[PROCESS SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
+                        appname, gid, pid, exepath.display()));
+                }
+            }
+        }
+
 		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
 			Worker {
 				whitelist: Some(whitelist),
@@ -854,12 +879,13 @@ pub mod worker_instance {
                 // --- ADDED: Initialize new field (None for replay) ---
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
-                behavior_engine: crate::behavior_engine::BehaviorEngine::new(),
+                behavior_engine: crate::windows::behavior_engine::BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
                 learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
                 app_settings, // Initialize app_settings
+                sys: sysinfo::System::new_all(),
 			}
 		}
 

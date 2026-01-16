@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
-use log::{error, warn};
+use log::{warn};
 
 use crate::config::{Config, Param};
 use crate::connectors::register::Connectors;

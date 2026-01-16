@@ -23,7 +23,6 @@ pub mod utils;
 pub mod watchlist;
 pub mod whitelist;
 pub mod worker;
-pub mod behavior_engine;
 
 #[cfg(feature = "realtime_learning")]
 pub mod realtime_learning;

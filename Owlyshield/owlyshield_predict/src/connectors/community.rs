@@ -2,7 +2,6 @@
 //! This allows the program to communicate with the user through Windows toasts.
 
 use std::path::Path;
-use std::path::PathBuf;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};

@@ -9,8 +9,6 @@ use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
 use crate::config::Config;
-use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
-use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 
 use sysinfo::{SystemExt, ProcessExt, PidExt};
 
@@ -858,6 +856,11 @@ impl BehaviorEngine {
                 if let Some(name) = self.known_pids.remove(&pid) {
                     //Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
                     
+                    // --- CRITICAL FIX: Clean up process state when process dies ---
+                    // This ensures that if the PID is reused, we scan it as a new process.
+                    let gid = pid as u64; 
+                    self.process_states.remove(&gid);
+
                     self.terminated_processes.push(TerminatedProcess {
                         name,
                         timestamp: now,
@@ -870,7 +873,74 @@ impl BehaviorEngine {
                     now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(300)
                 });
             }
+    }
+    
+    /// NEW: Perform a full scan of all active processes using memory and heuristic rules.
+    /// This should be called periodically (e.g. every few seconds) alongside event processing.
+    pub fn scan_all_processes(&mut self) -> Vec<ProcessRecord> {
+        self.track_process_terminations(); // Ensure list is up to date
+        
+        let mut detected_threats = Vec::new();
+        
+        // We need to iterate over process states. 
+        // Note: process_states is populated by track_process_terminations for all running processes.
+        let keys: Vec<u64> = self.process_states.keys().cloned().collect();
+
+        for gid in keys {
+            // We need to temporarily extract state or just access fields we need
+            // Since we can't borrow self mutably for the whole loop if we call methods,
+            // we have to be careful.
+            
+            // Gather info needed for scan
+            let (pid, appname) = if let Some(s) = self.process_states.get(&gid) {
+                (s.pid, s.appname.clone())
+            } else {
+                continue;
+            };
+
+            // Run Memory Scans
+            for rule in &self.rules {
+                for stage in &rule.stages {
+                    for cond in &stage.conditions {
+                        if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
+                            // Check allowlist first
+                            if self.is_process_allowlisted(&appname, rule) {
+                                continue;
+                            }
+
+                            if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
+                                Logging::warning(&format!("[FULL SCAN] Memory threat detected in '{}' (PID: {}) via rule '{}'", 
+                                    appname, pid, rule.name));
+                                
+                                // Create a record to return
+                                let exepath = self.sys.process(sysinfo::Pid::from(pid as usize)).map(|p| p.exe().to_path_buf()).unwrap_or_default();
+                                let mut record = ProcessRecord::new(gid, appname.clone(), exepath);
+                                record.pids.insert(pid);
+                                record.is_malicious = true;
+                                record.termination_requested = rule.response.terminate_process;
+                                record.triggered_rule_name = Some(rule.name.clone());
+                                record.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
+                                
+                                detected_threats.push(record);
+                                
+                                // Update state to reflect detection
+                                if let Some(s) = self.process_states.get_mut(&gid) {
+                                    s.last_memory_scan = Some(SystemTime::now());
+                                }
+                                
+                                // Break to next process (avoid duplicate alerts for same process in one sweep)
+                                break; 
+                            }
+                        }
+                    }
+                    if !detected_threats.is_empty() && detected_threats.last().unwrap().gid == gid { break; }
+                }
+                if !detected_threats.is_empty() && detected_threats.last().unwrap().gid == gid { break; }
+            }
         }
+        
+        detected_threats
+    }
 
     #[cfg(target_os = "windows")]
     fn static_has_active_connections(pid: u32) -> bool {
@@ -1187,7 +1257,7 @@ impl BehaviorEngine {
     }
 
 
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, _config: &Config) {
         // 1. Refresh process list (Throttled internally to 1s to prevent lag)
         self.track_process_terminations(); 
 
@@ -1418,7 +1488,7 @@ impl BehaviorEngine {
             }
 
             // Enhanced alert with full details
-            let satisfied_stages_list: Vec<String> = state.satisfied_stages
+            let _satisfied_stages_list: Vec<String> = state.satisfied_stages
                 .get(&rule.name)
                 .map(|stages| {
                     stages.iter()
@@ -1427,21 +1497,21 @@ impl BehaviorEngine {
                 })
                 .unwrap_or_default();
 
-            let ancestry = if state.process_ancestry.is_empty() {
+            let _ancestry = if state.process_ancestry.is_empty() {
                 "Unknown".to_string()
             } else {
                 state.process_ancestry.join(" -> ")
             };
             
             // Construct ThreatInfo for ActionsOnKill
-            let threat_info = ThreatInfo {
+            let _threat_info = ThreatInfo {
                 threat_type_label: "Behavioral Rule",
                 virus_name: &rule.name,
                 prediction: 1.0, 
             };
 
             // Prepare dummy matrix (since this is rule-based, not ML)
-            let pred_mtrx = VecvecCappedF32::new(crate::predictions::prediction::PREDMTRXCOLS, crate::predictions::prediction::PREDMTRXROWS);
+            let _pred_mtrx = VecvecCappedF32::new(crate::predictions::prediction::PREDMTRXCOLS, crate::predictions::prediction::PREDMTRXROWS);
 
             if rule.response.terminate_process {
                 precord.termination_requested = true;
