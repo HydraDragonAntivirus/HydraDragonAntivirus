@@ -27,7 +27,7 @@
   multi_access_threshold: 2
   entropy_threshold: 6.0
   conditions_percentage: 0.25
-  min_stages_satisfied: 2
+  min_stages_satisfied: 1
   time_window_ms: 1800000  # 30 minutes for Python's slower execution
   
   # Python process names to monitor
@@ -172,9 +172,9 @@
     # ============================================================================
     # STAGE 4: CryptUnprotectData & Browser Decryption
     # ============================================================================
-    - name: "DPAPI_Browser_Decryption"
+    - name: "Browser_Decryption_Memory_Signature"
       conditions:
-        # Memory scan for DPAPI structures (Lines 63-93)
+        # Catch the patterns that ARE matching
         - type: "MemoryScan"
           patterns:
             - "CryptUnprotectData"
@@ -184,7 +184,6 @@
           detect_pe_headers: false
           private_only: false
         
-        # AES-GCM decryption patterns (v10/v11 format)
         - type: "MemoryScan"
           patterns:
             - "v10"
@@ -193,12 +192,11 @@
           detect_pe_headers: false
           private_only: false
         
-        # Read Local State JSON
-        - type: "SensitivePathAccess"
-          op_type: "Read"
-          min_unique_paths: 1
-          patterns:
-            - "*\\Local State"
+        # Require at least ONE suspicious file access
+        - type: "FileCount"
+          category: "read"
+          comparison: "gte"
+          threshold: 5
 
     # ============================================================================
     # STAGE 5: Discord Injection with Specific Pattern
@@ -542,6 +540,9 @@
   # --- Correlation Logic ---
   mapping:
     or:
+      # NEW: Add standalone detection for memory signatures
+      - stage: "Browser_Decryption_Memory_Signature"
+
       # High confidence: Unique identifiers + any credential theft
       - and:
           - stage: "Exela_Unique_Identifiers"
