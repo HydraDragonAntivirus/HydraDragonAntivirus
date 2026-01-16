@@ -857,9 +857,7 @@ impl BehaviorEngine {
             for pid in vanished_pids {
                 if let Some(name) = self.known_pids.remove(&pid) {
                     //Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
-                    
-                    let gid = pid as u64; 
-
+    
                     self.terminated_processes.push(TerminatedProcess {
                         name,
                         timestamp: now,
@@ -1611,7 +1609,7 @@ impl BehaviorEngine {
         let should_eval = Self::should_evaluate_condition_refactored(
             condition, 
             rule, 
-            state,  // ✅ Pass entire state
+            state,  // Pass entire state
             msg
         );
     }
