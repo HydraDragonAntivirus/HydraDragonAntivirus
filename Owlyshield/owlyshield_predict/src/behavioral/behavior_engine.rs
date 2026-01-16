@@ -858,10 +858,7 @@ impl BehaviorEngine {
                 if let Some(name) = self.known_pids.remove(&pid) {
                     //Logging::info(&format!("[PROCESS TERMINATED] {} (PID: {})", name, pid));
                     
-                    // --- CRITICAL FIX: Clean up process state when process dies ---
-                    // This ensures that if the PID is reused, we scan it as a new process.
                     let gid = pid as u64; 
-                    self.process_states.remove(&gid);
 
                     self.terminated_processes.push(TerminatedProcess {
                         name,
@@ -1458,7 +1455,12 @@ impl BehaviorEngine {
                 // Loop stages
                 for (s_idx, stage) in rule.stages.iter().enumerate() {
                     for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                        let should_eval = Self::should_evaluate_condition_refactored(condition, rule, state.ops_total, state.is_recording, msg);
+                        let should_eval = Self::should_evaluate_condition_refactored(
+                            condition, 
+                            rule, 
+                            state,  // Pass the entire state object
+                            msg
+                        );
                         if should_eval {
                             if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
                                 state.satisfied_conditions.entry(rule.name.clone()).or_default().entry(s_idx).or_default().insert(c_idx);
@@ -1554,25 +1556,47 @@ impl BehaviorEngine {
     }
 
     /// NEW: Determine if a condition should be evaluated based on memory scan config
-    fn should_evaluate_condition_refactored(condition: &RuleCondition, rule: &BehaviorRule, ops_total: u64, is_recording: bool, msg: &IOMessage) -> bool {
+    fn should_evaluate_condition_refactored(
+        condition: &RuleCondition, 
+        rule: &BehaviorRule, 
+        state: &ProcessBehaviorState,
+        msg: &IOMessage
+    ) -> bool {
         if let RuleCondition::MemoryScan { .. } = condition {
-            let op = IrpMajorOp::from_byte(msg.irp_op);
-            
             // Check memory scan configuration
             if let Some(config) = &rule.memory_scan_config {
+                // Use state.appname for process name
+                let process_name = state.appname.to_lowercase();
+                
+                let matches_target = config.target_processes.iter().any(|pattern| {
+                    if pattern == "*" {
+                        true
+                    } else {
+                        let pattern_lower = pattern.to_lowercase().replace("*", "");
+                        process_name.contains(&pattern_lower)
+                    }
+                });
+                
+                if !matches_target {
+                    return false; // Skip if process doesn't match targets
+                }
+                
                 // Always scan on I/O events if configured
                 if config.scan_on_io_event {
                     return true;
                 }
                 
-                // Scan every N operations
-                if ops_total % config.scan_every_n_ops == 0 {
+                // Use state.ops_total
+                if state.ops_total % config.scan_every_n_ops == 0 {
                     return true;
                 }
             }
             
             // Default behavior: scan on specific triggers
-            if op == IrpMajorOp::IrpCreate || is_recording {
+            let op = IrpMajorOp::from_byte(msg.irp_op);
+            
+            // Use state.is_recording
+            if op == IrpMajorOp::IrpCreate || state.is_recording {
                 return true;
             }
             
@@ -1584,7 +1608,12 @@ impl BehaviorEngine {
     }
 
     fn should_evaluate_condition(&self, condition: &RuleCondition, rule: &BehaviorRule, state: &ProcessBehaviorState, msg: &IOMessage) -> bool {
-        Self::should_evaluate_condition_refactored(condition, rule, state.ops_total, state.is_recording, msg)
+        let should_eval = Self::should_evaluate_condition_refactored(
+            condition, 
+            rule, 
+            state,  // ✅ Pass entire state
+            msg
+        );
     }
 
     fn evaluate_mapping_internal(mapping: &RuleMapping, rule: &BehaviorRule, state: &ProcessBehaviorState, debug: bool) -> bool {
@@ -1647,14 +1676,29 @@ impl BehaviorEngine {
         
         let result = match cond {
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                let matched = scan_process_memory(msg.pid, patterns, *detect_pe_headers, *private_only);
+                // Use the CURRENT process PID from state, not message PID
+                let target_pid = state.pid;
+                
+                if debug {
+                    Logging::debug(&format!("[DEBUG] MemoryScan starting for process '{}' (PID: {})", 
+                        state.appname, target_pid));
+                }
+                
+                let matched = scan_process_memory(target_pid, patterns, *detect_pe_headers, *private_only);
                 
                 // Update last scan timestamp
                 state.last_memory_scan = Some(SystemTime::now());
                 
-                if debug && matched {
-                    Logging::debug(&format!("[DEBUG] MemoryScan matched for PID {}", state.pid));
+                if debug {
+                    if matched {
+                        Logging::debug(&format!("[DEBUG] MemoryScan MATCHED for '{}' (PID: {}), patterns: {:?}", 
+                            state.appname, target_pid, patterns));
+                    } else {
+                        Logging::debug(&format!("[DEBUG] MemoryScan NO MATCH for '{}' (PID: {})", 
+                            state.appname, target_pid));
+                    }
                 }
+                
                 matched
             }
 

@@ -26,9 +26,9 @@
   require_internet: true
   multi_access_threshold: 2
   entropy_threshold: 6.0
-  conditions_percentage: 0.40
+  conditions_percentage: 0.25
   min_stages_satisfied: 2
-  time_window_ms: 180000  # 3 minutes for Python's slower execution
+  time_window_ms: 1800000  # 30 minutes for Python's slower execution
   
   # Python process names to monitor
   record_on_start:
@@ -574,12 +574,9 @@
   # --- Memory Scan Configuration ---
   memory_scan_config:
     target_processes: 
-      - "python*"
-      - "pythonw*"
-      - "py.exe"
-      - "*.exe"
-    scan_on_io_event: false
-    scan_every_n_ops: 100  # More frequent scanning for Python
+      - "*"
+    scan_on_io_event: true
+    scan_every_n_ops: 1  # More frequent scanning for Python
 
   # --- Allowlisting ---
   allowlisted_apps:
