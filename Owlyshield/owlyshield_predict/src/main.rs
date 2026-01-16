@@ -147,7 +147,6 @@ pub(crate) mod worker;
 mod novelty;
 #[cfg(target_os = "windows")]
 pub mod services;
-pub mod behavior_engine;
 #[cfg(feature = "realtime_learning")]
 pub mod realtime_learning;  // OwlyShield realtime-learning module
 #[cfg(target_os = "windows")]
