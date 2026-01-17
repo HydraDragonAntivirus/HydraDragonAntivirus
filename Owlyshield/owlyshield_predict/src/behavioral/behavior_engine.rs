@@ -29,17 +29,11 @@ pub struct TerminatedProcess {
     pub timestamp: SystemTime,
 }
 
-#[cfg(target_os = "windows")]
 use crate::services::ServiceChecker;
-#[cfg(target_os = "windows")]
 use crate::signature_verification::verify_signature;
-#[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-#[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, MEM_PRIVATE, MEM_MAPPED};
-#[cfg(target_os = "windows")]
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::CloseHandle;
 
 // ============================================================================
@@ -701,32 +695,30 @@ impl BehaviorEngine {
 
     /// Helper to check if process is allowlisted
     fn is_process_allowlisted(&self, proc_name: &str, rule: &BehaviorRule) -> bool {
+        let proc_lc = proc_name.to_lowercase();
+
         rule.allowlisted_apps.iter().any(|entry| {
             match entry {
                 AllowlistEntry::Simple(pattern) => {
-                    proc_name.to_lowercase().contains(&pattern.to_lowercase())
+                    proc_lc.contains(&pattern.to_lowercase())
                 }
-                AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
-                    // Name check
-                    if !proc_name.to_lowercase().contains(&pattern.to_lowercase()) {
+
+                AllowlistEntry::Complex {
+                    pattern,
+                    signers,
+                    must_be_signed,
+                } => {
+                    // Name must match
+                    if !proc_lc.contains(&pattern.to_lowercase()) {
                         return false;
                     }
 
-                    // Signature check (simplified for periodic scan)
+                    // Signature rules exist but cannot be verified here
                     if *must_be_signed || !signers.is_empty() {
-                        #[cfg(target_os = "windows")]
-                        {
-                            // Note: We can't easily get exe path from sysinfo
-                            // In a full implementation, you'd need to query the process path
-                            // For now, we'll be conservative and allow it
-                            return true;
-                        }
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            return false;
-                        }
+                        // Conservative allow (documented behavior)
+                        return true;
                     }
-                    
+
                     true
                 }
             }
@@ -967,7 +959,6 @@ impl BehaviorEngine {
         detected_threats
     }
 
-    #[cfg(target_os = "windows")]
     fn static_has_active_connections(pid: u32) -> bool {
         use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_ALL};
         use windows::Win32::Networking::WinSock::AF_INET;
@@ -986,20 +977,8 @@ impl BehaviorEngine {
         }
         false
     }
-
-    #[cfg(not(target_os = "windows"))]
-    fn static_has_active_connections(_pid: u32) -> bool {
-        false
-    }
-
-    #[cfg(target_os = "windows")]
     fn has_active_connections(&self, pid: u32) -> bool {
         Self::static_has_active_connections(pid)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn has_active_connections(&self, _pid: u32) -> bool {
-        false
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -1434,33 +1413,58 @@ impl BehaviorEngine {
                 let allowlisted = rule.allowlisted_apps.iter().any(|entry| {
                     match entry {
                         AllowlistEntry::Simple(pattern) => {
-                            state.appname.to_lowercase().contains(&pattern.to_lowercase())
+                            state
+                                .appname
+                                .to_lowercase()
+                                .contains(&pattern.to_lowercase())
                         }
-                        AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
-                            if !state.appname.to_lowercase().contains(&pattern.to_lowercase()) {
-                                return false; 
+
+                        AllowlistEntry::Complex {
+                            pattern,
+                            signers,
+                            must_be_signed,
+                        } => {
+                            // App name must match first
+                            if !state
+                                .appname
+                                .to_lowercase()
+                                .contains(&pattern.to_lowercase())
+                            {
+                                return false;
                             }
+
+                            // Signature requirements
                             if *must_be_signed || !signers.is_empty() {
-                                #[cfg(target_os = "windows")]
-                                {
-                                    let path = Path::new(&precord.exepath);
-                                    if !path.exists() { return false; }
-                                    let info = verify_signature(path);
-                                    if !info.is_trusted { return false; }
-                                    if !signers.is_empty() {
-                                        if let Some(actual_signer) = &info.signer_name {
-                                            signers.iter().any(|s_pattern| {
-                                                if let Ok(re) = Regex::new(s_pattern) {
-                                                    re.is_match(actual_signer)
-                                                } else {
-                                                    actual_signer.to_lowercase().contains(&s_pattern.to_lowercase())
-                                                }
-                                            })
-                                        } else { false }
-                                    } else { true }
+                                let path = Path::new(&precord.exepath);
+                                if !path.exists() {
+                                    return false;
                                 }
-                                #[cfg(not(target_os = "windows"))] { false }
-                            } else { true }
+
+                                let info = verify_signature(path);
+                                if !info.is_trusted {
+                                    return false;
+                                }
+
+                                if !signers.is_empty() {
+                                    if let Some(actual_signer) = &info.signer_name {
+                                        signers.iter().any(|s_pattern| {
+                                            if let Ok(re) = Regex::new(s_pattern) {
+                                                re.is_match(actual_signer)
+                                            } else {
+                                                actual_signer
+                                                    .to_lowercase()
+                                                    .contains(&s_pattern.to_lowercase())
+                                            }
+                                        })
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    true
+                                }
+                            } else {
+                                true
+                            }
                         }
                     }
                 });
@@ -1834,16 +1838,11 @@ impl BehaviorEngine {
             }
 
             RuleCondition::Service { op: s_op, name_pattern } => {
-                #[cfg(target_os = "windows")]
                 {
                     match s_op.as_str() {
                         "Stop" => !ServiceChecker::is_running(name_pattern),
                         _ => Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr),
                     }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr)
                 }
             }
 
@@ -1873,7 +1872,6 @@ impl BehaviorEngine {
             }
 
             RuleCondition::Signature { is_trusted, signer_pattern } => {
-                #[cfg(target_os = "windows")]
                 {
                     let path = Path::new(&precord.exepath);
                     if !path.exists() {
@@ -1899,10 +1897,6 @@ impl BehaviorEngine {
                     } else {
                         !info.is_trusted
                     }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    false 
                 }
             }
 
