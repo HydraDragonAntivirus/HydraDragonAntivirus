@@ -858,6 +858,7 @@ impl BehaviorEngine {
     /// This should be called periodically (e.g. every few seconds) alongside event processing.
     pub fn scan_all_processes(&mut self, config: &Config) -> Vec<ProcessRecord> {
         self.track_process_terminations(); // Ensure list is up to date
+        let now = SystemTime::now();
         
         let mut detected_threats = Vec::new();
         
