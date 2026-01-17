@@ -1,5 +1,5 @@
-- name: "Unified_Browser_Credential_Stealer_Detection"
-  description: "Multi-stage detection for browser credential theft: Access -> Collection -> Staging -> Exfiltration with advanced signature validation"
+- name: "Unified_Generic_Stealer_Detection"
+  description: "Comprehensive multi-stage detection for credential stealers covering: Recon -> Browser/Wallet/Discord Theft -> Staging -> Persistence -> Exfiltration -> Hiding."
   
   # --- Metadata ---
   author: "Security Research Team"
@@ -13,13 +13,23 @@
     - "T1560"      # Archive Collected Data
     - "T1041"      # Exfiltration Over C2 Channel
     - "T1005"      # Data from Local System
+    - "T1082"      # System Information Discovery
+    - "T1016"      # System Network Configuration Discovery
+    - "T1087"      # Account Discovery
+    - "T1489"      # Service Stop (Browser Kill)
+    - "T1547.001"  # Registry Run Keys / Startup
+    - "T1564.001"  # Hidden Files
   
   tags:
     - "credential_theft"
     - "browser_stealer"
+    - "discord_theft"
+    - "crypto_theft"
     - "data_exfiltration"
+    - "persistence"
+    - "evasion"
   
-  # --- Legacy Stealer Logic Support ---
+  # --- Legacy Stealer Logic Support (Hardcoded Engine Checks) ---
   browser_paths:
     - "Google\\Chrome\\User Data"
     - "Microsoft\\Edge\\User Data"
@@ -38,6 +48,8 @@
     - "cookies.sqlite"
     - "logins.json"
     - "key4.db"
+    - "wallet.dat"
+    - "exodus.wallet"
   
   staging_paths:
     - "AppData\\Local\\Temp"
@@ -61,7 +73,6 @@
     # ========================================================================
     - name: "Browser_Credential_Database_Access"
       conditions:
-        # Reading Login Data databases
         - type: "File"
           op: "Read"
           path_pattern: "*\\User Data\\*\\Login Data"
@@ -78,17 +89,14 @@
           op: "Read"
           path_pattern: "*\\Profiles\\*\\logins.json"
         
-        # Reading browser encryption keys
         - type: "File"
           op: "Read"
           path_pattern: "*\\User Data\\Local State"
         
-        # High entropy read operations (encrypted credential data)
         - type: "Heuristic"
           metric: "Entropy"
           threshold: 6.5
         
-        # Accessing multiple browser profiles
         - type: "SensitivePathAccess"
           op_type: "Read"
           min_unique_paths: 3
@@ -99,7 +107,6 @@
             - "*\\Opera Software\\Opera*\\*"
             - "*\\Mozilla\\Firefox\\Profiles\\*"
         
-        # Memory: Browser decryption APIs
         - type: "MemoryScan"
           patterns:
             - "CryptUnprotectData"
@@ -113,7 +120,6 @@
     # ========================================================================
     - name: "Credential_Decryption_Processing"
       conditions:
-        # Windows DPAPI usage
         - type: "MemoryScan"
           patterns:
             - "CryptUnprotectData"
@@ -122,7 +128,6 @@
           detect_pe_headers: false
           private_only: false
         
-        # Chrome/Chromium decryption patterns
         - type: "MemoryScan"
           patterns:
             - "v10"
@@ -133,7 +138,6 @@
           detect_pe_headers: false
           private_only: false
         
-        # Creating temporary database copies
         - type: "File"
           op: "Create"
           path_pattern: "*\\Temp\\*.db"
@@ -142,7 +146,6 @@
           op: "Create"
           path_pattern: "*\\Temp\\*.sqlite"
         
-        # High volume of read operations
         - type: "FileCount"
           category: "read"
           comparison: "gte"
@@ -153,18 +156,15 @@
     # ========================================================================
     - name: "Stolen_Data_Staging"
       conditions:
-        # Writing to temp directories
         - type: "TempDirectoryWrite"
-          min_bytes: 10240  # 10KB minimum
+          min_bytes: 10240
           min_files: 3
         
-        # Creating archive files
         - type: "ArchiveCreation"
           extensions: ["zip", "rar", "7z", "tar", "gz"]
-          min_size: 5120  # 5KB minimum
+          min_size: 5120
           in_temp: true
         
-        # Writing credential dump files
         - type: "File"
           op: "Write"
           path_pattern: "*\\Temp\\*\\Passwords.txt"
@@ -177,7 +177,6 @@
           op: "Write"
           path_pattern: "*\\Temp\\*\\Autofill*.txt"
         
-        # Extension patterns for staged data
         - type: "ExtensionPattern"
           op_type: "Write"
           match_mode: "any"
@@ -187,28 +186,24 @@
             - "*.dat"
             - "*.txt"
         
-        # High write volume
         - type: "ByteThreshold"
           direction: "write"
           comparison: "gte"
-          threshold: 51200  # 50KB
+          threshold: 51200
 
     # ========================================================================
     # STAGE 4: Network Exfiltration
     # ========================================================================
     - name: "Data_Exfiltration_Network"
       conditions:
-        # Active network connections
         - type: "Network"
           op: "Connect"
         
-        # Significant data upload
         - type: "ByteThreshold"
           direction: "write"
           comparison: "gte"
-          threshold: 102400  # 100KB
+          threshold: 102400
         
-        # Known exfiltration endpoints
         - type: "Network"
           op: "Connect"
           dest_pattern: "*discord.com/api/webhooks/*"
@@ -225,7 +220,6 @@
           op: "Connect"
           dest_pattern: "*anonfiles.com*"
         
-        # Upload-related memory patterns
         - type: "MemoryScan"
           patterns:
             - "webhook"
@@ -235,29 +229,165 @@
           detect_pe_headers: false
           private_only: false
 
+    # ========================================================================
+    # STAGE 5: System Reconnaissance (New)
+    # ========================================================================
+    - name: "System_Reconnaissance"
+      conditions:
+        - type: "CommandLineMatch"
+          match_mode: "at_least"
+          match_count: 2
+          patterns:
+            - pattern: "systeminfo"
+              modifiers: ["nocase", "contains"]
+            - pattern: "ipconfig"
+              modifiers: ["nocase", "contains"]
+            - pattern: "net user"
+              modifiers: ["nocase", "contains"]
+            - pattern: "tasklist"
+              modifiers: ["nocase", "contains"]
+            - pattern: "net localgroup"
+              modifiers: ["nocase", "contains"]
+            - pattern: "whoami"
+              modifiers: ["nocase", "contains"]
+            - pattern: "wmic"
+              modifiers: ["nocase", "contains"]
+
+    # ========================================================================
+    # STAGE 6: Discord Token Theft (New)
+    # ========================================================================
+    - name: "Discord_Token_Theft"
+      conditions:
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\Discord*\\Local Storage\\leveldb\\*.ldb"
+        
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\Discord*\\Local Storage\\leveldb\\*.log"
+
+    # ========================================================================
+    # STAGE 7: Crypto Wallet Theft (New)
+    # ========================================================================
+    - name: "Crypto_Wallet_Theft"
+      conditions:
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\wallet.dat"
+        
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\AppData\\Roaming\\Exodus\\exodus.wallet*"
+          
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\AppData\\Roaming\\Electrum\\wallets*"
+          
+        - type: "File"
+          op: "Read"
+          path_pattern: "*\\AppData\\Roaming\\Atomic\\Local Storage\\leveldb*"
+          
+        - type: "SensitivePathAccess"
+          op_type: "Read"
+          min_unique_paths: 1
+          patterns:
+            - "*\\Local Extension Settings\\nkbihfbeogaeaoehlefnkodbefgpgknn*" # Metamask
+            - "*\\Local Extension Settings\\bfnaelmomeimhlpmgjnjophhpkkoljpa*" # Phantom
+            - "*\\Local Extension Settings\\fhbohimaelbohpjbbldcngcnapndodjp*" # Binance
+
+    # ========================================================================
+    # STAGE 8: Browser Process Termination (New)
+    # ========================================================================
+    - name: "Browser_Process_Termination"
+      conditions:
+        # Requires both taskkill AND browser name in CLI
+        - type: "CommandLineMatch"
+          match_mode: "all"
+          patterns:
+            - pattern: "taskkill"
+              modifiers: ["nocase", "contains"]
+            - pattern: "/IM"
+              modifiers: ["nocase", "contains"]
+        
+        - type: "CommandLineMatch"
+          match_mode: "any"
+          patterns:
+            - pattern: "chrome"
+              modifiers: ["nocase", "contains"]
+            - pattern: "firefox"
+              modifiers: ["nocase", "contains"]
+            - pattern: "brave"
+              modifiers: ["nocase", "contains"]
+            - pattern: "opera"
+              modifiers: ["nocase", "contains"]
+            - pattern: "msedge"
+              modifiers: ["nocase", "contains"]
+
+    # ========================================================================
+    # STAGE 9: Persistence Establishment (New)
+    # ========================================================================
+    - name: "Persistence_Establishment"
+      conditions:
+        - type: "Registry"
+          op: "SetValue"
+          key_pattern: "*\\CurrentVersion\\Run\\*"
+        
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\*.exe"
+          
+        - type: "File"
+          op: "Create"
+          path_pattern: "*\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\*.bat"
+
+    # ========================================================================
+    # STAGE 10: Artifact Hiding (New)
+    # ========================================================================
+    - name: "Artifact_Hiding"
+      conditions:
+        - type: "CommandLineMatch"
+          match_mode: "all"
+          patterns:
+            - pattern: "attrib"
+              modifiers: ["nocase", "contains"]
+            - pattern: "+h"
+              modifiers: ["nocase", "contains"]
+            - pattern: "+s"
+              modifiers: ["nocase", "contains"]
+
   # --- Correlation Mapping ---
   mapping:
     or:
-      # Critical: Credential decryption alone is highly suspicious
+      # 1. Critical Memory Indicators (Strongest standalone indicator)
       - stage: "Credential_Decryption_Processing"
       
-      # High confidence: Access + Staging + Exfiltration (full attack chain)
+      # 2. Classic Browser Theft Chain (Access + Staging + Exfil)
       - and:
           - stage: "Browser_Credential_Database_Access"
           - stage: "Stolen_Data_Staging"
           - stage: "Data_Exfiltration_Network"
       
-      # High confidence: Access + Decryption + Staging
+      # 3. Discord/Wallet Theft + Staging (High Confidence)
       - and:
-          - stage: "Browser_Credential_Database_Access"
-          - stage: "Credential_Decryption_Processing"
+          - or:
+            - stage: "Discord_Token_Theft"
+            - stage: "Crypto_Wallet_Theft"
           - stage: "Stolen_Data_Staging"
       
-      # Medium confidence: Decryption + Staging + Exfiltration
+      # 4. Recon + Staging (Behavioral)
       - and:
-          - stage: "Credential_Decryption_Processing"
+          - stage: "System_Reconnaissance"
           - stage: "Stolen_Data_Staging"
-          - stage: "Data_Exfiltration_Network"
+      
+      # 5. Browser Kill + Access (Evasion + Theft)
+      - and:
+          - stage: "Browser_Process_Termination"
+          - stage: "Browser_Credential_Database_Access"
+
+      # 6. Persistence + Hiding (Evasion Chain)
+      - and:
+          - stage: "Persistence_Establishment"
+          - stage: "Artifact_Hiding"
 
   # ========================================================================
   # ADVANCED SIGNATURE-BASED ALLOWLISTING
@@ -540,232 +670,3 @@
   
   proximity_log_threshold: 70.0
   debug: false
-
-# ============================================================================
-# NEW GENERIC DETECTION RULES
-# ============================================================================
-
-- name: "Generic_System_Reconnaissance"
-  description: "Detects processes executing multiple system reconnaissance commands in a single command line or in rapid succession. Common in stealers like Exela."
-  severity: 70
-  level: medium
-  status: stable
-  
-  mitre_attack:
-    - "T1082"  # System Information Discovery
-    - "T1016"  # System Network Configuration Discovery
-    - "T1087"  # Account Discovery
-    - "T1057"  # Process Discovery
-
-  tags: ["recon", "stealer", "discovery"]
-
-  stages:
-    - name: "Mass_Recon_OneLiner"
-      conditions:
-        - type: "CommandLineMatch"
-          match_mode: "at_least"
-          match_count: 2
-          patterns:
-            - pattern: "systeminfo"
-              modifiers: ["nocase", "contains"]
-            - pattern: "ipconfig"
-              modifiers: ["nocase", "contains"]
-            - pattern: "net user"
-              modifiers: ["nocase", "contains"]
-            - pattern: "tasklist"
-              modifiers: ["nocase", "contains"]
-            - pattern: "net localgroup"
-              modifiers: ["nocase", "contains"]
-            - pattern: "whoami"
-              modifiers: ["nocase", "contains"]
-            - pattern: "wmic"
-              modifiers: ["nocase", "contains"]
-
-  response:
-    record: true
-    terminate_process: true
-    quarantine: false
-
-
-- name: "Generic_Stealer_Discord_Token_Hunt"
-  description: "Detects processes attempting to harvest Discord tokens by reading LevelDB files."
-  severity: 85
-  level: high
-  status: stable
-
-  mitre_attack:
-    - "T1555.003" # Credentials from Web Browsers (often applies to Discord too)
-
-  tags: ["stealer", "discord", "token_theft"]
-
-  stages:
-    - name: "Discord_DB_Access"
-      conditions:
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\Discord*\\Local Storage\\leveldb\\*.ldb"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\Discord*\\Local Storage\\leveldb\\*.log"
-
-  response:
-    record: true
-    terminate_process: true
-    quarantine: true
-    auto_revert: false
-
-
-- name: "Generic_Stealer_Wallet_Hunt"
-  description: "Detects processes accessing known cryptocurrency wallet files and browser extensions."
-  severity: 80
-  level: high
-  status: stable
-
-  mitre_attack:
-    - "T1005" # Data from Local System
-
-  tags: ["stealer", "crypto", "wallet"]
-
-  stages:
-    - name: "Wallet_File_Access"
-      conditions:
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\wallet.dat"
-        
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\AppData\\Roaming\\Exodus\\exodus.wallet*"
-          
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\AppData\\Roaming\\Electrum\\wallets*"
-          
-        - type: "File"
-          op: "Read"
-          path_pattern: "*\\AppData\\Roaming\\Atomic\\Local Storage\\leveldb*"
-          
-        - type: "SensitivePathAccess"
-          op_type: "Read"
-          min_unique_paths: 1
-          patterns:
-            # Common Browser Extension IDs for Wallets (Metamask, Phantom, etc)
-            - "*\\Local Extension Settings\\nkbihfbeogaeaoehlefnkodbefgpgknn*" # Metamask
-            - "*\\Local Extension Settings\\bfnaelmomeimhlpmgjnjophhpkkoljpa*" # Phantom
-            - "*\\Local Extension Settings\\fhbohimaelbohpjbbldcngcnapndodjp*" # Binance
-
-  response:
-    record: true
-    terminate_process: true
-    quarantine: true
-
-
-- name: "Generic_Browser_Process_Termination"
-  description: "Detects attempts to kill browser processes (Chrome, Edge, Firefox), a common tactic used by stealers to unlock database files for reading."
-  severity: 60
-  level: medium
-  status: stable
-
-  mitre_attack:
-    - "T1489" # Service Stop (applied to processes)
-
-  tags: ["evasion", "stealer", "interruption"]
-
-  stages:
-    - name: "Browser_Kill_Attempt"
-      conditions:
-        - type: "Process"
-          op: "Spawn"
-          pattern: "taskkill"
-          
-        - type: "CommandLineMatch"
-          match_mode: "any"
-          patterns:
-            - pattern: "chrome"
-              modifiers: ["nocase", "contains"]
-            - pattern: "firefox"
-              modifiers: ["nocase", "contains"]
-            - pattern: "brave"
-              modifiers: ["nocase", "contains"]
-            - pattern: "opera"
-              modifiers: ["nocase", "contains"]
-            - pattern: "msedge"
-              modifiers: ["nocase", "contains"]
-
-  # Correlation: Require both conditions (Taskkill spawned + browser argument)
-  conditions_percentage: 1.0 
-  
-  response:
-    record: true
-    terminate_process: true
-    suspend_process: false
-
-
-- name: "Generic_Persistence_Creation"
-  description: "Detects common persistence mechanisms: writing to Registry Run keys or Startup folder."
-  severity: 75
-  level: high
-  status: stable
-
-  mitre_attack:
-    - "T1547.001" # Registry Run Keys / Startup Folder
-
-  tags: ["persistence", "registry", "startup"]
-
-  stages:
-    - name: "Persistence_Write"
-      conditions:
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\CurrentVersion\\Run\\*"
-        
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\*.exe"
-          
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\*.bat"
-        
-        - type: "File"
-          op: "Create"
-          path_pattern: "*\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\*.vbs"
-
-  response:
-    record: true
-    terminate_process: true
-    auto_revert: true
-
-
-- name: "Generic_Hidden_File_Creation"
-  description: "Detects processes attempting to hide files using the 'attrib' command with hidden/system flags."
-  severity: 50
-  level: low
-  status: stable
-
-  mitre_attack:
-    - "T1564.001" # Hidden Files and Directories
-
-  tags: ["defense_evasion", "hiding"]
-
-  stages:
-    - name: "Attrib_Hiding"
-      conditions:
-        - type: "Process"
-          op: "Spawn"
-          pattern: "attrib"
-          
-        - type: "CommandLineMatch"
-          match_mode: "all"
-          patterns:
-            - pattern: "+h"
-              modifiers: ["nocase", "contains"]
-            - pattern: "+s"
-              modifiers: ["nocase", "contains"]
-
-  conditions_percentage: 1.0
-  
-  response:
-    record: true
-    terminate_process: false # Only log/record for this, as legitimate installers might do it
