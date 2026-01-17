@@ -693,7 +693,7 @@ impl BehaviorEngine {
         pid as u64
     }
 
-    /// Helper to check if process is allowlisted
+    /// Helper to check if process is allowlisted (extracted for reuse)
     fn is_process_allowlisted(&self, proc_name: &str, rule: &BehaviorRule) -> bool {
         let proc_lc = proc_name.to_lowercase();
 
@@ -713,12 +713,15 @@ impl BehaviorEngine {
                         return false;
                     }
 
-                    // Signature rules exist but cannot be verified here
-                    if *must_be_signed || !signers.is_empty() {
-                        // Conservative allow (documented behavior)
+                    // If no signature requirements, just name match is enough
+                    if !must_be_signed && signers.is_empty() {
                         return true;
                     }
 
+                    // For signature checks, we need the full path
+                    // This is a limitation - we can't verify signatures without the path
+                    // So we conservatively allow processes that match the name pattern
+                    // but have signature requirements (documented behavior)
                     true
                 }
             }
@@ -1260,7 +1263,69 @@ impl BehaviorEngine {
         s
     }
 
+    /// Helper to check if process is allowlisted (static version - no self borrow needed)
+    fn check_allowlist(proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {
+        let proc_lc = proc_name.to_lowercase();
 
+        rule.allowlisted_apps.iter().any(|entry| {
+            match entry {
+                AllowlistEntry::Simple(pattern) => {
+                    proc_lc.contains(&pattern.to_lowercase())
+                }
+
+                AllowlistEntry::Complex {
+                    pattern,
+                    signers,
+                    must_be_signed,
+                } => {
+                    // Name must match
+                    if !proc_lc.contains(&pattern.to_lowercase()) {
+                        return false;
+                    }
+
+                    // If no signature requirements, just name match is enough
+                    if !must_be_signed && signers.is_empty() {
+                        return true;
+                    }
+
+                    // If signature checks are needed but no path provided, conservatively allow
+                    if process_path.is_none() {
+                        return true;
+                    }
+
+                    // Verify signature if path available
+                    if let Some(path) = process_path {
+                        if !path.exists() {
+                            return false;
+                        }
+                        
+                        let info = verify_signature(path);
+                        if !info.is_trusted {
+                            return false;
+                        }
+
+                        if !signers.is_empty() {
+                            if let Some(signer) = &info.signer_name {
+                                signers.iter().any(|s_pattern| {
+                                    if let Ok(re) = Regex::new(s_pattern) {
+                                        re.is_match(signer)
+                                    } else {
+                                        signer.to_lowercase().contains(&s_pattern.to_lowercase())
+                                    }
+                                })
+                            } else {
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                }
+            }
+        })
+    }
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, _config: &Config) {
         // 1. Refresh process list (Throttled internally to 1s to prevent lag)
         self.track_process_terminations(); 
@@ -1288,10 +1353,85 @@ impl BehaviorEngine {
             
             // Log if we are replacing an existing GID's state (context switch)
             if self.process_states.contains_key(&gid) {
-                // debug log maybe?
+                Logging::debug(&format!("[STATE] Replacing existing GID {} state (PID change: old -> {})", 
+                    gid, msg.pid));
             }
             
             self.process_states.insert(gid, new_state);
+            
+            // **CRITICAL FIX 1: Immediate memory scan for high-priority processes**
+            // Extract data first to avoid borrow conflicts
+            let (appname, pid) = {
+                let state = self.process_states.get(&gid).unwrap();
+                (state.appname.clone(), state.pid)
+            };
+            
+            for rule in &self.rules.clone() { // Clone rules to avoid borrow issues
+                // Check if this process matches record_on_start patterns
+                let should_immediate_scan = rule.record_on_start.iter().any(|pattern| {
+                    appname.to_lowercase().contains(&pattern.to_lowercase())
+                });
+                
+                if should_immediate_scan {
+                    Logging::info(&format!(
+                        "[IMMEDIATE SCAN] Process '{}' (PID: {}) matched record_on_start, scanning memory immediately",
+                        appname, pid
+                    ));
+                    
+                    // Check allowlist before scanning
+                    if Self::check_allowlist(&appname, &rule, Some(Path::new(&precord.exepath))) {
+                        Logging::debug(&format!(
+                            "[IMMEDIATE SCAN] Skipping allowlisted process '{}' for rule '{}'",
+                            appname, rule.name
+                        ));
+                        continue;
+                    }
+                    
+                    // Scan all MemoryScan conditions in this rule immediately
+                    for stage in &rule.stages {
+                        for cond in &stage.conditions {
+                            if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
+                                Logging::debug(&format!(
+                                    "[IMMEDIATE SCAN] Scanning PID {} with {} patterns for rule '{}'",
+                                    pid, patterns.len(), rule.name
+                                ));
+                                
+                                if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
+                                    Logging::warning(&format!(
+                                        "[IMMEDIATE SCAN] ⚠️ Memory threat detected in '{}' (PID: {}) via rule '{}'", 
+                                        appname, pid, rule.name
+                                    ));
+                                    
+                                    // Update state
+                                    let state = self.process_states.get_mut(&gid).unwrap();
+                                    state.last_memory_scan = Some(now);
+                                    state.is_recording = true;
+                                    
+                                    // Mark as malicious and trigger response
+                                    precord.is_malicious = true;
+                                    precord.termination_requested = rule.response.terminate_process;
+                                    precord.triggered_rule_name = Some(rule.name.clone());
+                                    
+                                    if rule.response.quarantine {
+                                        precord.quarantine_requested = true;
+                                    }
+                                    
+                                    if rule.response.suspend_process {
+                                        precord.process_state = ProcessState::Suspended;
+                                    }
+                                    
+                                    // Early return - threat detected
+                                    return;
+                                } else {
+                                    // Mark that we scanned (even if nothing found)
+                                    let state = self.process_states.get_mut(&gid).unwrap();
+                                    state.last_memory_scan = Some(now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Now safe to get mutable reference
@@ -1302,7 +1442,10 @@ impl BehaviorEngine {
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase();
 
-        for rule in &self.rules {
+        // Clone rules to avoid borrow issues
+        let rules_clone = self.rules.clone();
+        
+        for rule in &rules_clone {
             // 1. Track Browser Access & Sensitive Files
             for b_path in &rule.browser_paths {
                 if filepath.contains(&b_path.to_lowercase()) {
@@ -1400,76 +1543,32 @@ impl BehaviorEngine {
         // 4. Evaluate each rule's stages
         let mut triggered_rules = Vec::new();
 
+        // Extract appname and exepath before the loop
+        let (appname, exepath) = {
+            let state = self.process_states.get(&gid).unwrap();
+            (state.appname.clone(), precord.exepath.clone())
+        };
+
         {
             let state = self.process_states.get_mut(&gid).unwrap();
-            for rule in &self.rules {
+            
+            for rule in &rules_clone {
                 // DEBUG: Log rule evaluation start
                 if rule.debug {
                     Logging::debug(&format!("[DEBUG] Evaluating rule '{}' for process '{}' (PID: {})", 
-                        rule.name, state.appname, state.pid));
+                        rule.name, appname, state.pid));
                 }
 
-                // Allowlisting check
-                let allowlisted = rule.allowlisted_apps.iter().any(|entry| {
-                    match entry {
-                        AllowlistEntry::Simple(pattern) => {
-                            state
-                                .appname
-                                .to_lowercase()
-                                .contains(&pattern.to_lowercase())
-                        }
+                // Allowlisting check (using static method to avoid borrow issues)
+                let allowlisted = Self::check_allowlist(&appname, rule, Some(Path::new(&exepath)));
 
-                        AllowlistEntry::Complex {
-                            pattern,
-                            signers,
-                            must_be_signed,
-                        } => {
-                            // App name must match first
-                            if !state
-                                .appname
-                                .to_lowercase()
-                                .contains(&pattern.to_lowercase())
-                            {
-                                return false;
-                            }
-
-                            // Signature requirements
-                            if *must_be_signed || !signers.is_empty() {
-                                let path = Path::new(&precord.exepath);
-                                if !path.exists() {
-                                    return false;
-                                }
-
-                                let info = verify_signature(path);
-                                if !info.is_trusted {
-                                    return false;
-                                }
-
-                                if !signers.is_empty() {
-                                    if let Some(actual_signer) = &info.signer_name {
-                                        signers.iter().any(|s_pattern| {
-                                            if let Ok(re) = Regex::new(s_pattern) {
-                                                re.is_match(actual_signer)
-                                            } else {
-                                                actual_signer
-                                                    .to_lowercase()
-                                                    .contains(&s_pattern.to_lowercase())
-                                            }
-                                        })
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    true
-                                }
-                            } else {
-                                true
-                            }
-                        }
+                if allowlisted { 
+                    if rule.debug {
+                        Logging::debug(&format!("[DEBUG] Process '{}' is allowlisted for rule '{}'", 
+                            appname, rule.name));
                     }
-                });
-
-                if allowlisted { continue; }
+                    continue; 
+                }
 
                 // Expiration logic
                 if rule.time_window_ms > 0 {
@@ -1478,6 +1577,11 @@ impl BehaviorEngine {
                             state.satisfied_stages.remove(&rule.name);
                             state.satisfied_conditions.remove(&rule.name);
                             state.first_event_ts = Some(now);
+                            
+                            if rule.debug {
+                                Logging::debug(&format!("[DEBUG] Time window expired for rule '{}', resetting state", 
+                                    rule.name));
+                            }
                         }
                     }
                 }
@@ -1488,13 +1592,41 @@ impl BehaviorEngine {
                         let should_eval = Self::should_evaluate_condition_refactored(
                             condition, 
                             rule, 
-                            state,  // Pass the entire state object
+                            state,
                             msg
                         );
+                        
                         if should_eval {
-                            if Self::evaluate_condition_internal(&self.regex_cache, condition, msg, state, precord, &rule.name, s_idx, c_idx, &self.terminated_processes, rule.debug) {
-                                state.satisfied_conditions.entry(rule.name.clone()).or_default().entry(s_idx).or_default().insert(c_idx);
-                                state.satisfied_stages.entry(rule.name.clone()).or_default().insert(s_idx);
+                            if Self::evaluate_condition_internal(
+                                &self.regex_cache, 
+                                condition, 
+                                msg, 
+                                state, 
+                                precord, 
+                                &rule.name, 
+                                s_idx, 
+                                c_idx, 
+                                &self.terminated_processes, 
+                                rule.debug
+                            ) {
+                                state.satisfied_conditions
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .entry(s_idx)
+                                    .or_default()
+                                    .insert(c_idx);
+                                
+                                state.satisfied_stages
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .insert(s_idx);
+                                
+                                if rule.debug {
+                                    Logging::debug(&format!(
+                                        "[DEBUG] Condition satisfied: Rule '{}', Stage {}, Condition {}", 
+                                        rule.name, s_idx, c_idx
+                                    ));
+                                }
                             }
                         }
                     }
@@ -1502,6 +1634,9 @@ impl BehaviorEngine {
 
                 // Trigger check
                 if Self::should_rule_trigger(rule, state, &self.terminated_processes) {
+                    if rule.debug {
+                        Logging::debug(&format!("[DEBUG] Rule '{}' TRIGGERED", rule.name));
+                    }
                     triggered_rules.push(rule.clone());
                 }
             }
@@ -1518,11 +1653,14 @@ impl BehaviorEngine {
 
             if rule.is_private {
                 // Private rules only update state, they don't trigger alerts or actions
+                if rule.debug {
+                    Logging::debug(&format!("[DEBUG] Rule '{}' is private, skipping actions", rule.name));
+                }
                 continue;
             }
 
             // Enhanced alert with full details
-            let _satisfied_stages_list: Vec<String> = state.satisfied_stages
+            let satisfied_stages_list: Vec<String> = state.satisfied_stages
                 .get(&rule.name)
                 .map(|stages| {
                     stages.iter()
@@ -1531,34 +1669,38 @@ impl BehaviorEngine {
                 })
                 .unwrap_or_default();
 
-            let _ancestry = if state.process_ancestry.is_empty() {
+            let ancestry = if state.process_ancestry.is_empty() {
                 "Unknown".to_string()
             } else {
                 state.process_ancestry.join(" -> ")
             };
             
-            // Construct ThreatInfo for ActionsOnKill
-            let _threat_info = ThreatInfo {
-                threat_type_label: "Behavioral Rule",
-                virus_name: &rule.name,
-                prediction: 1.0, 
-            };
-
-            // Prepare dummy matrix (since this is rule-based, not ML)
-            let _pred_mtrx = VecvecCappedF32::new(crate::predictions::prediction::PREDMTRXCOLS, crate::predictions::prediction::PREDMTRXROWS);
+            Logging::warning(&format!(
+                "[THREAT DETECTED] Rule: '{}' | Process: '{}' (PID: {}) | Ancestry: [{}] | Satisfied Stages: [{}]",
+                rule.name,
+                state.appname,
+                state.pid,
+                ancestry,
+                satisfied_stages_list.join(", ")
+            ));
 
             if rule.response.terminate_process {
                 precord.termination_requested = true;
                 precord.is_malicious = true;
                 precord.time_killed = Some(SystemTime::now());
                 precord.triggered_rule_name = Some(rule.name.clone());
+                
+                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) TERMINATION REQUESTED", 
+                    state.appname, state.pid));
             }
 
             if rule.response.suspend_process {
-                // For suspend, we also trigger kernel-based actions (reporting/logging)
-                precord.termination_requested = true; // Signal intent to driver if supported, or treat as kill flow
-                precord.process_state = ProcessState::Suspended; // Update state for the report
+                precord.termination_requested = true;
+                precord.process_state = ProcessState::Suspended;
                 precord.triggered_rule_name = Some(rule.name.clone());
+                
+                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) SUSPENSION REQUESTED", 
+                    state.appname, state.pid));
             }
 
             if rule.response.quarantine {
@@ -1566,26 +1708,21 @@ impl BehaviorEngine {
                 precord.termination_requested = true;
                 precord.is_malicious = true;
                 precord.triggered_rule_name = Some(rule.name.clone());
-                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) QUARANTINED", state.appname, state.pid));
+                
+                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) QUARANTINED", 
+                    state.appname, state.pid));
             }
 
             if rule.response.auto_revert {
                 precord.revert_requested = true;
-                Logging::warning(&format!("[ACTION] Auto-revert enabled for process '{}' (PID: {})", state.appname, state.pid));
-            }
-        }
-
-        // Helper function to add at the top of the impl block
-        fn truncate(s: &str, max_len: usize) -> String {
-            if s.len() <= max_len {
-                format!("{:width$}", s, width = max_len)
-            } else {
-                format!("{}..{:width$}", &s[..max_len-3], "", width = 3)
+                
+                Logging::warning(&format!("[ACTION] Auto-revert enabled for process '{}' (PID: {})", 
+                    state.appname, state.pid));
             }
         }
     }
 
-    /// NEW: Determine if a condition should be evaluated based on memory scan config
+    /// **CRITICAL FIX 2: Relaxed cooldown for initial scans**
     fn should_evaluate_condition_refactored(
         condition: &RuleCondition, 
         rule: &BehaviorRule, 
@@ -1594,11 +1731,16 @@ impl BehaviorEngine {
     ) -> bool {
         if let RuleCondition::MemoryScan { .. } = condition {
             
-            // SMART SCAN: Enforce cooldown to prevent "stuck" scanning on noisy processes
+            // **FIX**: Always allow first scan without cooldown
+            if state.last_memory_scan.is_none() {
+                return true;
+            }
+            
+            // Enforce cooldown for subsequent scans
             if let Some(last_scan) = state.last_memory_scan {
                 let cooldown_secs = rule.memory_scan_config.as_ref()
                     .map(|c| c.min_scan_interval_secs)
-                    .unwrap_or(10); // Default to 10s if not specified
+                    .unwrap_or(10);
                 
                 if last_scan.elapsed().unwrap_or_default() < Duration::from_secs(cooldown_secs) {
                     return false; // Skip scan if within cooldown
@@ -1607,7 +1749,6 @@ impl BehaviorEngine {
 
             // Check memory scan configuration
             if let Some(config) = &rule.memory_scan_config {
-                // Use state.appname for process name
                 let process_name = state.appname.to_lowercase();
                 
                 let matches_target = config.target_processes.iter().any(|pattern| {
@@ -1620,7 +1761,7 @@ impl BehaviorEngine {
                 });
                 
                 if !matches_target {
-                    return false; // Skip if process doesn't match targets
+                    return false;
                 }
                 
                 // Always scan on I/O events if configured
@@ -1628,7 +1769,7 @@ impl BehaviorEngine {
                     return true;
                 }
                 
-                // Use state.ops_total
+                // Scan every N operations
                 if state.ops_total % config.scan_every_n_ops == 0 {
                     return true;
                 }
@@ -1637,7 +1778,6 @@ impl BehaviorEngine {
             // Default behavior: scan on specific triggers
             let op = IrpMajorOp::from_byte(msg.irp_op);
             
-            // Use state.is_recording
             if op == IrpMajorOp::IrpCreate || state.is_recording {
                 return true;
             }
@@ -2407,26 +2547,48 @@ fn base64_decode(input: &str) -> Result<String, ()> {
 }
 
 fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_only: bool) -> bool {
+    let scan_start = std::time::Instant::now();
+    
+    Logging::debug(&format!(
+        "[MEMSCAN] Starting scan for PID {} | Patterns: {} | PE Detection: {} | Private Only: {}", 
+        pid, patterns.len(), detect_pe, private_only
+    ));
+    
     let process_handle = unsafe {
         OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).unwrap_or_default()
     };
     
     if process_handle.is_invalid() {
+        Logging::debug(&format!("[MEMSCAN] Failed to open process {}", pid));
         return false;
     }
 
-    // 1. Pre-process patterns to bytes (to avoid doing this in hot loop)
-    let byte_patterns: Vec<Vec<u8>> = patterns.iter().map(|p| {
-        if (p.starts_with("0x") || p.chars().take(2).all(|c| c.is_ascii_hexdigit())) && p.len() >= 2 {
+    // 1. Pre-process patterns to bytes
+    let byte_patterns: Vec<Vec<u8>> = patterns.iter().filter_map(|p| {
+        let bytes = if (p.starts_with("0x") || p.chars().take(2).all(|c| c.is_ascii_hexdigit())) && p.len() >= 2 {
             hex_to_bytes(p)
         } else {
             p.as_bytes().to_vec()
+        };
+        
+        if bytes.is_empty() {
+            Logging::debug(&format!("[MEMSCAN] Skipping empty pattern: '{}'", p));
+            None
+        } else {
+            Logging::debug(&format!("[MEMSCAN] Pattern: '{}' ({} bytes)", p, bytes.len()));
+            Some(bytes)
         }
-    }).filter(|p| !p.is_empty()).collect();
+    }).collect();
+
+    if byte_patterns.is_empty() {
+        Logging::debug(&format!("[MEMSCAN] No valid patterns to scan"));
+        let _ = unsafe { CloseHandle(process_handle) };
+        return false;
+    }
 
     let byte_patterns = Arc::new(byte_patterns);
 
-    // 2. Gather all memory regions first
+    // 2. Gather all memory regions
     let mut regions: Vec<Region> = Vec::new();
     let mut address = std::ptr::null();
     let mut mbi = MEMORY_BASIC_INFORMATION::default();
@@ -2435,13 +2597,9 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
         while VirtualQueryEx(process_handle, Some(address), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) != 0 {
             let is_commited = mbi.State == MEM_COMMIT;
             let is_not_noaccess = mbi.Protect != PAGE_NOACCESS;
-            // SMART SCAN: If private_only is strictly required, ensure we don't scan Image/Mapped files
             let is_interesting = if private_only {
                 mbi.Type == MEM_PRIVATE
             } else {
-                // If not private only, we generally still want to avoid massive mapped files unless needed
-                // But legacy logic allowed it. Let's stick to standard practice:
-                // Scan Private (Heap/Stack) and Mapped (sometimes injections). Skip Image (DLLs) usually.
                 mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED
             };
 
@@ -2457,17 +2615,15 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
         }
     }
     
-    // Safety check: close handle if we have nothing to scan
+    Logging::debug(&format!("[MEMSCAN] Found {} scannable regions", regions.len()));
+    
     if regions.is_empty() {
         let _ = unsafe { CloseHandle(process_handle) };
         return false;
     }
 
-    // 3. Parallel Scanning with Early Exit
-    // We use a safe wrapper for the handle to share across threads (Handle is Copy/Clone-ish in raw form, but we need care)
-    // Actually, in Win32, raw handles are thread-safe for reading.
-    let raw_handle = process_handle.0; // Isisntance of valid handle
-    
+    // 3. Parallel scanning with early exit
+    let raw_handle = process_handle.0;
     let found = Arc::new(AtomicBool::new(false));
     let cpu_count = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -2476,25 +2632,28 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
     let chunk_size = (regions.len() / cpu_count).max(1);
     
     let mut handles = Vec::new();
+    let total_regions = regions.len();
 
-    for chunk in regions.chunks(chunk_size) {
+    for (chunk_idx, chunk) in regions.chunks(chunk_size).enumerate() {
         let chunk = chunk.to_vec();
         let patterns = byte_patterns.clone();
         let found_flag = found.clone();
         
         let handle = thread::spawn(move || {
-             // Re-construct handle for this thread (safe since we don't close it until end)
-             let thread_proc_handle = windows::Win32::Foundation::HANDLE(raw_handle);
-             
-             let mut buffer = vec![0u8; 64 * 1024]; // 64KB chunk buffer to be friendly to cache
-             
-             for region in chunk {
-                if found_flag.load(Ordering::Relaxed) { return; }
+            let thread_proc_handle = windows::Win32::Foundation::HANDLE(raw_handle);
+            let mut buffer = vec![0u8; 64 * 1024];
+            let mut regions_scanned = 0;
+            
+            for region in chunk {
+                if found_flag.load(Ordering::Relaxed) { 
+                    return; 
+                }
 
-                // Process region in chunks to prevent huge allocations
                 let mut current_offset = 0;
                 while current_offset < region.size {
-                    if found_flag.load(Ordering::Relaxed) { return; }
+                    if found_flag.load(Ordering::Relaxed) { 
+                        return; 
+                    }
 
                     let bytes_to_read = std::cmp::min(buffer.len(), region.size - current_offset);
                     let mut bytes_read = 0;
@@ -2516,16 +2675,16 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
                         
                         // PE Header Check
                         if detect_pe && current_offset == 0 {
-                             if data.len() > 64 && data[0] == b'M' && data[1] == b'Z' {
-                                 // Simple heuristic
-                                 found_flag.store(true, Ordering::Relaxed);
-                                 return;
-                             }
+                            if data.len() > 64 && data[0] == b'M' && data[1] == b'Z' {
+                                found_flag.store(true, Ordering::Relaxed);
+                                return;
+                            }
                         }
 
                         // Pattern Scan
-                        for pattern in patterns.iter() {
+                        for (pat_idx, pattern) in patterns.iter().enumerate() {
                             if data.windows(pattern.len()).any(|window| window == pattern.as_slice()) {
+                                // Found match!
                                 found_flag.store(true, Ordering::Relaxed);
                                 return;
                             }
@@ -2534,8 +2693,11 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
 
                     current_offset += bytes_to_read;
                 }
-             }
+                
+                regions_scanned += 1;
+            }
         });
+        
         handles.push(handle);
     }
 
@@ -2546,7 +2708,22 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
 
     let _ = unsafe { CloseHandle(process_handle) };
     
-    found.load(Ordering::Relaxed)
+    let result = found.load(Ordering::Relaxed);
+    let elapsed = scan_start.elapsed();
+    
+    if result {
+        Logging::warning(&format!(
+            "[MEMSCAN] MATCH FOUND for PID {} in {:.2}ms", 
+            pid, elapsed.as_secs_f64() * 1000.0
+        ));
+    } else {
+        Logging::debug(&format!(
+            "[MEMSCAN] No matches for PID {} ({} regions scanned in {:.2}ms)", 
+            pid, total_regions, elapsed.as_secs_f64() * 1000.0
+        ));
+    }
+    
+    result
 }
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
