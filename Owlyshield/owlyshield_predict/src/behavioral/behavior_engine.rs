@@ -906,13 +906,18 @@ impl BehaviorEngine {
                 continue;
             };
 
+            // Get exepath early for allowlist signature verification
+            let exepath = self.sys.process(sysinfo::Pid::from(pid as usize))
+                .map(|p| p.exe().to_path_buf())
+                .unwrap_or_default();
+
             // Run Memory Scans
             for rule in &self.rules {
                 for stage in &rule.stages {
                     for cond in &stage.conditions {
                         if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
-                            // Check allowlist first
-                            if self.is_process_allowlisted(&appname, rule) {
+                            // Check allowlist first with proper signature verification
+                            if Self::check_allowlist(&appname, rule, Some(exepath.as_path())) {
                                 continue;
                             }
 
@@ -932,9 +937,8 @@ impl BehaviorEngine {
                                 Logging::warning(&format!("[FULL SCAN] Memory threat detected in '{}' (PID: {}) via rule '{}'", 
                                     appname, pid, rule.name));
                                 
-                                // Create a record to return
-                                let exepath = self.sys.process(sysinfo::Pid::from(pid as usize)).map(|p| p.exe().to_path_buf()).unwrap_or_default();
-                                let mut record = ProcessRecord::new(gid, appname.clone(), exepath);
+                                // Create a record to return (use exepath obtained earlier)
+                                let mut record = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                                 record.pids.insert(pid);
                                 record.is_malicious = true;
                                 record.termination_requested = rule.response.terminate_process;
@@ -1306,15 +1310,17 @@ impl BehaviorEngine {
 
                         if !signers.is_empty() {
                             if let Some(signer) = &info.signer_name {
-                                signers.iter().any(|s_pattern| {
+                                // FIXED: Return the result of signer matching
+                                return signers.iter().any(|s_pattern| {
                                     if let Ok(re) = Regex::new(s_pattern) {
                                         re.is_match(signer)
                                     } else {
                                         signer.to_lowercase().contains(&s_pattern.to_lowercase())
                                     }
-                                })
+                                });
                             } else {
-                                false
+                                // No signer name available but signers list is specified - reject
+                                return false;
                             }
                         } else {
                             true

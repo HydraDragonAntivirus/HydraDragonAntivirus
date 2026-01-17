@@ -59,7 +59,7 @@
   # --- Stage Correlation Configuration ---
   min_stages_satisfied: 1
   time_window_ms: 1200000  # 2* minutes correlation window
-  conditions_percentage: 0.25
+  conditions_percentage: 0.30
   
   # Python processes get immediate memory scans
   record_on_start:
