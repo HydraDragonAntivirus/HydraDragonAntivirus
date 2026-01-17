@@ -606,4 +606,4 @@
     auto_revert: true  # Revert file changes
   
   proximity_log_threshold: 60.0
-  debug: true  # Enable detailed logging for Python processes
+  debug: false

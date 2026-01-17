@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use regex::Regex;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::thread;
 
 // --- EDR Telemetry & Framework ---
 use crate::shared_def::{IOMessage, IrpMajorOp};
@@ -13,6 +15,13 @@ use crate::actions_on_kill::ThreatInfo;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 
 use sysinfo::{SystemExt, ProcessExt, PidExt};
+
+#[derive(Clone, Copy)]
+pub struct Region {
+    base: usize,
+    size: usize,
+}
+
 
 #[derive(Clone, Debug)]
 pub struct TerminatedProcess {
@@ -27,7 +36,7 @@ use crate::signature_verification::verify_signature;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, MEM_PRIVATE};
+use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, MEM_PRIVATE, MEM_MAPPED};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 #[cfg(target_os = "windows")]
@@ -268,7 +277,14 @@ pub struct MemoryScanConfig {
     /// Scan every N operations for matched processes
     #[serde(default = "default_scan_frequency")]
     pub scan_every_n_ops: u64,
+
+    /// NEW: Minimum time (seconds) between full scans for the same process
+    /// Prevents "stuck" loops if the process generates events faster than we can scan.
+    #[serde(default = "default_scan_interval")]
+    pub min_scan_interval_secs: u64,
 }
+
+fn default_scan_interval() -> u64 { 10 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -903,6 +919,18 @@ impl BehaviorEngine {
                             // Check allowlist first
                             if self.is_process_allowlisted(&appname, rule) {
                                 continue;
+                            }
+
+                            // Smart scan check logic inside `should_evaluate_condition_refactored` handles the cooldown/triggers
+                            // but for `scan_all_processes` (periodic), we might want to force it or respect a different timer.
+                            // For simplicity, we respect the last_scan timer here too.
+                             if let Some(s) = self.process_states.get(&gid) {
+                                if let Some(last) = s.last_memory_scan {
+                                    let cooldown = rule.memory_scan_config.as_ref().map(|c| c.min_scan_interval_secs).unwrap_or(10);
+                                    if last.elapsed().unwrap_or_default() < Duration::from_secs(cooldown) {
+                                        continue;
+                                    }
+                                }
                             }
 
                             if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
@@ -1561,6 +1589,18 @@ impl BehaviorEngine {
         msg: &IOMessage
     ) -> bool {
         if let RuleCondition::MemoryScan { .. } = condition {
+            
+            // SMART SCAN: Enforce cooldown to prevent "stuck" scanning on noisy processes
+            if let Some(last_scan) = state.last_memory_scan {
+                let cooldown_secs = rule.memory_scan_config.as_ref()
+                    .map(|c| c.min_scan_interval_secs)
+                    .unwrap_or(10); // Default to 10s if not specified
+                
+                if last_scan.elapsed().unwrap_or_default() < Duration::from_secs(cooldown_secs) {
+                    return false; // Skip scan if within cooldown
+                }
+            }
+
             // Check memory scan configuration
             if let Some(config) = &rule.memory_scan_config {
                 // Use state.appname for process name
@@ -2372,7 +2412,6 @@ fn base64_decode(input: &str) -> Result<String, ()> {
     String::from_utf8(output).map_err(|_| ())
 }
 
-#[cfg(target_os = "windows")]
 fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_only: bool) -> bool {
     let process_handle = unsafe {
         OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).unwrap_or_default()
@@ -2382,6 +2421,19 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
         return false;
     }
 
+    // 1. Pre-process patterns to bytes (to avoid doing this in hot loop)
+    let byte_patterns: Vec<Vec<u8>> = patterns.iter().map(|p| {
+        if (p.starts_with("0x") || p.chars().take(2).all(|c| c.is_ascii_hexdigit())) && p.len() >= 2 {
+            hex_to_bytes(p)
+        } else {
+            p.as_bytes().to_vec()
+        }
+    }).filter(|p| !p.is_empty()).collect();
+
+    let byte_patterns = Arc::new(byte_patterns);
+
+    // 2. Gather all memory regions first
+    let mut regions: Vec<Region> = Vec::new();
     let mut address = std::ptr::null();
     let mut mbi = MEMORY_BASIC_INFORMATION::default();
 
@@ -2389,61 +2441,118 @@ fn scan_process_memory(pid: u32, patterns: &[String], detect_pe: bool, private_o
         while VirtualQueryEx(process_handle, Some(address), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) != 0 {
             let is_commited = mbi.State == MEM_COMMIT;
             let is_not_noaccess = mbi.Protect != PAGE_NOACCESS;
-            let is_private = mbi.Type == MEM_PRIVATE;
+            // SMART SCAN: If private_only is strictly required, ensure we don't scan Image/Mapped files
+            let is_interesting = if private_only {
+                mbi.Type == MEM_PRIVATE
+            } else {
+                // If not private only, we generally still want to avoid massive mapped files unless needed
+                // But legacy logic allowed it. Let's stick to standard practice:
+                // Scan Private (Heap/Stack) and Mapped (sometimes injections). Skip Image (DLLs) usually.
+                mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED
+            };
 
-            if is_commited && is_not_noaccess && (!private_only || is_private) {
-                let mut buffer = vec![0u8; mbi.RegionSize];
-                let mut bytes_read = 0;
-                
-                if ReadProcessMemory(process_handle, mbi.BaseAddress, buffer.as_mut_ptr() as *mut _, mbi.RegionSize, Some(&mut bytes_read)).as_bool() {
-                    let data = &buffer[..bytes_read];
-                    
-                    if detect_pe {
-                        for i in 0..(data.len().saturating_sub(64)) {
-                            if data[i] == b'M' && data[i+1] == b'Z' {
-                                let pe_offset_idx = i + 0x3c;
-                                if pe_offset_idx + 4 <= data.len() {
-                                    let pe_offset = u32::from_le_bytes([data[pe_offset_idx], data[pe_offset_idx+1], data[pe_offset_idx+2], data[pe_offset_idx+3]]) as usize;
-                                    let pe_sig_idx = i + pe_offset;
-                                    if pe_sig_idx + 4 <= data.len() {
-                                        if data[pe_sig_idx] == b'P' && data[pe_sig_idx+1] == b'E' && data[pe_sig_idx+2] == 0 && data[pe_sig_idx+3] == 0 {
-                                            let _ = CloseHandle(process_handle);
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    for pattern in patterns {
-                        if data.windows(pattern.len()).any(|window| window == pattern.as_bytes()) {
-                            let _ = CloseHandle(process_handle);
-                            return true;
-                        }
-                        
-                        if (pattern.starts_with("0x") || pattern.chars().take(2).all(|c| c.is_ascii_hexdigit())) && pattern.len() >= 2 {
-                            let hex_bytes = hex_to_bytes(pattern);
-                            if !hex_bytes.is_empty() && data.windows(hex_bytes.len()).any(|window| window == &hex_bytes[..]) {
-                                let _ = CloseHandle(process_handle);
-                                return true;
-                            }
-                        }
-                    }
-                }
+            if is_commited && is_not_noaccess && is_interesting {
+                regions.push(Region {
+                    base: mbi.BaseAddress as usize,
+                    size: mbi.RegionSize,
+                });
             }
 
             address = (mbi.BaseAddress as usize).saturating_add(mbi.RegionSize) as *const _;
             if address.is_null() { break; }
         }
-        let _ = CloseHandle(process_handle);
     }
-    false
-}
+    
+    // Safety check: close handle if we have nothing to scan
+    if regions.is_empty() {
+        let _ = unsafe { CloseHandle(process_handle) };
+        return false;
+    }
 
-#[cfg(not(target_os = "windows"))]
-fn scan_process_memory(_pid: u32, _patterns: &[String], _detect_pe: bool, _private_only: bool) -> bool {
-    false
+    // 3. Parallel Scanning with Early Exit
+    // We use a safe wrapper for the handle to share across threads (Handle is Copy/Clone-ish in raw form, but we need care)
+    // Actually, in Win32, raw handles are thread-safe for reading.
+    let raw_handle = process_handle.0; // Isisntance of valid handle
+    
+    let found = Arc::new(AtomicBool::new(false));
+    let cpu_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2)
+        .max(2);
+    let chunk_size = (regions.len() / cpu_count).max(1);
+    
+    let mut handles = Vec::new();
+
+    for chunk in regions.chunks(chunk_size) {
+        let chunk = chunk.to_vec();
+        let patterns = byte_patterns.clone();
+        let found_flag = found.clone();
+        
+        let handle = thread::spawn(move || {
+             // Re-construct handle for this thread (safe since we don't close it until end)
+             let thread_proc_handle = windows::Win32::Foundation::HANDLE(raw_handle);
+             
+             let mut buffer = vec![0u8; 64 * 1024]; // 64KB chunk buffer to be friendly to cache
+             
+             for region in chunk {
+                if found_flag.load(Ordering::Relaxed) { return; }
+
+                // Process region in chunks to prevent huge allocations
+                let mut current_offset = 0;
+                while current_offset < region.size {
+                    if found_flag.load(Ordering::Relaxed) { return; }
+
+                    let bytes_to_read = std::cmp::min(buffer.len(), region.size - current_offset);
+                    let mut bytes_read = 0;
+                    
+                    let read_addr = (region.base as usize + current_offset) as *const _;
+                    
+                    let success = unsafe {
+                        ReadProcessMemory(
+                            thread_proc_handle,
+                            read_addr,
+                            buffer.as_mut_ptr() as *mut _,
+                            bytes_to_read,
+                            Some(&mut bytes_read)
+                        ).as_bool()
+                    };
+
+                    if success && bytes_read > 0 {
+                        let data = &buffer[..bytes_read];
+                        
+                        // PE Header Check
+                        if detect_pe && current_offset == 0 {
+                             if data.len() > 64 && data[0] == b'M' && data[1] == b'Z' {
+                                 // Simple heuristic
+                                 found_flag.store(true, Ordering::Relaxed);
+                                 return;
+                             }
+                        }
+
+                        // Pattern Scan
+                        for pattern in patterns.iter() {
+                            if data.windows(pattern.len()).any(|window| window == pattern.as_slice()) {
+                                found_flag.store(true, Ordering::Relaxed);
+                                return;
+                            }
+                        }
+                    }
+
+                    current_offset += bytes_to_read;
+                }
+             }
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all threads
+    for h in handles {
+        let _ = h.join();
+    }
+
+    let _ = unsafe { CloseHandle(process_handle) };
+    
+    found.load(Ordering::Relaxed)
 }
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
