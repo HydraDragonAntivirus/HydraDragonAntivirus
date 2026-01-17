@@ -231,7 +231,7 @@ pub fn run() {
                 worker.process_io(&mut iomsg, &thread_config);
 
                 if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
-                    worker.scan_processes();
+                    worker.scan_processes(&thread_config);
                     worker.process_suspended_records(&thread_config, Box::new(WindowsThreatHandler::from(driver)));
                     count = 0;
                     timer = SystemTime::now();

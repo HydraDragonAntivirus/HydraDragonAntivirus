@@ -851,7 +851,17 @@ pub mod worker_instance {
             self
         }
 
-        pub fn scan_processes(&mut self) {
+        pub fn scan_processes(&mut self, config: &Config) {
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                let behavior_records = self.behavior_engine.scan_all_processes(config);
+                for mut record in behavior_records {
+                    if let Some(handler) = &mut self.process_record_handler {
+                        handler.handle_behavior_detection(&mut record);
+                    }
+                }
+            }
+
             self.sys.refresh_processes();
             for (pid, process) in self.sys.processes() {
                 let gid = pid.as_u32() as u64;

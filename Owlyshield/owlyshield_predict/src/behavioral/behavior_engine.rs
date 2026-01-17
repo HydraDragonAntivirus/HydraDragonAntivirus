@@ -693,40 +693,6 @@ impl BehaviorEngine {
         pid as u64
     }
 
-    /// Helper to check if process is allowlisted (extracted for reuse)
-    fn is_process_allowlisted(&self, proc_name: &str, rule: &BehaviorRule) -> bool {
-        let proc_lc = proc_name.to_lowercase();
-
-        rule.allowlisted_apps.iter().any(|entry| {
-            match entry {
-                AllowlistEntry::Simple(pattern) => {
-                    proc_lc.contains(&pattern.to_lowercase())
-                }
-
-                AllowlistEntry::Complex {
-                    pattern,
-                    signers,
-                    must_be_signed,
-                } => {
-                    // Name must match
-                    if !proc_lc.contains(&pattern.to_lowercase()) {
-                        return false;
-                    }
-
-                    // If no signature requirements, just name match is enough
-                    if !must_be_signed && signers.is_empty() {
-                        return true;
-                    }
-
-                    // For signature checks, we need the full path
-                    // This is a limitation - we can't verify signatures without the path
-                    // So we conservatively allow processes that match the name pattern
-                    // but have signature requirements (documented behavior)
-                    true
-                }
-            }
-        })
-    }
 
     /// Helper to check if rule should trigger
     fn should_rule_trigger(rule: &BehaviorRule, state: &ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
@@ -821,6 +787,11 @@ impl BehaviorEngine {
     fn track_process_terminations(&mut self) {
             let now = SystemTime::now();
 
+            // 1s Throttling to prevent constant sys.refresh_processes() on every I/O event
+            if now.duration_since(self.last_refresh).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(1) {
+                return;
+            }
+
             self.last_refresh = now;
             
             self.sys.refresh_processes();
@@ -885,7 +856,7 @@ impl BehaviorEngine {
     
     /// NEW: Perform a full scan of all active processes using memory and heuristic rules.
     /// This should be called periodically (e.g. every few seconds) alongside event processing.
-    pub fn scan_all_processes(&mut self) -> Vec<ProcessRecord> {
+    pub fn scan_all_processes(&mut self, config: &Config) -> Vec<ProcessRecord> {
         self.track_process_terminations(); // Ensure list is up to date
         
         let mut detected_threats = Vec::new();
@@ -945,7 +916,26 @@ impl BehaviorEngine {
                                 record.triggered_rule_name = Some(rule.name.clone());
                                 record.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
                                 
-                                detected_threats.push(record);
+                                detected_threats.push(record.clone());
+                                
+                                // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
+                                let threat_info = ThreatInfo {
+                                    threat_type_label: "Behavioral Threat (Scan)",
+                                    virus_name: &rule.name,
+                                    prediction: 1.0,
+                                };
+                                
+                                let empty_timesteps = VecvecCappedF32::new(
+                                    crate::predictions::prediction::PREDMTRXCOLS,
+                                    crate::predictions::prediction::PREDMTRXROWS,
+                                );
+                                
+                                ActionsOnKill::new().run_actions_with_info(
+                                    config,
+                                    &record,
+                                    &empty_timesteps,
+                                    &threat_info,
+                                );
                                 
                                 // Update state to reflect detection
                                 if let Some(s) = self.process_states.get_mut(&gid) {
