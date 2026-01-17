@@ -916,8 +916,6 @@ impl BehaviorEngine {
                                 record.triggered_rule_name = Some(rule.name.clone());
                                 record.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
                                 
-                                detected_threats.push(record.clone());
-                                
                                 // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
                                 let threat_info = ThreatInfo {
                                     threat_type_label: "Behavioral Threat (Scan)",
@@ -936,10 +934,13 @@ impl BehaviorEngine {
                                     &empty_timesteps,
                                     &threat_info,
                                 );
+
+                                detected_threats.push(record);
                                 
                                 // Update state to reflect detection
                                 if let Some(s) = self.process_states.get_mut(&gid) {
-                                    s.last_memory_scan = Some(SystemTime::now());
+                                    s.last_memory_scan = Some(now);
+                                    s.is_recording = true;
                                 }
                                 
                                 // Break to next process (avoid duplicate alerts for same process in one sweep)
