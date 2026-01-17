@@ -235,8 +235,9 @@
     - name: "System_Reconnaissance"
       conditions:
         - type: "CommandLineMatch"
-          match_mode: "at_least"
-          match_count: 2
+          # FIXED: 'at_least' is a variant requiring a value, so it must be a map
+          match_mode:
+            at_least: 2
           patterns:
             - pattern: "systeminfo"
               modifiers: ["nocase", "contains"]
