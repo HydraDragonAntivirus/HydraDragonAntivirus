@@ -2,7 +2,7 @@
   description: "Comprehensive multi-stage detection for credential stealers covering: Recon -> Browser/Wallet/Discord Theft -> Staging -> Persistence -> Exfiltration -> Hiding."
   
   # --- Metadata ---
-  author: "Security Research Team"
+  author: "Emirhan Ucan"
   severity: 90
   level: critical
   status: stable
@@ -668,4 +668,4 @@
     auto_revert: true         # Revert file changes if possible
   
   proximity_log_threshold: 70.0
-  debug: true
+  debug: false
