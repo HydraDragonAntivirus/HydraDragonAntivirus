@@ -11,7 +11,7 @@ use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
 use crate::config::Config;
-use crate::actions_on_kill::ThreatInfo;
+use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 
 use sysinfo::{SystemExt, ProcessExt, PidExt};
@@ -1326,7 +1326,7 @@ impl BehaviorEngine {
             }
         })
     }
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, _config: &Config) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config) {
         // 1. Refresh process list (Throttled internally to 1s to prevent lag)
         self.track_process_terminations(); 
 
@@ -1718,6 +1718,28 @@ impl BehaviorEngine {
                 
                 Logging::warning(&format!("[ACTION] Auto-revert enabled for process '{}' (PID: {})", 
                     state.appname, state.pid));
+            }
+
+            // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
+            if rule.response.terminate_process || rule.response.suspend_process || rule.response.quarantine {
+                let threat_info = ThreatInfo {
+                    threat_type_label: "Behavioral Threat",
+                    virus_name: &rule.name,
+                    prediction: 1.0, // Full confidence for rule-based detection
+                };
+                
+                // Create minimal timesteps for ActionsOnKill (we don't have ML data here)
+                let empty_timesteps = VecvecCappedF32::new(
+                    crate::predictions::prediction::PREDMTRXCOLS,
+                    crate::predictions::prediction::PREDMTRXROWS,
+                );
+                
+                ActionsOnKill::new().run_actions_with_info(
+                    config,
+                    precord,
+                    &empty_timesteps,
+                    &threat_info,
+                );
             }
         }
     }

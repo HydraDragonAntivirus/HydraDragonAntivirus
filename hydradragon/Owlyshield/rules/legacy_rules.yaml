@@ -57,15 +57,13 @@
     - "Temp"
   
   # --- Stage Correlation Configuration ---
-  min_stages_satisfied: 2
-  time_window_ms: 120000  # 2 minutes correlation window
-  conditions_percentage: 0.30
+  min_stages_satisfied: 1
+  time_window_ms: 1200000  # 2* minutes correlation window
+  conditions_percentage: 0.25
   
   # Python processes get immediate memory scans
   record_on_start:
-    - "python.exe"
-    - "pythonw.exe"
-    - "python3.exe"
+    - "*.exe"
   
   stages:
     # ========================================================================
@@ -670,4 +668,4 @@
     auto_revert: true         # Revert file changes if possible
   
   proximity_log_threshold: 70.0
-  debug: false
+  debug: true
