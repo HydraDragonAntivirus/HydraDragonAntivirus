@@ -21,6 +21,7 @@ pub struct ThreatInfo<'a> {
     pub threat_type_label: &'a str, // e.g., "Ransomware", "Malware", "PUA"
     pub virus_name: &'a str,      // e.g., "Behavioral Detection", "Trojan.Generic"
     pub prediction: f32,
+    pub match_details: Option<String>,
 }
 
 pub struct ActionsOnKill {
@@ -117,7 +118,11 @@ impl ActionOnKill for WriteReportFile {
             )?;
             // MODIFIED: Add virus_name and use prediction from struct
             file.write_all(format!("Detection: {}\n", threat_info.virus_name).as_bytes())?;
-            file.write_all(format!("Certainty: {}\n\n", threat_info.prediction).as_bytes())?;
+            file.write_all(format!("Certainty: {}\n", threat_info.prediction).as_bytes())?;
+            if let Some(details) = &threat_info.match_details {
+                file.write_all(format!("Details: {}\n", details).as_bytes())?;
+            }
+            file.write_all(b"\n")?;
             file.write_all(b"Files modified:\n")?;
             for f in &proc.fpaths_updated {
                 file.write_all(format!("\t{f:?}\n").as_bytes())?;
@@ -169,7 +174,7 @@ impl ActionOnKill for WriteReportHtmlFile {
             )?;
             // MODIFIED: Use threat_type_label and add Detection (virus_name)
             file.write_all(format!(
-                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li> <li>Started on<b id='startDate'> {}</b></li><li>Killed on<b id='killedDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li></ul></td></tr></table>\n", 
+                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li> <li>Started on<b id='startDate'> {}</b></li><li>Killed on<b id='killedDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details: <b id='details'> {}</b></li></ul></td></tr></table>\n", 
                 threat_info.threat_type_label, // 1. Threat Type
                 proc.exepath.to_string_lossy(), // 2. Path
                 proc.process_state, // 3. State
@@ -177,7 +182,8 @@ impl ActionOnKill for WriteReportHtmlFile {
                 DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 5. Kill time
                 proc.gid, // 6. GID
                 threat_info.virus_name, // 7. Virus Name
-                threat_info.prediction // 8. Certainty
+                threat_info.prediction, // 8. Certainty
+                threat_info.match_details.as_deref().unwrap_or("N/A") // 9. Details
             ).as_bytes())?;
             file.write_all(b"<table><tr><td><div class='tab'>\n")?;
             file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\">Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
@@ -227,12 +233,13 @@ impl ActionOnKill for Logging {
     ) -> Result<(), Box<dyn Error>> {
         let stime_started: DateTime<Local> = proc.time_started.into();
         // MODIFIED: Use details from threat_info
-        let msg = format!("{} detected running from: {}[{}] with certainty {} (detection: {}) (started at {})", 
+        let msg = format!("{} detected running from: {}[{}] with certainty {} (detection: {}) (details: {}) (started at {})", 
             threat_info.threat_type_label, 
             proc.appname, 
             proc.gid, 
             threat_info.prediction, 
             threat_info.virus_name, 
+            threat_info.match_details.as_deref().unwrap_or("None"),
             stime_started.format(LONG_TIME_FORMAT)
         );
         Logging::alert(msg.as_str());

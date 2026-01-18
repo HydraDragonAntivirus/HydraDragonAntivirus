@@ -152,6 +152,7 @@ impl<'a> AVIntegration<'a> {
                 &event.virus_name 
             },
             prediction: prediction_behavioral,
+            match_details: None,
         };
 
         match event.action_required {

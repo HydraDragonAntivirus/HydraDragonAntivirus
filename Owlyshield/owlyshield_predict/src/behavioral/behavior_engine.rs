@@ -688,9 +688,9 @@ impl BehaviorEngine {
             }
         }
         
-        // Create new GID (simple approach: use PID as GID for now)
+        // Create new GID (simple approach: use PID as GID for now with PID bit set)
         // In production, you might want a more sophisticated GID generation
-        pid as u64
+        (pid as u64) | 0x80000000_00000000
     }
 
 
@@ -922,6 +922,7 @@ impl BehaviorEngine {
                                     threat_type_label: "Behavioral Threat (Scan)",
                                     virus_name: &rule.name,
                                     prediction: 1.0,
+                                    match_details: Some(format!("Memory threat detected in process memory for rule '{}'", rule.name)),
                                 };
                                 
                                 let empty_timesteps = VecvecCappedF32::new(
@@ -1720,10 +1721,19 @@ impl BehaviorEngine {
 
             // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
             if rule.response.terminate_process || rule.response.suspend_process || rule.response.quarantine {
+                let mut match_details = String::from("Matched indicators: ");
+                if let Some(stages_set) = state.satisfied_stages.get(&rule.name) {
+                    let stage_names: Vec<String> = stages_set.iter()
+                        .map(|&idx| rule.stages.get(idx).map(|s| s.name.clone()).unwrap_or_else(|| format!("Stage {}", idx)))
+                        .collect();
+                    match_details.push_str(&format!("Stages: [{}]. ", stage_names.join(", ")));
+                }
+
                 let threat_info = ThreatInfo {
                     threat_type_label: "Behavioral Threat",
                     virus_name: &rule.name,
                     prediction: 1.0, // Full confidence for rule-based detection
+                    match_details: Some(match_details),
                 };
                 
                 // Create minimal timesteps for ActionsOnKill (we don't have ML data here)

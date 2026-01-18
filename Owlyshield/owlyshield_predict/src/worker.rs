@@ -324,6 +324,7 @@ pub mod process_record_handling {
                         threat_type_label: "Ransomware",
                         virus_name: "Behavioral Detection",     
                         prediction: prediction_behavioral,
+                        match_details: None,
                     };
                     
                     // Run post-kill actions (logging, reporting, notifications)
@@ -352,21 +353,6 @@ pub mod process_record_handling {
                     self.threat_handler.kill(precord.gid);
                 }
                 precord.process_state = ProcessState::Killed;
-
-                // Also run post-kill actions
-                let default_rule_name = "Behavioral Rule Match".to_string();
-                let virus_name_str = precord.triggered_rule_name.as_ref().unwrap_or(&default_rule_name);
-                let threat_info = ThreatInfo {
-                    threat_type_label: "Stealer/Malware",
-                    virus_name: virus_name_str,
-                    prediction: 1.0, 
-                };
-                ActionsOnKill::new().run_actions_with_info(
-                    self.config,
-                    precord,
-                    &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                    &threat_info,
-                );
             }
         }
 
@@ -404,6 +390,7 @@ pub mod process_record_handling {
                         threat_type_label: "Ransomware",
                         virus_name: "Behavioral Detection",
                         prediction: prediction_behavioral,
+                        match_details: None,
                     };
 
                     ActionsOnKill::new().run_actions_with_info(
