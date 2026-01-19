@@ -1253,7 +1253,17 @@ impl BehaviorEngine {
         // --- Enable direct recording if process name matches rule-level override ---
         for rule in rules {
             if rule.record_on_start.iter().any(|pattern| {
-                s.appname.to_lowercase().contains(&pattern.to_lowercase())
+                 if pattern.contains('*') || pattern.contains('?') {
+                     // Simple wildcard support using regex cache if available, or just fallback to simple handling
+                     let re_str = Self::wildcard_to_regex(pattern);
+                     if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
+                         re.is_match(&s.appname)
+                     } else {
+                         s.appname.to_lowercase().contains(&pattern.to_lowercase())
+                     }
+                 } else {
+                     s.appname.to_lowercase().contains(&pattern.to_lowercase())
+                 }
             }) {
                 s.is_recording = true;
                 Logging::info(&format!("[DIRECT RECORDING ACTIVATED] Process '{}' (PID: {}) matched record_on_start in rule '{}'", 
@@ -1272,7 +1282,20 @@ impl BehaviorEngine {
         rule.allowlisted_apps.iter().any(|entry| {
             match entry {
                 AllowlistEntry::Simple(pattern) => {
-                    proc_lc.contains(&pattern.to_lowercase())
+                    if pattern.contains('*') || pattern.contains('?') {
+                        let re_str = Self::wildcard_to_regex(pattern);
+                        if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
+                            re.is_match(proc_name)
+                        } else {
+                            proc_lc.contains(&pattern.to_lowercase())
+                        }
+                    } else {
+                        // User requested case insensitive also for file names, which is already done by to_lowercase()
+                        // But we should consider equals() or contains() depending on intent. 
+                        // Typically allowlist should be exact match or wildcard. Contains is risky.
+                        // But legacy behavior was contains.
+                        proc_lc.contains(&pattern.to_lowercase())
+                    }
                 }
 
                 AllowlistEntry::Complex {
@@ -1281,7 +1304,18 @@ impl BehaviorEngine {
                     must_be_signed,
                 } => {
                     // Name must match
-                    if !proc_lc.contains(&pattern.to_lowercase()) {
+                    let name_matches = if pattern.contains('*') || pattern.contains('?') {
+                        let re_str = Self::wildcard_to_regex(pattern);
+                        if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
+                            re.is_match(proc_name)
+                        } else {
+                             proc_lc.contains(&pattern.to_lowercase())
+                        }
+                    } else {
+                         proc_lc.contains(&pattern.to_lowercase())
+                    };
+
+                    if !name_matches {
                         return false;
                     }
 
@@ -1373,7 +1407,16 @@ impl BehaviorEngine {
             for rule in &self.rules.clone() { // Clone rules to avoid borrow issues
                 // Check if this process matches record_on_start patterns
                 let should_immediate_scan = rule.record_on_start.iter().any(|pattern| {
-                    appname.to_lowercase().contains(&pattern.to_lowercase())
+                     if pattern.contains('*') || pattern.contains('?') {
+                         let re_str = Self::wildcard_to_regex(pattern);
+                         if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
+                             re.is_match(&appname)
+                         } else {
+                             appname.to_lowercase().contains(&pattern.to_lowercase())
+                         }
+                     } else {
+                         appname.to_lowercase().contains(&pattern.to_lowercase())
+                     }
                 });
                 if should_immediate_scan {
                     if Self::check_allowlist(&appname, &rule, Some(Path::new(&precord.exepath))) {

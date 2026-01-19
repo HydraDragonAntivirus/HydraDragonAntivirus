@@ -1002,7 +1002,7 @@ pub mod worker_instance {
 
 
         fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
-            exepath.to_str().map(|s| s.to_string())
+            exepath.file_name()?.to_str().map(|s| s.to_string())
         }
     }
 }
