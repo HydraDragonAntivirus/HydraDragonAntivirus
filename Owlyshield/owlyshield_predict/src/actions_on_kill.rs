@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
+use crate::threat_handler::ThreatHandler;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -22,6 +23,9 @@ pub struct ThreatInfo<'a> {
     pub virus_name: &'a str,      // e.g., "Behavioral Detection", "Trojan.Generic"
     pub prediction: f32,
     pub match_details: Option<String>,
+    pub terminate: bool,
+    pub quarantine: bool,
+    pub revert: bool,
 }
 
 pub struct ActionsOnKill {
@@ -47,6 +51,19 @@ impl ActionsOnKill {
     pub fn new() -> ActionsOnKill {
         ActionsOnKill {
             actions: vec![
+                Box::new(WriteReportFile()),
+                Box::new(WriteReportHtmlFile()),
+                Box::new(Connectors),
+                Box::new(Logging),
+            ],
+        }
+    }
+
+    pub fn with_handler(handler: Box<dyn ThreatHandler>) -> ActionsOnKill {
+        ActionsOnKill {
+            actions: vec![
+                Box::new(KillAction { handler: handler.clone_box() }),
+                Box::new(RevertAction { handler: handler.clone_box() }),
                 Box::new(WriteReportFile()),
                 Box::new(WriteReportHtmlFile()),
                 Box::new(Connectors),
@@ -248,8 +265,55 @@ impl ActionOnKill for Logging {
     }
 }
 
+pub struct KillAction {
+    pub handler: Box<dyn ThreatHandler>,
+}
+
+impl ActionOnKill for KillAction {
+    fn run(
+        &self,
+        _config: &Config,
+        proc: &ProcessRecord,
+        _pred_mtrx: &VecvecCappedF32,
+        threat_info: &ThreatInfo,
+        _now: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        if threat_info.terminate {
+            if threat_info.quarantine {
+                Logging::info(&format!("[ActionOnKill] Terminating and Quarantining: {}", proc.appname));
+                self.handler.kill_and_quarantine(proc.gid, &proc.exepath);
+            } else {
+                Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
+                self.handler.kill(proc.gid);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Debug for ActionsOnKill {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ActionsOnKill").finish()
+    }
+}
+
+pub struct RevertAction {
+    pub handler: Box<dyn ThreatHandler>,
+}
+
+impl ActionOnKill for RevertAction {
+    fn run(
+        &self,
+        _config: &Config,
+        proc: &ProcessRecord,
+        _pred_mtrx: &VecvecCappedF32,
+        threat_info: &ThreatInfo,
+        _now: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        if threat_info.revert {
+            Logging::info(&format!("[ActionOnKill] Reverting registry changes for: {}", proc.appname));
+            self.handler.revert_registry(proc.gid);
+        }
+        Ok(())
     }
 }

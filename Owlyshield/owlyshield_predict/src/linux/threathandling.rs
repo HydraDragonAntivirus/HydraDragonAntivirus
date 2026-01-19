@@ -1,8 +1,8 @@
 use crate::process::ProcessRecord;
-use crate::worker::threat_handling::ThreatHandler;
+use crate::threat_handler::ThreatHandler;
 use log::warn;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct LinuxThreatHandler {}
 
 impl ThreatHandler for LinuxThreatHandler {
@@ -22,6 +22,14 @@ impl ThreatHandler for LinuxThreatHandler {
         warn!(
             "kill_and_quarantine not supported on Linux; requested kill/quarantine for gid {gid}, ignoring"
         );
+    }
+
+    fn clone_box(&self) -> Box<dyn ThreatHandler> {
+        Box::new(LinuxThreatHandler {})
+    }
+
+    fn revert_registry(&self, _gid: u64) {
+        todo!()
     }
 }
   

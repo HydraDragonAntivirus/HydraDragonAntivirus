@@ -23,6 +23,7 @@ use windows::Win32::System::Pipes::{
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+use crate::threat_handler::ThreatHandler;
 use crate::config::Config;
 use crate::worker::predictor::PredictorMalware;
 use chrono::Utc;
@@ -132,6 +133,7 @@ impl<'a> AVIntegration<'a> {
         event: &AVThreatEvent,
         precord: &ProcessRecord,
         prediction_behavioral: f32,
+        threat_handler: &dyn ThreatHandler,
     ) {
         // Determine threat label
         let threat_label = if event.detection_type.to_lowercase().contains("pua") 
@@ -153,6 +155,9 @@ impl<'a> AVIntegration<'a> {
             },
             prediction: prediction_behavioral,
             match_details: None,
+            terminate: true,
+            quarantine: event.action_required == ThreatAction::KillAndQuarantine,
+            revert: false, // AV integration doesn't trigger automatic reversion
         };
 
         match event.action_required {
@@ -178,7 +183,7 @@ impl<'a> AVIntegration<'a> {
             }
         }
 
-        ActionsOnKill::new().run_actions_with_info(
+        ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
             self.config, // config is a borrow, this works
             precord,
             &self.predictor_malware.predictor_behavioral.mlp.timesteps,

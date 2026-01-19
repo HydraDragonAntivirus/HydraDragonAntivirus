@@ -864,107 +864,94 @@ impl BehaviorEngine {
     
     /// NEW: Perform a full scan of all active processes using memory and heuristic rules.
     /// This should be called periodically (e.g. every few seconds) alongside event processing.
-    pub fn scan_all_processes(&mut self, config: &Config) -> Vec<ProcessRecord> {
+    pub fn scan_all_processes(&mut self, config: &Config, threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         self.track_process_terminations(); // Ensure list is up to date
-        let now = SystemTime::now();
         
-        let mut detected_threats = Vec::new();
+        let mut behavior_records = Vec::new();
         
         // We need to iterate over process states. 
-        // Note: process_states is populated by track_process_terminations for all running processes.
-        let keys: Vec<u64> = self.process_states.keys().cloned().collect();
-
-        for gid in keys {
-            // We need to temporarily extract state or just access fields we need
-            // Since we can't borrow self mutably for the whole loop if we call methods,
-            // we have to be careful.
-            
-            // Gather info needed for scan
-            let (pid, appname) = if let Some(s) = self.process_states.get(&gid) {
-                (s.pid, s.appname.clone())
-            } else {
-                continue;
-            };
-
-            // Get exepath early for allowlist signature verification
-            let exepath = self.sys.process(sysinfo::Pid::from(pid as usize))
-                .map(|p| p.exe().to_path_buf())
-                .unwrap_or_default();
-
-            // Run Memory Scans
-            for rule in &self.rules {
-                for stage in &rule.stages {
-                    for cond in &stage.conditions {
-                        if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
-                            // Check allowlist first with proper signature verification
-                            if Self::check_allowlist(&appname, rule, Some(exepath.as_path())) {
-                                continue;
-                            }
-
-                            // Smart scan check logic inside `should_evaluate_condition_refactored` handles the cooldown/triggers
-                            // but for `scan_all_processes` (periodic), we might want to force it or respect a different timer.
-                            // For simplicity, we respect the last_scan timer here too.
-                             if let Some(s) = self.process_states.get(&gid) {
-                                if let Some(last) = s.last_memory_scan {
-                                    let cooldown = rule.memory_scan_config.as_ref().map(|c| c.min_scan_interval_secs).unwrap_or(10);
-                                    if last.elapsed().unwrap_or_default() < Duration::from_secs(cooldown) {
-                                        continue;
-                                    }
+        for (gid, state) in &mut self.process_states {
+            if let Some(precord) = self.registry_handle.get_precord_mut_by_gid(*gid) {
+                for rule in &self.rules {
+                    if !rule.is_active { continue; }
+                    
+                    for (s_idx, stage) in rule.stages.iter().enumerate() {
+                        for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                            if let RuleCondition::MemoryScan { .. } = condition {
+                                if !self.should_evaluate_condition(condition, rule, state, &IOMessage::new()) {
+                                    continue;
                                 }
-                            }
 
-                            if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
-                                Logging::warning(&format!("[FULL SCAN] Memory threat detected in '{}' (PID: {}) via rule '{}'", 
-                                    appname, pid, rule.name));
-                                
-                                // Create a record to return (use exepath obtained earlier)
-                                let mut record = ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                                record.pids.insert(pid);
-                                record.is_malicious = true;
-                                record.termination_requested = rule.response.terminate_process;
-                                record.triggered_rule_name = Some(rule.name.clone());
-                                record.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
-                                
-                                // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
-                                let threat_info = ThreatInfo {
-                                    threat_type_label: "Behavioral Threat (Scan)",
-                                    virus_name: &rule.name,
-                                    prediction: 1.0,
-                                    match_details: Some(format!("Memory threat detected in process memory for rule '{}'", rule.name)),
-                                };
-                                
-                                let empty_timesteps = VecvecCappedF32::new(
-                                    crate::predictions::prediction::PREDMTRXCOLS,
-                                    crate::predictions::prediction::PREDMTRXROWS,
-                                );
-                                
-                                ActionsOnKill::new().run_actions_with_info(
-                                    config,
-                                    &record,
-                                    &empty_timesteps,
-                                    &threat_info,
-                                );
-
-                                detected_threats.push(record);
-                                
-                                // Update state to reflect detection
-                                if let Some(s) = self.process_states.get_mut(&gid) {
-                                    s.last_memory_scan = Some(now);
-                                    s.is_recording = true;
+                                if Self::evaluate_condition_internal(
+                                    &self.regex_cache, 
+                                    condition, 
+                                    &IOMessage::new(), 
+                                    state, 
+                                    precord, 
+                                    &rule.name, 
+                                    s_idx, 
+                                    c_idx, 
+                                    &self.terminated_processes, 
+                                    rule.debug
+                                ) {
+                                    state.satisfied_conditions
+                                        .entry(rule.name.clone())
+                                        .or_default()
+                                        .entry(s_idx)
+                                        .or_default()
+                                        .insert(c_idx);
+                                    
+                                    state.satisfied_stages
+                                        .entry(rule.name.clone())
+                                        .or_default()
+                                        .insert(s_idx);
                                 }
-                                
-                                // Break to next process (avoid duplicate alerts for same process in one sweep)
-                                break; 
                             }
                         }
                     }
-                    if !detected_threats.is_empty() && detected_threats.last().unwrap().gid == gid { break; }
+
+                    if Self::should_rule_trigger(rule, state, &self.terminated_processes) {
+                        // Mark as malicious and trigger response (NOT a placeholder anymore, as we also call ActionsOnKill)
+                        precord.is_malicious = true;
+                        precord.termination_requested = rule.response.terminate_process;
+                        precord.quarantine_requested = rule.response.quarantine;
+                        precord.triggered_rule_name = Some(rule.name.clone());
+                        precord.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
+                        
+                        let record_clone = precord.clone();
+                                
+                        // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
+                        let threat_info = ThreatInfo {
+                            threat_type_label: "Behavioral Threat (Scan)",
+                            virus_name: &rule.name,
+                            prediction: 1.0,
+                            match_details: Some(format!("Memory threat detected in process memory for rule '{}'", rule.name)),
+                            terminate: rule.response.terminate_process,
+                            quarantine: rule.response.quarantine,
+                            revert: rule.response.auto_revert,
+                        };
+                        
+                        let empty_timesteps = VecvecCappedF32::new(
+                            crate::predictions::prediction::PREDMTRXCOLS,
+                            crate::predictions::prediction::PREDMTRXROWS,
+                        );
+                        
+                        ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
+                            config,
+                            &record_clone,
+                            &empty_timesteps,
+                            &threat_info,
+                        );
+
+                        behavior_records.push(record_clone);
+                        // Break to next process (avoid duplicate alerts for same process in one sweep)
+                        break; 
+                    }
                 }
-                if !detected_threats.is_empty() && detected_threats.last().unwrap().gid == gid { break; }
             }
         }
         
-        detected_threats
+        behavior_records
     }
 
     fn static_has_active_connections(pid: u32) -> bool {
@@ -1334,7 +1321,7 @@ impl BehaviorEngine {
             }
         })
     }
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
         // 1. Refresh process list (Throttled internally to 1s to prevent lag)
         self.track_process_terminations(); 
 
@@ -1411,15 +1398,33 @@ impl BehaviorEngine {
                                     // Mark as malicious and trigger response
                                     precord.is_malicious = true;
                                     precord.termination_requested = rule.response.terminate_process;
+                                    precord.quarantine_requested = rule.response.quarantine;
                                     precord.triggered_rule_name = Some(rule.name.clone());
-                                    
-                                    if rule.response.quarantine {
-                                        precord.quarantine_requested = true;
-                                    }
-                                    
                                     if rule.response.suspend_process {
                                         precord.process_state = ProcessState::Suspended;
                                     }
+
+                                    // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
+                                    let threat_info = ThreatInfo {
+                                        threat_type_label: "Behavioral Threat (Immediate Scan)",
+                                        virus_name: &rule.name,
+                                        prediction: 1.0,
+                                        match_details: Some(format!("Immediate threat detected in process memory for rule '{}'", rule.name)),
+                                        terminate: rule.response.terminate_process,
+                                        quarantine: rule.response.quarantine,
+                                        revert: rule.response.auto_revert,
+                                    };
+                                    let empty_timesteps = VecvecCappedF32::new(
+                                        crate::predictions::prediction::PREDMTRXCOLS,
+                                        crate::predictions::prediction::PREDMTRXROWS,
+                                    );
+                                    
+                                    ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
+                                        config,
+                                        precord,
+                                        &empty_timesteps,
+                                        &threat_info,
+                                    );
                                     
                                     // Early return - threat detected
                                     return;
@@ -1685,39 +1690,18 @@ impl BehaviorEngine {
                 satisfied_stages_list.join(", ")
             ));
 
-            if rule.response.terminate_process {
-                // Now log the alert
-                Logging::warning(&format!("[THREAT DETECTED] Rule: '{}'...", rule.name));
-            }
-
-            if rule.response.suspend_process {
-                precord.termination_requested = true;
-                precord.process_state = ProcessState::Suspended;
-                precord.triggered_rule_name = Some(rule.name.clone());
-                
-                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) SUSPENSION REQUESTED", 
-                    state.appname, state.pid));
-            }
-
-            if rule.response.quarantine {
-                precord.quarantine_requested = true;
-                precord.termination_requested = true;
-                precord.is_malicious = true;
-                precord.triggered_rule_name = Some(rule.name.clone());
-                
-                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) QUARANTINED", 
-                    state.appname, state.pid));
-            }
-
-            if rule.response.auto_revert {
-                precord.revert_requested = true;
-                
-                Logging::warning(&format!("[ACTION] Auto-revert enabled for process '{}' (PID: {})", 
-                    state.appname, state.pid));
-            }
-
             // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
             if rule.response.terminate_process || rule.response.suspend_process || rule.response.quarantine {
+                // Set flags on precord
+                precord.is_malicious = true;
+                precord.termination_requested = rule.response.terminate_process;
+                precord.quarantine_requested = rule.response.quarantine;
+                precord.revert_requested = rule.response.auto_revert;
+                precord.triggered_rule_name = Some(rule.name.clone());
+                if rule.response.suspend_process {
+                    precord.process_state = ProcessState::Suspended;
+                }
+
                 let mut match_details = String::from("Matched indicators: ");
                 if let Some(stages_set) = state.satisfied_stages.get(&rule.name) {
                     let stage_names: Vec<String> = stages_set.iter()
@@ -1731,6 +1715,9 @@ impl BehaviorEngine {
                     virus_name: &rule.name,
                     prediction: 1.0, // Full confidence for rule-based detection
                     match_details: Some(match_details),
+                    terminate: rule.response.terminate_process,
+                    quarantine: rule.response.quarantine,
+                    revert: rule.response.auto_revert,
                 };
                 
                 // Create minimal timesteps for ActionsOnKill (we don't have ML data here)
@@ -1739,8 +1726,8 @@ impl BehaviorEngine {
                     crate::predictions::prediction::PREDMTRXROWS,
                 );
                 
-                // GENERATE REPORT
-                ActionsOnKill::new().run_actions_with_info(
+                // GENERATE REPORT AND ACTIONS
+                ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
                     config,
                     precord,
                     &empty_timesteps,

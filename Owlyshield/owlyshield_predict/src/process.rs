@@ -114,10 +114,10 @@ pub struct ProcessRecord {
     pub process_state: ProcessState,
     /// Has the process been classified as *malicious*?
     pub is_malicious: bool,
-    /// Termination requested by behavior engine
-    pub termination_requested: bool,
     /// Quarantine requested by behavior engine
     pub quarantine_requested: bool,
+    /// Termination requested by behavior engine
+    pub termination_requested: bool,
     /// Registry revert requested by behavior engine
     pub revert_requested: bool,
     /// Name of the rule that was triggered

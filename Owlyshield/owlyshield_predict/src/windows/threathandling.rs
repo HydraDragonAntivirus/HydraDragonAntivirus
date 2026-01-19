@@ -1,6 +1,6 @@
 use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
-use crate::worker::threat_handling::ThreatHandler;
+use crate::threat_handler::ThreatHandler;
 use windows::Win32::System::Diagnostics::Debug::{
     DebugActiveProcess, DebugActiveProcessStop, DebugSetProcessKillOnExit,
 };
@@ -18,6 +18,7 @@ struct QuarantineLogEntry {
 }
 
 
+#[derive(Clone)]
 pub struct WindowsThreatHandler {
     driver: Driver,
 }
@@ -39,14 +40,34 @@ impl ThreatHandler for WindowsThreatHandler {
     }
 
     fn kill(&self, gid: u64) {
-        let proc_handle = self.driver.try_kill(gid).unwrap();
-        println!("Killed Process with Handle {}", proc_handle.0);
-        Logging::alert(format!("Killed Process with Handle {}", proc_handle.0).as_str());
+        match self.driver.try_kill(gid) {
+            Ok(hres) => {
+                if hres.is_ok() {
+                    Logging::info(&format!("[ThreatHandler] Successfully killed process group GID: {}", gid));
+                } else {
+                    Logging::error(&format!("[ThreatHandler] Driver failed to kill GID: {}. HRESULT: 0x{:08X}", gid, hres.0 as u32));
+                }
+            }
+            Err(e) => {
+                Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {}. Error: {}", gid, e));
+            }
+        }
     }
 
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
         // 1. Kill the process first to release file handles
-        let _ = self.driver.try_kill(gid);
+        match self.driver.try_kill(gid) {
+            Ok(hres) => {
+                if hres.is_ok() {
+                    Logging::info(&format!("[ThreatHandler] Successfully killed process group GID: {} for quarantine", gid));
+                } else {
+                    Logging::warning(&format!("[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine", hres.0 as u32, gid));
+                }
+            }
+            Err(e) => {
+                Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}", gid, e));
+            }
+        }
         
         // 2. Small delay to ensure process is dead and handles are closed
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -129,5 +150,9 @@ impl ThreatHandler for WindowsThreatHandler {
                 Logging::alert(&format!("[REGISTRY] Failed to revert for GID: {}. Error: {:?}", gid, e));
             }
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn ThreatHandler> {
+        Box::new(WindowsThreatHandler { driver: self.driver.clone() })
     }
 }
