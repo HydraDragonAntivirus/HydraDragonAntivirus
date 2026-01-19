@@ -108,7 +108,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/HydraDragonAntivirus/MegaDumper 
 - https://github.com/GuardianN06/SourceUndefender
 - https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot
-- https://github.com/HydraDragonAntivirus/HydraDragonPythonReverser (TODO)
+- https://github.com/HydraDragonAntivirus/HydraDragonPythonReverser
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
