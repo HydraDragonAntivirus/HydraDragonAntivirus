@@ -655,8 +655,7 @@
   # ========================================================================
   memory_scan_config:
     target_processes:
-      - "*python*"
-      - "*"
+      - "*.exe"
     scan_on_io_event: true
     scan_every_n_ops: 5
     min_scan_interval_secs: 10
