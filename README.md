@@ -1,4 +1,4 @@
-# Hydra Dragon Antivirus/XDR
+# Hydra Dragon Malware Analysis Lab
 
 <p align="center">
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
@@ -10,7 +10,7 @@
 </p>
 
 ## Description
-Dynamic and static analysis with Real Time Protection for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
+Dynamic and static analysis with Real Time Analysis Lab for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
 
 ## License
 
@@ -18,7 +18,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
-- You must uninstall it manually; the auto-uninstaller won’t work.
+- You must uninstall it manually; the auto-uninstaller won't work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - Disable Secure Boot if the driver installation fails.
 - We recommend waiting until the antivirus fully opens, even if some protections are already active.
