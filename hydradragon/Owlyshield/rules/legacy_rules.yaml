@@ -357,9 +357,13 @@
   # --- Correlation Mapping ---
   mapping:
     or:
-      # 1. Critical Memory Indicators (Strongest standalone indicator)
-      - stage: "Credential_Decryption_Processing"
-      
+      # Require memory scan + behavioral indicators
+      - and:
+          - stage: "Credential_Decryption_Processing"
+          - or:
+            - stage: "Stolen_Data_Staging"
+            - stage: "Data_Exfiltration_Network"
+
       # 2. Classic Browser Theft Chain (Access + Staging + Exfil)
       - and:
           - stage: "Browser_Credential_Database_Access"

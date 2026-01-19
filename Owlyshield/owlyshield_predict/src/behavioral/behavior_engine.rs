@@ -708,7 +708,7 @@ impl BehaviorEngine {
             // Multi-browser access
             total += 1;
             let recent_access_count = state.accessed_browsers.values()
-                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
+                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms.max(60000) as u128)
                 .count();
             if recent_access_count >= rule.multi_access_threshold { satisfied += 1; }
 
@@ -767,19 +767,27 @@ impl BehaviorEngine {
         } else {
             // Fallback to simple stage counting
             let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
-            if satisfied_count >= rule.min_stages_satisfied && rule.min_stages_satisfied > 0 {
-                true
-            } else if rule.conditions_percentage > 0.01 {
+            
+            // Check if stages are satisfied
+            if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
+                 return true;
+            }
+            
+            // Percentage based condition
+            if rule.conditions_percentage > 0.01 {
                 let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
                 let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
                     .map_or(0, |m| m.values().map(|v| v.len()).sum());
                 
-                if total_conds == 0 { return false; }
-                let percentage = satisfied_conds as f32 / total_conds as f32;
-                percentage >= rule.conditions_percentage
-            } else {
-                false
+                if total_conds > 0 {
+                     let percentage = satisfied_conds as f32 / total_conds as f32;
+                     if percentage >= rule.conditions_percentage {
+                         return true;
+                     }
+                }
             }
+            
+            false
         }
     }
 
@@ -1110,6 +1118,7 @@ impl BehaviorEngine {
 
     pub fn wildcard_to_regex(pattern: &str) -> String {
         let mut regex = String::with_capacity(pattern.len() * 2);
+        // Anchor to start, but allow flexibility if user didn't specify
         regex.push('^');
     
         for ch in pattern.chars() {
@@ -1370,14 +1379,7 @@ impl BehaviorEngine {
                 let should_immediate_scan = rule.record_on_start.iter().any(|pattern| {
                     appname.to_lowercase().contains(&pattern.to_lowercase())
                 });
-                
                 if should_immediate_scan {
-                    Logging::info(&format!(
-                        "[IMMEDIATE SCAN] Process '{}' (PID: {}) matched record_on_start, scanning memory immediately",
-                        appname, pid
-                    ));
-                    
-                    // Check allowlist before scanning
                     if Self::check_allowlist(&appname, &rule, Some(Path::new(&precord.exepath))) {
                         Logging::debug(&format!(
                             "[IMMEDIATE SCAN] Skipping allowlisted process '{}' for rule '{}'",
@@ -1684,13 +1686,18 @@ impl BehaviorEngine {
             ));
 
             if rule.response.terminate_process {
-                precord.termination_requested = true;
-                precord.is_malicious = true;
-                precord.time_killed = Some(SystemTime::now());
-                precord.triggered_rule_name = Some(rule.name.clone());
+                // Check if we already alerted for this GID+Rule combo recently
+                let alert_key = format!("{}:{}", state.gid, rule.name);
+                if let Some(last_alert) = state.last_alerts.get(&alert_key) {
+                    if last_alert.elapsed().unwrap_or_default() < Duration::from_secs(60) {
+                        continue; // Skip duplicate alert within 60 seconds
+                    }
+                }
                 
-                Logging::warning(&format!("[ACTION] Process '{}' (PID: {}) TERMINATION REQUESTED", 
-                    state.appname, state.pid));
+                state.last_alerts.insert(alert_key, SystemTime::now());
+                
+                // Now log the alert
+                Logging::warning(&format!("[THREAT DETECTED] Rule: '{}'...", rule.name));
             }
 
             if rule.response.suspend_process {
@@ -1742,6 +1749,7 @@ impl BehaviorEngine {
                     crate::predictions::prediction::PREDMTRXROWS,
                 );
                 
+                // GENERATE REPORT
                 ActionsOnKill::new().run_actions_with_info(
                     config,
                     precord,
@@ -1888,30 +1896,31 @@ impl BehaviorEngine {
         let op = IrpMajorOp::from_byte(msg.irp_op);
         
         let result = match cond {
+            // Add allowlist check BEFORE scanning
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                // Use the CURRENT process PID from state, not message PID
-                let target_pid = state.pid;
-                
-                if debug {
-                    Logging::debug(&format!("[DEBUG] MemoryScan starting for process '{}' (PID: {})", 
-                        state.appname, target_pid));
-                }
-                
-                let matched = scan_process_memory(target_pid, patterns, *detect_pe_headers, *private_only);
-                
-                // Update last scan timestamp
-                state.last_memory_scan = Some(SystemTime::now());
-                
-                if debug {
-                    if matched {
-                        Logging::debug(&format!("[DEBUG] MemoryScan MATCHED for '{}' (PID: {}), patterns: {:?}", 
-                            state.appname, target_pid, patterns));
-                    } else {
-                        Logging::debug(&format!("[DEBUG] MemoryScan NO MATCH for '{}' (PID: {})", 
-                            state.appname, target_pid));
+                // Context check 1: Process age
+                if let Some(first_event) = state.first_event_ts {
+                    if first_event.elapsed().unwrap_or_default() < Duration::from_secs(5) {
+                        if debug {
+                            Logging::debug(&format!("[DEBUG] Skipping memory scan for brand new process '{}'", state.appname));
+                        }
+                        return false; // Don't scan processes that just started
                     }
                 }
                 
+                // Context check 2: Suspicious parent
+                let suspicious_parent = state.process_ancestry.iter().any(|p| {
+                    p.to_lowercase().contains("winword") ||
+                    p.to_lowercase().contains("excel") ||
+                    p.to_lowercase().contains("powershell")
+                });
+                
+                if !suspicious_parent && state.appname.to_lowercase().contains("chrome") {
+                    return false; // Chrome launched by user = safe
+                }
+                
+                // Now scan with context
+                let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
                 matched
             }
 
@@ -1983,24 +1992,25 @@ impl BehaviorEngine {
 
             RuleCondition::Process { op: p_op, pattern } => {
                 match p_op.as_str() {
-                    "Name" => Self::matches_internal(regex_cache, pattern, &state.appname),
+                    "Name" => Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), &state.appname),
                     "Path" => {
                         if precord.exepath.as_os_str().is_empty() {
                             false // no path -> cannot evaluate Path condition
                         } else {
                             let path = precord.exepath.to_string_lossy();
-                            Self::matches_internal(regex_cache, pattern, path.as_ref())
+                            Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), path.as_ref())
                         }
                     }
 
-                    "CommandLine" => Self::matches_internal(regex_cache, pattern, &state.cmdline),
-                    "Parent" => Self::matches_internal(regex_cache, pattern, &state.parent_name),
-                    "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, pattern, &msg.filepathstr),
+                    "CommandLine" => Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), &state.cmdline),
+                    "Parent" => Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), &state.parent_name),
+                    "Spawn" => op == IrpMajorOp::IrpCreate && Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), &msg.filepathstr),
                     "Terminate" => {
                         let rule_window = Duration::from_secs(30);
+                        let pattern_regex = Self::wildcard_to_regex(pattern);
                         terminated_processes.iter().any(|tp| {
                             let age = SystemTime::now().duration_since(tp.timestamp).unwrap_or(Duration::from_secs(999));
-                            age < rule_window && Self::matches_internal(regex_cache, pattern, &tp.name)
+                            age < rule_window && Self::matches_internal(regex_cache, &pattern_regex, &tp.name)
                         })
                     }
                     _ => false,
@@ -2011,7 +2021,7 @@ impl BehaviorEngine {
                 {
                     match s_op.as_str() {
                         "Stop" => !ServiceChecker::is_running(name_pattern),
-                        _ => Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr),
+                        _ => Self::matches_internal(regex_cache, &Self::wildcard_to_regex(name_pattern), &msg.filepathstr),
                     }
                 }
             }
@@ -2019,8 +2029,8 @@ impl BehaviorEngine {
             RuleCondition::Api { name_pattern, module_pattern } => {
                 // NOTE: This assumes IOMessage contains API info in filepathstr or extension
                 // You may need to adjust based on your actual telemetry structure
-                let api_match = Self::matches_internal(regex_cache, name_pattern, &msg.filepathstr);
-                let module_match = Self::matches_internal(regex_cache, module_pattern, &msg.extension);
+                let api_match = Self::matches_internal(regex_cache, &Self::wildcard_to_regex(name_pattern), &msg.filepathstr);
+                let module_match = Self::matches_internal(regex_cache, &Self::wildcard_to_regex(module_pattern), &msg.extension);
                 
                 if debug && (!api_match || !module_match) {
                     Logging::debug(&format!("[DEBUG] API condition: name_match={}, module_match={} (path: '{}', ext: '{}')", 
@@ -2057,7 +2067,7 @@ impl BehaviorEngine {
                         
                         if let Some(pattern) = signer_pattern {
                             if let Some(signer) = info.signer_name.as_deref() {
-                                Self::matches_internal(regex_cache, pattern, signer)
+                                Self::matches_internal(regex_cache, &Self::wildcard_to_regex(pattern), signer)
                             } else {
                                 false
                             }
@@ -2233,7 +2243,7 @@ impl BehaviorEngine {
                 let depth = max_depth.unwrap_or(10) as usize;
                 state.process_ancestry.iter()
                     .take(depth)
-                    .any(|ancestor| Self::matches_internal(regex_cache, ancestor_pattern, ancestor))
+                    .any(|ancestor| Self::matches_internal(regex_cache, &Self::wildcard_to_regex(ancestor_pattern), ancestor))
             }
 
             RuleCondition::ExtensionRatio { extensions, comparison, threshold } => {
