@@ -1,4 +1,4 @@
-# Hydra Dragon Malware Analysis Lab
+# Hydra Dragon Automatic Malware Analysis Lab
 
 <p align="center">
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
