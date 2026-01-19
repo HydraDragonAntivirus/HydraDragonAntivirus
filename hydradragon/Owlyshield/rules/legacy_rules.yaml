@@ -504,6 +504,7 @@
       must_be_signed: true
       signers:
         - "Microsoft Corporation"
+    - "Code.exe"
     
     - pattern: "devenv.exe"  # Visual Studio
       must_be_signed: true
@@ -657,8 +658,8 @@
     target_processes:
       - "*.exe"
     scan_on_io_event: true
-    scan_every_n_ops: 5
-    min_scan_interval_secs: 10
+    scan_every_n_ops: 2
+    min_scan_interval_secs: 2
 
   # ========================================================================
   # Response Actions
