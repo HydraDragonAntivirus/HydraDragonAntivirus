@@ -189,9 +189,12 @@ pub fn run() {
             worker = worker.build();
 
             // Load behavior rules
-            let rules_path = worker.app_settings.behavior_rules_path.clone();
-            if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
-                Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
+            #[cfg(feature = "behavior_engine")]
+            {
+                let rules_path = worker.app_settings.behavior_rules_path.clone();
+                if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
+                    Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
+                }
             }
 
             // --- REALTIME LEARNING INTEGRATION ---
