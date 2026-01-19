@@ -1686,16 +1686,6 @@ impl BehaviorEngine {
             ));
 
             if rule.response.terminate_process {
-                // Check if we already alerted for this GID+Rule combo recently
-                let alert_key = format!("{}:{}", state.gid, rule.name);
-                if let Some(last_alert) = state.last_alerts.get(&alert_key) {
-                    if last_alert.elapsed().unwrap_or_default() < Duration::from_secs(60) {
-                        continue; // Skip duplicate alert within 60 seconds
-                    }
-                }
-                
-                state.last_alerts.insert(alert_key, SystemTime::now());
-                
                 // Now log the alert
                 Logging::warning(&format!("[THREAT DETECTED] Rule: '{}'...", rule.name));
             }
