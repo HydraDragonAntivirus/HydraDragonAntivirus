@@ -47,6 +47,7 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_GID,
     MESSAGE_KILL_AND_QUARANTINE_GID, // NEW: Kill process and quarantine files
     MESSAGE_KILL_ONLY_GID,           // NEW: Kill process without quarantine
+    MESSAGE_KILL_AND_REMOVE_GID,     // NEW: Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES
 };
 

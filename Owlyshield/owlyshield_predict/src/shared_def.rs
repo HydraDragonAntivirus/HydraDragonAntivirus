@@ -48,10 +48,10 @@ pub enum DriverComMessageType {
     MessageGetOps,
     /// Set this app pid to the minifilter (related IRPs will be ignored);
     MessageSetPid,
-    /// Instruct the minifilter to kill all pids in the family designated by a given gid.
     MessageKillGid,
     MessageKillAndQuarantineGid,
     MessageKillOnlyGid,
+    MessageKillAndRemoveGid, // NEW: Kill process and delete file
     MessageRevertRegistryChanges,
 }
 

@@ -553,6 +553,7 @@ pub struct ResponseAction {
     #[serde(default)] pub terminate_process: bool,
     #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
+    #[serde(default)] pub kill_and_remove: bool,
     #[serde(default)] pub auto_revert: bool,
     #[serde(default)] pub record: bool,
 }
@@ -952,6 +953,12 @@ impl BehaviorEngine {
                         &empty_timesteps,
                         &threat_info,
                     );
+
+                    // NEW: Explicitly handle kill_and_remove which bypasses standard terminate
+                    if rule.response.kill_and_remove {
+                        Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, precord.pid));
+                        threat_handler.kill_and_remove(precord.gid, &PathBuf::from(&precord.exepath));
+                    }
 
                     // Break to next process (avoid duplicate alerts for same process in one sweep)
                     break; 
@@ -1781,10 +1788,16 @@ impl BehaviorEngine {
                 // GENERATE REPORT AND ACTIONS
                 ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
                     config,
-                    precord,
+                    &precord,
                     &empty_timesteps,
                     &threat_info,
                 );
+
+                // NEW: Explicitly handle kill_and_remove which bypasses standard terminate
+                if rule.response.kill_and_remove {
+                    Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, precord.pid));
+                    threat_handler.kill_and_remove(precord.gid, &PathBuf::from(&exepath));
+                }
             }
         }
     }

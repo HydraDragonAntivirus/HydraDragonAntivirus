@@ -231,6 +231,37 @@ impl Driver {
         Ok(hres)
     }
 
+    pub fn kill_and_remove_driver(&self, gid: c_ulonglong, path: &Path) -> Result<windows::core::HRESULT, Error> {
+        let (real_gid, real_pid) = if gid & 0x80000000_00000000 != 0 {
+            (0, (gid & !0x80000000_00000000) as c_ulong)
+        } else {
+            (gid, 0)
+        };
+
+        let mut kill_remove_msg = DriverComMessage {
+            r#type: DriverComMessageType::MessageKillAndRemoveGid as c_ulong,
+            pid: real_pid,
+            gid: real_gid,
+            path: [0; 520],
+            quarantine_path: Driver::string_to_commessage_buffer(path.to_str().unwrap_or("")),
+        };
+        let mut res: u32 = 0;
+        let mut res_size: u32 = 0;
+
+        unsafe {
+            FilterSendMessage(
+                self.handle,
+                ptr::addr_of_mut!(kill_remove_msg) as *mut c_void,
+                mem::size_of::<DriverComMessage>() as c_ulong,
+                Some(ptr::addr_of_mut!(res) as *mut c_void),
+                4,
+                ptr::addr_of_mut!(res_size) as *mut u32,
+            )?;
+        }
+        let hres = windows::core::HRESULT(res as i32);
+        Ok(hres)
+    }
+
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
         let temp = U16CString::from_str(&bufstr).unwrap();
         let mut buf: BufPath = [0; 520];

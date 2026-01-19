@@ -111,7 +111,8 @@ VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
 }
 
 // NEW: Helper function to kill all processes in a GID
-NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQuarantine)
+// removalMode: 0 = Kill Only, 1 = Kill & Quarantine, 2 = Kill & Remove
+NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode)
 {
     NTSTATUS status = STATUS_SUCCESS;
     HANDLE processHandle;
@@ -142,9 +143,13 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQua
     if (isGidExist)
     {
         // Log the action type
-        if (enableQuarantine)
+        if (removalMode == 1)
         {
             DbgPrint("!!! FS : Kill and Quarantine action for GID: %llu\n", GID);
+        }
+        else if (removalMode == 2)
+        {
+             DbgPrint("!!! FS : Kill and REMOVE action for GID: %llu\n", GID);
         }
         else
         {
@@ -162,8 +167,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQua
             NTSTATUS exitStatus = STATUS_FAIL_CHECK;
             PUNICODE_STRING exePath = NULL;
 
-            DbgPrint("!!! FS : Attempt to terminate pid: %lu from gid: %llu (quarantine: %s)\n", Buffer[i], GID,
-                     enableQuarantine ? "YES" : "NO");
+            DbgPrint("!!! FS : Attempt to terminate pid: %lu from gid: %llu (mode: %lu)\n", Buffer[i], GID,
+                     removalMode);
 
             InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
@@ -177,7 +182,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQua
             }
 
             // Get the executable path BEFORE killing (important!)
-            if (enableQuarantine)
+            if (removalMode > 0)
             {
                 NTSTATUS pathStatus = GetProcessNameByHandle(processHandle, &exePath);
                 if (NT_SUCCESS(pathStatus) && exePath != NULL && exePath->Length > 0)
@@ -204,17 +209,32 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, BOOLEAN enableQua
             NtClose(processHandle);
             DbgPrint("!!! FS : Termination of pid: %lu from gid: %llu succeeded\n", Buffer[i], GID);
 
-            // Now quarantine the file if requested (move to isolated folder)
-            if (enableQuarantine && exePath != NULL)
+            // Now quarantine or remove the file if requested
+            if (removalMode > 0 && exePath != NULL)
             {
-                NTSTATUS quarantineStatus = QuarantineFileByPath(exePath);
-                if (NT_SUCCESS(quarantineStatus))
+                if (removalMode == 1) // Quarantine
                 {
-                    DbgPrint("!!! FS : Successfully quarantined file: %wZ\n", exePath);
+                    NTSTATUS quarantineStatus = QuarantineFileByPath(exePath);
+                    if (NT_SUCCESS(quarantineStatus))
+                    {
+                        DbgPrint("!!! FS : Successfully quarantined file: %wZ\n", exePath);
+                    }
+                    else
+                    {
+                        DbgPrint("!!! FS : Failed to quarantine file %wZ. Status: 0x%X\n", exePath, quarantineStatus);
+                    }
                 }
-                else
+                else if (removalMode == 2) // Remove (Delete)
                 {
-                    DbgPrint("!!! FS : Failed to quarantine file %wZ. Status: 0x%X\n", exePath, quarantineStatus);
+                    NTSTATUS deleteStatus = DeleteFileByPath(exePath);
+                    if (NT_SUCCESS(deleteStatus))
+                    {
+                        DbgPrint("!!! FS : Successfully DELETED file: %wZ\n", exePath);
+                    }
+                    else
+                    {
+                        DbgPrint("!!! FS : Failed to delete file %wZ. Status: 0x%X\n", exePath, deleteStatus);
+                    }
                 }
                 ExFreePoolWithTag(exePath, 'RW');
             }
@@ -314,7 +334,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         *ReturnOutputBufferLength = sizeof(LONG);
         DbgPrint("!!! FS : Legacy MESSAGE_KILL_GID received for GID: %llu\n", message->gid);
-        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, FALSE);
+        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 0); // Default to Kill Only
     }
     // NEW: Kill and Quarantine message
     else if (message->type == MESSAGE_KILL_AND_QUARANTINE_GID)
@@ -325,7 +345,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         *ReturnOutputBufferLength = sizeof(LONG);
         DbgPrint("!!! FS : MESSAGE_KILL_AND_QUARANTINE_GID received for GID: %llu\n", message->gid);
-        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, TRUE);
+        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 1); // Mode 1: Quarantine
     }
     // NEW: Kill Only message
     else if (message->type == MESSAGE_KILL_ONLY_GID)
@@ -336,7 +356,18 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         }
         *ReturnOutputBufferLength = sizeof(LONG);
         DbgPrint("!!! FS : MESSAGE_KILL_ONLY_GID received for GID: %llu\n", message->gid);
-        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, FALSE);
+        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 0); // Mode 0: Kill Only
+    }
+    // NEW: Kill and Remove (Delete) message
+    else if (message->type == MESSAGE_KILL_AND_REMOVE_GID)
+    {
+        if (OutputBuffer == NULL || OutputBufferLength != sizeof(LONG))
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
+        *ReturnOutputBufferLength = sizeof(LONG);
+        DbgPrint("!!! FS : MESSAGE_KILL_AND_REMOVE_GID received for GID: %llu\n", message->gid);
+        return KillProcessesInGid(message->gid, (PLONG)OutputBuffer, 2); // Mode 2: Remove
     }
     else if (message->type == MESSAGE_REVERT_REGISTRY_CHANGES)
     {

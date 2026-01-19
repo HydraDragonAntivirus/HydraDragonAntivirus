@@ -18,9 +18,15 @@ impl ThreatHandler for LinuxThreatHandler {
         todo!()
     }
 
-    fn kill_and_quarantine(&self, gid: u64) {
+    fn kill_and_quarantine(&self, gid: u64, _path: &std::path::Path) {
         warn!(
             "kill_and_quarantine not supported on Linux; requested kill/quarantine for gid {gid}, ignoring"
+        );
+    }
+
+    fn kill_and_remove(&self, gid: u64, _path: &std::path::Path) {
+        warn!(
+            "kill_and_remove not supported on Linux; requested kill/remove for gid {gid}, ignoring"
         );
     }
 

@@ -64,6 +64,21 @@ impl ThreatHandler for WindowsThreatHandler {
         }
     }
 
+    fn kill_and_remove(&self, gid: u64, path: &std::path::Path) {
+        match self.driver.kill_and_remove_driver(gid, path) {
+            Ok(hres) => {
+                if hres.is_ok() {
+                    Logging::info(&format!("[ThreatHandler] Successfully killed and removed process group GID: {}", gid));
+                } else {
+                    Logging::error(&format!("[ThreatHandler] Driver failed to kill and remove GID: {}. HRESULT: 0x{:08X}", gid, hres.0 as u32));
+                }
+            }
+            Err(e) => {
+                Logging::error(&format!("[ThreatHandler] Failed to communicate with driver for GID: {} during removal. Error: {}", gid, e));
+            }
+        }
+    }
+
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path) {
         // 1. Kill the process first to release file handles
         match self.driver.try_kill(gid) {
