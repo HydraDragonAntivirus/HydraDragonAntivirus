@@ -504,7 +504,6 @@
       must_be_signed: true
       signers:
         - "Microsoft Corporation"
-    - "Code.exe"
     
     - pattern: "devenv.exe"  # Visual Studio
       must_be_signed: true
