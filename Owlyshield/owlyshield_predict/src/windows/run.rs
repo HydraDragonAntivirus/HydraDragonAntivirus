@@ -136,6 +136,10 @@ pub fn run() {
 
             let mut worker = Worker::new(&thread_config, thread_app_settings);
 
+            // Initialize threat handler early to reuse the driver connection
+            let win_threat_handler = WindowsThreatHandler::from(driver);
+            worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
+
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             {
                 let hydra_dragon_integration = crate::init_hydra_dragon(&thread_config);
@@ -149,7 +153,7 @@ pub fn run() {
                     .whitelist(&whitelist)
                     .process_record_handler(Box::new(ProcessRecordHandlerLive::new(
                         &thread_config,
-                        Box::new(WindowsThreatHandler::from(driver)),
+                        Box::new(win_threat_handler.clone()),
                     )));
             }
 
@@ -231,8 +235,12 @@ pub fn run() {
                 worker.process_io(&mut iomsg, &thread_config);
 
                 if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
-                    worker.scan_processes(&thread_config);
-                    worker.process_suspended_records(&thread_config, Box::new(WindowsThreatHandler::from(driver)));
+                    if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
+                        worker.scan_processes(&thread_config, th);
+                        if let Some(th2) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
+                            worker.process_suspended_records(&thread_config, th2);
+                        }
+                    }
                     count = 0;
                     timer = SystemTime::now();
                 }

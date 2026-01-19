@@ -27,6 +27,16 @@ impl WindowsThreatHandler {
     pub fn from(driver: Driver) -> WindowsThreatHandler {
         WindowsThreatHandler { driver }
     }
+    
+    /// Create a new WindowsThreatHandler with a fresh driver connection.
+    /// WARNING: This opens a new kernel driver connection every time it's called.
+    /// Reusing a single connection is strongly recommended (e.g. via `WindowsThreatHandler::from(driver)`)
+    /// to avoid `ERROR_CONNECTION_COUNT_LIMIT` (0x800704D6).
+    pub fn new() -> WindowsThreatHandler {
+        let driver = Driver::open_kernel_driver_com()
+            .expect("Cannot open driver communication for WindowsThreatHandler (driver connection limit reached?)");
+        WindowsThreatHandler { driver }
+    }
 }
 
 impl ThreatHandler for WindowsThreatHandler {

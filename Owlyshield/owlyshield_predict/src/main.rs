@@ -139,6 +139,7 @@ mod run {
     }
 }
 pub(crate) mod shared_def;
+mod threat_handler;
 mod utils;
 mod watchlist;
 mod whitelist;

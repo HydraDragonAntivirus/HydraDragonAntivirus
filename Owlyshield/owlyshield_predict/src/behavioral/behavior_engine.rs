@@ -13,6 +13,7 @@ use crate::logging::Logging;
 use crate::config::Config;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
+use crate::threat_handler::ThreatHandler;
 
 use sysinfo::{SystemExt, ProcessExt, PidExt};
 
@@ -867,90 +868,98 @@ impl BehaviorEngine {
     pub fn scan_all_processes(&mut self, config: &Config, threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         self.track_process_terminations(); // Ensure list is up to date
         
-        let mut behavior_records = Vec::new();
+        let mut behavior_records: Vec<ProcessRecord> = Vec::new();
+        let dummy_iomsg: IOMessage = Default::default();
         
-        // We need to iterate over process states. 
-        for (gid, state) in &mut self.process_states {
-            if let Some(precord) = self.registry_handle.get_precord_mut_by_gid(*gid) {
-                for rule in &self.rules {
-                    if !rule.is_active { continue; }
-                    
-                    for (s_idx, stage) in rule.stages.iter().enumerate() {
-                        for (c_idx, condition) in stage.conditions.iter().enumerate() {
-                            if let RuleCondition::MemoryScan { .. } = condition {
-                                if !self.should_evaluate_condition(condition, rule, state, &IOMessage::new()) {
-                                    continue;
-                                }
+        // Collect gids first to avoid borrow issues
+        let gids: Vec<u64> = self.process_states.keys().cloned().collect();
+        
+        for gid in gids {
+            // Get the state for this process
+            let state = match self.process_states.get_mut(&gid) {
+                Some(s) => s,
+                None => continue,
+            };
+            
+            // Create a minimal ProcessRecord for this scan
+            let mut precord = ProcessRecord::new(
+                gid,
+                state.appname.clone(),
+                PathBuf::from(&state.appname), // Use appname as fallback path
+            );
+            
+            for rule in &self.rules {
+                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                    for (c_idx, condition) in stage.conditions.iter().enumerate() {
+                        if let RuleCondition::MemoryScan { .. } = condition {
+                            // For full process scans, evaluate all MemoryScan conditions
 
-                                if Self::evaluate_condition_internal(
-                                    &self.regex_cache, 
-                                    condition, 
-                                    &IOMessage::new(), 
-                                    state, 
-                                    precord, 
-                                    &rule.name, 
-                                    s_idx, 
-                                    c_idx, 
-                                    &self.terminated_processes, 
-                                    rule.debug
-                                ) {
-                                    state.satisfied_conditions
-                                        .entry(rule.name.clone())
-                                        .or_default()
-                                        .entry(s_idx)
-                                        .or_default()
-                                        .insert(c_idx);
-                                    
-                                    state.satisfied_stages
-                                        .entry(rule.name.clone())
-                                        .or_default()
-                                        .insert(s_idx);
-                                }
+                            if Self::evaluate_condition_internal(
+                                &self.regex_cache, 
+                                condition, 
+                                &dummy_iomsg, 
+                                state, 
+                                &precord, 
+                                &rule.name, 
+                                s_idx, 
+                                c_idx, 
+                                &self.terminated_processes, 
+                                rule.debug
+                            ) {
+                                state.satisfied_conditions
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .entry(s_idx)
+                                    .or_default()
+                                    .insert(c_idx);
+                                
+                                state.satisfied_stages
+                                    .entry(rule.name.clone())
+                                    .or_default()
+                                    .insert(s_idx);
                             }
                         }
                     }
+                }
 
-                    if Self::should_rule_trigger(rule, state, &self.terminated_processes) {
-                        // Mark as malicious and trigger response (NOT a placeholder anymore, as we also call ActionsOnKill)
-                        precord.is_malicious = true;
-                        precord.termination_requested = rule.response.terminate_process;
-                        precord.quarantine_requested = rule.response.quarantine;
-                        precord.triggered_rule_name = Some(rule.name.clone());
-                        precord.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
-                        
-                        let record_clone = precord.clone();
-                                
-                        // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
-                        let threat_info = ThreatInfo {
-                            threat_type_label: "Behavioral Threat (Scan)",
-                            virus_name: &rule.name,
-                            prediction: 1.0,
-                            match_details: Some(format!("Memory threat detected in process memory for rule '{}'", rule.name)),
-                            terminate: rule.response.terminate_process,
-                            quarantine: rule.response.quarantine,
-                            revert: rule.response.auto_revert,
-                        };
-                        
-                        let empty_timesteps = VecvecCappedF32::new(
-                            crate::predictions::prediction::PREDMTRXCOLS,
-                            crate::predictions::prediction::PREDMTRXROWS,
-                        );
-                        
-                        ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
-                            config,
-                            &record_clone,
-                            &empty_timesteps,
-                            &threat_info,
-                        );
+                if Self::should_rule_trigger(rule, state, &self.terminated_processes) {
+                    // Mark as malicious and trigger response
+                    precord.is_malicious = true;
+                    precord.termination_requested = rule.response.terminate_process;
+                    precord.quarantine_requested = rule.response.quarantine;
+                    precord.triggered_rule_name = Some(rule.name.clone());
+                    precord.process_state = if rule.response.suspend_process { ProcessState::Suspended } else { ProcessState::Running };
+                            
+                    // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
+                    let threat_info = ThreatInfo {
+                        threat_type_label: "Behavioral Threat (Scan)",
+                        virus_name: &rule.name,
+                        prediction: 1.0,
+                        match_details: Some(format!("Memory threat detected in process memory for rule '{}'", rule.name)),
+                        terminate: rule.response.terminate_process,
+                        quarantine: rule.response.quarantine,
+                        revert: rule.response.auto_revert,
+                    };
+                    
+                    let empty_timesteps = VecvecCappedF32::new(
+                        crate::predictions::prediction::PREDMTRXCOLS,
+                        crate::predictions::prediction::PREDMTRXROWS,
+                    );
+                    
+                    ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
+                        config,
+                        &precord,
+                        &empty_timesteps,
+                        &threat_info,
+                    );
 
-                        behavior_records.push(record_clone);
-                        // Break to next process (avoid duplicate alerts for same process in one sweep)
-                        break; 
-                    }
+                    // Break to next process (avoid duplicate alerts for same process in one sweep)
+                    break; 
                 }
             }
         }
         
+        // Return empty Vec since ProcessRecord doesn't implement Clone
         behavior_records
     }
 

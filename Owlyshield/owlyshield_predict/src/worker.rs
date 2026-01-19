@@ -215,7 +215,7 @@ pub mod process_record_handling {
     use crate::IOMessage;
     use crate::watchlist::WatchList;
     use crate::novelty::{Rule, StateSave};
-    use crate::worker::threat_handling::ThreatHandler;
+    use crate::threat_handler::ThreatHandler;
     use crate::Logging;
 
     pub trait Exepath {
@@ -325,6 +325,9 @@ pub mod process_record_handling {
                         virus_name: "Behavioral Detection",     
                         prediction: prediction_behavioral,
                         match_details: None,
+                        terminate: true,
+                        quarantine: true,
+                        revert: true,
                     };
                     
                     // Run post-kill actions (logging, reporting, notifications)
@@ -527,7 +530,7 @@ mod process_records {
     use crate::config::{Config, Param};
 
     use crate::process::{ProcessRecord, ProcessState};
-    use crate::worker::threat_handling::ThreatHandler;
+    use crate::threat_handler::ThreatHandler;
 
     pub struct ProcessRecords {
         pub process_records: LruCache<u64, ProcessRecord>,
@@ -621,7 +624,7 @@ pub mod worker_instance {
     use crate::IOMessage;
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
-    use crate::worker::threat_handling::ThreatHandler;
+    use crate::threat_handler::ThreatHandler;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::api_tracker::ApiTracker;
     use crate::utils::is_process_alive;
@@ -898,13 +901,8 @@ pub mod worker_instance {
 
                 // Pass the config and threat_handler to the behavior engine
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if let Some(handler_box) = self.process_record_handler.as_ref().and_then(|h| {
-                    // This is a bit hacky because of the trait object, 
-                    // but we know in live mode it's ProcessRecordHandlerLive
-                    // In a real refactor we might store threat_handler in Worker
-                    None // Simplified for now, let's see if we can get it better
-                }) {
-                    // self.behavior_engine.process_event(precord, iomsg, config, handler_box.threat_handler());
+                if let Some(ref th) = self.threat_handler {
+                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
                 }
                 // --- ADDED: Update learning engine activity ---
                 #[cfg(feature = "realtime_learning")]
