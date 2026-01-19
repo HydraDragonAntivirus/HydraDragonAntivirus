@@ -336,14 +336,6 @@ pub mod process_record_handling {
                     );
                 }
             }
-                    ActionsOnKill::with_handler(self.threat_handler.clone_box()).run_actions_with_info(
-                        self.config,
-                        precord,
-                        &self.predictor_malware.predictor_behavioral.mlp.timesteps,
-                        &threat_info,
-                    );
-                }
-            }
         }
 
         fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {
