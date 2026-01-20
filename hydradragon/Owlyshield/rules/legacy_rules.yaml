@@ -669,6 +669,7 @@
     quarantine: true          # Move executable to quarantine
     suspend_process: false    # Don't just suspend, terminate
     auto_revert: true         # Revert file changes if possible
+    kill_and_remove: false    # Explicitly disable deletion
   
   proximity_log_threshold: 70.0
   debug: false

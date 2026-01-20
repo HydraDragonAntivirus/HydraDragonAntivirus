@@ -1135,6 +1135,7 @@
     auto_revert: true
     record: true
     block_network: false
+    kill_and_remove: false
   
   # ==========================================================================
   # ALLOWLIST - Legitimate Tools (Must be digitally signed)

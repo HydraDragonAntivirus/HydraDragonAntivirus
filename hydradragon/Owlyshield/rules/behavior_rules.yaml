@@ -223,6 +223,7 @@
     quarantine: true
     auto_revert: true
     record: true
+    kill_and_remove: false
 
   allowlisted_apps:
     - pattern: "chrome.exe"
@@ -346,6 +347,7 @@
     terminate_process: true
     quarantine: true
     auto_revert: true
+    kill_and_remove: false
 
 # ============================================================================
 # EDR DETECTION
@@ -393,6 +395,7 @@
   response:
     terminate_process: true
     record: true
+    kill_and_remove: false
 
 # ============================================================================
 # AGGRESSIVE TROJAN ATTACK
@@ -463,6 +466,7 @@
     terminate_process: true
     quarantine: true
     auto_revert: true
+    kill_and_remove: false
 
 # ============================================================================
 # REFLECTIVE LOADING DETECTION
@@ -485,6 +489,7 @@
     terminate_process: true
     quarantine: true
     record: true
+    kill_and_remove: false
 
 # ============================================================================
 # DATA EXFILTRATION DETECTION
