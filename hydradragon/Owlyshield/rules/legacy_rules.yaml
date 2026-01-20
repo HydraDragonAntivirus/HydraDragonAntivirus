@@ -107,9 +107,10 @@
         
         - type: "MemoryScan"
           patterns:
+            - "SELECT action_url, username_value, password_value FROM logins"
+            - "SELECT host_key, name, encrypted_value FROM cookies"
             - "CryptUnprotectData"
             - "os_crypt"
-            - "encrypted_key"
           detect_pe_headers: false
           private_only: true
 
@@ -121,18 +122,8 @@
         - type: "MemoryScan"
           patterns:
             - "CryptUnprotectData"
-            - "Crypt32"
-            - "DPAPI"
-          detect_pe_headers: false
-          private_only: true
-        
-        - type: "MemoryScan"
-          patterns:
-            - "v10"
-            - "v11"
-            - "v20"
-            - "AES"
-            - "GCM"
+            - "BCryptDecrypt"
+            - "sqlite3_column_text"
           detect_pe_headers: false
           private_only: true
         
@@ -656,9 +647,9 @@
   memory_scan_config:
     target_processes:
       - "*.exe"
-    scan_on_io_event: true
-    scan_every_n_ops: 2
-    min_scan_interval_secs: 2
+    scan_on_io_event: false
+    scan_every_n_ops: 1000
+    min_scan_interval_secs: 30
 
   # ========================================================================
   # Response Actions
