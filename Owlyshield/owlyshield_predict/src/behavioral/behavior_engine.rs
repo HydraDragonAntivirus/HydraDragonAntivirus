@@ -752,13 +752,80 @@ impl BehaviorEngine {
             }
         }
         
-        // 1. [Existing stealer logic checks...]
+        // =========================================================================================
+        // OLD CODE RESTORATION: HEURISTIC PERCENTAGE CALCULATION (Exact Logic from old_behavior_engine.rs)
+        // =========================================================================================
+        let mut satisfied_heuristics = 0;
+        let mut total_tracked_heuristics = 0;
+
+        // Condition A: Multi-Browser Access within time window
+        let recent_access_count = state.accessed_browsers.values()
+            .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
+            .count();
+        total_tracked_heuristics += 1;
+        if recent_access_count >= rule.multi_access_threshold { satisfied_heuristics += 1; }
+
+        // Condition B: Data Staging
+        let has_staged_data = !state.staged_files_written.is_empty();
+        total_tracked_heuristics += 1;
+        if has_staged_data { satisfied_heuristics += 1; }
+
+        // Condition C: Internet Connectivity
+        let is_online = if rule.require_internet {
+            Self::static_has_active_connections(state.pid)
+        } else {
+            true // If not required, condition is effectively met or skipped depending on logic, but old code did this:
+                 // if rule.require_internet { check() } else { true } -> if is_online { satisfied++ }
+        };
+        total_tracked_heuristics += 1;
+        if is_online { satisfied_heuristics += 1; }
+
+        // Condition D: Suspicious Parent
+        // We use state.parent_name which is populated in create_new_process_state
+        let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
+        total_tracked_heuristics += 1;
+        if is_suspicious_parent { satisfied_heuristics += 1; }
+
+        // Condition E: Sensitive File Access
+        let has_sensitive_access = !state.sensitive_files_read.is_empty();
+        total_tracked_heuristics += 1;
+        if has_sensitive_access { satisfied_heuristics += 1; }
+
+        // Condition F: High Entropy
+        total_tracked_heuristics += 1;
+        if state.high_entropy_detected { satisfied_heuristics += 1; }
+
+        // Condition G: Crypto Usage
+        total_tracked_heuristics += 1;
+        if state.crypto_api_count > 0 { satisfied_heuristics += 1; }
+
+        // Condition H: Archive Actions
+        total_tracked_heuristics += 1;
+        if state.archive_action_detected { satisfied_heuristics += 1; }
+
+        // Condition I: Browser State (Recently Closed)
+        if rule.require_browser_closed_recently {
+            total_tracked_heuristics += 1;
+            let browser_closed_recently = state.last_browser_close.map_or(false, |t| {
+                now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
+            });
+            if browser_closed_recently { satisfied_heuristics += 1; }
+        }
+
+        let heuristic_percentage = if total_tracked_heuristics > 0 {
+            satisfied_heuristics as f32 / total_tracked_heuristics as f32
+        } else {
+            0.0
+        };
+
+        // =========================================================================================
+        // NEW CODE LOGIC: STAGE-BASED PERCENTAGE CALCULATION
+        // =========================================================================================
         
-        // 2. Calculate CUMULATIVE percentage over time window
-        let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+        let total_stages_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
         
         // Count conditions that are CURRENTLY satisfied (not expired)
-        let satisfied_conds: usize = state.condition_satisfaction_timestamps
+        let satisfied_stages_conds: usize = state.condition_satisfaction_timestamps
             .get(&rule.name)
             .map_or(0, |stage_map| {
                 stage_map.values()
@@ -766,13 +833,26 @@ impl BehaviorEngine {
                     .sum()
             });
         
-        let percentage = if total_conds > 0 {
-            satisfied_conds as f32 / total_conds as f32
+        let stage_percentage = if total_stages_conds > 0 {
+            satisfied_stages_conds as f32 / total_stages_conds as f32
         } else {
             0.0
         };
+
+        // Decide which percentage to use (Use the MAX to allow old rules to work AND new rules to work)
+        let percentage = if total_tracked_heuristics > 0 && total_stages_conds == 0 {
+            heuristic_percentage // Only old style rules
+        } else if total_stages_conds > 0 && total_tracked_heuristics <= 5 { 
+            // Arbitrary cutoff, but basically if it's a new rule it mostly relies on stages.
+            // But to be safe and "allow mapping + percentage", let's be generous.
+            // If the user specified heuristic fields, they want them counted.
+            f32::max(heuristic_percentage, stage_percentage) 
+        } else {
+            // Mixed mode? Use max.
+            f32::max(heuristic_percentage, stage_percentage)
+        };
         
-        // Cache the percentage
+        // Cache the percentage (using the best one)
         state.last_percentage_calculated.insert(rule.name.clone(), percentage);
         
         // **NEW: Log percentage changes (throttled to avoid spam)**
@@ -784,22 +864,20 @@ impl BehaviorEngine {
         
         if should_log && (rule.debug || percentage >= rule.proximity_log_threshold / 100.0) {
             Logging::info(&format!(
-                "[DETECTION] Rule '{}' | Process: '{}' (PID: {}) | Progress: {:.1}% ({}/{} conditions) | Threshold: {:.1}% | Satisfied Stages: {:?}",
+                "[DETECTION] Rule '{}' | Process: '{}' (PID: {}) | Heuristic: {:.1}% | Stages: {:.1}% | Final: {:.1}%",
                 rule.name,
                 state.appname,
                 state.pid,
+                heuristic_percentage * 100.0,
+                stage_percentage * 100.0,
                 percentage * 100.0,
-                satisfied_conds,
-                total_conds,
-                rule.conditions_percentage * 100.0,
-                state.satisfied_stages.get(&rule.name).map(|s| s.len()).unwrap_or(0)
             ));
             state.last_percentage_log.insert(rule.name.clone(), now);
         }
         
         // 3. Trigger Logic: Percentage OR Mapping OR MinStages (Decoupled)
 
-        // A. Percentage Trigger
+        // A. Percentage Trigger (Old OR New Logic)
         if rule.conditions_percentage > 0.01 {
             if percentage >= rule.conditions_percentage {
                  if rule.debug {
@@ -827,7 +905,6 @@ impl BehaviorEngine {
         } 
         
         // C. Fallback: Min Stages (only if no mapping logic exists)
-        // Note: Standard logic often prefers mapping if defined. If no mapping is defined, we fall back to raw stage counts.
         if rule.mapping.is_none() {
             let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
             if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
