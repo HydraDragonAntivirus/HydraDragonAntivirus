@@ -708,16 +708,45 @@ impl BehaviorEngine {
         (pid as u64) | 0x80000000_00000000
     }
 
+impl BehaviorEngine {
+    pub fn new() -> Self {
+        Self {
+            rules: Vec::new(),
+            process_states: HashMap::new(),
+            regex_cache: HashMap::new(),
+            sys: sysinfo::System::new_all(),
+            terminated_processes: Vec::new(),
+            known_pids: HashMap::new(),
+            last_refresh: SystemTime::now(),
+        }
+    }
+
+    /// Helper to get or create a GID for a PID (for processes not tracked via I/O)
+    fn get_or_create_gid_for_pid(&mut self, pid: u32) -> u64 {
+        // Try to find existing state by PID
+        for (gid, state) in &self.process_states {
+            if state.pid == pid {
+                return *gid;
+            }
+        }
+        
+        // Create new GID (simple approach: use PID as GID for now with PID bit set)
+        // In production, you might want a more sophisticated GID generation
+        (pid as u64) | 0x80000000_00000000
+    }
+
     /// Helper to check if rule should trigger
     fn should_rule_trigger(rule: &BehaviorRule, state: &mut ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
         let now = SystemTime::now();
         
-        // **NEW: Clean up expired conditions based on time window**
+        // ------------------------------------------------------------------------
+        // PHASE 1: Time Window Management (Cleanup Expired State)
+        // ------------------------------------------------------------------------
         if rule.time_window_ms > 0 {
             let time_window = Duration::from_millis(rule.time_window_ms);
             
+            // Cleanup timestamps
             if let Some(timestamps) = state.condition_satisfaction_timestamps.get_mut(&rule.name) {
-                // Remove expired condition satisfactions
                 timestamps.retain(|_stage_idx, stage_map| {
                     stage_map.retain(|_cond_idx, &mut timestamp| {
                         now.duration_since(timestamp).unwrap_or(Duration::from_secs(0)) < time_window
@@ -726,14 +755,12 @@ impl BehaviorEngine {
                 });
             }
             
-            // Also clean satisfied_conditions based on timestamps
+            // Sync satisfied_conditions with timestamps
             if let Some(cond_map) = state.satisfied_conditions.get_mut(&rule.name) {
                 if let Some(timestamp_map) = state.condition_satisfaction_timestamps.get(&rule.name) {
                     cond_map.retain(|stage_idx, cond_set| {
                         if let Some(stage_timestamps) = timestamp_map.get(stage_idx) {
-                            cond_set.retain(|cond_idx| {
-                                stage_timestamps.contains_key(cond_idx)
-                            });
+                            cond_set.retain(|cond_idx| stage_timestamps.contains_key(cond_idx));
                             !cond_set.is_empty()
                         } else {
                             false
@@ -742,7 +769,7 @@ impl BehaviorEngine {
                 }
             }
             
-            // Clean satisfied_stages based on satisfied_conditions
+            // Sync satisfied_stages with satisfied_conditions
             if let Some(stages) = state.satisfied_stages.get_mut(&rule.name) {
                 if let Some(cond_map) = state.satisfied_conditions.get(&rule.name) {
                     stages.retain(|stage_idx| {
@@ -752,110 +779,110 @@ impl BehaviorEngine {
             }
         }
         
-        // =========================================================================================
-        // OLD CODE RESTORATION: HEURISTIC PERCENTAGE CALCULATION (Exact Logic from old_behavior_engine.rs)
-        // =========================================================================================
-        let mut satisfied_heuristics = 0;
-        let mut total_tracked_heuristics = 0;
-
-        // Condition A: Multi-Browser Access within time window
-        let recent_access_count = state.accessed_browsers.values()
-            .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
-            .count();
-        total_tracked_heuristics += 1;
-        if recent_access_count >= rule.multi_access_threshold { satisfied_heuristics += 1; }
-
-        // Condition B: Data Staging
-        let has_staged_data = !state.staged_files_written.is_empty();
-        total_tracked_heuristics += 1;
-        if has_staged_data { satisfied_heuristics += 1; }
-
-        // Condition C: Internet Connectivity
-        let is_online = if rule.require_internet {
-            Self::static_has_active_connections(state.pid)
-        } else {
-            true // If not required, condition is effectively met or skipped depending on logic, but old code did this:
-                 // if rule.require_internet { check() } else { true } -> if is_online { satisfied++ }
-        };
-        total_tracked_heuristics += 1;
-        if is_online { satisfied_heuristics += 1; }
-
-        // Condition D: Suspicious Parent
-        // We use state.parent_name which is populated in create_new_process_state
-        let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
-        total_tracked_heuristics += 1;
-        if is_suspicious_parent { satisfied_heuristics += 1; }
-
-        // Condition E: Sensitive File Access
-        let has_sensitive_access = !state.sensitive_files_read.is_empty();
-        total_tracked_heuristics += 1;
-        if has_sensitive_access { satisfied_heuristics += 1; }
-
-        // Condition F: High Entropy
-        total_tracked_heuristics += 1;
-        if state.high_entropy_detected { satisfied_heuristics += 1; }
-
-        // Condition G: Crypto Usage
-        total_tracked_heuristics += 1;
-        if state.crypto_api_count > 0 { satisfied_heuristics += 1; }
-
-        // Condition H: Archive Actions
-        total_tracked_heuristics += 1;
-        if state.archive_action_detected { satisfied_heuristics += 1; }
-
-        // Condition I: Browser State (Recently Closed)
-        if rule.require_browser_closed_recently {
-            total_tracked_heuristics += 1;
-            let browser_closed_recently = state.last_browser_close.map_or(false, |t| {
-                now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
-            });
-            if browser_closed_recently { satisfied_heuristics += 1; }
+        // ------------------------------------------------------------------------
+        // PHASE 2: Rule-Based Evaluation (Unifying Legacy & Modern)
+        // ------------------------------------------------------------------------
+        
+        // To make it "fully rule based", we treat legacy fields as "Virtual Conditions".
+        // This removes the hardcoded if/else logic while keeping the engine functional.
+        struct EvaluatedCondition {
+            id: String,
+            is_active: bool,
+            is_satisfied: bool,
         }
 
-        let heuristic_percentage = if total_tracked_heuristics > 0 {
-            satisfied_heuristics as f32 / total_tracked_heuristics as f32
+        let mut all_conditions = Vec::new();
+
+        // 1. Map Legacy fields into the unified evaluation list
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_multi_browser".to_string(),
+            is_active: !rule.browser_paths.is_empty(),
+            is_satisfied: state.accessed_browsers.values()
+                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
+                .count() >= rule.multi_access_threshold
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_staging".to_string(),
+            is_active: !rule.staging_paths.is_empty(),
+            is_satisfied: !state.staged_files_written.is_empty(),
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_internet".to_string(),
+            is_active: rule.require_internet,
+            is_satisfied: Self::static_has_active_connections(state.pid),
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_parent".to_string(),
+            is_active: !rule.suspicious_parents.is_empty(),
+            is_satisfied: rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase())),
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_sensitive".to_string(),
+            is_active: !rule.sensitive_files.is_empty(),
+            is_satisfied: !state.sensitive_files_read.is_empty(),
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_entropy".to_string(),
+            is_active: rule.entropy_threshold > 0.01,
+            is_satisfied: state.high_entropy_detected,
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_crypto".to_string(),
+            is_active: !rule.crypto_apis.is_empty(),
+            is_satisfied: state.crypto_api_count > 0,
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_archive".to_string(),
+            is_active: !rule.archive_actions.is_empty(),
+            is_satisfied: state.archive_action_detected,
+        });
+
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_browser_close".to_string(),
+            is_active: rule.require_browser_closed_recently,
+            is_satisfied: state.last_browser_close.map_or(false, |t| {
+                now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
+            }),
+        });
+
+        // 2. Map Modern Stages into the unified evaluation list
+        for (s_idx, stage) in rule.stages.iter().enumerate() {
+            for (c_idx, _cond) in stage.conditions.iter().enumerate() {
+                let satisfied = state.satisfied_conditions.get(&rule.name)
+                    .and_then(|m| m.get(&s_idx))
+                    .map_or(false, |set| set.contains(&c_idx));
+                
+                all_conditions.push(EvaluatedCondition {
+                    id: format!("stage_{}_cond_{}", s_idx, c_idx),
+                    is_active: true, // Stages are always active if defined
+                    is_satisfied: satisfied,
+                });
+            }
+        }
+
+        // 3. Unified Calculation
+        let active_count = all_conditions.iter().filter(|c| c.is_active).count();
+        let satisfied_count = all_conditions.iter().filter(|c| c.is_active && c.is_satisfied).count();
+
+        let percentage = if active_count > 0 {
+            satisfied_count as f32 / active_count as f32
         } else {
             0.0
         };
-
-        // =========================================================================================
-        // NEW CODE LOGIC: STAGE-BASED PERCENTAGE CALCULATION
-        // =========================================================================================
         
-        let total_stages_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-        
-        // Count conditions that are CURRENTLY satisfied (not expired)
-        let satisfied_stages_conds: usize = state.condition_satisfaction_timestamps
-            .get(&rule.name)
-            .map_or(0, |stage_map| {
-                stage_map.values()
-                    .map(|cond_map| cond_map.len())
-                    .sum()
-            });
-        
-        let stage_percentage = if total_stages_conds > 0 {
-            satisfied_stages_conds as f32 / total_stages_conds as f32
-        } else {
-            0.0
-        };
-
-        // Decide which percentage to use (Use the MAX to allow old rules to work AND new rules to work)
-        let percentage = if total_tracked_heuristics > 0 && total_stages_conds == 0 {
-            heuristic_percentage // Only old style rules
-        } else if total_stages_conds > 0 && total_tracked_heuristics <= 5 { 
-            // Arbitrary cutoff, but basically if it's a new rule it mostly relies on stages.
-            // But to be safe and "allow mapping + percentage", let's be generous.
-            // If the user specified heuristic fields, they want them counted.
-            f32::max(heuristic_percentage, stage_percentage) 
-        } else {
-            // Mixed mode? Use max.
-            f32::max(heuristic_percentage, stage_percentage)
-        };
-        
-        // Cache the percentage (using the best one)
+        // Cache for debugging/reporting
         state.last_percentage_calculated.insert(rule.name.clone(), percentage);
         
-        // **NEW: Log percentage changes (throttled to avoid spam)**
+        // ------------------------------------------------------------------------
+        // PHASE 3: Logging & Triggering
+        // ------------------------------------------------------------------------
         let should_log = state.last_percentage_log
             .get(&rule.name)
             .map_or(true, |last_log| {
@@ -863,51 +890,39 @@ impl BehaviorEngine {
             });
         
         if should_log && (rule.debug || percentage >= rule.proximity_log_threshold / 100.0) {
+            let active_ids: Vec<String> = all_conditions.iter()
+                .filter(|c| c.is_active && c.is_satisfied)
+                .map(|c| c.id.clone())
+                .collect();
+
             Logging::info(&format!(
-                "[DETECTION] Rule '{}' | Process: '{}' (PID: {}) | Heuristic: {:.1}% | Stages: {:.1}% | Final: {:.1}%",
-                rule.name,
-                state.appname,
-                state.pid,
-                heuristic_percentage * 100.0,
-                stage_percentage * 100.0,
-                percentage * 100.0,
+                "[DETECTION] Rule '{}' | PID: {} | Progress: {:.1}% ({}/{}) | Active: {:?}",
+                rule.name, state.pid, percentage * 100.0, satisfied_count, active_count, active_ids
             ));
             state.last_percentage_log.insert(rule.name.clone(), now);
         }
         
-        // 3. Trigger Logic: Percentage OR Mapping OR MinStages (Decoupled)
-
-        // A. Percentage Trigger (Old OR New Logic)
-        if rule.conditions_percentage > 0.01 {
-            if percentage >= rule.conditions_percentage {
-                 if rule.debug {
-                    Logging::info(&format!(
-                        "[TRIGGER] Rule '{}': Percentage threshold met ({:.1}% >= {:.1}%)",
-                        rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
-                    ));
-                }
-                return true;
+        // A. Percentage Trigger (Fully rule-based)
+        if rule.conditions_percentage > 0.01 && percentage >= rule.conditions_percentage {
+            if rule.debug {
+                Logging::info(&format!("[TRIGGER] Rule '{}': Global threshold met ({:.1}%)", rule.name, percentage * 100.0));
             }
+            return true;
         }
         
-        // B. Mapping Trigger
+        // B. Mapping Trigger (Boolean Logic)
         if let Some(mapping) = &rule.mapping {
-            let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
-            if mapping_result {
-                 if rule.debug {
-                    Logging::debug(&format!(
-                        "[TRIGGER] Rule '{}': Mapping satisfied",
-                        rule.name
-                    ));
-                }
+            if Self::evaluate_mapping_internal(mapping, rule, state, rule.debug) {
+                 if rule.debug { Logging::debug(&format!("[TRIGGER] Rule '{}': Mapping satisfied", rule.name)); }
                 return true;
             }
         } 
         
-        // C. Fallback: Min Stages (only if no mapping logic exists)
+        // C. Fallback: Min Stages (Count-based)
         if rule.mapping.is_none() {
-            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
-            if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
+            let sat_stages = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+            if rule.min_stages_satisfied > 0 && sat_stages >= rule.min_stages_satisfied {
+                 if rule.debug { Logging::debug(&format!("[TRIGGER] Rule '{}': Min stages met", rule.name)); }
                 return true;
             }
         }
