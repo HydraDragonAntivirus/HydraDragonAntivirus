@@ -2823,17 +2823,17 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::wildcard_to_regex;
+    use super::BehaviorEngine;
     use regex::Regex;
 
     #[test]
     fn basic_wildcards() {
-        let rx = Regex::new(&wildcard_to_regex("*.rs")).unwrap();
+        let rx = Regex::new(&BehaviorEngine::wildcard_to_regex("*.rs")).unwrap();
         assert!(rx.is_match("main.rs"));
         assert!(rx.is_match("lib.rs"));
         assert!(!rx.is_match("main.rs.bak"));
 
-        let rx2 = Regex::new(&wildcard_to_regex("file?.txt")).unwrap();
+        let rx2 = Regex::new(&BehaviorEngine::wildcard_to_regex("file?.txt")).unwrap();
         assert!(rx2.is_match("file1.txt"));
         assert!(rx2.is_match("fileA.txt"));
         assert!(!rx2.is_match("file12.txt"));
@@ -2841,7 +2841,7 @@ mod tests {
 
     #[test]
     fn escapes_meta_chars() {
-        let rx = Regex::new(&wildcard_to_regex("version(1).txt")).unwrap();
+        let rx = Regex::new(&BehaviorEngine::wildcard_to_regex("version(1).txt")).unwrap();
         assert!(rx.is_match("version(1).txt"));
     }
 }
