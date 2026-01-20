@@ -1,4 +1,4 @@
-# Hydra Dragon Automatic Malware Analysis Platform
+# Hydra Dragon Automatic Executable Analysis Platform
 
 <p align="center">
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
@@ -10,9 +10,9 @@
 </p>
 
 ## Description
-- Dynamic and static analysis with Real Time Malware Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
-- HydraDragonPlatform - Unified Malware Analysis & Detection Framework
-- Enjoy beyond capabilities of AV/AM/EDR/XDR/MDR
+- Dynamic and static analysis with Real Time Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
+- HydraDragonPlatform - Unified Executable Analysis & Detection Framework
+- Enjoy beyond capabilities of AV/AM/EDR/XDR/MDR and beyond of Malware term because it doesn't only asks but it also asks "After X, am I in a worse position than before?"
 
 ## License
 
@@ -162,11 +162,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **Tip 3:**
 
-- Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing antivirus not Windows Firewall.
-
-**Tip 4:**
-
-- Try reset the container if malware tries to reboot the PC.
+- Close the Windows Firewall on the VM to avoid any firewall blocking. We are testing this program not Windows Firewall.
 
 ### FAQ:
 **Does this collect data?**
@@ -176,10 +172,10 @@ See the [LICENSE](./LICENSE) file for more information.
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
 
 **How good is it?**
-- It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are on par with my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open source malware analysis product but it's very aggressive.
+- It's very good at every type of analysis and it balances everything with allowing you configure more aggressive or less aggressive.
 
 **Why does my antivirus detect this as malware?**
-- It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.
+- It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source executable analysis product.
 
 **Why is it 2GB+?**
 - Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+ Note that it's a completely local (except update database) and professional open source antivirus.
@@ -218,7 +214,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 ## Extraction and Decompilation Directories
 
-This document describes all the output directories used by the malware analysis tool for various extraction, decompilation, and unpacking operations.
+This document describes all the output directories used by the executalbe analysis tool for various extraction, decompilation, and unpacking operations.
 
 # HydraDragon Extraction & Decompilation Output — README
 
