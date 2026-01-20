@@ -57,7 +57,7 @@
     - "Temp"
   
   # --- Stage Correlation Configuration ---
-  min_stages_satisfied: 1
+  min_stages_satisfied: 2
   time_window_ms: 1200000  # 2* minutes correlation window
   conditions_percentage: 0.30
   
@@ -111,7 +111,7 @@
             - "os_crypt"
             - "encrypted_key"
           detect_pe_headers: false
-          private_only: false
+          private_only: true
 
     # ========================================================================
     # STAGE 2: Credential Decryption and Collection
@@ -124,7 +124,7 @@
             - "Crypt32"
             - "DPAPI"
           detect_pe_headers: false
-          private_only: false
+          private_only: true
         
         - type: "MemoryScan"
           patterns:
@@ -134,7 +134,7 @@
             - "AES"
             - "GCM"
           detect_pe_headers: false
-          private_only: false
+          private_only: true
         
         - type: "File"
           op: "Create"
