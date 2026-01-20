@@ -1712,5 +1712,3 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
 }
-
-// FSUnload removed, functionality merged into FSUnloadDriver
