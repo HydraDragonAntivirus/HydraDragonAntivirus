@@ -956,7 +956,7 @@ impl BehaviorEngine {
 
                     // NEW: Explicitly handle kill_and_remove which bypasses standard terminate
                     if rule.response.kill_and_remove {
-                        Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, precord.pid));
+                        Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, state.pid));
                         threat_handler.kill_and_remove(precord.gid, &PathBuf::from(&precord.exepath));
                     }
 
@@ -1795,7 +1795,7 @@ impl BehaviorEngine {
 
                 // NEW: Explicitly handle kill_and_remove which bypasses standard terminate
                 if rule.response.kill_and_remove {
-                    Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, precord.pid));
+                    Logging::alert(&format!("[BEHAVIOR] RULE '{}' TRIGGERED KILL & REMOVE ON PID: {}", rule.name, state.pid));
                     threat_handler.kill_and_remove(precord.gid, &PathBuf::from(&exepath));
                 }
             }
