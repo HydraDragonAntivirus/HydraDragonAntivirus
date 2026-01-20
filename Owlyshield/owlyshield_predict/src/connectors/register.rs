@@ -17,7 +17,7 @@ impl Connectors {
     ///
     /// # Example
     /// Basic usage:
-    /// ```
+    /// ```ignore
     /// vec![
     ///     Box::new(MyConnector),
     /// ]
