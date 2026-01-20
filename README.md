@@ -11,7 +11,7 @@
 
 ## Description
 - Dynamic and static analysis with Real Time Malware Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
-- HydraDragonPlatform — Unified Malware Analysis & Detection Framework
+- HydraDragonPlatform - Unified Malware Analysis & Detection Framework
 - Enjoy beyond capabilities of AV/AM/EDR/XDR/MDR
 
 ## License
