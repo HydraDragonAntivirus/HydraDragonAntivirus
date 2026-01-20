@@ -1393,7 +1393,6 @@ impl BehaviorEngine {
         };
 
         if needs_init {
-            // Create fresh state with full ancestry and rule checks
             let new_state = Self::create_new_process_state(
                 &mut self.sys,
                 &self.rules,
@@ -1403,102 +1402,100 @@ impl BehaviorEngine {
                 now
             );
             
-            // Log if we are replacing an existing GID's state (context switch)
-            if self.process_states.contains_key(&gid) {
-                Logging::debug(&format!("[STATE] Replacing existing GID {} state (PID change: old -> {})", 
-                    gid, msg.pid));
-            }
-            
             self.process_states.insert(gid, new_state);
             
-            // **CRITICAL FIX 1: Immediate memory scan for high-priority processes**
-            // Extract data first to avoid borrow conflicts
-            let (appname, pid) = {
+            // **FIX: Extract data BEFORE the loop to avoid borrow conflicts**
+            let (appname, pid, exepath) = {
                 let state = self.process_states.get(&gid).unwrap();
-                (state.appname.clone(), state.pid)
+                (state.appname.clone(), state.pid, precord.exepath.clone())
             };
             
-            for rule in &self.rules.clone() { // Clone rules to avoid borrow issues
-                // Check if this process matches record_on_start patterns
-                let should_immediate_scan = rule.record_on_start.iter().any(|pattern| {
-                     if pattern.contains('*') || pattern.contains('?') {
-                         let re_str = Self::wildcard_to_regex(pattern);
-                         if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
-                             re.is_match(&appname)
-                         } else {
-                             appname.to_lowercase().contains(&pattern.to_lowercase())
-                         }
-                     } else {
-                         appname.to_lowercase().contains(&pattern.to_lowercase())
-                     }
-                });
-                if should_immediate_scan {
-                    if Self::check_allowlist(&appname, &rule, Some(Path::new(&precord.exepath))) {
+            for rule in &self.rules.clone() {
+                // **CRITICAL FIX: Check allowlist FIRST, before any scanning**
+                if Self::check_allowlist(&appname, &rule, Some(Path::new(&exepath))) {
+                    if rule.debug {
                         Logging::debug(&format!(
-                            "[IMMEDIATE SCAN] Skipping allowlisted process '{}' for rule '{}'",
-                            appname, rule.name
+                            "[IMMEDIATE SCAN] Skipping allowlisted process '{}' (PID: {}) for rule '{}'",
+                            appname, pid, rule.name
                         ));
-                        continue;
                     }
-                    
-                    // Scan all MemoryScan conditions in this rule immediately
-                    for stage in &rule.stages {
-                        for cond in &stage.conditions {
-                            if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
-                                Logging::debug(&format!(
-                                    "[IMMEDIATE SCAN] Scanning PID {} with {} patterns for rule '{}'",
-                                    pid, patterns.len(), rule.name
+                    continue; // Skip this rule entirely
+                }
+                
+                // Now check if immediate scan is needed
+                let should_immediate_scan = rule.record_on_start.iter().any(|pattern| {
+                    if pattern.contains('*') || pattern.contains('?') {
+                        let re_str = Self::wildcard_to_regex(pattern);
+                        if let Ok(re) = Regex::new(&format!("(?i){}", re_str)) {
+                            re.is_match(&appname)
+                        } else {
+                            appname.to_lowercase().contains(&pattern.to_lowercase())
+                        }
+                    } else {
+                        appname.to_lowercase().contains(&pattern.to_lowercase())
+                    }
+                });
+                
+                if !should_immediate_scan {
+                    continue;
+                }
+                
+                // Scan all MemoryScan conditions in this rule immediately
+                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                    for (c_idx, cond) in stage.conditions.iter().enumerate() {
+                        if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
+                            Logging::debug(&format!(
+                                "[IMMEDIATE SCAN] Scanning PID {} with {} patterns for rule '{}'",
+                                pid, patterns.len(), rule.name
+                            ));
+                            
+                            if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
+                                Logging::warning(&format!(
+                                    "[IMMEDIATE SCAN] ⚠️ Memory threat detected in '{}' (PID: {}) via rule '{}'", 
+                                    appname, pid, rule.name
                                 ));
                                 
-                                if scan_process_memory(pid, patterns, *detect_pe_headers, *private_only) {
-                                    Logging::warning(&format!(
-                                        "[IMMEDIATE SCAN] ⚠️ Memory threat detected in '{}' (PID: {}) via rule '{}'", 
-                                        appname, pid, rule.name
-                                    ));
-                                    
-                                    // Update state
-                                    let state = self.process_states.get_mut(&gid).unwrap();
-                                    state.last_memory_scan = Some(now);
-                                    state.is_recording = true;
-                                    
-                                    // Mark as malicious and trigger response
-                                    precord.is_malicious = true;
-                                    precord.termination_requested = rule.response.terminate_process;
-                                    precord.quarantine_requested = rule.response.quarantine;
-                                    precord.triggered_rule_name = Some(rule.name.clone());
-                                    if rule.response.suspend_process {
-                                        precord.process_state = ProcessState::Suspended;
-                                    }
-
-                                    // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
-                                    let threat_info = ThreatInfo {
-                                        threat_type_label: "Behavioral Threat (Immediate Scan)",
-                                        virus_name: &rule.name,
-                                        prediction: 1.0,
-                                        match_details: Some(format!("Immediate threat detected in process memory for rule '{}'", rule.name)),
-                                        terminate: rule.response.terminate_process,
-                                        quarantine: rule.response.quarantine,
-                                        revert: rule.response.auto_revert,
-                                    };
-                                    let empty_timesteps = VecvecCappedF32::new(
-                                        crate::predictions::prediction::PREDMTRXCOLS,
-                                        crate::predictions::prediction::PREDMTRXROWS,
-                                    );
-                                    
-                                    ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
-                                        config,
-                                        precord,
-                                        &empty_timesteps,
-                                        &threat_info,
-                                    );
-                                    
-                                    // Early return - threat detected
-                                    return;
-                                } else {
-                                    // Mark that we scanned (even if nothing found)
-                                    let state = self.process_states.get_mut(&gid).unwrap();
-                                    state.last_memory_scan = Some(now);
+                                // Update state
+                                let state = self.process_states.get_mut(&gid).unwrap();
+                                state.last_memory_scan = Some(now);
+                                state.is_recording = true;
+                                
+                                // Mark as malicious and trigger response
+                                precord.is_malicious = true;
+                                precord.termination_requested = rule.response.terminate_process;
+                                precord.quarantine_requested = rule.response.quarantine;
+                                precord.triggered_rule_name = Some(rule.name.clone());
+                                if rule.response.suspend_process {
+                                    precord.process_state = ProcessState::Suspended;
                                 }
+
+                                let threat_info = ThreatInfo {
+                                    threat_type_label: "Behavioral Threat (Immediate Scan)",
+                                    virus_name: &rule.name,
+                                    prediction: 1.0,
+                                    match_details: Some(format!("Immediate threat detected in process memory for rule '{}'", rule.name)),
+                                    terminate: rule.response.terminate_process,
+                                    quarantine: rule.response.quarantine,
+                                    revert: rule.response.auto_revert,
+                                };
+                                let empty_timesteps = VecvecCappedF32::new(
+                                    crate::predictions::prediction::PREDMTRXCOLS,
+                                    crate::predictions::prediction::PREDMTRXROWS,
+                                );
+                                
+                                ActionsOnKill::with_handler(threat_handler.clone_box()).run_actions_with_info(
+                                    config,
+                                    precord,
+                                    &empty_timesteps,
+                                    &threat_info,
+                                );
+                                
+                                // Early return - threat detected
+                                return;
+                            } else {
+                                // Mark that we scanned (even if nothing found)
+                                let state = self.process_states.get_mut(&gid).unwrap();
+                                state.last_memory_scan = Some(now);
                             }
                         }
                     }
