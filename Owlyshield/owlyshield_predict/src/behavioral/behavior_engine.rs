@@ -708,33 +708,6 @@ impl BehaviorEngine {
         (pid as u64) | 0x80000000_00000000
     }
 
-impl BehaviorEngine {
-    pub fn new() -> Self {
-        Self {
-            rules: Vec::new(),
-            process_states: HashMap::new(),
-            regex_cache: HashMap::new(),
-            sys: sysinfo::System::new_all(),
-            terminated_processes: Vec::new(),
-            known_pids: HashMap::new(),
-            last_refresh: SystemTime::now(),
-        }
-    }
-
-    /// Helper to get or create a GID for a PID (for processes not tracked via I/O)
-    fn get_or_create_gid_for_pid(&mut self, pid: u32) -> u64 {
-        // Try to find existing state by PID
-        for (gid, state) in &self.process_states {
-            if state.pid == pid {
-                return *gid;
-            }
-        }
-        
-        // Create new GID (simple approach: use PID as GID for now with PID bit set)
-        // In production, you might want a more sophisticated GID generation
-        (pid as u64) | 0x80000000_00000000
-    }
-
     /// Helper to check if rule should trigger
     fn should_rule_trigger(rule: &BehaviorRule, state: &mut ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
         let now = SystemTime::now();
