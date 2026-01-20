@@ -1339,26 +1339,33 @@ impl BehaviorEngine {
                     // Verify signature if path available
                     if let Some(path) = process_path {
                         if !path.exists() {
+                             Logging::debug(&format!("[ALLOWLIST] Path not found: {}", path.display()));
                             return false;
                         }
                         
                         let info = verify_signature(path);
                         if !info.is_trusted {
+                            Logging::debug(&format!("[ALLOWLIST] File not trusted: {}", path.display()));
                             return false;
                         }
 
                         if !signers.is_empty() {
                             if let Some(signer) = &info.signer_name {
-                                // FIXED: Return the result of signer matching
-                                return signers.iter().any(|s_pattern| {
+                                let match_found = signers.iter().any(|s_pattern| {
                                     if let Ok(re) = Regex::new(s_pattern) {
                                         re.is_match(signer)
                                     } else {
                                         signer.to_lowercase().contains(&s_pattern.to_lowercase())
                                     }
                                 });
+                                
+                                if !match_found {
+                                     Logging::debug(&format!("[ALLOWLIST] Signer mismatch. Expected one of {:?}, got '{}'", signers, signer));
+                                }
+                                return match_found;
                             } else {
                                 // No signer name available but signers list is specified - reject
+                                Logging::debug(&format!("[ALLOWLIST] Trusted but NO Signer Name (Catalog?): {} - Cannot match against {:?} so REJECTING.", path.display(), signers));
                                 return false;
                             }
                         } else {
