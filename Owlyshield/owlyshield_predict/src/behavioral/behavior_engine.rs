@@ -695,7 +695,6 @@ impl BehaviorEngine {
         (pid as u64) | 0x80000000_00000000
     }
 
-
     /// Helper to check if rule should trigger
     fn should_rule_trigger(rule: &BehaviorRule, state: &ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
         let now = SystemTime::now();
@@ -763,30 +762,74 @@ impl BehaviorEngine {
             }
         }
 
-        // 2. Evaluate Sigma-style Mapping if present
-        if let Some(mapping) = &rule.mapping {
-            Self::evaluate_mapping_internal(mapping, rule, state, rule.debug)
+        // 2. Calculate percentage of satisfied conditions
+        let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
+        let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
+            .map_or(0, |m| m.values().map(|v| v.len()).sum());
+        
+        let percentage = if total_conds > 0 {
+            satisfied_conds as f32 / total_conds as f32
         } else {
-            // Fallback to simple stage counting
-            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+            0.0
+        };
+        
+        if rule.debug {
+            Logging::debug(&format!(
+                "[DEBUG] Rule '{}': {}/{} conditions satisfied ({:.1}%), threshold: {:.1}%",
+                rule.name, satisfied_conds, total_conds, percentage * 100.0, rule.conditions_percentage * 100.0
+            ));
+        }
+        
+        // **CRITICAL FIX: Check percentage FIRST, then mapping**
+        // This ensures we don't trigger on single-stage matches when percentage is low
+        
+        // 3a. If percentage threshold is defined AND not met, return false immediately
+        if rule.conditions_percentage > 0.01 && percentage < rule.conditions_percentage {
+            if rule.debug {
+                Logging::debug(&format!(
+                    "[DEBUG] Rule '{}': Percentage threshold not met ({:.1}% < {:.1}%), skipping",
+                    rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
+                ));
+            }
+            return false;
+        }
+        
+        // 3b. If percentage is met, now check mapping (if present)
+        if let Some(mapping) = &rule.mapping {
+            let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
             
-            // Check if stages are satisfied
-            if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
-                 return true;
+            if rule.debug {
+                Logging::debug(&format!(
+                    "[DEBUG] Rule '{}': Percentage met ({:.1}%), mapping evaluation: {}",
+                    rule.name, percentage * 100.0, mapping_result
+                ));
             }
             
-            // Percentage based condition
+            // **BOTH percentage AND mapping must be satisfied**
+            return mapping_result;
+        } else {
+            // No mapping, just use percentage or stage count
             if rule.conditions_percentage > 0.01 {
-                let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-                let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
-                    .map_or(0, |m| m.values().map(|v| v.len()).sum());
-                
-                if total_conds > 0 {
-                     let percentage = satisfied_conds as f32 / total_conds as f32;
-                     if percentage >= rule.conditions_percentage {
-                         return true;
-                     }
+                // Percentage already checked above, if we're here it's met
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[DEBUG] Rule '{}': Triggered by percentage threshold ({:.1}%)",
+                        rule.name, percentage * 100.0
+                    ));
                 }
+                return true;
+            }
+            
+            // Fallback to min_stages_satisfied
+            let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
+            if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[DEBUG] Rule '{}': Triggered by stage count ({}/{})",
+                        rule.name, satisfied_count, rule.min_stages_satisfied
+                    ));
+                }
+                return true;
             }
             
             false

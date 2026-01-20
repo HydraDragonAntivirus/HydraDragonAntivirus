@@ -13,7 +13,7 @@
     false positives while catching polymorphic/obfuscated stealers.
   
   # --- Metadata ---
-  author: "Emirhan Ucan"
+  author: "Advanced Threat Research Team"
   date: "2025-01-20"
   severity: 95
   level: critical
@@ -66,13 +66,13 @@
   record_on_start: []
   
   # --- Memory Scan Configuration ---
-  # Scan processes that show suspicious file access patterns
+  # Only scan when suspicious behavior is observed (event-driven)
+  # Targeting: Unsigned binaries, processes from temp/downloads, PyInstaller artifacts
   memory_scan_config:
-    target_processes:
-      - "*.exe"
+    target_processes: []  # Empty = only scan when behavioral indicators trigger
     scan_on_io_event: false
-    scan_every_n_ops: 2000
-    min_scan_interval_secs: 45
+    scan_every_n_ops: 5000  # Very high threshold - only scan after significant activity
+    min_scan_interval_secs: 60  # 1-minute cooldown between scans
   
   # ============================================================================
   # DETECTION STAGES - BEHAVIORAL PATTERNS
@@ -502,6 +502,8 @@
   # ============================================================================
   # CORRELATION MAPPING - BEHAVIORAL CHAINS
   # ============================================================================
+  # NOTE: Percentage threshold (70%) is checked FIRST before this mapping
+  # This mapping provides the LOGICAL STRUCTURE after percentage is met
   
   mapping:
     or:
@@ -513,9 +515,10 @@
           - stage: "Stage3_Browser_Database_Access"
           - stage: "Stage9_Network_Exfiltration"
       
-      # 2. Stealer memory signature (alone is enough if specific)
+      # 2. Stealer memory signature + behavioral context (not alone!)
       - and:
           - stage: "Stage14_Stealer_Memory_Signatures"
+          - stage: "Stage2_Suspicious_Executable"
           - or:
               - stage: "Stage3_Browser_Database_Access"
               - stage: "Stage4_Discord_Token_Theft"
@@ -541,13 +544,13 @@
           - stage: "Stage7_Data_Staging"
           - stage: "Stage9_Network_Exfiltration"
       
-      # 5. Discord injection + network
+      # 5. Discord injection + staging + network
       - and:
           - stage: "Stage4_Discord_Token_Theft"
           - stage: "Stage7_Data_Staging"
           - stage: "Stage9_Network_Exfiltration"
       
-      # 6. Crypto theft + exfiltration
+      # 6. Crypto theft + staging + exfiltration
       - and:
           - stage: "Stage5_Crypto_Wallet_Theft"
           - stage: "Stage7_Data_Staging"
@@ -555,26 +558,30 @@
       
       # === MEDIUM CONFIDENCE ===
       
-      # 7. Browser kill + credential theft + network
+      # 7. Browser kill + credential theft + decryption + network
       - and:
           - stage: "Stage11_Browser_Process_Kill"
           - stage: "Stage3_Browser_Database_Access"
           - stage: "Stage6_Credential_Decryption"
           - stage: "Stage9_Network_Exfiltration"
       
-      # 8. Anti-analysis + credential theft + exfiltration
+      # 8. Anti-analysis + credential theft + staging + exfiltration
       - and:
           - stage: "Stage10_Anti_Analysis"
           - stage: "Stage3_Browser_Database_Access"
           - stage: "Stage7_Data_Staging"
           - stage: "Stage9_Network_Exfiltration"
       
-      # 9. Multi-source theft + staging
+      # 9. Multi-source theft + staging + network
       - and:
-          - stage: "Stage3_Browser_Database_Access"
-          - stage: "Stage4_Discord_Token_Theft"
-          - stage: "Stage5_Crypto_Wallet_Theft"
+          - or:
+              - stage: "Stage3_Browser_Database_Access"
+              - stage: "Stage4_Discord_Token_Theft"
+          - or:
+              - stage: "Stage5_Crypto_Wallet_Theft"
+              - stage: "Stage6_Credential_Decryption"
           - stage: "Stage7_Data_Staging"
+          - stage: "Stage9_Network_Exfiltration"
   
   # ============================================================================
   # COMPREHENSIVE ALLOWLIST
@@ -744,5 +751,5 @@
   # Log near-misses at 75%
   proximity_log_threshold: 75.0
   
-  # Disable debug (enable for troubleshooting)
-  debug: false
+  # Enable debug to see percentage calculations
+  debug: true
