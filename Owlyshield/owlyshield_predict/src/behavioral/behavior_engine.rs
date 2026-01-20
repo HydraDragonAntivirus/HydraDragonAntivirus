@@ -618,6 +618,16 @@ pub struct ProcessBehaviorState {
 
     // --- NEW: Last memory scan timestamp ---
     pub last_memory_scan: Option<SystemTime>,
+
+    /// Track when each condition was FIRST satisfied (for time window expiration)
+    /// Map<RuleName, Map<StageIdx, Map<ConditionIdx, Timestamp>>>
+    pub condition_satisfaction_timestamps: HashMap<String, HashMap<usize, HashMap<usize, SystemTime>>>,
+    
+    /// Cache of last percentage calculation per rule
+    pub last_percentage_calculated: HashMap<String, f32>,
+    
+    /// Last time percentage was logged (to avoid spam)
+    pub last_percentage_log: HashMap<String, SystemTime>
 }
 
 impl Default for ProcessBehaviorState {
@@ -654,6 +664,9 @@ impl Default for ProcessBehaviorState {
             is_recording: false,
             file_op_counts: HashMap::new(),
             last_memory_scan: None,
+            condition_satisfaction_timestamps: HashMap::new(),
+            last_percentage_calculated: HashMap::new(),
+            last_percentage_log: HashMap::new(),
         }
     }
 }
@@ -696,76 +709,62 @@ impl BehaviorEngine {
     }
 
     /// Helper to check if rule should trigger
-    fn should_rule_trigger(rule: &BehaviorRule, state: &ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
+    fn should_rule_trigger(rule: &BehaviorRule, state: &mut ProcessBehaviorState, terminated_processes: &[TerminatedProcess]) -> bool {
         let now = SystemTime::now();
         
-        // 1. Evaluate Stealer-style conditions if any are defined
-        let has_stealer_logic = !rule.browser_paths.is_empty() || !rule.staging_paths.is_empty() || rule.require_internet || !rule.crypto_apis.is_empty();
-        
-        if has_stealer_logic {
-            let mut satisfied = 0;
-            let mut total = 0;
-
-            // Multi-browser access
-            total += 1;
-            let recent_access_count = state.accessed_browsers.values()
-                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms.max(60000) as u128)
-                .count();
-            if recent_access_count >= rule.multi_access_threshold { satisfied += 1; }
-
-            // Data staging
-            total += 1;
-            if !state.staged_files_written.is_empty() { satisfied += 1; }
-
-            // Internet connectivity
-            total += 1;
-            if !rule.require_internet || Self::static_has_active_connections(state.pid) { satisfied += 1; }
-
-            // Suspicious parent
-            total += 1;
-            let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase()));
-            if is_suspicious_parent { satisfied += 1; }
-
-            // Sensitive file access
-            total += 1;
-            if !state.sensitive_files_read.is_empty() { satisfied += 1; }
-
-            // High entropy
-            total += 1;
-            if state.high_entropy_detected { satisfied += 1; }
-
-            // Crypto usage
-            total += 1;
-            if state.crypto_api_count > 0 { satisfied += 1; }
-
-            // Archive actions
-            total += 1;
-            if state.archive_action_detected { satisfied += 1; }
-
-            // Browser state
-            if rule.require_browser_closed_recently {
-                total += 1;
-                let browser_closed_recently = terminated_processes.iter().any(|tp| {
-                    (tp.name.to_lowercase().contains("chrome") || tp.name.to_lowercase().contains("firefox") || tp.name.to_lowercase().contains("msedge"))
-                    && now.duration_since(tp.timestamp).unwrap_or(Duration::from_secs(999)).as_millis() < 3600000
+        // **NEW: Clean up expired conditions based on time window**
+        if rule.time_window_ms > 0 {
+            let time_window = Duration::from_millis(rule.time_window_ms);
+            
+            if let Some(timestamps) = state.condition_satisfaction_timestamps.get_mut(&rule.name) {
+                // Remove expired condition satisfactions
+                timestamps.retain(|_stage_idx, stage_map| {
+                    stage_map.retain(|_cond_idx, &mut timestamp| {
+                        now.duration_since(timestamp).unwrap_or(Duration::from_secs(0)) < time_window
+                    });
+                    !stage_map.is_empty()
                 });
-                if browser_closed_recently { satisfied += 1; }
             }
-
-            let ratio = satisfied as f32 / total as f32;
-            if ratio >= rule.conditions_percentage && total > 0 {
-                if rule.debug {
-                    Logging::debug(&format!("[DEBUG] Rule '{}': Stealer logic triggered ({}/{} = {:.1}%)", 
-                        rule.name, satisfied, total, ratio * 100.0));
+            
+            // Also clean satisfied_conditions based on timestamps
+            if let Some(cond_map) = state.satisfied_conditions.get_mut(&rule.name) {
+                if let Some(timestamp_map) = state.condition_satisfaction_timestamps.get(&rule.name) {
+                    cond_map.retain(|stage_idx, cond_set| {
+                        if let Some(stage_timestamps) = timestamp_map.get(stage_idx) {
+                            cond_set.retain(|cond_idx| {
+                                stage_timestamps.contains_key(cond_idx)
+                            });
+                            !cond_set.is_empty()
+                        } else {
+                            false
+                        }
+                    });
                 }
-                return true;
+            }
+            
+            // Clean satisfied_stages based on satisfied_conditions
+            if let Some(stages) = state.satisfied_stages.get_mut(&rule.name) {
+                if let Some(cond_map) = state.satisfied_conditions.get(&rule.name) {
+                    stages.retain(|stage_idx| {
+                        cond_map.get(stage_idx).map_or(false, |conds| !conds.is_empty())
+                    });
+                }
             }
         }
-
-        // 2. Calculate percentage of satisfied conditions
+        
+        // 1. [Existing stealer logic checks...]
+        
+        // 2. Calculate CUMULATIVE percentage over time window
         let total_conds: usize = rule.stages.iter().map(|s| s.conditions.len()).sum();
-        let satisfied_conds: usize = state.satisfied_conditions.get(&rule.name)
-            .map_or(0, |m| m.values().map(|v| v.len()).sum());
+        
+        // Count conditions that are CURRENTLY satisfied (not expired)
+        let satisfied_conds: usize = state.condition_satisfaction_timestamps
+            .get(&rule.name)
+            .map_or(0, |stage_map| {
+                stage_map.values()
+                    .map(|cond_map| cond_map.len())
+                    .sum()
+            });
         
         let percentage = if total_conds > 0 {
             satisfied_conds as f32 / total_conds as f32
@@ -773,65 +772,75 @@ impl BehaviorEngine {
             0.0
         };
         
-        if rule.debug {
-            Logging::debug(&format!(
-                "[DEBUG] Rule '{}': {}/{} conditions satisfied ({:.1}%), threshold: {:.1}%",
-                rule.name, satisfied_conds, total_conds, percentage * 100.0, rule.conditions_percentage * 100.0
+        // Cache the percentage
+        state.last_percentage_calculated.insert(rule.name.clone(), percentage);
+        
+        // **NEW: Log percentage changes (throttled to avoid spam)**
+        let should_log = state.last_percentage_log
+            .get(&rule.name)
+            .map_or(true, |last_log| {
+                now.duration_since(*last_log).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(5)
+            });
+        
+        if should_log && (rule.debug || percentage >= rule.proximity_log_threshold / 100.0) {
+            Logging::info(&format!(
+                "[DETECTION] Rule '{}' | Process: '{}' (PID: {}) | Progress: {:.1}% ({}/{} conditions) | Threshold: {:.1}% | Satisfied Stages: {:?}",
+                rule.name,
+                state.appname,
+                state.pid,
+                percentage * 100.0,
+                satisfied_conds,
+                total_conds,
+                rule.conditions_percentage * 100.0,
+                state.satisfied_stages.get(&rule.name).map(|s| s.len()).unwrap_or(0)
             ));
+            state.last_percentage_log.insert(rule.name.clone(), now);
         }
         
-        // **CRITICAL FIX: Check percentage FIRST, then mapping**
-        // This ensures we don't trigger on single-stage matches when percentage is low
-        
-        // 3a. If percentage threshold is defined AND not met, return false immediately
-        if rule.conditions_percentage > 0.01 && percentage < rule.conditions_percentage {
-            if rule.debug {
-                Logging::debug(&format!(
-                    "[DEBUG] Rule '{}': Percentage threshold not met ({:.1}% < {:.1}%), skipping",
-                    rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
-                ));
-            }
-            return false;
-        }
-        
-        // 3b. If percentage is met, now check mapping (if present)
-        if let Some(mapping) = &rule.mapping {
-            let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
-            
-            if rule.debug {
-                Logging::debug(&format!(
-                    "[DEBUG] Rule '{}': Percentage met ({:.1}%), mapping evaluation: {}",
-                    rule.name, percentage * 100.0, mapping_result
-                ));
-            }
-            
-            // **BOTH percentage AND mapping must be satisfied**
-            return mapping_result;
-        } else {
-            // No mapping, just use percentage or stage count
-            if rule.conditions_percentage > 0.01 {
-                // Percentage already checked above, if we're here it's met
+        // 3a. Check percentage threshold
+        if rule.conditions_percentage > 0.01 {
+            if percentage < rule.conditions_percentage {
                 if rule.debug {
                     Logging::debug(&format!(
-                        "[DEBUG] Rule '{}': Triggered by percentage threshold ({:.1}%)",
-                        rule.name, percentage * 100.0
+                        "[DEBUG] Rule '{}': Below threshold ({:.1}% < {:.1}%)",
+                        rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
+                    ));
+                }
+                return false;
+            }
+            
+            // Percentage threshold met! Now check mapping
+            if let Some(mapping) = &rule.mapping {
+                let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
+                
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[DEBUG] Rule '{}': Percentage {:.1}% ✓, Mapping: {}",
+                        rule.name, percentage * 100.0, mapping_result
+                    ));
+                }
+                
+                return mapping_result;
+            } else {
+                // No mapping, percentage alone is enough
+                if rule.debug {
+                    Logging::info(&format!(
+                        "[TRIGGER] Rule '{}': Percentage threshold met ({:.1}% >= {:.1}%)",
+                        rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
                     ));
                 }
                 return true;
             }
-            
-            // Fallback to min_stages_satisfied
+        }
+        
+        // 3b. Fallback to other trigger methods
+        if let Some(mapping) = &rule.mapping {
+            Self::evaluate_mapping_internal(mapping, rule, state, rule.debug)
+        } else {
             let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
             if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[DEBUG] Rule '{}': Triggered by stage count ({}/{})",
-                        rule.name, satisfied_count, rule.min_stages_satisfied
-                    ));
-                }
                 return true;
             }
-            
             false
         }
     }
@@ -2529,9 +2538,30 @@ impl BehaviorEngine {
             }
         };
 
-        if debug && result {
-            Logging::debug(&format!("[DEBUG] Condition MATCHED: {:?}", cond));
+        // **NEW: Track when condition was satisfied**
+        if result {
+        let now = SystemTime::now();
+        
+        // Only record timestamp if this is the FIRST time this condition is satisfied
+        state.condition_satisfaction_timestamps
+            .entry(rule_name.to_string())
+            .or_default()
+            .entry(s_idx)
+            .or_default()
+            .entry(c_idx)
+            .or_insert(now);
+        
+        if debug {
+            Logging::debug(&format!(
+                "[DEBUG] Condition SATISFIED: Rule '{}', Stage {}, Condition {} (first satisfied at: {:?})",
+                rule_name, s_idx, c_idx,
+                state.condition_satisfaction_timestamps
+                    .get(rule_name)
+                    .and_then(|m| m.get(&s_idx))
+                    .and_then(|m| m.get(&c_idx))
+            ));
         }
+    }
 
         result
     }
