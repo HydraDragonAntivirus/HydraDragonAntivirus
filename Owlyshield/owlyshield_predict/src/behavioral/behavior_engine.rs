@@ -797,33 +797,12 @@ impl BehaviorEngine {
             state.last_percentage_log.insert(rule.name.clone(), now);
         }
         
-        // 3a. Check percentage threshold
+        // 3. Trigger Logic: Percentage OR Mapping OR MinStages (Decoupled)
+
+        // A. Percentage Trigger
         if rule.conditions_percentage > 0.01 {
-            if percentage < rule.conditions_percentage {
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[DEBUG] Rule '{}': Below threshold ({:.1}% < {:.1}%)",
-                        rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
-                    ));
-                }
-                return false;
-            }
-            
-            // Percentage threshold met! Now check mapping
-            if let Some(mapping) = &rule.mapping {
-                let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
-                
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[DEBUG] Rule '{}': Percentage {:.1}% ✓, Mapping: {}",
-                        rule.name, percentage * 100.0, mapping_result
-                    ));
-                }
-                
-                return mapping_result;
-            } else {
-                // No mapping, percentage alone is enough
-                if rule.debug {
+            if percentage >= rule.conditions_percentage {
+                 if rule.debug {
                     Logging::info(&format!(
                         "[TRIGGER] Rule '{}': Percentage threshold met ({:.1}% >= {:.1}%)",
                         rule.name, percentage * 100.0, rule.conditions_percentage * 100.0
@@ -833,16 +812,30 @@ impl BehaviorEngine {
             }
         }
         
-        // 3b. Fallback to other trigger methods
+        // B. Mapping Trigger
         if let Some(mapping) = &rule.mapping {
-            Self::evaluate_mapping_internal(mapping, rule, state, rule.debug)
-        } else {
+            let mapping_result = Self::evaluate_mapping_internal(mapping, rule, state, rule.debug);
+            if mapping_result {
+                 if rule.debug {
+                    Logging::debug(&format!(
+                        "[TRIGGER] Rule '{}': Mapping satisfied",
+                        rule.name
+                    ));
+                }
+                return true;
+            }
+        } 
+        
+        // C. Fallback: Min Stages (only if no mapping logic exists)
+        // Note: Standard logic often prefers mapping if defined. If no mapping is defined, we fall back to raw stage counts.
+        if rule.mapping.is_none() {
             let satisfied_count = state.satisfied_stages.get(&rule.name).map_or(0, |s| s.len());
             if rule.min_stages_satisfied > 0 && satisfied_count >= rule.min_stages_satisfied {
                 return true;
             }
-            false
         }
+
+        false
     }
 
     /// Refresh process list, track terminations, AND detect new processes
