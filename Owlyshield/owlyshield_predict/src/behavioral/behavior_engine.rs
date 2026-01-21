@@ -2054,17 +2054,7 @@ impl BehaviorEngine {
         let result = match cond {
             // Add allowlist check BEFORE scanning
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                // Context check 1: Process age
-                if let Some(first_event) = state.first_event_ts {
-                    if first_event.elapsed().unwrap_or_default() < Duration::from_secs(5) {
-                        if debug {
-                            Logging::debug(&format!("[DEBUG] Skipping memory scan for brand new process '{}'", state.appname));
-                        }
-                        return false; // Don't scan processes that just started
-                    }
-                }
-                
-                // Context check 2: Suspicious parent
+                // Context check 1: Suspicious parent
                 let suspicious_parent = state.process_ancestry.iter().any(|p| {
                     p.to_lowercase().contains("winword") ||
                     p.to_lowercase().contains("excel") ||

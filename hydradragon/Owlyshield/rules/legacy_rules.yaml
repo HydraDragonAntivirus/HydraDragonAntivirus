@@ -752,4 +752,4 @@
   proximity_log_threshold: 75.0
   
   # Enable debug to see percentage calculations
-  debug: true
+  debug: false
