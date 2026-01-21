@@ -1,552 +1,247 @@
-!include sandboxes.yaml
-!include god_mode_rule.yaml
-!include legacy_rules.yaml
+# Unified Browser Stealer Detection (executable-style config)
+# - Contains a private sub-rule `browser_closed_recently` that only applies to this rule.
+# - Archive detection split into `archive_apis` (functions / APIs) and `archive_tools` (standalone tools like 7z.exe).
+- name: "Unified Browser Stealer Detection"
+  description: >
+    Detect processes accessing browser credential stores, using DPAPI/crypto APIs,
+    staging data in temp, compressing it, and transmitting it - with allowlist checks
+    and a private "browser closed recently" sub-rule included.
+  conditions_percentage: 0.50
 
-# ============================================================================
-# STEALER DETECTION RULES - Comprehensive Browser & Application Data Theft
-# ============================================================================
+  # Global behavior flags
+  require_internet: true
+  time_window_ms: 30000            # window for multi-browser access / correlation
+  multi_access_threshold: 2        # how many different browser stores accessed in window
+  max_staging_lifetime_ms: 60000   # how long staged files may live before considered stale
+  entropy_threshold: 7.0
 
-- name: "HEUR/Win32/Trojan.PSW.Stealer.gen"
-  description: "Unified heuristic detection for credential stealers targeting browsers, wallets, chat apps, and system credentials."
-  severity: 10
-  debug: false  # Set to true to enable verbose debugging
-  proximity_log_threshold: 25.0
-  time_window_ms: 30000
-  min_stages_satisfied: 2
-  
-  # Define logical mapping: Need at least 2 different attack vectors
-  mapping:
-    or:
-      - and:
-          - stage: "Chrome Family Sensitive Access"
-          - or:
-              - stage: "Data Staging & Archiving"
-              - stage: "Network Connection"
-      - and:
-          - stage: "Firefox Sensitive Access"
-          - or:
-              - stage: "Data Staging & Archiving"
-              - stage: "Network Connection"
-      - and:
-          - stage: "Discord Token Access"
-          - stage: "Network Connection"
-      - and:
-          - stage: "Crypto Wallet Access"
-          - or:
-              - stage: "Data Staging & Archiving"
-              - stage: "Network Connection"
-      - and:
-          - stage: "DPAPI & Clipboard Access"
-          - stage: "Credential Decryption API"
-  
-  stages:
-    # --- Browser Data Theft ---
-    - name: "Chrome Family Sensitive Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Google\\Chrome\\User Data*Cookies*"
-            - "*Google\\Chrome\\User Data*Login Data*"
-            - "*Google\\Chrome\\User Data*Web Data*"
-            - "*Google\\Chrome\\User Data*Local State*"
-            - "*Microsoft\\Edge\\User Data*Cookies*"
-            - "*Microsoft\\Edge\\User Data*Login Data*"
-            - "*BraveSoftware\\Brave-Browser\\User Data*Cookies*"
-            - "*BraveSoftware\\Brave-Browser\\User Data*Login Data*"
-            - "*Chromium\\User Data*Cookies*"
-            - "*Chromium\\User Data*Login Data*"
-            - "*Opera Software\\Opera Stable*Cookies*"
-            - "*Opera Software\\Opera Stable*Login Data*"
-            - "*Opera Software\\Opera Stable*Web Data*"
-          op_type: "Read"
-          min_unique_paths: 2
+  # Browser paths and target sensitive files (used by SensitivePathAccess conditions)
+  browser_paths: &browser_paths
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "Opera Software\\Opera GX Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
 
-    - name: "Firefox Sensitive Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Mozilla\\Firefox\\Profiles*cookies.sqlite*"
-            - "*Mozilla\\Firefox\\Profiles*logins.json*"
-            - "*Mozilla\\Firefox\\Profiles*key4.db*"
-            - "*Mozilla\\Firefox\\Profiles*places.sqlite*"
-            - "*Mozilla\\Firefox\\Profiles*formhistory.sqlite*"
-            - "*Mozilla\\Firefox\\Profiles*key3.db*"
-          op_type: "Read"
-          min_unique_paths: 2
+  sensitive_files:
+    - "Cookies"
+    - "Login Data"
+    - "Web Data"
+    - "Local State"
 
-    - name: "Payment & Autofill Data"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*\\User Data*Web Data*"
-            - "*\\User Data*Autofill*"
-            - "*\\User Data*Credit Cards*"
-          op_type: "Read"
-          min_unique_paths: 1
+  staging_paths:
+    - "AppData\\Local\\Temp"
 
-    # --- Communication Apps ---
-    - name: "Discord Token Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Discord\\Local Storage\\leveldb*"
-            - "*Discord\\Local State*"
-            - "*Discord\\Session Storage*"
-            - "*DiscordCanary\\Local Storage\\leveldb*"
-            - "*DiscordPTB\\Local Storage\\leveldb*"
-          op_type: "Read"
-          min_unique_paths: 1
+  # Archive signals split
+  archive_apis:              # high-level archive-related APIs / actions (library-API usage)
+    - "CreateZip"
+    - "CreateRar"
+    - "CreateArchive"        # generic API alias
+  archive_tools:             # executable tools / CLI that create archives (treated separately)
+    - "7z.exe"
+    - "7z"                   # CLI invocation name
+    - "tar"
+    - "zip.exe"
 
-    - name: "Email Client Data Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Microsoft\\Outlook*\\*.pst"
-            - "*Microsoft\\Outlook*\\*.ost"
-            - "*Thunderbird\\Profiles*logins.json*"
-            - "*Thunderbird\\Profiles*key4.db*"
-            - "*Thunderbird\\Profiles*cert9.db*"
-          op_type: "Read"
-          min_unique_paths: 1
+  # Crypto / DPAPI APIs
+  crypto_apis:
+    - "CryptUnprotectData"
+    - "BCryptDecrypt"
+    - "NCryptDecrypt"
+    - "DPAPI"
 
-    # --- Wallet & Admin Tools ---
-    - name: "Crypto Wallet Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Ethereum\\keystore*"
-            - "*Electrum\\wallets*"
-            - "*Bitcoin\\wallet.dat*"
-            - "*Exodus\\exodus.wallet*"
-            - "*Atomic\\Local Storage\\leveldb*"
-            - "*Coinomi\\wallets*"
-            - "*Jaxx\\Local Storage*"
-            - "*MetaMask*"
-            - "*.wallet*"
-            - "*wallet*.json*"
-          op_type: "Read"
-          min_unique_paths: 1
+  # Suspicious parents (process ancestry)
+  suspicious_parents:
+    - "powershell.exe"
+    - "cmd.exe"
+    - "wscript.exe"
+    - "cscript.exe"
+    - "mshta.exe"
+    - "python.exe"
+    - "node.exe"
 
-    - name: "FTP/SSH/VPN Config Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*FileZilla*recentservers.xml*"
-            - "*FileZilla*sitemanager.xml*"
-            - "*WinSCP.ini*"
-            - "*CoreFTP\\sites.idx*"
-            - "*FTP Navigator\\Ftplist.txt*"
-            - "*\\.ssh\\id_rsa*"
-            - "*\\.ssh\\id_ed25519*"
-            - "*\\.ssh\\known_hosts*"
-            - "*OpenVPN\\config*"
-            - "*NordVPN*"
-            - "*ExpressVPN*"
-            - "*.ovpn*"
-          op_type: "Read"
-          min_unique_paths: 1
-
-    - name: "Gaming Platform Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Steam\\config\\loginusers.vdf*"
-            - "*Steam\\ssfn*"
-            - "*Steam\\config\\config.vdf*"
-            - "*Epic\\EpicGamesLauncher\\Saved\\Config*"
-            - "*Epic\\UnrealEngineLauncher\\Saved\\Config*"
-          op_type: "Read"
-          min_unique_paths: 1
-
-    - name: "DPAPI & Clipboard Access"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*\\Microsoft\\Protect\\*"
-            - "*\\Credentials\\*"
-            - "*\\Vault\\*"
-          op_type: "Read"
-          min_unique_paths: 2
-
-    # --- Behavioral Indicators ---
-    - name: "Credential Decryption API"
-      conditions:
-        - type: "Api"
-          name_pattern: "(?i)(CryptUnprotectData|BCryptDecrypt|NCryptDecrypt)"
-          module_pattern: "(?i)(crypt32\\.dll|bcrypt\\.dll|ncrypt\\.dll)"
-
-    - name: "Clipboard API Access"
-      conditions:
-        - type: "Api"
-          name_pattern: "(?i)(GetClipboardData|OpenClipboard)"
-          module_pattern: "(?i)user32\\.dll"
-
-    - name: "Browser Termination"
-      conditions:
-        - type: "Process"
-          op: "Terminate"
-          pattern: "(?i)(chrome|firefox|edge|brave|opera|vivaldi|discord)\\.exe"
-
-    - name: "Process Ancestry"
-      conditions:
-        - type: "ProcessAncestry"
-          ancestor_pattern: "(?i)(powershell|cmd|wscript|cscript|mshta|python|node|rundll32)"
-          max_depth: 5
-
-    - name: "Data Staging & Archiving"
-      conditions:
-        - type: "TempDirectoryWrite"
-          min_bytes: 10240
-          min_files: 2
-        - type: "ArchiveCreation"
-          extensions: ["zip", "rar", "7z", "tar", "gz", "bz2"]
-          in_temp: true
-          min_size: 5120
-        - type: "Heuristic"
-          metric: "Entropy"
-          threshold: 6.5
-
-    - name: "Network Connection"
-      conditions:
-        - type: "Network"
-          op: "Connect"
-
-    - name: "Rapid File Access"
-      conditions:
-        - type: "RateOfChange"
-          metric: "files_per_second"
-          comparison: "gte"
-          threshold: 3.0
-
-  response:
-    terminate_process: true
-    quarantine: true
-    auto_revert: true
-    record: true
-    kill_and_remove: false
-
+  # Allowlist — now detailed objects (pattern + optional signature checks)
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true
-      signers: ["Google LLC"]
-    - pattern: "firefox.exe"
-      must_be_signed: true
-      signers: ["Mozilla Corporation"]
+      signers:
+        - "Google.*"
     - pattern: "msedge.exe"
       must_be_signed: true
-      signers: ["Microsoft Corporation"]
+      signers:
+        - "Microsoft.*"
+    - pattern: "firefox.exe"
+      must_be_signed: true
+      signers:
+        - "Mozilla.*"
     - pattern: "brave.exe"
       must_be_signed: true
-      signers: ["Brave Software, Inc."]
+      signers:
+        - "Brave Software.*"
     - pattern: "opera.exe"
       must_be_signed: true
-      signers: ["Opera Norway AS"]
-    - pattern: "discord.exe"
+      signers:
+        - "Opera.*"
+    - pattern: "vivaldi.exe"
       must_be_signed: true
-      signers: ["Discord Inc."]
-    - pattern: "GoogleUpdate.exe"
+      signers:
+        - "Vivaldi.*"
+    # system and other legit apps...
+    - pattern: "explorer.exe"
       must_be_signed: true
-      signers: ["Google LLC"]
-    - pattern: "steam.exe"
+      signers:
+        - "Microsoft.*"
+    - pattern: "svchost.exe"
       must_be_signed: true
-      signers: ["Valve Corp."]
-    - pattern: "EpicGamesLauncher.exe"
+      signers:
+        - "Microsoft.*"
+    - pattern: "taskmgr.exe"
       must_be_signed: true
-      signers: ["Epic Games, Inc."]
-    - "outlook.exe"
-    - "thunderbird.exe"
-    - "filezilla.exe"
-    - "winscp.exe"
-    - "codium.exe"
-    - "vscodium.exe"
-    - "code.exe"
-    - "visualstudio.exe"
-    - "devenv.exe"
-    - "WindowsPackageManagerServer.exe"
+      signers:
+        - "Microsoft.*"
+    - pattern: "cmd.exe"
+      must_be_signed: true
+      signers:
+        - "Microsoft.*"
+    - pattern: "powershell.exe"
+      must_be_signed: true
+      signers:
+        - "Microsoft.*"
+    # password managers, dev tools, security products, cloud sync, etc.
+    - pattern: "1Password.exe"
+      must_be_signed: true
+      signers:
+        - "AgileBits.*"
+    - pattern: "Bitwarden.exe"
+      must_be_signed: true
+      signers:
+        - ".*Bitwarden.*"
+        - "8bit Solutions.*"
+    - pattern: "KeePass.exe"
+      must_be_signed: true
+      signers:
+        - "Dominik Reichl"
+    - pattern: "Discord.exe"
+      must_be_signed: true
+      signers:
+        - "Discord.*"
+    - pattern: "code.exe"
+      must_be_signed: true
+      signers:
+        - "Microsoft.*"
+    # ...add remaining allowlist entries as needed
 
-# ============================================================================
-# TASIA MALWARE DETECTION
-# ============================================================================
+  # ------------------
+  # Conditions (concrete, engine-mappable primitives)
+  # The compiler should expand these into the engine's RuleCondition::* objects.
+  # ------------------
+  conditions:
 
-- name: "Tasia Malware Detection"
-  description: "Detects Tasia malware kill-chain including critical system tool disablement, shell disruption, and utility hijacks."
-  severity: 10
-  debug: false
-  proximity_log_threshold: 25.0
-  
-  mapping:
-    and:
-      - stage: "System Lockout & Persistence"
-      - or:
-          - stage: "UAC/Utility Hijack"
-          - stage: "Shell Disruption"
-  
-  stages:
-    - name: "System Lockout & Persistence"
+    # 1) Multi-browser access within time window (counts different browser stores)
+    - type: "MultiBrowserAccess"
+      browser_paths: *browser_paths     # reuse above list (anchor defined)
+      time_window_ms: 30000
+      min_unique_paths: 2
+
+    # 2) Sensitive file access (reads of Cookies / Login Data / Web Data / Local State)
+    - type: "SensitivePathAccess"
+      patterns:                        # compiler should expand patterns per browser/sensitive file
+        - "*\\Google\\Chrome\\User Data\\*\\Cookies"
+        - "*\\Google\\Chrome\\User Data\\*\\Login Data"
+        - "*\\Microsoft\\Edge\\User Data\\*\\Cookies"
+        - "*\\Microsoft\\Edge\\User Data\\*\\Login Data"
+        - "*\\BraveSoftware\\Brave-Browser\\User Data\\*\\Cookies"
+        - "*\\Discord\\Local Storage\\*"
+        - "*\\Discord\\leveldb\\*"
+      op_type: "Read"
+      min_unique_paths: 2
+
+    # 3) Temp staging (writes into temp)
+    - type: "TempDirectoryWrite"
+      patterns:
+        - "*\\AppData\\Local\\Temp\\*"
+      op_type: "Write"
+      min_files: 1
+      max_staging_lifetime_ms: 60000
+
+    # 4) High entropy writes (indicates packing / encoding)
+    - type: "EntropyThreshold"
+      metric: "current"
+      comparison: ">"
+      threshold: 7.0
+
+    # 5) Crypto / DPAPI API usage
+    - type: "Api"
+      name_patterns:
+        - "CryptUnprotectData"
+        - "BCryptDecrypt"
+        - "NCryptDecrypt"
+        - "DPAPI"
+      module_pattern: "*"   # allow any module
+
+    # 6) Archive API usage (library-level)
+    - type: "Api"
+      name_patterns:
+        - "CreateZip"
+        - "CreateRar"
+        - "CreateArchive"
+      module_pattern: "*"
+
+    # 7) Archive tool usage (command-line tools / executables)
+    - type: "Process"
+      op: "Name"
+      pattern:
+        - "7z"
+        - "7z.exe"
+        - "zip.exe"
+        - "tar.exe"
+
+    # 8) Suspicious parent / process ancestry
+    - type: "ProcessAncestry"
+      ancestor_patterns:
+        - "*powershell*"
+        - "*cmd*"
+        - "*python*"
+        - "*node*"
+      max_depth: 6
+
+    # 9) Network (requires connectivity)
+    - type: "Network"
+
+    # 10) Private check: Browser closed recently (PRIVATE to this rule)
+    #     This is declared as a separate, private sub-rule below and referenced here.
+    - type: "PrivateRuleRef"
+      ref: "browser_closed_recently"
+
+  # ------------------
+  # Private (scoped) sub-rules — not visible globally, only evaluated when parent rule is being evaluated.
+  # The compiler must evaluate this sub-rule first (or maintain its own state) and make its boolean
+  # available to the parent rule as `browser_closed_recently` (true/false).
+  # ------------------
+  private_rules:
+    - name: "browser_closed_recently"
+      private: true
+      description: "Detect a browser (one of the configured browser_paths) terminating recently."
+      # This sub-rule monitors terminated processes and records a last_browser_close timestamp.
+      # Returns true if any of the browser executables terminated within the last 1 hour.
       conditions:
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
-          value_name: "DisableRegistryTools"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
-          value_name: "DisableTaskMgr"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
-          value_name: "DisableLockWorkstation"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
-          value_name: "DisableChangePassword"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Policies\\Microsoft\\Windows\\System*"
-          value_name: "DisableCMD"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer*"
-          value_name: "NoLogoff"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer*"
-          value_name: "NoClose"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System*"
-          value_name: "HideFastUserSwitching"
-          expected_data: "1"
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\SOFTWARE\\Policies\\Microsoft\\Windows\\System*"
-          value_name: "DontDisplayNetworkSelectionUI"
-          expected_data: "1"
-
-    - name: "UAC/Utility Hijack"
-      conditions:
-        - type: "Registry"
-          op: "SetValue"
-          key_pattern: "*\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\utilman.exe*"
-          value_name: "Debugger"
-
-    - name: "Shell Disruption"
-      conditions:
-        - type: "Process"
-          op: "Terminate"
-          pattern: "(?i)explorer\\.exe"
-
-  response:
-    terminate_process: true
-    quarantine: true
-    auto_revert: true
-    kill_and_remove: false
-
-# ============================================================================
-# EDR DETECTION
-# ============================================================================
-
-- name: "EDR Detection: SignatureMonster SDK (Enhanced)"
-  description: "Detects the deep system fingerprinting and anti-analysis checks performed by the SignatureMonster SDK."
-  severity: 8
-  debug: false
-  proximity_log_threshold: 25.0
-  min_stages_satisfied: 2
-  time_window_ms: 60000
-  
-  stages:
-    - name: "Hardware & Environment Fingerprinting"
-      conditions:
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)powershell.*(Win32_Processor|Win32_BIOS|Win32_BaseBoard|Win32_ComputerSystemProduct|Win32_DiskDrive|Win32_NetworkAdapterConfiguration|Win32_OperatingSystem)"
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)powershell.*(MachineGuid|ProductId|DisplayVersion|EditionID)"
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)powershell.*(LastBootUpTime|TotalSeconds|PrimaryScreen\\.Bounds|USBHub)"
-
-    - name: "Anti-Analysis & Privilege Escalation"
-      conditions:
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)Add-Type.*MitigationPolicy|SetProcessMitigationPolicy|GetProcessMitigationPolicy"
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)Add-Type.*MitigationCheck|IsMicrosoftSignedOnly"
-        - type: "Process"
-          op: "CommandLine"
-          pattern: "(?i)whoami /priv|IsInRole|Administrator"
-
-    - name: "Suspicious API Activity (Fingerprinting)"
-      conditions:
-        - type: "Api"
-          name_pattern: "(?i)(GetFileAttributesW|FindFirstFileW|RegOpenKeyExW|RegQueryValueExW|GetFileSizeEx)"
-          module_pattern: "(?i)(kernel32\\.dll|advapi32\\.dll)"
-
-  response:
-    terminate_process: true
-    record: true
-    kill_and_remove: false
-
-# ============================================================================
-# AGGRESSIVE TROJAN ATTACK
-# ============================================================================
-
-- name: "Super Aggressive Trojan Attack"
-  description: "Detects rapid, broad-spectrum file scanning across multiple directories in a 5-second window."
-  severity: 10
-  debug: false
-  proximity_log_threshold: 25.0
-  time_window_ms: 5000
-  min_stages_satisfied: 2
-  
-  stages:
-    - name: "High Volume Access"
-      conditions:
-        - type: "OperationCount"
-          op_type: "Read"
-          comparison: "gte"
-          threshold: 100
-
-    - name: "Broad Directory Spread"
-      conditions:
-        - type: "DirectorySpread"
-          category: "opened"
-          comparison: "gte"
-          threshold: 20
-
-  response:
-    terminate_process: true
-    quarantine: true
-    record: true
-
-# ============================================================================
-# UNSIGNED CREDENTIAL ACCESS
-# ============================================================================
-
-- name: "Suspicious Unsigned Credential Access"
-  description: "Detects untrusted processes attempting to access browser credential stores and calling decryption APIs."
-  severity: 9
-  debug: false
-  proximity_log_threshold: 25.0
-  time_window_ms: 10000
-  min_stages_satisfied: 3
-  
-  stages:
-    - name: "Signature Verification"
-      conditions:
-        - type: "Signature"
-          is_trusted: false
-    
-    - name: "Sensitive Path Access"
-      conditions:
-        - type: "SensitivePathAccess"
+        - type: "ProcessTerminated"
           patterns:
-            - "*\\User Data*Login Data*"
-            - "*\\User Data*Cookies*"
-          op_type: "Read"
-          min_unique_paths: 1
-    
-    - name: "Decryption API Call"
-      conditions:
-        - type: "Api"
-          name_pattern: "(?i)CryptUnprotectData"
-          module_pattern: "(?i)crypt32\\.dll"
+            - "chrome.exe"
+            - "msedge.exe"
+            - "brave.exe"
+            - "opera.exe"
+            - "vivaldi.exe"
+          time_window_ms: 3600000   # 1 hour
+      outputs:
+        - set_state_key: "last_browser_close"   # compiler should map to process state field used by parent rule
 
-  response:
-    terminate_process: true
-    quarantine: true
-    auto_revert: true
-    kill_and_remove: false
-
-# ============================================================================
-# REFLECTIVE LOADING DETECTION
-# ============================================================================
-
-- name: "Reflective Loading Detection"
-  description: "Detects PE headers (MZ/PE) in private or unmapped memory regions, indicating reflective loading or process hollowing."
-  severity: 9
-  debug: false
-  proximity_log_threshold: 25.0
-  
-  stages:
-    - name: "Memory Payload"
-      conditions:
-        - type: "MemoryScan"
-          detect_pe_headers: true
-          private_only: true
-  
-  response:
-    terminate_process: true
-    quarantine: true
-    record: true
-    kill_and_remove: false
-
-# ============================================================================
-# DATA EXFILTRATION DETECTION
-# ============================================================================
-
-- name: "Data Exfiltration Pattern Detection"
-  description: "Detects processes reading sensitive data, staging in temp, and creating archives - classic exfiltration behavior."
-  severity: 9
-  debug: false
-  proximity_log_threshold: 30.0
-  time_window_ms: 60000
-  
-  mapping:
-    and:
-      - stage: "Sensitive Data Access"
-      - or:
-          - stage: "Archive Creation"
-          - stage: "Network Exfiltration"
-  
-  stages:
-    - name: "Sensitive Data Access"
-      conditions:
-        - type: "DataExfiltrationPattern"
-          source_patterns:
-            - "*\\Documents\\*"
-            - "*\\Desktop\\*"
-            - "*\\Downloads\\*"
-            - "*.doc*"
-            - "*.xls*"
-            - "*.pdf"
-            - "*.txt"
-          min_source_reads: 10
-          detect_temp_staging: true
-          detect_archive: false
-    
-    - name: "Archive Creation"
-      conditions:
-        - type: "ArchiveCreation"
-          extensions: ["zip", "rar", "7z", "tar"]
-          min_size: 102400  # 100KB
-          in_temp: false
-    
-    - name: "Network Exfiltration"
-      conditions:
-        - type: "Network"
-          op: "Connect"
-  
-  response:
-    terminate_process: false
-    quarantine: false
-    record: true
-    block_network: true
-
-  allowlisted_apps:
-    - "7zFM.exe"
-    - "WinRAR.exe"
-    - "explorer.exe"
-    - "robocopy.exe"
-    - "xcopy.exe"
-  
+# ------------------
+# Final notes to the compiler / integrator:
+# - The compiler should translate MultiBrowserAccess -> TimeWindowAggregation or a set of SensitivePathAccess + counting logic.
+# - The PrivateRuleRef is evaluated per-process when the parent rule is evaluated; outputs from the private rule are available to the parent rule's conditions.
+# - Archive detection is split: archive_apis (Api checks) and archive_tools (Process name / commandline checks).
+# - Allowlist requires signature verification logic; match `must_be_signed` and `signers` against code-signing verification results.
+# - The engine should only evaluate `has_active_connections` (Network) on Windows; the YAML-level `Network` condition can be a no-op on non-Windows platforms.

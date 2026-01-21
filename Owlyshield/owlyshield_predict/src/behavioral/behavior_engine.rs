@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
+use serde_yaml;
+use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
@@ -172,6 +174,9 @@ fn default_zero_f64() -> f64 { 0.0 }
 fn default_scan_frequency() -> u64 { 100 }
 fn default_one() -> u64 { 1 }
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+// ------------------------------------------------------------------------
+// Backwards-compatible wrapper for richer YAML (keeps engine unchanged)
+// ------------------------------------------------------------------------
 pub struct BehaviorRule {
     pub name: String,
     pub description: String,
@@ -183,8 +188,14 @@ pub struct BehaviorRule {
     #[serde(default = "default_zero")] pub multi_access_threshold: usize,
     #[serde(default)] pub require_internet: bool,
     #[serde(default)] pub crypto_apis: Vec<String>,
-    #[serde(default)] pub suspicious_parents: Vec<String>,
     #[serde(default)] pub archive_actions: Vec<String>,
+
+    // --- Backwards-compatible fields for richer YAML ---
+    #[serde(default)] pub archive_apis: Vec<String>,
+    #[serde(default)] pub archive_tools: Vec<String>,
+    #[serde(default)] pub conditions: Option<YamlValue>,
+    #[serde(default)] pub private_rules: Option<YamlValue>,
+
     #[serde(default)] pub max_staging_lifetime_ms: u64,
     #[serde(default)] pub require_browser_closed_recently: bool,
     #[serde(default)] pub entropy_threshold: f64,
@@ -256,6 +267,36 @@ pub struct BehaviorRule {
     /// NEW: Memory scan configuration
     #[serde(default)]
     pub memory_scan_config: Option<MemoryScanConfig>,
+}
+
+impl BehaviorRule {
+    pub fn finalize_rich_fields(&mut self) {
+        // merge archive_apis + archive_tools into legacy archive_actions
+        if !self.archive_apis.is_empty() || !self.archive_tools.is_empty() {
+            let mut merged = self.archive_actions.clone();
+            merged.extend(self.archive_apis.iter().map(|s| s.to_string()));
+            merged.extend(self.archive_tools.iter().map(|s| s.to_string()));
+            self.archive_actions = merged;
+        }
+
+        // Map top-level conditions to a stage
+        if let Some(yaml_conds) = self.conditions.take() {
+            if let Ok(conds) = serde_yaml::from_value::<Vec<RuleCondition>>(yaml_conds) {
+                self.stages.push(AttackStage {
+                    name: "DSL Condition Stage".to_string(),
+                    conditions: conds,
+                });
+            }
+        }
+
+        // Lowercase allowlisted apps patterns
+        for entry in &mut self.allowlisted_apps {
+            match entry {
+                AllowlistEntry::Simple(s) => *s = s.to_lowercase(),
+                AllowlistEntry::Complex { pattern, .. } => *pattern = pattern.to_lowercase(),
+            }
+        }
+    }
 }
 
 /// NEW: Configuration for periodic memory scanning
@@ -788,12 +829,6 @@ impl BehaviorEngine {
         });
 
         all_conditions.push(EvaluatedCondition {
-            id: "legacy_parent".to_string(),
-            is_active: !rule.suspicious_parents.is_empty(),
-            is_satisfied: rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase())),
-        });
-
-        all_conditions.push(EvaluatedCondition {
             id: "legacy_sensitive".to_string(),
             is_active: !rule.sensitive_files.is_empty(),
             is_satisfied: !state.sensitive_files_read.is_empty(),
@@ -1207,7 +1242,9 @@ impl BehaviorEngine {
             
             if !filtered_content.trim().is_empty() && filtered_content.trim() != "---" {
                 match serde_yaml::from_str::<Vec<BehaviorRule>>(&filtered_content) {
-                    Ok(main_rules) => rules.extend(main_rules),
+                    Ok(main_rules) => {
+                        rules.extend(self.finalize_rules(main_rules));
+                    }
                     Err(_) => {
                         // Might be empty or only includes, that's OK
                     }
@@ -1215,10 +1252,28 @@ impl BehaviorEngine {
             }
         } else {
             let r: Vec<BehaviorRule> = serde_yaml::from_str(&content)?;
-            rules.extend(r);
+            rules.extend(self.finalize_rules(r));
         }
 
         Ok(rules)
+    }
+
+    fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
+        let mut final_rules = Vec::new();
+        for mut rule in raw_rules {
+            rule.finalize_rich_fields();
+            if let Some(yaml_private) = rule.private_rules.take() {
+                if let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
+                    let mut processed_private = self.finalize_rules(private_rules);
+                    for pr in &mut processed_private {
+                        pr.is_private = true;
+                    }
+                    final_rules.extend(processed_private);
+                }
+            }
+            final_rules.push(rule);
+        }
+        final_rules
     }
 
     fn cache_regex(&mut self, pattern: &str) {
@@ -2054,17 +2109,6 @@ impl BehaviorEngine {
         let result = match cond {
             // Add allowlist check BEFORE scanning
             RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } => {
-                // Context check 1: Suspicious parent
-                let suspicious_parent = state.process_ancestry.iter().any(|p| {
-                    p.to_lowercase().contains("winword") ||
-                    p.to_lowercase().contains("excel") ||
-                    p.to_lowercase().contains("powershell")
-                });
-                
-                if !suspicious_parent && state.appname.to_lowercase().contains("chrome") {
-                    return false; // Chrome launched by user = safe
-                }
-                
                 // Now scan with context
                 let matched = scan_process_memory(state.pid, patterns, *detect_pe_headers, *private_only);
                 matched
