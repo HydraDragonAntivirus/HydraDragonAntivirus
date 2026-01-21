@@ -1,58 +1,43 @@
-# Unified Browser Stealer Detection (executable-style config)
-# - Contains a private sub-rule `browser_closed_recently` that only applies to this rule.
-# - Archive detection split into `archive_apis` (functions / APIs) and `archive_tools` (standalone tools like 7z.exe).
-- name: "Unified Browser Stealer Detection"
+- name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   description: >
-    Detect processes accessing browser credential stores, using DPAPI/crypto APIs,
-    staging data in temp, compressing it, and transmitting it - with allowlist checks
-    and a private "browser closed recently" sub-rule included.
-  conditions_percentage: 0.50
-
-  # Global behavior flags
+    Advanced detection for browser stealers using IoC-style indicators.
+    Includes signature-based allowlisting and separated archive monitoring.
+  conditions_percentage: 0.5
   require_internet: true
-  time_window_ms: 30000            # window for multi-browser access / correlation
-  multi_access_threshold: 2        # how many different browser stores accessed in window
-  max_staging_lifetime_ms: 60000   # how long staged files may live before considered stale
+  time_window_ms: 30000
+  multi_access_threshold: 2
+  max_staging_lifetime_ms: 60000
   entropy_threshold: 7.0
+  require_browser_closed_recently: true
 
-  # Browser paths and target sensitive files (used by SensitivePathAccess conditions)
-  browser_paths: &browser_paths
-    - "Google\\Chrome\\User Data"
-    - "Opera Software\\Opera Stable"
-    - "Opera Software\\Opera GX Stable"
-    - "BraveSoftware\\Brave-Browser\\User Data"
-    - "Microsoft\\Edge\\User Data"
-    - "Discord\\Local Storage"
-    - "Discord\\leveldb"
-
+  browser_paths: *browser_paths
   sensitive_files:
     - "Cookies"
     - "Login Data"
     - "Web Data"
     - "Local State"
-
   staging_paths:
     - "AppData\\Local\\Temp"
 
-  # Archive signals split
-  archive_apis:              # high-level archive-related APIs / actions (library-API usage)
+  # Archive Signals (Separated)
+  archive_apis:
     - "CreateZip"
     - "CreateRar"
-    - "CreateArchive"        # generic API alias
-  archive_tools:             # executable tools / CLI that create archives (treated separately)
-    - "7z.exe"
-    - "7z"                   # CLI invocation name
+  archive_tools:
+    - "7z"
     - "tar"
-    - "zip.exe"
+  archive_actions:
+    - ".zip"
+    - ".rar"
 
-  # Crypto / DPAPI APIs
+  # Crypto Indicators
   crypto_apis:
     - "CryptUnprotectData"
     - "BCryptDecrypt"
     - "NCryptDecrypt"
     - "DPAPI"
 
-  # Suspicious parents (process ancestry)
+  # Process Ancestry Indicators
   suspicious_parents:
     - "powershell.exe"
     - "cmd.exe"
@@ -62,186 +47,33 @@
     - "python.exe"
     - "node.exe"
 
-  # Allowlist — now detailed objects (pattern + optional signature checks)
+  # Advanced Allowlist (Signature-based)
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true
-      signers:
-        - "Google.*"
+      signers: ["Google.*"]
     - pattern: "msedge.exe"
       must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    - pattern: "firefox.exe"
-      must_be_signed: true
-      signers:
-        - "Mozilla.*"
+      signers: ["Microsoft.*"]
     - pattern: "brave.exe"
       must_be_signed: true
-      signers:
-        - "Brave Software.*"
+      signers: ["Brave Software.*"]
     - pattern: "opera.exe"
       must_be_signed: true
-      signers:
-        - "Opera.*"
-    - pattern: "vivaldi.exe"
+      signers: ["Opera.*"]
+    - pattern: "discord.exe"
       must_be_signed: true
-      signers:
-        - "Vivaldi.*"
-    # system and other legit apps...
-    - pattern: "explorer.exe"
-      must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    - pattern: "svchost.exe"
-      must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    - pattern: "taskmgr.exe"
-      must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    - pattern: "cmd.exe"
-      must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    - pattern: "powershell.exe"
-      must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    # password managers, dev tools, security products, cloud sync, etc.
-    - pattern: "1Password.exe"
-      must_be_signed: true
-      signers:
-        - "AgileBits.*"
-    - pattern: "Bitwarden.exe"
-      must_be_signed: true
-      signers:
-        - ".*Bitwarden.*"
-        - "8bit Solutions.*"
-    - pattern: "KeePass.exe"
-      must_be_signed: true
-      signers:
-        - "Dominik Reichl"
-    - pattern: "Discord.exe"
-      must_be_signed: true
-      signers:
-        - "Discord.*"
+      signers: ["Discord.*"]
     - pattern: "code.exe"
       must_be_signed: true
-      signers:
-        - "Microsoft.*"
-    # ...add remaining allowlist entries as needed
-
-  # ------------------
-  # Conditions (concrete, engine-mappable primitives)
-  # The compiler should expand these into the engine's RuleCondition::* objects.
-  # ------------------
-  conditions:
-
-    # 1) Multi-browser access within time window (counts different browser stores)
-    - type: "MultiBrowserAccess"
-      browser_paths: *browser_paths     # reuse above list (anchor defined)
-      time_window_ms: 30000
-      min_unique_paths: 2
-
-    # 2) Sensitive file access (reads of Cookies / Login Data / Web Data / Local State)
-    - type: "SensitivePathAccess"
-      patterns:                        # compiler should expand patterns per browser/sensitive file
-        - "*\\Google\\Chrome\\User Data\\*\\Cookies"
-        - "*\\Google\\Chrome\\User Data\\*\\Login Data"
-        - "*\\Microsoft\\Edge\\User Data\\*\\Cookies"
-        - "*\\Microsoft\\Edge\\User Data\\*\\Login Data"
-        - "*\\BraveSoftware\\Brave-Browser\\User Data\\*\\Cookies"
-        - "*\\Discord\\Local Storage\\*"
-        - "*\\Discord\\leveldb\\*"
-      op_type: "Read"
-      min_unique_paths: 2
-
-    # 3) Temp staging (writes into temp)
-    - type: "TempDirectoryWrite"
-      patterns:
-        - "*\\AppData\\Local\\Temp\\*"
-      op_type: "Write"
-      min_files: 1
-      max_staging_lifetime_ms: 60000
-
-    # 4) High entropy writes (indicates packing / encoding)
-    - type: "EntropyThreshold"
-      metric: "current"
-      comparison: ">"
-      threshold: 7.0
-
-    # 5) Crypto / DPAPI API usage
-    - type: "Api"
-      name_patterns:
-        - "CryptUnprotectData"
-        - "BCryptDecrypt"
-        - "NCryptDecrypt"
-        - "DPAPI"
-      module_pattern: "*"   # allow any module
-
-    # 6) Archive API usage (library-level)
-    - type: "Api"
-      name_patterns:
-        - "CreateZip"
-        - "CreateRar"
-        - "CreateArchive"
-      module_pattern: "*"
-
-    # 7) Archive tool usage (command-line tools / executables)
-    - type: "Process"
-      op: "Name"
-      pattern:
-        - "7z"
-        - "7z.exe"
-        - "zip.exe"
-        - "tar.exe"
-
-    # 8) Suspicious parent / process ancestry
-    - type: "ProcessAncestry"
-      ancestor_patterns:
-        - "*powershell*"
-        - "*cmd*"
-        - "*python*"
-        - "*node*"
-      max_depth: 6
-
-    # 9) Network (requires connectivity)
-    - type: "Network"
-
-    # 10) Private check: Browser closed recently (PRIVATE to this rule)
-    #     This is declared as a separate, private sub-rule below and referenced here.
-    - type: "PrivateRuleRef"
-      ref: "browser_closed_recently"
-
-  # ------------------
-  # Private (scoped) sub-rules — not visible globally, only evaluated when parent rule is being evaluated.
-  # The compiler must evaluate this sub-rule first (or maintain its own state) and make its boolean
-  # available to the parent rule as `browser_closed_recently` (true/false).
-  # ------------------
-  private_rules:
-    - name: "browser_closed_recently"
-      private: true
-      description: "Detect a browser (one of the configured browser_paths) terminating recently."
-      # This sub-rule monitors terminated processes and records a last_browser_close timestamp.
-      # Returns true if any of the browser executables terminated within the last 1 hour.
-      conditions:
-        - type: "ProcessTerminated"
-          patterns:
-            - "chrome.exe"
-            - "msedge.exe"
-            - "brave.exe"
-            - "opera.exe"
-            - "vivaldi.exe"
-          time_window_ms: 3600000   # 1 hour
-      outputs:
-        - set_state_key: "last_browser_close"   # compiler should map to process state field used by parent rule
-
-# ------------------
-# Final notes to the compiler / integrator:
-# - The compiler should translate MultiBrowserAccess -> TimeWindowAggregation or a set of SensitivePathAccess + counting logic.
-# - The PrivateRuleRef is evaluated per-process when the parent rule is evaluated; outputs from the private rule are available to the parent rule's conditions.
-# - Archive detection is split: archive_apis (Api checks) and archive_tools (Process name / commandline checks).
-# - Allowlist requires signature verification logic; match `must_be_signed` and `signers` against code-signing verification results.
-# - The engine should only evaluate `has_active_connections` (Network) on Windows; the YAML-level `Network` condition can be a no-op on non-Windows platforms.
+      signers: ["Microsoft.*"]
+    - pattern: "visualstudio.exe"
+      must_be_signed: true
+      signers: ["Microsoft.*"]
+    - pattern: "devenv.exe"
+      must_be_signed: true
+      signers: ["Microsoft.*"]
+    - pattern: "codium.exe"
+      must_be_signed: false
+    - pattern: "vscodium.exe"
+      must_be_signed: false

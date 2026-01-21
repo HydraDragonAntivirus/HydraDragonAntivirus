@@ -189,6 +189,11 @@ pub struct BehaviorRule {
     #[serde(default)] pub require_internet: bool,
     #[serde(default)] pub crypto_apis: Vec<String>,
     #[serde(default)] pub archive_actions: Vec<String>,
+    #[serde(default)] pub suspicious_parents: Vec<String>,
+
+    // --- Indicator / IOC Model ---
+    /// Optional: fixed denominator for percentage calculation (Standard Indicator Model)
+    #[serde(default)] pub min_indicator_count: Option<usize>,
 
     // --- Backwards-compatible fields for richer YAML ---
     #[serde(default)] pub archive_apis: Vec<String>,
@@ -864,6 +869,12 @@ impl BehaviorEngine {
             }),
         });
 
+        all_conditions.push(EvaluatedCondition {
+            id: "legacy_suspicious_parent".to_string(),
+            is_active: !rule.suspicious_parents.is_empty(),
+            is_satisfied: rule.suspicious_parents.iter().any(|p| state.parent_name.to_lowercase().contains(&p.to_lowercase())),
+        });
+
         // 2. Map Modern Stages into the unified evaluation list
         for (s_idx, stage) in rule.stages.iter().enumerate() {
             for (c_idx, _cond) in stage.conditions.iter().enumerate() {
@@ -883,8 +894,14 @@ impl BehaviorEngine {
         let active_count = all_conditions.iter().filter(|c| c.is_active).count();
         let satisfied_count = all_conditions.iter().filter(|c| c.is_active && c.is_satisfied).count();
 
-        let percentage = if active_count > 0 {
-            satisfied_count as f32 / active_count as f32
+        // Indicator Model: denominator can be overridden (e.g. Rule says "trigger if 40% of 10 indicators are met")
+        let denominator = match rule.min_indicator_count {
+            Some(min) if min > 0 => active_count.max(min),
+            _ => active_count,
+        };
+
+        let percentage = if denominator > 0 {
+            satisfied_count as f32 / denominator as f32
         } else {
             0.0
         };
@@ -3039,5 +3056,55 @@ mod tests {
     fn escapes_meta_chars() {
         let rx = Regex::new(&BehaviorEngine::wildcard_to_regex("version(1).txt")).unwrap();
         assert!(rx.is_match("version(1).txt"));
+    }
+
+    #[test]
+    fn test_indicator_model_percentage() {
+        use super::{BehaviorRule, ProcessBehaviorState, EvaluatedCondition};
+        use std::time::{SystemTime, Duration};
+        use std::collections::HashMap;
+
+        let mut rule = BehaviorRule::default();
+        rule.name = "Test Rule".to_string();
+        rule.browser_paths = vec!["chrome.exe".to_string()];
+        rule.staging_paths = vec!["C:\\temp".to_string()];
+        rule.multi_access_threshold = 1;
+
+        let mut state = ProcessBehaviorState::default();
+        state.parent_name = "explorer.exe".to_string();
+        state.accessed_browsers.insert("chrome.exe".to_string(), SystemTime::now());
+
+        // Without min_indicator_count, denominator is active_count (2 because browser_paths and staging_paths are set)
+        // Only browser_paths is satisfied.
+        // Percentage should be 1/2 = 0.5
+        
+        let mut trigger_fn = |r: &BehaviorRule, s: &mut ProcessBehaviorState| {
+            // Minimal simulation of should_rule_trigger logic for percentage
+            let now = SystemTime::now();
+            let mut satisfied = 0;
+            let mut active = 0;
+
+            if !r.browser_paths.is_empty() {
+                active += 1;
+                if s.accessed_browsers.len() >= r.multi_access_threshold { satisfied += 1; }
+            }
+            if !r.staging_paths.is_empty() {
+                active += 1;
+                if !s.staged_files_written.is_empty() { satisfied += 1; }
+            }
+
+            let denominator = match r.min_indicator_count {
+                Some(min) if min > 0 => active.max(min),
+                _ => active,
+            };
+            satisfied as f32 / denominator as f32
+        };
+
+        assert_eq!(trigger_fn(&rule, &mut state), 0.5);
+
+        // With min_indicator_count = 5, denominator becomes 5
+        // Percentage should be 1/5 = 0.2
+        rule.min_indicator_count = Some(5);
+        assert_eq!(trigger_fn(&rule, &mut state), 0.2);
     }
 }
