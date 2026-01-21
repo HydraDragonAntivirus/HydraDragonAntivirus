@@ -668,7 +668,10 @@ pub struct ProcessBehaviorState {
     pub last_percentage_calculated: HashMap<String, f32>,
     
     /// Last time percentage was logged (to avoid spam)
-    pub last_percentage_log: HashMap<String, SystemTime>
+    pub last_percentage_log: HashMap<String, SystemTime>,
+    
+    /// NEW: Specific reason(s) for the last trigger (legacy IDs or stage names)
+    pub last_active_indicators: HashMap<String, Vec<String>>,
 }
 
 impl Default for ProcessBehaviorState {
@@ -708,6 +711,7 @@ impl Default for ProcessBehaviorState {
             condition_satisfaction_timestamps: HashMap::new(),
             last_percentage_calculated: HashMap::new(),
             last_percentage_log: HashMap::new(),
+            last_active_indicators: HashMap::new(),
         }
     }
 }
@@ -888,6 +892,12 @@ impl BehaviorEngine {
         // Cache for debugging/reporting
         state.last_percentage_calculated.insert(rule.name.clone(), percentage);
         
+        let active_ids: Vec<String> = all_conditions.iter()
+            .filter(|c| c.is_active && c.is_satisfied)
+            .map(|c| c.id.clone())
+            .collect();
+        state.last_active_indicators.insert(rule.name.clone(), active_ids.clone());
+
         // ------------------------------------------------------------------------
         // PHASE 3: Logging & Triggering
         // ------------------------------------------------------------------------
@@ -1385,9 +1395,17 @@ impl BehaviorEngine {
         appname: String,
         now: SystemTime
     ) -> ProcessBehaviorState {
-        // Perform a refresh for new processes to ensure ancestry is populated
-        // Using refresh_processes() instead of refresh_all() for better performance
-        sys.refresh_processes();
+        // Perform a refresh for new processes. 
+        // We try up to 2 times with a tiny delay if not found, as new processes might need a moment to be visible.
+        let mut pid_found = false;
+        for _ in 0..2 {
+            sys.refresh_processes();
+            if sys.process(sysinfo::Pid::from(pid as usize)).is_some() {
+                pid_found = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         
         let mut s = ProcessBehaviorState::default();
         s.gid = gid;
@@ -1396,28 +1414,30 @@ impl BehaviorEngine {
         s.first_event_ts = Some(now);
         s.last_event_ts = now;
 
-        if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
-            let proc_name = proc.name().to_string();
-            if !proc_name.is_empty() {
-                s.appname = proc_name;
-            }
-            s.cmdline = proc.cmd().join(" ");
+        if pid_found {
+            if let Some(proc) = sys.process(sysinfo::Pid::from(pid as usize)) {
+                let proc_name = proc.name().to_string();
+                if !proc_name.is_empty() {
+                    s.appname = proc_name;
+                }
+                s.cmdline = proc.cmd().join(" ");
             
-            // Build process ancestry chain (upwards towards root)
-            let mut current_pid = proc.parent();
-            while let Some(parent_pid) = current_pid {
-                if let Some(p_proc) = sys.process(parent_pid) {
-                    let p_name = p_proc.name().to_string();
-                    if !p_name.is_empty() {
-                        if s.parent_name.is_empty() {
-                            s.parent_name = p_name.clone();
+                // Build process ancestry chain (upwards towards root)
+                let mut current_pid = proc.parent();
+                while let Some(parent_pid) = current_pid {
+                    if let Some(p_proc) = sys.process(parent_pid) {
+                        let p_name = p_proc.name().to_string();
+                        if !p_name.is_empty() {
+                            if s.parent_name.is_empty() {
+                                s.parent_name = p_name.clone();
+                            }
+                            s.process_ancestry.push(p_name);
                         }
-                        s.process_ancestry.push(p_name);
+                        current_pid = p_proc.parent();
+                        if s.process_ancestry.len() >= 10 { break; } // Limit depth
+                    } else {
+                        break;
                     }
-                    current_pid = p_proc.parent();
-                    if s.process_ancestry.len() >= 10 { break; } // Limit depth
-                } else {
-                    break;
                 }
             }
         }
@@ -1606,7 +1626,7 @@ impl BehaviorEngine {
                 }
                 
                 // Scan all MemoryScan conditions in this rule immediately
-                for (s_idx, stage) in rule.stages.iter().enumerate() {
+                for stage in &rule.stages {
                     for (c_idx, cond) in stage.conditions.iter().enumerate() {
                         if let RuleCondition::MemoryScan { patterns, detect_pe_headers, private_only } = cond {
                             Logging::debug(&format!(
@@ -1908,14 +1928,21 @@ impl BehaviorEngine {
             } else {
                 state.process_ancestry.join(" -> ")
             };
+
+            // If standard stages are empty, fallback to our tracked active_ids
+            let display_stages = if satisfied_stages_list.is_empty() {
+                state.last_active_indicators.get(&rule.name).cloned().unwrap_or_default()
+            } else {
+                satisfied_stages_list
+            };
             
             Logging::warning(&format!(
-                "[THREAT DETECTED] Rule: '{}' | Process: '{}' (PID: {}) | Ancestry: [{}] | Satisfied Stages: [{}]",
+                "[THREAT DETECTED] Rule: '{}' | Process: '{}' (PID: {}) | Ancestry: [{}] | Matched: {:?}",
                 rule.name,
                 state.appname,
                 state.pid,
                 ancestry,
-                satisfied_stages_list.join(", ")
+                display_stages
             ));
 
             // Execute post-threat actions (logging, reports, notifications) using ActionsOnKill
