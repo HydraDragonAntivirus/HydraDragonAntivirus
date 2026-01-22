@@ -610,7 +610,15 @@ impl BehaviorEngine {
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
     }
 
-    fn check_rules(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp, config: &Config, actions: &mut ActionsOnKill) {
+    fn check_rules(
+        &mut self,
+        precord: &mut ProcessRecord,
+        gid: u64,
+        msg: &IOMessage,
+        irp_op: IrpMajorOp,
+        config: &Config,
+        actions: &mut ActionsOnKill
+    ) {
         let (
             browsed_paths_tracker,
             staged_files_written,
@@ -649,150 +657,186 @@ impl BehaviorEngine {
                 continue;
             }
 
-            let is_allowlisted = self.check_allowlist(&precord.appname, rule, Some(&precord.exepath));
-            if is_allowlisted {
+            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
                 continue;
             }
 
-            // Stages
+            // ---------- STAGES ----------
             if !rule.stages.is_empty() {
-                if self.evaluate_stages(rule, &parent_name, has_valid_signature, signature_checked, precord, msg, &irp_op) {
+                if self.evaluate_stages(
+                    rule,
+                    &parent_name,
+                    has_valid_signature,
+                    signature_checked,
+                    precord,
+                    msg,
+                    &irp_op
+                ) {
                     precord.is_malicious = true;
                 }
             }
 
-            // --- Accumulation Logic ---
+            // ---------- ACCUMULATION ----------
             let recent_access_count = browsed_paths_tracker.values()
-                .filter(|&&t| now.duration_since(t).unwrap_or(Duration::from_secs(999)).as_millis() < rule.time_window_ms as u128)
+                .filter(|&&t| {
+                    now.duration_since(t)
+                        .unwrap_or(Duration::from_secs(999))
+                        .as_millis() < rule.time_window_ms as u128
+                })
                 .count();
 
             let has_staged_data = !staged_files_written.is_empty();
 
             let is_online = if rule.require_internet {
-                let has_conn = precord.pids.iter().any(|&pid| self.has_active_connections(pid));
-                has_conn || network_activity_detected
+                precord.pids.iter().any(|&pid| self.has_active_connections(pid))
+                    || network_activity_detected
             } else {
                 true
             };
 
             let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| {
-                let p_lower = p.to_lowercase();
-                let parent_lower = parent_name.to_lowercase();
-                parent_lower.contains(&p_lower) || p_lower.contains(&parent_lower)
+                let p = p.to_lowercase();
+                let parent = parent_name.to_lowercase();
+                parent.contains(&p) || p.contains(&parent)
             });
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
 
-            // Termination check
             let terminated_match = if !rule.terminated_processes.is_empty() {
-                let window = rule.termination_window_ms.unwrap_or(3600000); 
-                let matched = rule.terminated_processes.iter().any(|proc_name| {
-                    if let Some(time) = self.process_termination_history.get(&proc_name.to_lowercase()) {
-                        now.duration_since(*time).unwrap_or(Duration::from_secs(999)).as_millis() < window as u128
-                    } else {
-                        false
-                    }
-                });
-                matched
+                let window = rule.termination_window_ms.unwrap_or(3_600_000);
+                rule.terminated_processes.iter().any(|proc| {
+                    self.process_termination_history
+                        .get(&proc.to_lowercase())
+                        .map(|t| {
+                            now.duration_since(*t)
+                                .unwrap_or(Duration::from_secs(999))
+                                .as_millis() < window as u128
+                        })
+                        .unwrap_or(false)
+                })
             } else {
-                true 
+                true
             };
 
+            // ---------- CONDITION TRACKING ----------
             let mut satisfied_conditions = 0;
             let mut total_tracked_conditions = 0;
-            
-            // Check Browsed Paths
-            if !rule.browsed_paths.is_empty() {
-                total_tracked_conditions += 1;
-                if recent_access_count >= rule.multi_access_threshold { 
-                    satisfied_conditions += 1; 
-                }
-            }
-            // Check Staging
-            if !rule.staging_paths.is_empty() {
-                total_tracked_conditions += 1;
-                if has_staged_data { satisfied_conditions += 1; }
-            }
-            // Check Internet (Updated logic)
-            if rule.require_internet {
-                total_tracked_conditions += 1;
-                if is_online { satisfied_conditions += 1; }
-            }
-            // Check Parent
-            if !rule.suspicious_parents.is_empty() {
-                total_tracked_conditions += 1;
-                if is_suspicious_parent { satisfied_conditions += 1; }
-            }
-            // Check Accessed Paths
-            if !rule.accessed_paths.is_empty() {
-                total_tracked_conditions += 1;
-                if has_sensitive_access { satisfied_conditions += 1; }
-            }
-            // Check Entropy
-            if rule.entropy_threshold > 0.01 {
-                total_tracked_conditions += 1;
-                if high_entropy_detected { satisfied_conditions += 1; }
-            }
-            // Check Monitored APIs
-            if !rule.monitored_apis.is_empty() {
-                total_tracked_conditions += 1;
-                if monitored_api_count > 0 { satisfied_conditions += 1; }
-            }
-            // Check File Actions
-            if !rule.file_actions.is_empty() {
-                total_tracked_conditions += 1;
-                if file_action_detected { satisfied_conditions += 1; }
-            }
-            // Check File Extensions
-            if !rule.file_extensions.is_empty() {
-                total_tracked_conditions += 1;
-                if extension_match_detected { satisfied_conditions += 1; }
-            }
-            // Check Terminated
-            if !rule.terminated_processes.is_empty() {
-                total_tracked_conditions += 1;
-                if terminated_match { satisfied_conditions += 1; }
+            let mut condition_results: Vec<(&str, bool)> = Vec::new();
+
+            macro_rules! check {
+                ($name:expr, $cond:expr) => {{
+                    total_tracked_conditions += 1;
+                    let hit = $cond;
+                    if hit { satisfied_conditions += 1; }
+                    condition_results.push(($name, hit));
+                }};
             }
 
+            if !rule.browsed_paths.is_empty() {
+                check!("browsed_paths", recent_access_count >= rule.multi_access_threshold);
+            }
+
+            if !rule.staging_paths.is_empty() {
+                check!("staging", has_staged_data);
+            }
+
+            if rule.require_internet {
+                check!("internet", is_online);
+            }
+
+            if !rule.suspicious_parents.is_empty() {
+                check!("parent", is_suspicious_parent);
+            }
+
+            if !rule.accessed_paths.is_empty() {
+                check!("accessed_paths", has_sensitive_access);
+            }
+
+            if rule.entropy_threshold > 0.01 {
+                check!("entropy", high_entropy_detected);
+            }
+
+            if !rule.monitored_apis.is_empty() {
+                check!("apis", monitored_api_count > 0);
+            }
+
+            if !rule.file_actions.is_empty() {
+                check!("file_actions", file_action_detected);
+            }
+
+            if !rule.file_extensions.is_empty() {
+                check!("extensions", extension_match_detected);
+            }
+
+            if !rule.terminated_processes.is_empty() {
+                check!("terminated_proc", terminated_match);
+            }
+
+            // ---------- DEBUG OUTPUT ----------
             if rule.debug && total_tracked_conditions > 0 {
+                let breakdown = condition_results.iter()
+                    .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
                 Logging::debug(&format!(
-                    "[BehaviorEngine] Rule '{}' evaluation for {}: {}/{} conditions. (Online Status: {})",
-                    rule.name, precord.appname, satisfied_conditions, total_tracked_conditions, is_online
+                    "[BehaviorEngine] Rule '{}' for {}: {}/{} [{}] (Online: {})",
+                    rule.name,
+                    precord.appname,
+                    satisfied_conditions,
+                    total_tracked_conditions,
+                    breakdown,
+                    is_online
                 ));
             }
 
+            // ---------- DECISION ----------
             if total_tracked_conditions > 0 {
-                let satisfied_ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
-                let threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
+                let ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
+                let threshold = if rule.conditions_percentage > 0.0 {
+                    rule.conditions_percentage
+                } else {
+                    1.0
+                };
 
-                if satisfied_ratio >= threshold {
+                if ratio >= threshold {
                     Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched rule '{}'. Satisfied {}/{} conditions ({:.1}%)",
-                        precord.appname, pid, rule.name, satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0
+                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({:.1}%)",
+                        precord.appname,
+                        pid,
+                        rule.name,
+                        ratio * 100.0
                     ));
+
                     precord.is_malicious = true;
 
                     let threat_info = ThreatInfo {
                         threat_type_label: "Behavioral Detection",
                         virus_name: &rule.name,
-                        prediction: satisfied_ratio,
-                        match_details: Some(format!("Matched {}/{} conditions ({:.1}%)", satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0)),
+                        prediction: ratio,
+                        match_details: Some(format!(
+                            "{}/{} conditions ({:.1}%)",
+                            satisfied_conditions,
+                            total_tracked_conditions,
+                            ratio * 100.0
+                        )),
                         terminate: rule.response.terminate_process,
                         quarantine: rule.response.quarantine,
-                        kill_and_remove: rule.response.kill_and_remove, // Added mapping for kill_and_remove
+                        kill_and_remove: rule.response.kill_and_remove,
                         revert: rule.response.auto_revert,
                     };
 
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0); 
+                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                     actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                    
+
                     if rule.response.terminate_process {
-                         break; 
+                        break;
                     }
                 }
             }
         }
     }
+
 
     fn evaluate_stages(
         &self, 
