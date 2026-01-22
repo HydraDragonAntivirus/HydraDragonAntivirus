@@ -20,7 +20,6 @@
     - "AppData\\Local\\Temp"
   
   multi_access_threshold: 2
-  time_window_ms: 30000
   require_internet: true
   conditions_percentage: 0.8
   

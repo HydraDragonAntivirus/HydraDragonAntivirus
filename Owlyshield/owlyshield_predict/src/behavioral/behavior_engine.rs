@@ -118,8 +118,6 @@ pub struct BehaviorRule {
     #[serde(default = "default_zero")]
     pub multi_access_threshold: usize,
     #[serde(default)]
-    pub time_window_ms: u64,
-    #[serde(default)]
     pub require_internet: bool,
     
     #[serde(default)]
@@ -276,13 +274,11 @@ pub enum RuleCondition {
     FileCount { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
     Signature { is_trusted: bool, #[serde(default)] signer_pattern: Option<String> },
     DirectorySpread { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    TimeWindowAggregation { metric: String, #[serde(default)] function: AggregationFunction, time_window_ms: u64, #[serde(default)] comparison: Comparison, threshold: f64 },
     DriveActivity { drive_type: String, op_type: String, #[serde(default)] comparison: Comparison, threshold: u32 },
     ProcessAncestry { ancestor_pattern: String, #[serde(default)] max_depth: Option<u32> },
     ExtensionRatio { extensions: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
     RateOfChange { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
     SelfModification { modification_type: String },
-    ExtensionChangeVelocity { time_window_ms: u64, #[serde(default)] comparison: Comparison, threshold: u64 },
     CommandLineMatch { patterns: Vec<CommandLinePattern>, #[serde(default)] match_mode: MatchMode },
     SensitivePathAccess { patterns: Vec<String>, op_type: String, #[serde(default)] min_unique_paths: Option<u32> },
     ClusterPattern { #[serde(default)] min_clusters: Option<usize>, #[serde(default)] max_clusters: Option<usize> },
@@ -677,13 +673,7 @@ impl BehaviorEngine {
             }
 
             // ---------- ACCUMULATION ----------
-            let recent_access_count = browsed_paths_tracker.values()
-                .filter(|&&t| {
-                    now.duration_since(t)
-                        .unwrap_or(Duration::from_secs(999))
-                        .as_millis() < rule.time_window_ms as u128
-                })
-                .count();
+            let browsed_access_count: usize = browsed_paths_tracker.len();
 
             let has_staged_data = !staged_files_written.is_empty();
 
@@ -733,9 +723,12 @@ impl BehaviorEngine {
             }
 
             if !rule.browsed_paths.is_empty() {
-                check!("browsed_paths", recent_access_count >= rule.multi_access_threshold);
+                check!(
+                    "browsed_paths",
+                    browsed_access_count >= rule.multi_access_threshold
+                );
             }
-
+    
             if !rule.staging_paths.is_empty() {
                 check!("staging", has_staged_data);
             }
