@@ -328,7 +328,7 @@ pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
-    process_terminated: HashSet::new(),
+    pub process_terminated: HashSet<String>,
 }
 
 impl BehaviorEngine {
@@ -337,6 +337,7 @@ impl BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: RefCell::new(HashMap::new()),
+            process_terminated: HashSet::new(),
         }
     }
 
