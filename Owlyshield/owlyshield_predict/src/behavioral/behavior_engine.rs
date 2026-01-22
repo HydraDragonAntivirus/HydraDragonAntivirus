@@ -328,7 +328,6 @@ pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
-    pub process_termination_history: HashMap<String, SystemTime>,
 }
 
 impl BehaviorEngine {
@@ -337,7 +336,6 @@ impl BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
             regex_cache: RefCell::new(HashMap::new()),
-            process_termination_history: HashMap::new(),
         }
     }
 
@@ -419,16 +417,6 @@ impl BehaviorEngine {
         self.process_states.entry(gid).or_insert_with(|| {
             ProcessBehaviorState::new(pid, exe_path, app_name)
         });
-    }
-
-    pub fn notify_process_terminated(&mut self, _pid: u32, app_name: &str) {
-        let name_lower = app_name.to_lowercase();
-        if !name_lower.is_empty() {
-            self.process_termination_history.insert(name_lower.clone(), SystemTime::now());
-            if name_lower.contains("chrome") || name_lower.contains("edge") || name_lower.contains("firefox") {
-                Logging::info(&format!("[BehaviorEngine] Critical App termination recorded: {}", app_name));
-            }
-        }
     }
 
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
