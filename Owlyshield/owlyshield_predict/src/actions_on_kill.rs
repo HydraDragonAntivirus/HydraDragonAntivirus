@@ -25,6 +25,7 @@ pub struct ThreatInfo<'a> {
     pub match_details: Option<String>,
     pub terminate: bool,
     pub quarantine: bool,
+    pub kill_and_remove: bool,    // Added field to match usage in behavior_engine.rs
     pub revert: bool,
 }
 
@@ -282,6 +283,9 @@ impl ActionOnKill for KillAction {
             if threat_info.quarantine {
                 Logging::info(&format!("[ActionOnKill] Terminating and Quarantining: {}", proc.appname));
                 self.handler.kill_and_quarantine(proc.gid, &proc.exepath);
+            } else if threat_info.kill_and_remove {
+                Logging::info(&format!("[ActionOnKill] Kill and Remove: {}", proc.appname));
+                 self.handler.kill_and_remove(proc.gid, &proc.exepath); 
             } else {
                 Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
                 self.handler.kill(proc.gid);

@@ -449,8 +449,10 @@ impl BehaviorEngine {
         Ok(())
     }
 
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, actions: &ActionsOnKill) {
+    // MODIFIED: Takes &dyn ThreatHandler to match worker.rs, creates ActionsOnKill internally
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
         let gid = msg.gid;
+        let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
         // Ensure state exists
         if !self.process_states.contains_key(&gid) {
@@ -605,10 +607,10 @@ impl BehaviorEngine {
             }
         }
 
-        self.check_rules(precord, gid, msg, irp_op, config, actions);
+        self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
     }
 
-    fn check_rules(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp, config: &Config, actions: &ActionsOnKill) {
+    fn check_rules(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp, config: &Config, actions: &mut ActionsOnKill) {
         let (
             browsed_paths_tracker,
             staged_files_written,
@@ -781,7 +783,7 @@ impl BehaviorEngine {
                         revert: rule.response.auto_revert,
                     };
 
-                    let dummy_pred_mtrx = VecvecCappedF32::new(); 
+                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0); 
                     actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                     
                     if rule.response.terminate_process {
