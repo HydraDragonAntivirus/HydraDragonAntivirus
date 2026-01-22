@@ -194,6 +194,14 @@ pub struct BehaviorRule {
     pub memory_scan_config: Option<MemoryScanConfig>,
     #[serde(default)]
     pub min_indicator_count: Option<usize>,
+    
+    // Track cross-process tracking by executable identity (GID)
+    #[serde(default)]
+    pub track_by_gid: bool,
+
+    // NEW: Enforce specific Stealer sequence (Browse -> Access -> Stage -> Archive)
+    #[serde(default)]
+    pub detect_stealer_sequence: bool,
 }
 
 impl BehaviorRule {
@@ -239,12 +247,14 @@ pub enum AllowlistEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "lowercase")]
 pub enum RuleMapping {
     And { and: Vec<RuleMapping> },
     Or { or: Vec<RuleMapping> },
     Not { not: Box<RuleMapping> },
     Stage { stage: String },
+    // NEW: Chronological requirement
+    Sequence { sequence: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,6 +269,8 @@ pub enum RuleCondition {
     File { op: String, path_pattern: String },
     Registry { op: String, key_pattern: String, value_name: Option<String>, expected_data: Option<String> },
     Process { op: String, pattern: String },
+    // NEW: Process termination tracker
+    ProcessTermination { name_pattern: String },
     Service { op: String, name_pattern: String },
     Network { op: String, dest_pattern: Option<String> },
     Api { name_pattern: String, module_pattern: String },
@@ -294,11 +306,28 @@ pub struct ResponseAction {
     #[serde(default)] pub record: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct FileOperation {
+    pub path: PathBuf,
+    pub op_type: IrpMajorOp,
+    pub timestamp: SystemTime,
+    pub bytes_transferred: u64,
+    pub gid: u64, // Track which GID performed this operation
+}
+
 #[derive(Default)]
 pub struct ProcessBehaviorState {
     pub browsed_paths_tracker: HashMap<String, SystemTime>,
     pub accessed_paths_tracker: HashSet<String>,
-    pub staged_files_written: HashMap<PathBuf, SystemTime>,
+    
+    // Track which files were read (stolen data sources)
+    pub stolen_file_reads: HashSet<PathBuf>,
+    
+    // Track staging with data flow context
+    pub staged_files_written: HashMap<PathBuf, StagingDataFlow>,
+    
+    // Track completed stages for mapping evaluation
+    pub satisfied_stages: HashMap<String, SystemTime>,
     
     pub monitored_api_count: usize,
     pub high_entropy_detected: bool,
@@ -312,6 +341,19 @@ pub struct ProcessBehaviorState {
     pub app_name: String,
     pub signature_checked: bool,
     pub has_valid_signature: bool,
+    
+    // Legacy single-process tracking
+    pub file_operations: Vec<FileOperation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StagingDataFlow {
+    pub staged_at: SystemTime,
+    pub has_prior_reads: bool,
+    pub read_write_sequence: bool,
+    pub bytes_read_before: u64,
+    pub bytes_written: u64,
+    pub cross_process_flow: bool,
 }
 
 impl ProcessBehaviorState {
@@ -324,9 +366,23 @@ impl ProcessBehaviorState {
     }
 }
 
+#[derive(Default)]
+pub struct GidBehaviorState {
+    // All file ops from any process with this GID
+    pub file_operations: Vec<FileOperation>, 
+    // All stolen file reads from any process with this GID
+    pub stolen_file_reads: HashSet<PathBuf>,
+    // Stages completed by any member of this group
+    pub shared_stages: HashMap<String, SystemTime>,
+}
+
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
+    
+    pub gid_states: HashMap<u64, GidBehaviorState>,
+    pub exe_to_gid: HashMap<PathBuf, u64>,
+    
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
 }
@@ -336,6 +392,8 @@ impl BehaviorEngine {
         BehaviorEngine {
             rules: Vec::new(),
             process_states: HashMap::new(),
+            gid_states: HashMap::new(),
+            exe_to_gid: HashMap::new(),
             regex_cache: RefCell::new(HashMap::new()),
             process_terminated: HashSet::new(),
         }
@@ -417,8 +475,12 @@ impl BehaviorEngine {
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
         self.process_states.entry(gid).or_insert_with(|| {
-            ProcessBehaviorState::new(pid, exe_path, app_name)
+            ProcessBehaviorState::new(pid, exe_path.clone(), app_name)
         });
+        
+        // Register in GID tracking
+        self.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
+        self.exe_to_gid.insert(exe_path, gid);
     }
 
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -431,7 +493,6 @@ impl BehaviorEngine {
         Ok(())
     }
 
-    // MODIFIED: Takes &dyn ThreatHandler to match worker.rs, creates ActionsOnKill internally
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
         let gid = msg.gid;
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
@@ -466,6 +527,9 @@ impl BehaviorEngine {
             self.process_states.insert(gid, s);
         }
 
+        // Ensure GID state exists
+        self.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
+
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
@@ -496,100 +560,194 @@ impl BehaviorEngine {
             }
         }
 
+        // Record file operation in GID state (for Cross-Process correlation)
+        let now = SystemTime::now();
+        let file_op = FileOperation {
+            path: PathBuf::from(&filepath),
+            op_type: irp_op,
+            timestamp: now,
+            bytes_transferred: msg.bytes_io as u64,
+            gid,
+        };
+        
+        if let Some(gid_state) = self.gid_states.get_mut(&gid) {
+            gid_state.file_operations.push(file_op.clone());
+            if gid_state.file_operations.len() > 1000 {
+                gid_state.file_operations.drain(0..500);
+            }
+        }
+
+        state.file_operations.push(file_op);
+        if state.file_operations.len() > 1000 {
+            state.file_operations.drain(0..500);
+        }
+
         // --- Event Tracking ---
         for rule in &self.rules {
-            // Browsed Paths
             for b_path in &rule.browsed_paths {
                 let norm_b_path = b_path.to_lowercase().replace("\\", "/");
                 if filepath.contains(&norm_b_path) {
                     if rule.debug { 
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched browsed path '{}' in '{}'", 
-                            rule.name, pid, b_path, filepath
+                            "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): Browsed path '{}' in '{}'", 
+                            rule.name, gid, pid, b_path, filepath
                         )); 
                     }
-                    state.browsed_paths_tracker.insert(b_path.clone(), SystemTime::now());
+                    state.browsed_paths_tracker.insert(b_path.clone(), now);
                     
                     for s_file in &rule.accessed_paths {
                         if filepath.contains(&s_file.to_lowercase()) {
-                            if rule.debug { 
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Rule '{}' (PID: {}): Matched accessed path (sensitive) '{}'", 
-                                    rule.name, pid, s_file
-                                )); 
+                            if irp_op == IrpMajorOp::IrpRead {
+                                if rule.debug { 
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): READ stolen data '{}' from '{}'", 
+                                        rule.name, gid, pid, s_file, filepath
+                                    )); 
+                                }
+                                state.accessed_paths_tracker.insert(s_file.clone());
+                                state.stolen_file_reads.insert(PathBuf::from(&filepath));
+                                
+                                if let Some(gid_state) = self.gid_states.get_mut(&gid) {
+                                    gid_state.stolen_file_reads.insert(PathBuf::from(&filepath));
+                                }
                             }
-                            state.accessed_paths_tracker.insert(s_file.clone());
                         }
                     }
                 }
             }
 
-            // Staging
             for s_path in &rule.staging_paths {
                 let norm_s_path = s_path.to_lowercase().replace("\\", "/");
                 if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
-                            rule.name, pid, s_path
-                        )); 
+                    let dataflow = if rule.track_by_gid {
+                        self.analyze_gid_data_flow(gid, &filepath, rule)
+                    } else {
+                        self.analyze_process_data_flow(state, &filepath, rule)
+                    };
+                    
+                    if dataflow.read_write_sequence {
+                        if rule.debug {
+                            let cross_proc_indicator = if dataflow.cross_process_flow { " [CROSS-PROCESS]" } else { "" };
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): STAGED '{}'{} (read-write: {} bytes read → {} bytes written)",
+                                rule.name, gid, pid, filepath, cross_proc_indicator, dataflow.bytes_read_before, dataflow.bytes_written
+                            ));
+                        }
+                        state.staged_files_written.insert(PathBuf::from(&filepath), dataflow);
                     }
-                    state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
                 }
             }
 
-            // Entropy
             if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
-                if rule.debug { 
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Rule '{}' (PID: {}): High entropy {:.2} > {:.2}", 
-                        rule.name, pid, msg.entropy, rule.entropy_threshold
-                    )); 
-                }
                 state.high_entropy_detected = true;
             }
 
-            // Monitored APIs
             for api in &rule.monitored_apis {
                 if filepath.contains(&api.to_lowercase()) {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API used '{}'", 
-                            rule.name, pid, api
-                        )); 
-                    }
                     state.monitored_api_count += 1;
                 }
             }
 
-            // File Actions
             for action in &rule.file_actions {
                 if filepath.contains(&action.to_lowercase()) {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): File action/tool detected '{}'", 
-                            rule.name, pid, action
-                        )); 
-                    }
                     state.file_action_detected = true;
                 }
             }
 
-            // Extensions
             for ext in &rule.file_extensions {
                 if filepath.ends_with(&ext.to_lowercase()) || filepath.contains(&ext.to_lowercase()) {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Extension match '{}'", 
-                            rule.name, pid, ext
-                        )); 
-                    }
                     state.extension_match_detected = true;
                 }
             }
         }
 
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
+    }
+
+    fn analyze_gid_data_flow(&self, current_gid: u64, staging_path: &str, rule: &BehaviorRule) -> StagingDataFlow {
+        let gid_state = match self.gid_states.get(&current_gid) {
+            Some(s) => s,
+            None => return StagingDataFlow {
+                staged_at: SystemTime::now(),
+                has_prior_reads: false,
+                read_write_sequence: false,
+                bytes_read_before: 0,
+                bytes_written: 0,
+                cross_process_flow: false,
+            }
+        };
+
+        let has_prior_reads = !gid_state.stolen_file_reads.is_empty();
+        let mut bytes_read = 0u64;
+        let mut bytes_written = 0u64;
+        
+        for op in gid_state.file_operations.iter().rev() {
+             match op.op_type {
+                IrpMajorOp::IrpRead => {
+                    if gid_state.stolen_file_reads.contains(&op.path) {
+                        bytes_read += op.bytes_transferred;
+                    }
+                },
+                IrpMajorOp::IrpWrite => {
+                    let op_path_str = op.path.to_string_lossy().to_lowercase().replace("\\", "/");
+                    for s_path in &rule.staging_paths {
+                        if op_path_str.contains(&s_path.to_lowercase().replace("\\", "/")) {
+                            bytes_written += op.bytes_transferred;
+                            break;
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        let read_write_sequence = has_prior_reads && bytes_read > 0 && bytes_written > 0;
+
+        StagingDataFlow {
+            staged_at: SystemTime::now(),
+            has_prior_reads,
+            read_write_sequence,
+            bytes_read_before: bytes_read,
+            bytes_written,
+            cross_process_flow: true, 
+        }
+    }
+
+    fn analyze_process_data_flow(&self, state: &ProcessBehaviorState, staging_path: &str, rule: &BehaviorRule) -> StagingDataFlow {
+        let has_prior_reads = !state.stolen_file_reads.is_empty();
+        let mut bytes_read = 0u64;
+        let mut bytes_written = 0u64;
+        
+        for op in state.file_operations.iter().rev() {
+            match op.op_type {
+                IrpMajorOp::IrpRead => {
+                    if state.stolen_file_reads.contains(&op.path) {
+                        bytes_read += op.bytes_transferred;
+                    }
+                },
+                IrpMajorOp::IrpWrite => {
+                    let op_path_str = op.path.to_string_lossy().to_lowercase().replace("\\", "/");
+                    for s_path in &rule.staging_paths {
+                        if op_path_str.contains(&s_path.to_lowercase().replace("\\", "/")) {
+                            bytes_written += op.bytes_transferred;
+                            break;
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        let read_write_sequence = has_prior_reads && bytes_read > 0 && bytes_written > 0;
+        
+        StagingDataFlow {
+            staged_at: SystemTime::now(),
+            has_prior_reads,
+            read_write_sequence,
+            bytes_read_before: bytes_read,
+            bytes_written,
+            cross_process_flow: false,
+        }
     }
 
     fn check_rules(
@@ -632,8 +790,6 @@ impl BehaviorEngine {
             )
         };
 
-        let now = SystemTime::now();
-
         for rule in &self.rules {
             if precord.is_malicious && precord.time_killed.is_some() {
                 continue;
@@ -652,16 +808,23 @@ impl BehaviorEngine {
                     signature_checked,
                     precord,
                     msg,
-                    &irp_op
+                    &irp_op,
+                    gid
                 ) {
                     precord.is_malicious = true;
                 }
             }
 
-            // ---------- ACCUMULATION ----------
+            // ---------- INDICATOR COLLECTION ----------
             let browsed_access_count: usize = browsed_paths_tracker.len();
 
-            let has_staged_data = !staged_files_written.is_empty();
+            let has_staged_data = if !rule.staging_paths.is_empty() {
+                staged_files_written.values()
+                    .filter(|flow| flow.read_write_sequence)
+                    .count() > 0
+            } else {
+                false
+            };
 
             let is_online = if rule.require_internet {
                 precord.pids.iter().any(|&pid| self.has_active_connections(pid))
@@ -677,157 +840,155 @@ impl BehaviorEngine {
             });
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
-
-            let terminated_match = if !rule.terminated_processes.is_empty() {
-                rule.terminated_processes.iter().any(|proc| {
-                    self.process_terminated.contains(&proc.to_lowercase())
-                })
-            } else {
-                true
-            };
-
-
-            // Prepare a temporary "terminated processes" set including the current process
             let mut terminated_set = self.process_terminated.clone();
             terminated_set.insert(precord.appname.to_lowercase());
 
-            // ---------- CONDITION TRACKING ----------
-            let mut satisfied_conditions = 0;
-            let mut total_tracked_conditions = 0;
-            let mut condition_results: Vec<(&str, bool)> = Vec::new();
+            let is_archiving = monitored_api_count > 0 || file_action_detected || extension_match_detected;
 
-            macro_rules! check {
-                ($name:expr, $cond:expr) => {{
-                    total_tracked_conditions += 1;
-                    let hit = $cond;
-                    if hit { satisfied_conditions += 1; }
-                    condition_results.push(($name, hit));
-                }};
+            // ---------- DECISION LOGIC ----------
+            let mut trigger_detection = false;
+            let mut match_details_str = String::new();
+            let mut detection_score = 0.0;
+
+            // 1. SEQUENCE ENFORCEMENT
+            if rule.detect_stealer_sequence {
+                let has_browsed = !browsed_paths_tracker.is_empty();
+                if has_browsed && has_sensitive_access && has_staged_data && is_archiving {
+                    trigger_detection = true;
+                    detection_score = 1.0;
+                    match_details_str = format!(
+                        "STEALER SEQUENCE CONFIRMED: Browsed({}), Accessed({}), Staged(Yes), Archived(Yes)",
+                        browsed_paths_tracker.len(),
+                        accessed_paths_tracker.len()
+                    );
+                }
+            } 
+            // 2. MAPPING EVALUATION (STAGE/SEQUENCE)
+            else if let Some(mapping) = &rule.mapping {
+                 let hit = self.evaluate_mapping(mapping, rule, gid);
+                 if hit {
+                     trigger_detection = true;
+                     detection_score = 1.0;
+                     match_details_str = "Rule Mapping Satisfied".to_string();
+                 }
+            }
+            // 3. LEGACY ACCUMULATION
+            else {
+                let mut satisfied_conditions = 0;
+                let mut total_tracked_conditions = 0;
+                let mut condition_results: Vec<(&str, bool)> = Vec::new();
+
+                macro_rules! check {
+                    ($name:expr, $cond:expr) => {{
+                        total_tracked_conditions += 1;
+                        let hit = $cond;
+                        if hit { satisfied_conditions += 1; }
+                        condition_results.push(($name, hit));
+                    }};
+                }
+
+                if !rule.browsed_paths.is_empty() { check!("browsed_paths", browsed_access_count >= rule.multi_access_threshold); }
+                if !rule.staging_paths.is_empty() { check!("staging", has_staged_data); }
+                if rule.require_internet { check!("internet", is_online); }
+                if !rule.suspicious_parents.is_empty() { check!("parent", is_suspicious_parent); }
+                if !rule.accessed_paths.is_empty() { check!("accessed_paths", has_sensitive_access); }
+                if rule.entropy_threshold > 0.01 { check!("entropy", high_entropy_detected); }
+                if !rule.monitored_apis.is_empty() { check!("apis", monitored_api_count > 0); }
+                if !rule.file_actions.is_empty() { check!("file_actions", file_action_detected); }
+                if !rule.file_extensions.is_empty() { check!("extensions", extension_match_detected); }
+                if !rule.terminated_processes.is_empty() {
+                    let terminated_match = rule.terminated_processes.iter().any(|proc| terminated_set.contains(&proc.to_lowercase()));
+                    check!("terminated_proc", terminated_match);
+                }
+
+                if total_tracked_conditions > 0 {
+                    detection_score = satisfied_conditions as f32 / total_tracked_conditions as f32;
+                    let threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
+                    
+                    if detection_score >= threshold {
+                        trigger_detection = true;
+                        match_details_str = format!("{}/{} conditions", satisfied_conditions, total_tracked_conditions);
+                    }
+                }
             }
 
-            if !rule.browsed_paths.is_empty() {
-                check!(
-                    "browsed_paths",
-                    browsed_access_count >= rule.multi_access_threshold
-                );
-            }
-    
-            if !rule.staging_paths.is_empty() {
-                check!("staging", has_staged_data);
-            }
-
-            if rule.require_internet {
-                check!("internet", is_online);
-            }
-
-            if !rule.suspicious_parents.is_empty() {
-                check!("parent", is_suspicious_parent);
-            }
-
-            if !rule.accessed_paths.is_empty() {
-                check!("accessed_paths", has_sensitive_access);
-            }
-
-            if rule.entropy_threshold > 0.01 {
-                check!("entropy", high_entropy_detected);
-            }
-
-            if !rule.monitored_apis.is_empty() {
-                check!("apis", monitored_api_count > 0);
-            }
-
-            if !rule.file_actions.is_empty() {
-                check!("file_actions", file_action_detected);
-            }
-
-            if !rule.file_extensions.is_empty() {
-                check!("extensions", extension_match_detected);
-            }
-
-            if !rule.terminated_processes.is_empty() {
-                // Use the temporary set here
-                let terminated_match = rule.terminated_processes.iter().any(|proc| {
-                    terminated_set.contains(&proc.to_lowercase())
-                });
-                check!("terminated_proc", terminated_match);
-            }
-
-            // ---------- DEBUG OUTPUT ----------
-            if rule.debug && total_tracked_conditions > 0 {
-                let breakdown = condition_results.iter()
-                    .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                Logging::debug(&format!(
-                    "[BehaviorEngine] Rule '{}' for {}: {}/{} [{}] (Online: {})",
-                    rule.name,
-                    precord.appname,
-                    satisfied_conditions,
-                    total_tracked_conditions,
-                    breakdown,
-                    is_online
+            // ---------- RESPONSE ----------
+            if trigger_detection {
+                Logging::warning(&format!(
+                    "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({})",
+                    precord.appname, pid, rule.name, match_details_str
                 ));
-            }
 
-            // ---------- DECISION ----------
-            if total_tracked_conditions > 0 {
-                let ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
-                let threshold = if rule.conditions_percentage > 0.0 {
-                    rule.conditions_percentage
-                } else {
-                    1.0
+                precord.is_malicious = true;
+
+                let threat_info = ThreatInfo {
+                    threat_type_label: "Behavioral Detection",
+                    virus_name: &rule.name,
+                    prediction: detection_score as f64,
+                    match_details: Some(match_details_str),
+                    terminate: rule.response.terminate_process,
+                    quarantine: rule.response.quarantine,
+                    kill_and_remove: rule.response.kill_and_remove,
+                    revert: rule.response.auto_revert,
                 };
 
-                if ratio >= threshold {
-                    Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({:.1}%)",
-                        precord.appname,
-                        pid,
-                        rule.name,
-                        ratio * 100.0
-                    ));
-
-                    precord.is_malicious = true;
-
-                    let threat_info = ThreatInfo {
-                        threat_type_label: "Behavioral Detection",
-                        virus_name: &rule.name,
-                        prediction: ratio,
-                        match_details: Some(format!(
-                            "{}/{} conditions ({:.1}%)",
-                            satisfied_conditions,
-                            total_tracked_conditions,
-                            ratio * 100.0
-                        )),
-                        terminate: rule.response.terminate_process,
-                        quarantine: rule.response.quarantine,
-                        kill_and_remove: rule.response.kill_and_remove,
-                        revert: rule.response.auto_revert,
-                    };
-
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                    self.process_terminated.insert(precord.appname.to_lowercase());
-                    
-                    if rule.response.terminate_process {
-                        break;
-                    }
+                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
+                self.process_terminated.insert(precord.appname.to_lowercase());
+                
+                if rule.response.terminate_process {
+                    break;
                 }
             }
         }
     }
 
+    fn evaluate_mapping(&self, mapping: &RuleMapping, rule: &BehaviorRule, gid: u64) -> bool {
+        let (satisfied_stages, shared_stages) = {
+            let s = self.process_states.get(&gid).unwrap();
+            let gs = self.gid_states.get(&gid).unwrap();
+            (&s.satisfied_stages, &gs.shared_stages)
+        };
+
+        match mapping {
+            RuleMapping::Stage { stage } => satisfied_stages.contains_key(stage) || shared_stages.contains_key(stage),
+            RuleMapping::And { and } => and.iter().all(|m| self.evaluate_mapping(m, rule, gid)),
+            RuleMapping::Or { or } => or.iter().any(|m| self.evaluate_mapping(m, rule, gid)),
+            RuleMapping::Not { not } => !self.evaluate_mapping(not, rule, gid),
+            RuleMapping::Sequence { sequence } => {
+                let mut last_time = None;
+                for stage_name in sequence {
+                    let stage_time = satisfied_stages.get(stage_name)
+                        .or_else(|| shared_stages.get(stage_name));
+                    
+                    if let Some(&time) = stage_time {
+                        if let Some(prev) = last_time {
+                            if time < prev { return false; }
+                        }
+                        last_time = Some(time);
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            }
+        }
+    }
+
     fn evaluate_stages(
-        &self, 
+        &mut self, 
         rule: &BehaviorRule, 
-        parent_name: &str, 
+        _parent_name: &str, 
         has_valid_signature: bool,
         signature_checked: bool,
         precord: &ProcessRecord,
         msg: &IOMessage,
-        irp_op: &IrpMajorOp
+        irp_op: &IrpMajorOp,
+        gid: u64
     ) -> bool {
+        let mut any_stage_triggered = false;
+        let now = SystemTime::now();
+
         for stage in &rule.stages {
             let mut stage_satisfied = true;
             for condition in &stage.conditions {
@@ -840,11 +1001,22 @@ impl BehaviorEngine {
                             "delete" => *irp_op == IrpMajorOp::IrpSetInfo,
                             _ => false,
                         };
-                        if !op_matches { stage_satisfied = false; break; }
-                        if !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                        if !op_matches || !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
                     },
                     RuleCondition::Process { op: _, pattern } => {
                          if !self.matches_pattern(pattern, &precord.appname) { stage_satisfied = false; break; }
+                    },
+                    RuleCondition::ProcessTermination { name_pattern } => {
+                        let hit = self.process_terminated.iter().any(|name| self.matches_pattern(name_pattern, name));
+                        if !hit { stage_satisfied = false; break; }
+                    },
+                    RuleCondition::Api { name_pattern, module_pattern: _ } => {
+                        if !self.matches_pattern(name_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                    },
+                    RuleCondition::Signature { is_trusted, signer_pattern: _ } => {
+                        if !signature_checked { stage_satisfied = false; break; }
+                        let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
+                        if violates { stage_satisfied = false; break; }
                     },
                     _ => {
                         stage_satisfied = false;
@@ -853,11 +1025,18 @@ impl BehaviorEngine {
                 }
             }
              if stage_satisfied {
-                if rule.debug { Logging::debug(&format!("[BehaviorEngine] DEBUG: Stage '{}' Satisfied!", stage.name)); }
-                return true;
+                if rule.debug { Logging::debug(&format!("[BehaviorEngine] Stage '{}' Satisfied for '{}'", stage.name, rule.name)); }
+                
+                if let Some(s) = self.process_states.get_mut(&gid) {
+                    s.satisfied_stages.entry(stage.name.clone()).or_insert(now);
+                }
+                if let Some(gs) = self.gid_states.get_mut(&gid) {
+                    gs.shared_stages.entry(stage.name.clone()).or_insert(now);
+                }
+                any_stage_triggered = true;
             }
         }
-        false
+        any_stage_triggered
     }
     
     fn check_allowlist(&self, proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {
@@ -951,10 +1130,7 @@ impl BehaviorEngine {
             }
             false
         };
-        if check_tcp(AF_INET.0) { return true; }
-        if check_tcp(AF_INET6.0) { return true; }
-        if check_udp(AF_INET.0) { return true; }
-        if check_udp(AF_INET6.0) { return true; }
+        if check_tcp(AF_INET.0) || check_tcp(AF_INET6.0) || check_udp(AF_INET.0) || check_udp(AF_INET6.0) { return true; }
         false
     }
     
@@ -962,10 +1138,6 @@ impl BehaviorEngine {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
         
-        if self.rules.iter().any(|r| r.debug) {
-            Logging::debug(&format!("[BehaviorEngine] Static Scan: Evaluating {} tracked processes", gids.len()));
-        }
-
         for gid in gids {
             let (mut signature_checked, mut has_valid_signature, pid, exe_path, app_name) = {
                 if let Some(s) = self.process_states.get(&gid) {
@@ -975,20 +1147,16 @@ impl BehaviorEngine {
                 }
             };
             
-            // Force verify if not done
-            if !signature_checked {
-                if exe_path.exists() {
-                    let info = verify_signature(&exe_path);
-                    has_valid_signature = info.is_trusted;
-                    signature_checked = true;
-                    if let Some(s) = self.process_states.get_mut(&gid) {
-                        s.has_valid_signature = has_valid_signature;
-                        s.signature_checked = true;
-                    }
+            if !signature_checked && exe_path.exists() {
+                let info = verify_signature(&exe_path);
+                has_valid_signature = info.is_trusted;
+                signature_checked = true;
+                if let Some(s) = self.process_states.get_mut(&gid) {
+                    s.has_valid_signature = has_valid_signature;
+                    s.signature_checked = true;
                 }
             }
             
-            // Iterate all rules
              for rule in &self.rules {
                  for stage in &rule.stages {
                     for condition in &stage.conditions {
