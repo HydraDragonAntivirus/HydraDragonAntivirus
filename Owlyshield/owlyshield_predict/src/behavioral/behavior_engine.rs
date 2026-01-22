@@ -18,9 +18,7 @@ use crate::signature_verification::verify_signature;
 use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 // --- Windows Specific Imports ---
-#[cfg(target_os = "windows")]
 use windows::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_ALL};
-#[cfg(target_os = "windows")]
 use windows::Win32::Networking::WinSock::AF_INET;
 
 // --- Enums and Structs ---
@@ -318,6 +316,16 @@ pub struct ProcessBehaviorState {
     pub app_name: String,
     pub signature_checked: bool,
     pub has_valid_signature: bool,
+}
+
+impl ProcessBehaviorState {
+    pub fn new(pid: u32, exe_path: PathBuf, app_name: String) -> Self {
+        let mut state = ProcessBehaviorState::default();
+        state.pid = pid;
+        state.exe_path = exe_path;
+        state.app_name = app_name;
+        state
+    }
 }
 
 pub struct BehaviorEngine {
@@ -907,9 +915,8 @@ impl BehaviorEngine {
         }
     }
 
-    // --- Active Connections Logic (Cross-Platform Support) ---
+    // --- Active Connections Logic ---
     
-    #[cfg(target_os = "windows")]
     fn has_active_connections(&self, pid: u32) -> bool {
         if pid == 0 { return false; }
 
@@ -938,11 +945,6 @@ impl BehaviorEngine {
                 }
             }
         }
-        false
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn has_active_connections(&self, _pid: u32) -> bool {
         false
     }
     

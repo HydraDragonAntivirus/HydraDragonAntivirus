@@ -865,7 +865,7 @@ pub mod worker_instance {
                 
                 // Transfer detections back to global process_records
                 for det in detections {
-                    if let Some(record) = self.process_records.get_mut_precord_by_gid(det.gid) {
+                    if let Some(record) = self.process_records.get_precord_mut_by_gid(det.gid) {
                         record.is_malicious = true;
                         record.termination_requested = det.termination_requested;
                         record.quarantine_requested = det.quarantine_requested;
