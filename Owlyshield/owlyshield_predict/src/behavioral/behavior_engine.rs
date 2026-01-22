@@ -6,7 +6,6 @@ use serde_yaml;
 use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
-use std::env;
 
 use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
@@ -197,18 +196,12 @@ pub struct BehaviorRule {
     pub min_indicator_count: Option<usize>,
     
     // Track cross-process tracking by executable identity (GID)
-    // Critical for detecting advanced bypass where stages are split across processes
     #[serde(default)]
     pub track_by_gid: bool,
 
     // NEW: Enforce specific Stealer sequence (Browse -> Access -> Stage -> Archive)
     #[serde(default)]
     pub detect_stealer_sequence: bool,
-
-    // NEW: Allow staging detection without strict read-then-write sequence
-    // If true, writing to a staging path is considered "staging" even if no stolen files were read first.
-    #[serde(default)]
-    pub allow_isolated_staging: bool,
 }
 
 impl BehaviorRule {
@@ -225,31 +218,7 @@ impl BehaviorRule {
                 AllowlistEntry::Complex { pattern, .. } => *pattern = pattern.to_lowercase(),
             }
         }
-        
-        // ENV VARIABLE EXPANSION FOR STAGING PATHS
-        // This ensures hardcoded paths are replaced by actual system paths
-        let mut expanded_paths = Vec::new();
-        for path in &self.staging_paths {
-            expanded_paths.push(expand_env_vars(path));
-        }
-        self.staging_paths = expanded_paths;
     }
-}
-
-// Helper for environment variable expansion
-fn expand_env_vars(path: &str) -> String {
-    let mut result = path.to_string();
-    // Basic Windows env var expansion logic
-    if path.contains('%') {
-        let re = Regex::new(r"%([^%]+)%").unwrap();
-        for cap in re.captures_iter(path) {
-            let var_name = &cap[1];
-            if let Ok(val) = env::var(var_name) {
-                result = result.replace(&cap[0], &val);
-            }
-        }
-    }
-    result
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,7 +253,7 @@ pub enum RuleMapping {
     Or { or: Vec<RuleMapping> },
     Not { not: Box<RuleMapping> },
     Stage { stage: String },
-    // Chronological requirement
+    // NEW: Chronological requirement
     Sequence { sequence: Vec<String> },
 }
 
@@ -360,9 +329,6 @@ pub struct ProcessBehaviorState {
     // Track completed stages for mapping evaluation
     pub satisfied_stages: HashMap<String, SystemTime>,
     
-    // Track detected API calls for forensics
-    pub detected_apis: HashSet<String>,
-    
     pub monitored_api_count: usize,
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
@@ -408,13 +374,6 @@ pub struct GidBehaviorState {
     pub stolen_file_reads: HashSet<PathBuf>,
     // Stages completed by any member of this group
     pub shared_stages: HashMap<String, SystemTime>,
-    // Terminated processes by any member of this group (Preparation Stage)
-    pub shared_terminated_processes: HashSet<String>,
-    // Network activities by any member (Exfiltration Stage)
-    pub shared_network_activities: Vec<String>,
-    // Collected artifacts for reporting
-    pub all_accessed_files: HashSet<String>,
-    pub all_staged_files: HashSet<String>,
 }
 
 pub struct BehaviorEngine {
@@ -425,50 +384,7 @@ pub struct BehaviorEngine {
     pub exe_to_gid: HashMap<PathBuf, u64>,
     
     regex_cache: RefCell<HashMap<String, Regex>>,
-    pub process_terminated: HashSet<String>, // Global tracking for simpler rules
-}
-
-// Helper function to consolidate staging logic and avoid duplication
-fn calculate_staging_flow(
-    ops: &[FileOperation],
-    stolen_reads: &HashSet<PathBuf>,
-    staging_paths: &[String],
-    is_cross_process: bool
-) -> StagingDataFlow {
-    let has_prior_reads = !stolen_reads.is_empty();
-    let mut bytes_read = 0u64;
-    let mut bytes_written = 0u64;
-    
-    for op in ops.iter().rev() {
-        match op.op_type {
-            IrpMajorOp::IrpRead => {
-                if stolen_reads.contains(&op.path) {
-                    bytes_read += op.bytes_transferred;
-                }
-            },
-            IrpMajorOp::IrpWrite => {
-                let op_path_str = op.path.to_string_lossy().to_lowercase().replace("\\", "/");
-                for s_path in staging_paths {
-                    if op_path_str.contains(&s_path.to_lowercase().replace("\\", "/")) {
-                        bytes_written += op.bytes_transferred;
-                        break;
-                    }
-                }
-            },
-            _ => {}
-        }
-    }
-    
-    let read_write_sequence = has_prior_reads && bytes_read > 0 && bytes_written > 0;
-
-    StagingDataFlow {
-        staged_at: SystemTime::now(),
-        has_prior_reads,
-        read_write_sequence,
-        bytes_read_before: bytes_read,
-        bytes_written,
-        cross_process_flow: is_cross_process,
-    }
+    pub process_terminated: HashSet<String>,
 }
 
 impl BehaviorEngine {
@@ -614,152 +530,224 @@ impl BehaviorEngine {
         // Ensure GID state exists
         self.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
 
-        // Scope the mutable borrow of state so we can call check_rules later
-        {
-            let state = self.process_states.get_mut(&gid).unwrap();
-            let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-            let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
-            let pid = state.pid;
-            
-            // --- Signature check ---
-            if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
-                if precord.exepath.exists() {
-                    let info = verify_signature(&precord.exepath);
-                    state.has_valid_signature = info.is_trusted;
-                    state.signature_checked = true;
-                } else {
-                    state.has_valid_signature = false; 
-                    state.signature_checked = true;
-                }
+        let state = self.process_states.get_mut(&gid).unwrap();
+        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
+        let pid = state.pid;
+        
+        // --- Signature check ---
+        if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
+            if precord.exepath.exists() {
+                let info = verify_signature(&precord.exepath);
+                state.has_valid_signature = info.is_trusted;
+                state.signature_checked = true;
+            } else {
+                state.has_valid_signature = false; 
+                state.signature_checked = true;
             }
+        }
 
-            let network_keywords = [
-                "internetopen", "internetconnect", "httpopen", "httpsend", 
-                "urldownload", "socket", "connect", "wsasend", "wsarecv",
-                "winhttp", "dnsquery", "internetwritefile", "ftp"
-            ];
-            
-            let is_network_op = network_keywords.iter().any(|k| filepath.contains(k));
-            
-            if is_network_op {
-                state.network_activity_detected = true;
-                if self.rules.iter().any(|r| r.debug) {
-                     Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
-                }
+        let network_keywords = [
+            "internetopen", "internetconnect", "httpopen", "httpsend", 
+            "urldownload", "socket", "connect", "wsasend", "wsarecv",
+            "winhttp", "dnsquery"
+        ];
+        
+        if network_keywords.iter().any(|k| filepath.contains(k)) {
+            state.network_activity_detected = true;
+            if self.rules.iter().any(|r| r.debug) {
+                 Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
             }
+        }
 
-            // Record file operation in GID state (for Cross-Process correlation)
-            let now = SystemTime::now();
-            let file_op = FileOperation {
-                path: PathBuf::from(&filepath),
-                op_type: irp_op,
-                timestamp: now,
-                bytes_transferred: msg.bytes_io as u64,
-                gid,
-            };
-            
-            // GID Shared State Update
-            if let Some(gid_state) = self.gid_states.get_mut(&gid) {
-                gid_state.file_operations.push(file_op.clone());
-                if gid_state.file_operations.len() > 1000 {
-                    gid_state.file_operations.drain(0..500);
-                }
-                
-                // Track network activity centrally for Exfiltration Check
-                if is_network_op {
-                    gid_state.shared_network_activities.push(filepath.clone());
-                }
+        // Record file operation in GID state (for Cross-Process correlation)
+        let now = SystemTime::now();
+        let file_op = FileOperation {
+            path: PathBuf::from(&filepath),
+            op_type: irp_op,
+            timestamp: now,
+            bytes_transferred: msg.bytes_io as u64,
+            gid,
+        };
+        
+        if let Some(gid_state) = self.gid_states.get_mut(&gid) {
+            gid_state.file_operations.push(file_op.clone());
+            if gid_state.file_operations.len() > 1000 {
+                gid_state.file_operations.drain(0..500);
             }
+        }
 
-            state.file_operations.push(file_op);
-            if state.file_operations.len() > 1000 {
-                state.file_operations.drain(0..500);
-            }
+        state.file_operations.push(file_op);
+        if state.file_operations.len() > 1000 {
+            state.file_operations.drain(0..500);
+        }
 
-            // --- Event Tracking ---
-            for rule in &self.rules {
-                for b_path in &rule.browsed_paths {
-                    let norm_b_path = b_path.to_lowercase().replace("\\", "/");
-                    if filepath.contains(&norm_b_path) {
-                        state.browsed_paths_tracker.insert(b_path.clone(), now);
-                        
-                        for s_file in &rule.accessed_paths {
-                            if filepath.contains(&s_file.to_lowercase()) {
-                                if irp_op == IrpMajorOp::IrpRead {
-                                    state.accessed_paths_tracker.insert(s_file.clone());
-                                    state.stolen_file_reads.insert(PathBuf::from(&filepath));
-                                    
-                                    // Shared GID state update
-                                    if let Some(gid_state) = self.gid_states.get_mut(&gid) {
-                                        gid_state.stolen_file_reads.insert(PathBuf::from(&filepath));
-                                        gid_state.all_accessed_files.insert(filepath.clone());
-                                    }
+        // --- Event Tracking ---
+        for rule in &self.rules {
+            for b_path in &rule.browsed_paths {
+                let norm_b_path = b_path.to_lowercase().replace("\\", "/");
+                if filepath.contains(&norm_b_path) {
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): Browsed path '{}' in '{}'", 
+                            rule.name, gid, pid, b_path, filepath
+                        )); 
+                    }
+                    state.browsed_paths_tracker.insert(b_path.clone(), now);
+                    
+                    for s_file in &rule.accessed_paths {
+                        if filepath.contains(&s_file.to_lowercase()) {
+                            if irp_op == IrpMajorOp::IrpRead {
+                                if rule.debug { 
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): READ stolen data '{}' from '{}'", 
+                                        rule.name, gid, pid, s_file, filepath
+                                    )); 
+                                }
+                                state.accessed_paths_tracker.insert(s_file.clone());
+                                state.stolen_file_reads.insert(PathBuf::from(&filepath));
+                                
+                                if let Some(gid_state) = self.gid_states.get_mut(&gid) {
+                                    gid_state.stolen_file_reads.insert(PathBuf::from(&filepath));
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // Staging Logic (supports Env Vars now due to load_rules expansion)
-                for s_path in &rule.staging_paths {
-                    let norm_s_path = s_path.to_lowercase().replace("\\", "/");
-                    // Careful with contains check on resolved paths
-                    if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
-                        
-                        let (ops, stolen_reads, is_cross_proc) = if rule.track_by_gid {
-                            if let Some(gs) = self.gid_states.get(&gid) {
-                                (&gs.file_operations, &gs.stolen_file_reads, true)
-                            } else {
-                                (&state.file_operations, &state.stolen_file_reads, false)
-                            }
-                        } else {
-                            (&state.file_operations, &state.stolen_file_reads, false)
-                        };
-
-                        let dataflow = calculate_staging_flow(
-                            ops, 
-                            stolen_reads, 
-                            &rule.staging_paths, 
-                            is_cross_proc
-                        );
-                        
-                        if dataflow.read_write_sequence || rule.allow_isolated_staging {
-                             state.staged_files_written.insert(PathBuf::from(&filepath), dataflow);
-                             if let Some(gs) = self.gid_states.get_mut(&gid) {
-                                 gs.all_staged_files.insert(filepath.clone());
-                             }
+            for s_path in &rule.staging_paths {
+                let norm_s_path = s_path.to_lowercase().replace("\\", "/");
+                if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
+                    let dataflow = if rule.track_by_gid {
+                        self.analyze_gid_data_flow(gid, &filepath, rule)
+                    } else {
+                        self.analyze_process_data_flow(state, &filepath, rule)
+                    };
+                    
+                    if dataflow.read_write_sequence {
+                        if rule.debug {
+                            let cross_proc_indicator = if dataflow.cross_process_flow { " [CROSS-PROCESS]" } else { "" };
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (GID: {}, PID: {}): STAGED '{}'{} (read-write: {} bytes read → {} bytes written)",
+                                rule.name, gid, pid, filepath, cross_proc_indicator, dataflow.bytes_read_before, dataflow.bytes_written
+                            ));
                         }
-                    }
-                }
-
-                if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
-                    state.high_entropy_detected = true;
-                }
-
-                for api in &rule.monitored_apis {
-                    if filepath.contains(&api.to_lowercase()) {
-                        state.monitored_api_count += 1;
-                        state.detected_apis.insert(api.clone());
-                    }
-                }
-
-                for action in &rule.file_actions {
-                    if filepath.contains(&action.to_lowercase()) {
-                        state.file_action_detected = true;
-                    }
-                }
-
-                for ext in &rule.file_extensions {
-                    if filepath.ends_with(&ext.to_lowercase()) || filepath.contains(&ext.to_lowercase()) {
-                        state.extension_match_detected = true;
+                        state.staged_files_written.insert(PathBuf::from(&filepath), dataflow);
                     }
                 }
             }
-        } // End of state mutable borrow
 
-        // Now we can call methods that take &mut self
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+            if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
+                state.high_entropy_detected = true;
+            }
+
+            for api in &rule.monitored_apis {
+                if filepath.contains(&api.to_lowercase()) {
+                    state.monitored_api_count += 1;
+                }
+            }
+
+            for action in &rule.file_actions {
+                if filepath.contains(&action.to_lowercase()) {
+                    state.file_action_detected = true;
+                }
+            }
+
+            for ext in &rule.file_extensions {
+                if filepath.ends_with(&ext.to_lowercase()) || filepath.contains(&ext.to_lowercase()) {
+                    state.extension_match_detected = true;
+                }
+            }
+        }
+
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
+    }
+
+    fn analyze_gid_data_flow(&self, current_gid: u64, staging_path: &str, rule: &BehaviorRule) -> StagingDataFlow {
+        let gid_state = match self.gid_states.get(&current_gid) {
+            Some(s) => s,
+            None => return StagingDataFlow {
+                staged_at: SystemTime::now(),
+                has_prior_reads: false,
+                read_write_sequence: false,
+                bytes_read_before: 0,
+                bytes_written: 0,
+                cross_process_flow: false,
+            }
+        };
+
+        let has_prior_reads = !gid_state.stolen_file_reads.is_empty();
+        let mut bytes_read = 0u64;
+        let mut bytes_written = 0u64;
+        
+        for op in gid_state.file_operations.iter().rev() {
+             match op.op_type {
+                IrpMajorOp::IrpRead => {
+                    if gid_state.stolen_file_reads.contains(&op.path) {
+                        bytes_read += op.bytes_transferred;
+                    }
+                },
+                IrpMajorOp::IrpWrite => {
+                    let op_path_str = op.path.to_string_lossy().to_lowercase().replace("\\", "/");
+                    for s_path in &rule.staging_paths {
+                        if op_path_str.contains(&s_path.to_lowercase().replace("\\", "/")) {
+                            bytes_written += op.bytes_transferred;
+                            break;
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        let read_write_sequence = has_prior_reads && bytes_read > 0 && bytes_written > 0;
+
+        StagingDataFlow {
+            staged_at: SystemTime::now(),
+            has_prior_reads,
+            read_write_sequence,
+            bytes_read_before: bytes_read,
+            bytes_written,
+            cross_process_flow: true, 
+        }
+    }
+
+    fn analyze_process_data_flow(&self, state: &ProcessBehaviorState, staging_path: &str, rule: &BehaviorRule) -> StagingDataFlow {
+        let has_prior_reads = !state.stolen_file_reads.is_empty();
+        let mut bytes_read = 0u64;
+        let mut bytes_written = 0u64;
+        
+        for op in state.file_operations.iter().rev() {
+            match op.op_type {
+                IrpMajorOp::IrpRead => {
+                    if state.stolen_file_reads.contains(&op.path) {
+                        bytes_read += op.bytes_transferred;
+                    }
+                },
+                IrpMajorOp::IrpWrite => {
+                    let op_path_str = op.path.to_string_lossy().to_lowercase().replace("\\", "/");
+                    for s_path in &rule.staging_paths {
+                        if op_path_str.contains(&s_path.to_lowercase().replace("\\", "/")) {
+                            bytes_written += op.bytes_transferred;
+                            break;
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        let read_write_sequence = has_prior_reads && bytes_read > 0 && bytes_written > 0;
+        
+        StagingDataFlow {
+            staged_at: SystemTime::now(),
+            has_prior_reads,
+            read_write_sequence,
+            bytes_read_before: bytes_read,
+            bytes_written,
+            cross_process_flow: false,
+        }
     }
 
     fn check_rules(
@@ -771,7 +759,6 @@ impl BehaviorEngine {
         config: &Config,
         actions: &mut ActionsOnKill
     ) {
-        // Collect read-only data for rule checking
         let (
             browsed_paths_tracker,
             staged_files_written,
@@ -833,7 +820,7 @@ impl BehaviorEngine {
 
             let has_staged_data = if !rule.staging_paths.is_empty() {
                 staged_files_written.values()
-                    .filter(|flow| flow.read_write_sequence || rule.allow_isolated_staging)
+                    .filter(|flow| flow.read_write_sequence)
                     .count() > 0
             } else {
                 false
@@ -854,15 +841,6 @@ impl BehaviorEngine {
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
             let mut terminated_set = self.process_terminated.clone();
-            
-            // If tracking by GID, merge with shared terminated set
-            if rule.track_by_gid {
-                if let Some(gs) = self.gid_states.get(&gid) {
-                    for tp in &gs.shared_terminated_processes {
-                        terminated_set.insert(tp.clone());
-                    }
-                }
-            }
             terminated_set.insert(precord.appname.to_lowercase());
 
             let is_archiving = monitored_api_count > 0 || file_action_detected || extension_match_detected;
@@ -875,7 +853,6 @@ impl BehaviorEngine {
             // 1. SEQUENCE ENFORCEMENT
             if rule.detect_stealer_sequence {
                 let has_browsed = !browsed_paths_tracker.is_empty();
-                // Sequence: Browsed -> Accessed -> Staged -> Archived
                 if has_browsed && has_sensitive_access && has_staged_data && is_archiving {
                     trigger_detection = true;
                     detection_score = 1.0;
@@ -937,22 +914,6 @@ impl BehaviorEngine {
 
             // ---------- RESPONSE ----------
             if trigger_detection {
-                // Collect detailed forensics artifacts for improved visibility
-                let forensic_details = if rule.track_by_gid {
-                    if let Some(gs) = self.gid_states.get(&gid) {
-                        format!(
-                            "Artifacts [GID: {}]:\n- Accessed: {:?}\n- Staged: {:?}\n- APIs: {:?}\n- Network: {:?}",
-                            gid, gs.all_accessed_files, gs.all_staged_files, 
-                            self.process_states.get(&gid).map(|s| &s.detected_apis),
-                            gs.shared_network_activities
-                        )
-                    } else { String::new() }
-                } else {
-                     format!("Artifacts: {:?}", self.process_states.get(&gid).map(|s| &s.detected_apis))
-                };
-                
-                let full_report = format!("{} | {}", match_details_str, forensic_details);
-
                 Logging::warning(&format!(
                     "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({})",
                     precord.appname, pid, rule.name, match_details_str
@@ -964,7 +925,7 @@ impl BehaviorEngine {
                     threat_type_label: "Behavioral Detection",
                     virus_name: &rule.name,
                     prediction: detection_score as f64,
-                    match_details: Some(full_report),
+                    match_details: Some(match_details_str),
                     terminate: rule.response.terminate_process,
                     quarantine: rule.response.quarantine,
                     kill_and_remove: rule.response.kill_and_remove,
@@ -974,13 +935,6 @@ impl BehaviorEngine {
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                 self.process_terminated.insert(precord.appname.to_lowercase());
-                
-                // Add to shared GID termination set if tracking by GID
-                if rule.track_by_gid {
-                    if let Some(gs) = self.gid_states.get_mut(&gid) {
-                        gs.shared_terminated_processes.insert(precord.appname.to_lowercase());
-                    }
-                }
                 
                 if rule.response.terminate_process {
                     break;
@@ -1047,40 +1001,17 @@ impl BehaviorEngine {
                             "delete" => *irp_op == IrpMajorOp::IrpSetInfo,
                             _ => false,
                         };
-                        // Resolve Env Vars in pattern if needed or use regex match
-                        // Here assuming regex handles it, but for robust check we rely on engine's existing match
                         if !op_matches || !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
-                        
-                        // Security Verification: If verifying "write" to temp, ensure kernel confirms it
-                        if op.as_str() == "write" && rule.staging_paths.iter().any(|sp| msg.filepathstr.to_lowercase().contains(&sp.to_lowercase())) {
-                             // This confirms the file op actually happened in the staging path
-                        }
                     },
                     RuleCondition::Process { op: _, pattern } => {
                          if !self.matches_pattern(pattern, &precord.appname) { stage_satisfied = false; break; }
                     },
                     RuleCondition::ProcessTermination { name_pattern } => {
-                        // Advanced Bypass Prevention: Check GID shared state if enabled
-                        let hit = if rule.track_by_gid {
-                            if let Some(gs) = self.gid_states.get(&gid) {
-                                gs.shared_terminated_processes.iter().any(|name| self.matches_pattern(name_pattern, name))
-                            } else {
-                                self.process_terminated.iter().any(|name| self.matches_pattern(name_pattern, name))
-                            }
-                        } else {
-                            self.process_terminated.iter().any(|name| self.matches_pattern(name_pattern, name))
-                        };
-                        
+                        let hit = self.process_terminated.iter().any(|name| self.matches_pattern(name_pattern, name));
                         if !hit { stage_satisfied = false; break; }
                     },
                     RuleCondition::Api { name_pattern, module_pattern: _ } => {
                         if !self.matches_pattern(name_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
-                        // WinInet Exfiltration Check
-                        if stage.name == "Exfiltration" {
-                             if !self.is_connected_to_internet(&msg.filepathstr) {
-                                 // Stricter checking: Ensure it's actually a network op
-                             }
-                        }
                     },
                     RuleCondition::Signature { is_trusted, signer_pattern: _ } => {
                         if !signature_checked { stage_satisfied = false; break; }
@@ -1106,12 +1037,6 @@ impl BehaviorEngine {
             }
         }
         any_stage_triggered
-    }
-    
-    // Helper to validate network keywords for Exfiltration stage
-    fn is_connected_to_internet(&self, api_str: &str) -> bool {
-        let net_apis = ["InternetConnect", "HttpSendRequest", "InternetWriteFile", "socket", "connect"];
-        net_apis.iter().any(|&api| api_str.contains(api))
     }
     
     fn check_allowlist(&self, proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {

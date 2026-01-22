@@ -1,69 +1,36 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   debug: true
-  severity: 90
-  level: critical
   
-  # --- Advanced Tracking Options ---
-  # GID (Group ID) tracking enables correlation across multiple processes
-  # This defeats advanced bypass where steps are split (e.g., proc A steals, proc B uploads)
-  track_by_gid: true
-
-  # --- Configuration for Staging Detection ---
-  # Environment variables will be resolved by the engine (e.g., %TEMP%)
+  browsed_paths:
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "Opera Software\\Opera GX Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
+  
+  accessed_paths:
+    - "Cookies"
+    - "Login Data"
+    - "Web Data"
+    - "Local State"
+  
   staging_paths:
-    - "%TEMP%"
-    - "%APPDATA%\\Local\\Temp"
-    - "%USERPROFILE%\\AppData\\Local\\Temp"
+    - "AppData\\Local\\Temp"
   
-  # Allow staging detection even if no sensitive files were read beforehand.
-  allow_isolated_staging: true
-
-  # --- Stage Definitions (Unified Logic) ---
-  stages:
-    # 1. PREPARATION: Killing browsers to unlock DB files
-    # Tracked via GID shared state to catch if helper process does this
-    - name: "Preparation"
-      conditions:
-        - type: ProcessTermination
-          name_pattern: "(chrome|msedge|brave|opera).exe"
-          
-    # 2. DISCOVERY: Reading sensitive user data
-    - name: "Discovery"
-      conditions:
-        - type: File
-          op: "read"
-          path_pattern: ".*(Google|Opera|Brave|Microsoft|Discord).*(User Data|Stable|leveldb|Local Storage).*(Cookies|Login Data|Local State|Web Data).*"
-
-    # 3. COLLECTION: Writing to temp folders
-    # Engine verifies kernel write events to resolved env paths
-    - name: "Collection"
-      conditions:
-        - type: File
-          op: "write"
-          path_pattern: ".*(Temp|AppData).*"
-
-    # 4. EXFILTRATION: Sending data out via WinInet/Sockets
-    # Specifically looks for upload activity AFTER collection
-    - name: "Exfiltration"
-      conditions:
-        - type: Api
-          name_pattern: "(InternetConnect|HttpSendRequest|InternetWriteFile|FtpPutFile|wsasend)"
-
-  # Sequence enforcement: Preparation -> Discovery -> Collection -> Exfiltration
-  mapping:
-    sequence: 
-      - "Preparation"
-      - "Discovery"
-      - "Collection"
-      - "Exfiltration"
-
-  # --- Behavioral Constraints ---
   multi_access_threshold: 2
   require_internet: true
-  entropy_threshold: 7.0
   conditions_percentage: 1.0
-
-  # Metadata for engine categorization
+  
+  monitored_apis:
+    - "CryptUnprotectData"
+    - "BCryptDecrypt"
+    - "NCryptDecrypt"
+    - "DPAPI"
+    - "CreateZip"
+    - "CreateRar"
+  
   suspicious_parents:
     - "powershell.exe"
     - "cmd.exe"
@@ -73,6 +40,8 @@
     - "python.exe"
     - "node.exe"
   
+  entropy_threshold: 7.0
+  
   file_actions:
     - "7z"
     - "tar"
@@ -81,7 +50,12 @@
     - ".zip"
     - ".rar"
 
-  # --- Allowlists ---
+  terminated_processes:
+    - "msedge.exe"
+    - "chrome.exe"
+    - "brave.exe"
+    - "opera.exe"
+
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true
@@ -107,11 +81,13 @@
     - pattern: "devenv.exe"
       must_be_signed: true
       signers: ["Microsoft.*"]
+    - pattern: "codium.exe"
+      must_be_signed: false
+    - pattern: "vscodium.exe"
+      must_be_signed: false
 
-  # --- Response Actions ---
   response:
     terminate_process: true
     quarantine: true
     kill_and_remove: false
     auto_revert: true
-    record: true
