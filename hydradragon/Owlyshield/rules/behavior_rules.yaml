@@ -91,4 +91,4 @@
     terminate_process: true
     quarantine: true
     kill_and_remove: false
-    auto_revert: false
+    auto_revert: true
