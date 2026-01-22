@@ -52,6 +52,7 @@
       conditions:
         - type: Api
           name_pattern: "(InternetConnect|HttpSendRequest|InternetWriteFile|FtpPutFile|wsasend)"
+          module_pattern: ".*"
 
   # Sequence enforcement
   mapping:
