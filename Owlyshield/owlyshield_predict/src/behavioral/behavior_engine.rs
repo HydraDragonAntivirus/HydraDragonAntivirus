@@ -11,7 +11,7 @@ use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
-use crate::actions_on_kill::{ActionsOnKill, ThreatInfo}; 
+use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
