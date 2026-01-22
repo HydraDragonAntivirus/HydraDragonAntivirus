@@ -289,6 +289,8 @@ impl ActionOnKill for KillAction {
             } else {
                 Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
                 self.handler.kill(proc.gid);
+            // Mark the process as terminated for rules
+            self.process_terminated.insert(proc.appname.to_lowercase());
             }
         }
         Ok(())
