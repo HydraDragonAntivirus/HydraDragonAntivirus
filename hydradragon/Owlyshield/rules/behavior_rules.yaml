@@ -21,7 +21,7 @@
   
   multi_access_threshold: 2
   require_internet: true
-  conditions_percentage: 0.8
+  conditions_percentage: 1.0
   
   monitored_apis:
     - "CryptUnprotectData"
@@ -49,18 +49,14 @@
   file_extensions:
     - ".zip"
     - ".rar"
-  
-  max_staging_lifetime_ms: 60000
-  
+
   # Renamed for generic use
   terminated_processes:
     - "msedge.exe"
     - "chrome.exe"
     - "brave.exe"
     - "opera.exe"
-  
-  termination_window_ms: 3600000 
-  
+
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true

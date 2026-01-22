@@ -130,13 +130,9 @@ pub struct BehaviorRule {
 
     #[serde(default)]
     pub suspicious_parents: Vec<String>,
-    #[serde(default)]
-    pub max_staging_lifetime_ms: u64,
 
     #[serde(default)]
     pub terminated_processes: Vec<String>, 
-    #[serde(default)]
-    pub termination_window_ms: Option<u64>,
 
     #[serde(default)]
     pub entropy_threshold: f64,
@@ -693,20 +689,21 @@ impl BehaviorEngine {
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
 
             let terminated_match = if !rule.terminated_processes.is_empty() {
-                let window = rule.termination_window_ms.unwrap_or(3_600_000);
-                rule.terminated_processes.iter().any(|proc| {
-                    self.process_termination_history
-                        .get(&proc.to_lowercase())
-                        .map(|t| {
-                            now.duration_since(*t)
-                                .unwrap_or(Duration::from_secs(999))
-                                .as_millis() < window as u128
-                        })
-                        .unwrap_or(false)
-                })
+                let mut kills = 0;
+
+                for proc in &rule.terminated_processes {
+                    if let Some(count) =
+                        self.process_termination_history.get(&proc.to_lowercase())
+                    {
+                        kills += count;
+                    }
+                }
+
+                kills > 0
             } else {
                 true
             };
+
 
             // ---------- CONDITION TRACKING ----------
             let mut satisfied_conditions = 0;
