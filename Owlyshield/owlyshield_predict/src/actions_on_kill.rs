@@ -16,9 +16,6 @@ use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
 use crate::utils::{FILE_TIME_FORMAT, LONG_TIME_FORMAT};
 
-#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::behavioral::behavior_engine::BehaviorEngine;
-
 /// New struct to hold detailed threat information.
 #[derive(Debug, Clone)]
 pub struct ThreatInfo<'a> {
@@ -292,12 +289,6 @@ impl ActionOnKill for KillAction {
             } else {
                 Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
                 self.handler.kill(proc.gid);
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                // Mark the process as terminated for behavioral rules
-                self.process_terminated.insert(proc.appname.to_lowercase());
-            }
-
             }
         }
         Ok(())
