@@ -295,7 +295,7 @@ pub enum RuleCondition {
     ProcessTermination { name_pattern: String },
     Service { op: String, name_pattern: String },
     Network { op: String, dest_pattern: Option<String> },
-    Api { name_pattern: String, #[serde(default)] module_pattern: String },
+    Api { name_pattern: String, module_pattern: String },
     Heuristic { metric: String, threshold: f64 },
     OperationCount { op_type: String, #[serde(default)] path_pattern: Option<String>, #[serde(default)] comparison: Comparison, threshold: u64 },
     ExtensionPattern { patterns: Vec<String>, #[serde(default)] match_mode: MatchMode, op_type: String },
@@ -1230,12 +1230,12 @@ impl BehaviorEngine {
                 }
             }
             
-            for rule in &self.rules {
-                for stage in &rule.stages {
-                    for condition in &stage.conditions {
-                        if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
-                            if !signature_checked { continue; }
-                            let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
+             for rule in &self.rules {
+                  for stage in &rule.stages {
+                     for condition in &stage.conditions {
+                         if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
+                             if !signature_checked { continue; }
+                              let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
                             
                             if violates {
                                 let is_allowlisted = self.state.check_allowlist(&app_name, rule, Some(&exe_path));
@@ -1251,7 +1251,7 @@ impl BehaviorEngine {
                             }
                         }
                     }
-                }
+                 }
             }
         }
         detected_processes
