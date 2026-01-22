@@ -86,3 +86,9 @@
       must_be_signed: false
     - pattern: "vscodium.exe"
       must_be_signed: false
+
+  response:
+    terminate_process: true
+    quarantine: true
+    kill_and_remove: false
+    auto_revert: false
