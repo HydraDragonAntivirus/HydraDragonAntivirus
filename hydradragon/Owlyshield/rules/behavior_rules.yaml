@@ -1,6 +1,8 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   debug: true
-  browser_paths:
+  
+  # Formerly browser_paths
+  browsed_paths:
     - "Google\\Chrome\\User Data"
     - "Opera Software\\Opera Stable"
     - "Opera Software\\Opera GX Stable"
@@ -8,24 +10,31 @@
     - "Microsoft\\Edge\\User Data"
     - "Discord\\Local Storage"
     - "Discord\\leveldb"
-  sensitive_files:
+  
+  # Formerly sensitive_files
+  accessed_paths:
     - "Cookies"
     - "Login Data"
     - "Web Data"
     - "Local State"
+  
   staging_paths:
     - "AppData\\Local\\Temp"
+  
   multi_access_threshold: 2
   time_window_ms: 30000
   require_internet: true
-  conditions_percentage: 0.5
+  conditions_percentage: 0.7
   
-  # Advanced Indicators
-  crypto_apis:
+  # Unified Monitored APIs (formerly crypto_apis + archive_apis)
+  monitored_apis:
     - "CryptUnprotectData"
     - "BCryptDecrypt"
     - "NCryptDecrypt"
     - "DPAPI"
+    - "CreateZip"
+    - "CreateRar"
+  
   suspicious_parents:
     - "powershell.exe"
     - "cmd.exe"
@@ -34,21 +43,28 @@
     - "mshta.exe"
     - "python.exe"
     - "node.exe"
+  
   entropy_threshold: 7.0
-  # Archive Signals (Separated)
-  archive_apis:
-    - "CreateZip"
-    - "CreateRar"
-  archive_tools:
+  
+  # Formerly archive_tools
+  file_actions:
     - "7z"
     - "tar"
-  archive_actions:
+  
+  # Formerly archive_actions (extensions)
+  file_extensions:
     - ".zip"
     - ".rar"
 
   max_staging_lifetime_ms: 60000
-  require_browser_closed_recently: true
-  # Advanced Allowlist (Signature-based)
+  
+  # New Specific Termination Logic
+  terminated_processes:
+    - "msedge.exe"
+    - "chrome.exe"
+    - "brave.exe"
+    - "opera.exe"
+  
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true
