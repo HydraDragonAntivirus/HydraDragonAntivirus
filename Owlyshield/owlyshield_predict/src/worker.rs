@@ -326,6 +326,7 @@ pub mod process_record_handling {
                         prediction: prediction_behavioral,
                         match_details: None,
                         terminate: true,
+                        kill_and_remove: true,
                         quarantine: true,
                         revert: true,
                     };
