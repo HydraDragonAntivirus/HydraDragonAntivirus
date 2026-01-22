@@ -11,7 +11,7 @@ use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
-use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+use crate::actions_on_kill::{ActionsOnKill, ThreatInfo}; 
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
@@ -109,11 +109,10 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub description: String,
     
-    // --- Renamed & Refactored Fields ---
     #[serde(default)]
-    pub browsed_paths: Vec<String>,    // Formerly browser_paths
+    pub browsed_paths: Vec<String>,
     #[serde(default)]
-    pub accessed_paths: Vec<String>,   // Formerly sensitive_files
+    pub accessed_paths: Vec<String>,
     #[serde(default)]
     pub staging_paths: Vec<String>,
     #[serde(default = "default_zero")]
@@ -123,39 +122,34 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub require_internet: bool,
     
-    // --- Uniting APIs ---
     #[serde(default)]
-    pub monitored_apis: Vec<String>,   // Formerly crypto_apis + archive_apis
+    pub monitored_apis: Vec<String>,
     
-    // --- Renamed Actions/Extensions ---
     #[serde(default)]
-    pub file_actions: Vec<String>,     // Formerly archive_actions (tools/verbs)
+    pub file_actions: Vec<String>,
     #[serde(default)]
-    pub file_extensions: Vec<String>,  // Formerly archive_extension
+    pub file_extensions: Vec<String>,
 
     #[serde(default)]
     pub suspicious_parents: Vec<String>,
     #[serde(default)]
     pub max_staging_lifetime_ms: u64,
 
-    // --- Specific Process Termination Logic ---
     #[serde(default)]
     pub terminated_processes: Vec<String>, 
     #[serde(default)]
-    pub termination_window_ms: Option<u64>, // Renamed from browser_closed_window
+    pub termination_window_ms: Option<u64>,
 
     #[serde(default)]
     pub entropy_threshold: f64,
     #[serde(default)]
     pub conditions_percentage: f32,
     
-    // --- Backward Compatibility / Temp Fields (Merged in finalize) ---
     #[serde(default)]
     pub archive_apis: Vec<String>,
     #[serde(default)]
     pub archive_tools: Vec<String>,
 
-    // --- Rich / New Fields ---
     #[serde(default)]
     pub conditions: Option<YamlValue>,
     #[serde(default)]
@@ -318,6 +312,7 @@ pub struct ProcessBehaviorState {
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
     pub extension_match_detected: bool,
+    pub network_activity_detected: bool, 
     pub parent_name: String,
     
     pub pid: u32,
@@ -454,7 +449,7 @@ impl BehaviorEngine {
         Ok(())
     }
 
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, _config: &Config, _threat_handler: &dyn ThreatHandler) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, actions: &ActionsOnKill) {
         let gid = msg.gid;
         
         // Ensure state exists
@@ -490,9 +485,9 @@ impl BehaviorEngine {
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
-        let pid = state.pid;  // Capture PID early for debug logging
+        let pid = state.pid;
         
-        // Signature check
+        // --- Signature check ---
         if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
             if precord.exepath.exists() {
                 let info = verify_signature(&precord.exepath);
@@ -504,7 +499,20 @@ impl BehaviorEngine {
             }
         }
 
-        // --- Event Tracking with DEBUG LOGGING ---
+        let network_keywords = [
+            "internetopen", "internetconnect", "httpopen", "httpsend", 
+            "urldownload", "socket", "connect", "wsasend", "wsarecv",
+            "winhttp", "dnsquery"
+        ];
+        
+        if network_keywords.iter().any(|k| filepath.contains(k)) {
+            state.network_activity_detected = true;
+            if self.rules.iter().any(|r| r.debug) {
+                 Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
+            }
+        }
+
+        // --- Event Tracking ---
         for rule in &self.rules {
             // Browsed Paths
             for b_path in &rule.browsed_paths {
@@ -597,10 +605,10 @@ impl BehaviorEngine {
             }
         }
 
-        self.check_rules(precord, gid, msg, irp_op);
+        self.check_rules(precord, gid, msg, irp_op, config, actions);
     }
 
-    fn check_rules(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp) {
+    fn check_rules(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp, config: &Config, actions: &ActionsOnKill) {
         let (
             browsed_paths_tracker,
             staged_files_written,
@@ -612,7 +620,8 @@ impl BehaviorEngine {
             extension_match_detected,
             has_valid_signature,
             signature_checked,
-            pid  // Added PID extraction
+            network_activity_detected,
+            pid
         ) = {
             let s = self.process_states.get(&gid).unwrap();
             (
@@ -626,31 +635,26 @@ impl BehaviorEngine {
                 s.extension_match_detected,
                 s.has_valid_signature,
                 s.signature_checked,
-                s.pid  // Added PID extraction
+                s.network_activity_detected,
+                s.pid
             )
         };
 
         let now = SystemTime::now();
 
         for rule in &self.rules {
+            if precord.is_malicious && precord.time_killed.is_some() {
+                continue;
+            }
+
             let is_allowlisted = self.check_allowlist(&precord.appname, rule, Some(&precord.exepath));
             if is_allowlisted {
-                if rule.debug { 
-                    Logging::debug(&format!(
-                        "Rule '{}' skipped for {} (PID: {}) (allowlisted)", 
-                        rule.name, precord.appname, pid
-                    )); 
-                }
                 continue;
             }
 
             // Stages
             if !rule.stages.is_empty() {
                 if self.evaluate_stages(rule, &parent_name, has_valid_signature, signature_checked, precord, msg, &irp_op) {
-                     Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched rule '{}' (stage triggered)",
-                        precord.appname, pid, rule.name
-                    ));
                     precord.is_malicious = true;
                 }
             }
@@ -663,7 +667,8 @@ impl BehaviorEngine {
             let has_staged_data = !staged_files_written.is_empty();
 
             let is_online = if rule.require_internet {
-                precord.pids.iter().any(|&pid| self.has_active_connections(pid))
+                let has_conn = precord.pids.iter().any(|&pid| self.has_active_connections(pid));
+                has_conn || network_activity_detected
             } else {
                 true
             };
@@ -676,9 +681,8 @@ impl BehaviorEngine {
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
 
-            // Termination check with logic for generic window name
+            // Termination check
             let terminated_match = if !rule.terminated_processes.is_empty() {
-                // Renamed browser_closed_window -> termination_window_ms
                 let window = rule.termination_window_ms.unwrap_or(3600000); 
                 let matched = rule.terminated_processes.iter().any(|proc_name| {
                     if let Some(time) = self.process_termination_history.get(&proc_name.to_lowercase()) {
@@ -687,12 +691,6 @@ impl BehaviorEngine {
                         false
                     }
                 });
-                if rule.debug && matched { 
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Rule '{}' (PID: {}): Found recently terminated target process (window: {}ms)", 
-                        rule.name, pid, window
-                    )); 
-                }
                 matched
             } else {
                 true 
@@ -713,7 +711,7 @@ impl BehaviorEngine {
                 total_tracked_conditions += 1;
                 if has_staged_data { satisfied_conditions += 1; }
             }
-            // Check Internet
+            // Check Internet (Updated logic)
             if rule.require_internet {
                 total_tracked_conditions += 1;
                 if is_online { satisfied_conditions += 1; }
@@ -754,26 +752,10 @@ impl BehaviorEngine {
                 if terminated_match { satisfied_conditions += 1; }
             }
 
-            // LOGGING THE RESULT (with PID added)
             if rule.debug && total_tracked_conditions > 0 {
                 Logging::debug(&format!(
-                    "[BehaviorEngine] Rule '{}' for {} (PID: {}): {}/{} conditions. [Browsed: {}/{}, Staged: {}, Online: {}, Parent: {}, Access: {}, Entropy: {}, APIs: {}, Actions: {}, Exts: {}, Term: {}]",
-                    rule.name,
-                    precord.appname,
-                    pid,  // Added PID here
-                    satisfied_conditions, 
-                    total_tracked_conditions,
-                    recent_access_count, 
-                    rule.multi_access_threshold, 
-                    has_staged_data, 
-                    is_online, 
-                    is_suspicious_parent, 
-                    has_sensitive_access, 
-                    high_entropy_detected, 
-                    monitored_api_count, 
-                    file_action_detected, 
-                    extension_match_detected, 
-                    terminated_match
+                    "[BehaviorEngine] Rule '{}' evaluation for {}: {}/{} conditions. (Online Status: {})",
+                    rule.name, precord.appname, satisfied_conditions, total_tracked_conditions, is_online
                 ));
             }
 
@@ -787,6 +769,24 @@ impl BehaviorEngine {
                         precord.appname, pid, rule.name, satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0
                     ));
                     precord.is_malicious = true;
+
+                    let threat_info = ThreatInfo {
+                        threat_type_label: "Behavioral Detection",
+                        virus_name: &rule.name,
+                        prediction: satisfied_ratio,
+                        match_details: Some(format!("Matched {}/{} conditions ({:.1}%)", satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0)),
+                        terminate: rule.response.terminate_process,
+                        quarantine: rule.response.quarantine,
+                        kill_and_remove: rule.response.kill_and_remove, // Added mapping for kill_and_remove
+                        revert: rule.response.auto_revert,
+                    };
+
+                    let dummy_pred_mtrx = VecvecCappedF32::new(); 
+                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
+                    
+                    if rule.response.terminate_process {
+                         break; 
+                    }
                 }
             }
         }

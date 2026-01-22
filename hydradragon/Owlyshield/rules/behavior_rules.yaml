@@ -22,7 +22,7 @@
   multi_access_threshold: 2
   time_window_ms: 30000
   require_internet: true
-  conditions_percentage: 0.7
+  conditions_percentage: 0.8
   
   monitored_apis:
     - "CryptUnprotectData"
