@@ -820,40 +820,36 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             // 1. Refresh system process list
             self.sys.refresh_processes();
-            
-            for (pid, process) in self.sys.processes() {
-                let gid = pid.as_u32() as u64;
-                let exepath = process.exe().to_path_buf();
-                let appname = process.name().to_string();
 
-                if exepath.to_str().unwrap_or("").is_empty() {
+            // 2. Scan ONLY existing ProcessRecords (never create new ones)
+            for (pid, _process) in self.sys.processes() {
+                let pid_u32 = pid.as_u32();
+
+                // IDENTITY-SAFE LOOKUP
+                // Find the ProcessRecord that already owns this PID
+                let Some((gid, _precord)) = self.process_records
+                    .process_records
+                    .iter()
+                    .find(|(_, pr)| pr.pids.contains(&pid_u32))
+                else {
+                    // Process exists in OS but not yet known by kernel/IO path
+                    // It WILL be registered later via process_io()
                     continue;
-                }
+                };
 
-                // 2. If it's a new process, create the record AND notify Behavior Engine
-                if self.process_records.get_precord_by_gid(gid).is_none() {
-                    let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                    self.process_records.insert_precord(gid, precord);
-
-                    // REGISTER with Behavior Engine so it enters the "Evaluating" pool
-                    #[cfg(feature = "behavior_engine")]
-                    {
-                        // We "poke" the behavior engine with an empty event or a dedicated init call
-                        // This ensures the GID exists in process_states for the next scan_all_processes call
-                        self.behavior_engine.register_process(gid, pid.as_u32(), exepath.clone(), appname.clone());
-                    }
-
-                    Logging::info(&format!("[PROCESS SCAN] Scanned & Registered: {} (GID: {}, PID: {})", 
-                        appname, gid, pid));
-                }
+                // Optional: sanity check process still alive
+                // (do nothing here – behavior engine handles logic)
+                let _ = gid;
             }
 
-            // 3. Now run the behavior engine scan over all registered processes
+            // 3. Run behavior engine scan on already-registered processes
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
-                
-                // Transfer detections back to global process_records
+                let detections = self
+                    .behavior_engine
+                    .scan_all_processes(config, &*threat_handler);
+
+                // 4. Apply detections back to ProcessRecords
                 for det in detections {
                     if let Some(record) = self.process_records.get_precord_mut_by_gid(det.gid) {
                         record.is_malicious = true;
@@ -863,6 +859,7 @@ pub mod worker_instance {
                 }
             }
         }
+
 
 		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
 			Worker {
