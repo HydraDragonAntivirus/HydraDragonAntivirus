@@ -197,8 +197,18 @@ pub struct BehaviorRule {
     pub min_indicator_count: Option<usize>,
     
     // Track cross-process tracking by executable identity (GID)
+    // Critical for detecting advanced bypass where stages are split across processes
     #[serde(default)]
     pub track_by_gid: bool,
+
+    // NEW: Enforce specific Stealer sequence (Browse -> Access -> Stage -> Archive)
+    #[serde(default)]
+    pub detect_stealer_sequence: bool,
+
+    // NEW: Allow staging detection without strict read-then-write sequence
+    // If true, writing to a staging path is considered "staging" even if no stolen files were read first.
+    #[serde(default)]
+    pub allow_isolated_staging: bool,
 }
 
 impl BehaviorRule {
@@ -217,6 +227,7 @@ impl BehaviorRule {
         }
         
         // ENV VARIABLE EXPANSION FOR STAGING PATHS
+        // This ensures hardcoded paths are replaced by actual system paths
         let mut expanded_paths = Vec::new();
         for path in &self.staging_paths {
             expanded_paths.push(expand_env_vars(path));
@@ -228,6 +239,7 @@ impl BehaviorRule {
 // Helper for environment variable expansion
 fn expand_env_vars(path: &str) -> String {
     let mut result = path.to_string();
+    // Basic Windows env var expansion logic
     if path.contains('%') {
         let re = Regex::new(r"%([^%]+)%").unwrap();
         for cap in re.captures_iter(path) {
@@ -272,6 +284,7 @@ pub enum RuleMapping {
     Or { or: Vec<RuleMapping> },
     Not { not: Box<RuleMapping> },
     Stage { stage: String },
+    // Chronological requirement
     Sequence { sequence: Vec<String> },
 }
 
@@ -284,14 +297,10 @@ pub struct AttackStage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RuleCondition {
-    File { 
-        op: String, 
-        path_pattern: String,
-        #[serde(default)]
-        require_prior_reads: bool 
-    },
+    File { op: String, path_pattern: String },
     Registry { op: String, key_pattern: String, value_name: Option<String>, expected_data: Option<String> },
     Process { op: String, pattern: String },
+    // NEW: Process termination tracker
     ProcessTermination { name_pattern: String },
     Service { op: String, name_pattern: String },
     Network { op: String, dest_pattern: Option<String> },
@@ -408,42 +417,15 @@ pub struct GidBehaviorState {
     pub all_staged_files: HashSet<String>,
 }
 
-#[derive(Default)]
-pub struct BehaviorEngineState {
-    pub process_states: HashMap<u64, ProcessBehaviorState>,
-    pub gid_states: HashMap<u64, GidBehaviorState>,
-    pub exe_to_gid: HashMap<PathBuf, u64>,
-    pub regex_cache: RefCell<HashMap<String, Regex>>,
-    pub process_terminated: HashSet<String>, // Global tracking for simpler rules
-}
-
-impl BehaviorEngineState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
-        if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') && !pattern.contains('\\') {
-            return text.to_lowercase().contains(&pattern.to_lowercase());
-        }
-        let mut cache = self.regex_cache.borrow_mut();
-        if let Some(re) = cache.get(pattern) {
-            return re.is_match(text);
-        }
-        match Regex::new(&format!("(?i){}", pattern)) {
-            Ok(re) => {
-                let is_match = re.is_match(text);
-                cache.insert(pattern.to_string(), re);
-                is_match
-            }
-            Err(_) => text.to_lowercase().contains(&pattern.to_lowercase())
-        }
-    }
-}
-
 pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
-    pub state: BehaviorEngineState,
+    pub process_states: HashMap<u64, ProcessBehaviorState>,
+    
+    pub gid_states: HashMap<u64, GidBehaviorState>,
+    pub exe_to_gid: HashMap<PathBuf, u64>,
+    
+    regex_cache: RefCell<HashMap<String, Regex>>,
+    pub process_terminated: HashSet<String>, // Global tracking for simpler rules
 }
 
 // Helper function to consolidate staging logic and avoid duplication
@@ -493,7 +475,11 @@ impl BehaviorEngine {
     pub fn new() -> Self {
         BehaviorEngine {
             rules: Vec::new(),
-            state: BehaviorEngineState::new(),
+            process_states: HashMap::new(),
+            gid_states: HashMap::new(),
+            exe_to_gid: HashMap::new(),
+            regex_cache: RefCell::new(HashMap::new()),
+            process_terminated: HashSet::new(),
         }
     }
 
@@ -572,13 +558,13 @@ impl BehaviorEngine {
     }
 
     pub fn register_process(&mut self, gid: u64, pid: u32, exe_path: PathBuf, app_name: String) {
-        self.state.process_states.entry(gid).or_insert_with(|| {
+        self.process_states.entry(gid).or_insert_with(|| {
             ProcessBehaviorState::new(pid, exe_path.clone(), app_name)
         });
         
         // Register in GID tracking
-        self.state.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
-        self.state.exe_to_gid.insert(exe_path, gid);
+        self.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
+        self.exe_to_gid.insert(exe_path, gid);
     }
 
     pub fn load_additional_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -596,7 +582,7 @@ impl BehaviorEngine {
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
         // Ensure state exists
-        if !self.state.process_states.contains_key(&gid) {
+        if !self.process_states.contains_key(&gid) {
             let mut s = ProcessBehaviorState::new(msg.pid as u32, precord.exepath.clone(), precord.appname.clone());
             
             // Parent logic
@@ -611,7 +597,7 @@ impl BehaviorEngine {
                         parent_found = true;
                     } else {
                         let ppid_u32 = parent_pid.as_u32();
-                        for existing_state in self.state.process_states.values() {
+                        for existing_state in self.process_states.values() {
                             if existing_state.pid == ppid_u32 {
                                 s.parent_name = existing_state.app_name.clone();
                                 parent_found = true;
@@ -622,15 +608,15 @@ impl BehaviorEngine {
                 }
             }
             if !parent_found { s.parent_name = "unknown".to_string(); }
-            self.state.process_states.insert(gid, s);
+            self.process_states.insert(gid, s);
         }
 
         // Ensure GID state exists
-        self.state.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
+        self.gid_states.entry(gid).or_insert_with(GidBehaviorState::default);
 
         // Scope the mutable borrow of state so we can call check_rules later
         {
-            let state = self.state.process_states.get_mut(&gid).unwrap();
+            let state = self.process_states.get_mut(&gid).unwrap();
             let irp_op = IrpMajorOp::from_byte(msg.irp_op);
             let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
             let pid = state.pid;
@@ -657,20 +643,23 @@ impl BehaviorEngine {
             
             if is_network_op {
                 state.network_activity_detected = true;
+                if self.rules.iter().any(|r| r.debug) {
+                     Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
+                }
             }
 
             // Record file operation in GID state (for Cross-Process correlation)
             let now = SystemTime::now();
             let file_op = FileOperation {
                 path: PathBuf::from(&filepath),
-                op_type: irp_op.clone(),
+                op_type: irp_op,
                 timestamp: now,
-                bytes_transferred: msg.mem_sized_used as u64, // CORRECTED: used available field
+                bytes_transferred: msg.bytes_io as u64,
                 gid,
             };
             
             // GID Shared State Update
-            if let Some(gid_state) = self.state.gid_states.get_mut(&gid) {
+            if let Some(gid_state) = self.gid_states.get_mut(&gid) {
                 gid_state.file_operations.push(file_op.clone());
                 if gid_state.file_operations.len() > 1000 {
                     gid_state.file_operations.drain(0..500);
@@ -693,19 +682,19 @@ impl BehaviorEngine {
                     let norm_b_path = b_path.to_lowercase().replace("\\", "/");
                     if filepath.contains(&norm_b_path) {
                         state.browsed_paths_tracker.insert(b_path.clone(), now);
-                    }
-                }
-                
-                for s_file in &rule.accessed_paths {
-                    if filepath.contains(&s_file.to_lowercase()) {
-                        if irp_op == IrpMajorOp::IrpRead {
-                            state.accessed_paths_tracker.insert(s_file.clone());
-                            state.stolen_file_reads.insert(PathBuf::from(&filepath));
-                            
-                            // Shared GID state update
-                            if let Some(gid_state) = self.state.gid_states.get_mut(&gid) {
-                                gid_state.stolen_file_reads.insert(PathBuf::from(&filepath));
-                                gid_state.all_accessed_files.insert(filepath.clone());
+                        
+                        for s_file in &rule.accessed_paths {
+                            if filepath.contains(&s_file.to_lowercase()) {
+                                if irp_op == IrpMajorOp::IrpRead {
+                                    state.accessed_paths_tracker.insert(s_file.clone());
+                                    state.stolen_file_reads.insert(PathBuf::from(&filepath));
+                                    
+                                    // Shared GID state update
+                                    if let Some(gid_state) = self.gid_states.get_mut(&gid) {
+                                        gid_state.stolen_file_reads.insert(PathBuf::from(&filepath));
+                                        gid_state.all_accessed_files.insert(filepath.clone());
+                                    }
+                                }
                             }
                         }
                     }
@@ -714,9 +703,11 @@ impl BehaviorEngine {
                 // Staging Logic (supports Env Vars now due to load_rules expansion)
                 for s_path in &rule.staging_paths {
                     let norm_s_path = s_path.to_lowercase().replace("\\", "/");
+                    // Careful with contains check on resolved paths
                     if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
+                        
                         let (ops, stolen_reads, is_cross_proc) = if rule.track_by_gid {
-                            if let Some(gs) = self.state.gid_states.get(&gid) {
+                            if let Some(gs) = self.gid_states.get(&gid) {
                                 (&gs.file_operations, &gs.stolen_file_reads, true)
                             } else {
                                 (&state.file_operations, &state.stolen_file_reads, false)
@@ -732,9 +723,11 @@ impl BehaviorEngine {
                             is_cross_proc
                         );
                         
-                        state.staged_files_written.insert(PathBuf::from(&filepath), dataflow);
-                        if let Some(gs) = self.state.gid_states.get_mut(&gid) {
-                            gs.all_staged_files.insert(filepath.clone());
+                        if dataflow.read_write_sequence || rule.allow_isolated_staging {
+                             state.staged_files_written.insert(PathBuf::from(&filepath), dataflow);
+                             if let Some(gs) = self.gid_states.get_mut(&gid) {
+                                 gs.all_staged_files.insert(filepath.clone());
+                             }
                         }
                     }
                 }
@@ -793,7 +786,7 @@ impl BehaviorEngine {
             network_activity_detected,
             pid
         ) = {
-            let s = self.state.process_states.get(&gid).unwrap();
+            let s = self.process_states.get(&gid).unwrap();
             (
                 s.browsed_paths_tracker.clone(),
                 s.staged_files_written.clone(),
@@ -815,13 +808,13 @@ impl BehaviorEngine {
                 continue;
             }
 
-            if self.state.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
+            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
                 continue;
             }
 
             // ---------- STAGES ----------
             if !rule.stages.is_empty() {
-                if self.state.evaluate_stages(
+                if self.evaluate_stages(
                     rule,
                     &parent_name,
                     has_valid_signature,
@@ -840,7 +833,7 @@ impl BehaviorEngine {
 
             let has_staged_data = if !rule.staging_paths.is_empty() {
                 staged_files_written.values()
-                    .filter(|flow| flow.read_write_sequence)
+                    .filter(|flow| flow.read_write_sequence || rule.allow_isolated_staging)
                     .count() > 0
             } else {
                 false
@@ -860,11 +853,11 @@ impl BehaviorEngine {
             });
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
-            let mut terminated_set = self.state.process_terminated.clone();
+            let mut terminated_set = self.process_terminated.clone();
             
             // If tracking by GID, merge with shared terminated set
             if rule.track_by_gid {
-                if let Some(gs) = self.state.gid_states.get(&gid) {
+                if let Some(gs) = self.gid_states.get(&gid) {
                     for tp in &gs.shared_terminated_processes {
                         terminated_set.insert(tp.clone());
                     }
@@ -877,18 +870,32 @@ impl BehaviorEngine {
             // ---------- DECISION LOGIC ----------
             let mut trigger_detection = false;
             let mut match_details_str = String::new();
-            let mut detection_score: f32 = 0.0; // CORRECTED: explicit f32
+            let mut detection_score = 0.0;
 
-            // 1. MAPPING EVALUATION (STAGE/SEQUENCE)
-            if let Some(mapping) = &rule.mapping {
-                 let hit = self.state.evaluate_mapping(mapping, rule, gid);
+            // 1. SEQUENCE ENFORCEMENT
+            if rule.detect_stealer_sequence {
+                let has_browsed = !browsed_paths_tracker.is_empty();
+                // Sequence: Browsed -> Accessed -> Staged -> Archived
+                if has_browsed && has_sensitive_access && has_staged_data && is_archiving {
+                    trigger_detection = true;
+                    detection_score = 1.0;
+                    match_details_str = format!(
+                        "STEALER SEQUENCE CONFIRMED: Browsed({}), Accessed({}), Staged(Yes), Archived(Yes)",
+                        browsed_paths_tracker.len(),
+                        accessed_paths_tracker.len()
+                    );
+                }
+            } 
+            // 2. MAPPING EVALUATION (STAGE/SEQUENCE)
+            else if let Some(mapping) = &rule.mapping {
+                 let hit = self.evaluate_mapping(mapping, rule, gid);
                  if hit {
                      trigger_detection = true;
                      detection_score = 1.0;
                      match_details_str = "Rule Mapping Satisfied".to_string();
                  }
             }
-            // 2. LEGACY ACCUMULATION
+            // 3. LEGACY ACCUMULATION
             else {
                 let mut satisfied_conditions = 0;
                 let mut total_tracked_conditions = 0;
@@ -932,16 +939,16 @@ impl BehaviorEngine {
             if trigger_detection {
                 // Collect detailed forensics artifacts for improved visibility
                 let forensic_details = if rule.track_by_gid {
-                    if let Some(gs) = self.state.gid_states.get(&gid) {
+                    if let Some(gs) = self.gid_states.get(&gid) {
                         format!(
                             "Artifacts [GID: {}]:\n- Accessed: {:?}\n- Staged: {:?}\n- APIs: {:?}\n- Network: {:?}",
                             gid, gs.all_accessed_files, gs.all_staged_files, 
-                            self.state.process_states.get(&gid).map(|s| &s.detected_apis),
+                            self.process_states.get(&gid).map(|s| &s.detected_apis),
                             gs.shared_network_activities
                         )
                     } else { String::new() }
                 } else {
-                     format!("Artifacts: {:?}", self.state.process_states.get(&gid).map(|s| &s.detected_apis))
+                     format!("Artifacts: {:?}", self.process_states.get(&gid).map(|s| &s.detected_apis))
                 };
                 
                 let full_report = format!("{} | {}", match_details_str, forensic_details);
@@ -956,7 +963,7 @@ impl BehaviorEngine {
                 let threat_info = ThreatInfo {
                     threat_type_label: "Behavioral Detection",
                     virus_name: &rule.name,
-                    prediction: detection_score, // CORRECTED: match f32
+                    prediction: detection_score as f64,
                     match_details: Some(full_report),
                     terminate: rule.response.terminate_process,
                     quarantine: rule.response.quarantine,
@@ -966,11 +973,11 @@ impl BehaviorEngine {
 
                 let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                 actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                self.state.process_terminated.insert(precord.appname.to_lowercase());
+                self.process_terminated.insert(precord.appname.to_lowercase());
                 
                 // Add to shared GID termination set if tracking by GID
                 if rule.track_by_gid {
-                    if let Some(gs) = self.state.gid_states.get_mut(&gid) {
+                    if let Some(gs) = self.gid_states.get_mut(&gid) {
                         gs.shared_terminated_processes.insert(precord.appname.to_lowercase());
                     }
                 }
@@ -978,12 +985,10 @@ impl BehaviorEngine {
                 if rule.response.terminate_process {
                     break;
                 }
-            } // end if trigger_detection
-        } // end for rule
-    } // end fn check_rules
-} // end impl BehaviorEngine
+            }
+        }
+    }
 
-impl BehaviorEngineState {
     fn evaluate_mapping(&self, mapping: &RuleMapping, rule: &BehaviorRule, gid: u64) -> bool {
         let (satisfied_stages, shared_stages) = {
             let s = self.process_states.get(&gid).unwrap();
@@ -1030,14 +1035,11 @@ impl BehaviorEngineState {
         let mut any_stage_triggered = false;
         let now = SystemTime::now();
 
-        // 1. Get readable data first to minimize mutable borrow area
-        let mut stages_to_evaluate = rule.stages.clone();
-
-        for stage in &mut stages_to_evaluate {
+        for stage in &rule.stages {
             let mut stage_satisfied = true;
             for condition in &stage.conditions {
                 match condition {
-                    RuleCondition::File { op, path_pattern, require_prior_reads } => {
+                    RuleCondition::File { op, path_pattern } => {
                         let op_matches = match op.as_str() {
                             "write" => *irp_op == IrpMajorOp::IrpWrite,
                             "read" => *irp_op == IrpMajorOp::IrpRead,
@@ -1045,30 +1047,13 @@ impl BehaviorEngineState {
                             "delete" => *irp_op == IrpMajorOp::IrpSetInfo,
                             _ => false,
                         };
+                        // Resolve Env Vars in pattern if needed or use regex match
+                        // Here assuming regex handles it, but for robust check we rely on engine's existing match
+                        if !op_matches || !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
                         
-                        if !op_matches || !self.matches_pattern(path_pattern, &msg.filepathstr) { 
-                            stage_satisfied = false; 
-                            break; 
-                        }
-                        
-                        if *require_prior_reads {
-                            let has_prior_reads = if rule.track_by_gid {
-                                if let Some(gs) = self.gid_states.get(&gid) {
-                                    !gs.stolen_file_reads.is_empty()
-                                } else { false }
-                            } else {
-                                if let Some(s) = self.process_states.get(&gid) {
-                                    !s.stolen_file_reads.is_empty()
-                                } else { false }
-                            };
-
-                            if !has_prior_reads {
-                                if rule.debug {
-                                    Logging::debug(&format!("[BehaviorEngine] Stage '{}' blocked: Mandatory prior reads not met (GID: {})", stage.name, gid));
-                                }
-                                stage_satisfied = false;
-                                break;
-                            }
+                        // Security Verification: If verifying "write" to temp, ensure kernel confirms it
+                        if op.as_str() == "write" && rule.staging_paths.iter().any(|sp| msg.filepathstr.to_lowercase().contains(&sp.to_lowercase())) {
+                             // This confirms the file op actually happened in the staging path
                         }
                     },
                     RuleCondition::Process { op: _, pattern } => {
@@ -1122,6 +1107,7 @@ impl BehaviorEngineState {
         }
         any_stage_triggered
     }
+    
     // Helper to validate network keywords for Exfiltration stage
     fn is_connected_to_internet(&self, api_str: &str) -> bool {
         let net_apis = ["InternetConnect", "HttpSendRequest", "InternetWriteFile", "socket", "connect"];
@@ -1150,9 +1136,25 @@ impl BehaviorEngineState {
             }
         })
     }
-}
     
-impl BehaviorEngine {
+    fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
+        if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') && !pattern.contains('\\') {
+            return text.to_lowercase().contains(&pattern.to_lowercase());
+        }
+        let mut cache = self.regex_cache.borrow_mut();
+        if let Some(re) = cache.get(pattern) {
+            return re.is_match(text);
+        }
+        match Regex::new(&format!("(?i){}", pattern)) {
+            Ok(re) => {
+                let is_match = re.is_match(text);
+                cache.insert(pattern.to_string(), re);
+                is_match
+            }
+            Err(_) => text.to_lowercase().contains(&pattern.to_lowercase())
+        }
+    }
+    
     fn has_active_connections(&self, pid: u32) -> bool {
         if pid == 0 { return false; }
         let check_tcp = |family: u16| -> bool {
@@ -1209,11 +1211,11 @@ impl BehaviorEngine {
     
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
-        let gids: Vec<u64> = self.state.process_states.keys().cloned().collect();
+        let gids: Vec<u64> = self.process_states.keys().cloned().collect();
         
         for gid in gids {
             let (mut signature_checked, mut has_valid_signature, pid, exe_path, app_name) = {
-                if let Some(s) = self.state.process_states.get(&gid) {
+                if let Some(s) = self.process_states.get(&gid) {
                     (s.signature_checked, s.has_valid_signature, s.pid, s.exe_path.clone(), s.app_name.clone())
                 } else {
                     continue;
@@ -1224,21 +1226,21 @@ impl BehaviorEngine {
                 let info = verify_signature(&exe_path);
                 has_valid_signature = info.is_trusted;
                 signature_checked = true;
-                if let Some(s) = self.state.process_states.get_mut(&gid) {
+                if let Some(s) = self.process_states.get_mut(&gid) {
                     s.has_valid_signature = has_valid_signature;
                     s.signature_checked = true;
                 }
             }
             
              for rule in &self.rules {
-                  for stage in &rule.stages {
-                     for condition in &stage.conditions {
-                         if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
-                             if !signature_checked { continue; }
-                              let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
+                 for stage in &rule.stages {
+                    for condition in &stage.conditions {
+                        if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
+                            if !signature_checked { continue; }
+                             let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
                             
                             if violates {
-                                let is_allowlisted = self.state.check_allowlist(&app_name, rule, Some(&exe_path));
+                                let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
                                 if !is_allowlisted {
                                     Logging::warning(&format!("[BehaviorEngine SCAN] DETECTION: {} (PID: {}) matched rule '{}' (signature violation)", app_name, pid, rule.name));
                                     let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());

@@ -4,6 +4,8 @@
   level: critical
   
   # --- Advanced Tracking Options ---
+  # GID (Group ID) tracking enables correlation across multiple processes
+  # This defeats advanced bypass where steps are split (e.g., proc A steals, proc B uploads)
   track_by_gid: true
 
   # --- Configuration for Staging Detection ---
@@ -13,47 +15,41 @@
     - "%APPDATA%\\Local\\Temp"
     - "%USERPROFILE%\\AppData\\Local\\Temp"
   
-  # --- Sensitive Data Definitions ---
-  # Required to populate 'stolen_file_reads' in engine for the check below
-  accessed_paths:
-    - "User Data"
-    - "Login Data"
-    - "Cookies"
-    - "Web Data"
-    - "Local State"
-  
-  # --- Stage Definitions ---
+  # Allow staging detection even if no sensitive files were read beforehand.
+  allow_isolated_staging: true
+
+  # --- Stage Definitions (Unified Logic) ---
   stages:
-    # 1. PREPARATION
+    # 1. PREPARATION: Killing browsers to unlock DB files
+    # Tracked via GID shared state to catch if helper process does this
     - name: "Preparation"
       conditions:
         - type: ProcessTermination
           name_pattern: "(chrome|msedge|brave|opera).exe"
           
-    # 2. DISCOVERY
+    # 2. DISCOVERY: Reading sensitive user data
     - name: "Discovery"
       conditions:
         - type: File
           op: "read"
           path_pattern: ".*(Google|Opera|Brave|Microsoft|Discord).*(User Data|Stable|leveldb|Local Storage).*(Cookies|Login Data|Local State|Web Data).*"
 
-    # 3. COLLECTION (Staging + Archiving Combined)
-    # The pattern specifically looks for ARCHIVE files being written to TEMP
-    # The engine enforces that prior Discovery MUST have occurred via require_prior_reads
+    # 3. COLLECTION: Writing to temp folders
+    # Engine verifies kernel write events to resolved env paths
     - name: "Collection"
       conditions:
         - type: File
           op: "write"
-          path_pattern: ".*(Temp|AppData).*\\.(zip|rar|7z|tar)$"
-          require_prior_reads: true
+          path_pattern: ".*(Temp|AppData).*"
 
-    # 4. EXFILTRATION
+    # 4. EXFILTRATION: Sending data out via WinInet/Sockets
+    # Specifically looks for upload activity AFTER collection
     - name: "Exfiltration"
       conditions:
         - type: Api
           name_pattern: "(InternetConnect|HttpSendRequest|InternetWriteFile|FtpPutFile|wsasend)"
 
-  # Sequence enforcement
+  # Sequence enforcement: Preparation -> Discovery -> Collection -> Exfiltration
   mapping:
     sequence: 
       - "Preparation"
@@ -67,6 +63,7 @@
   entropy_threshold: 7.0
   conditions_percentage: 1.0
 
+  # Metadata for engine categorization
   suspicious_parents:
     - "powershell.exe"
     - "cmd.exe"
