@@ -1,7 +1,6 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   debug: true
   
-  # Formerly browser_paths
   browsed_paths:
     - "Google\\Chrome\\User Data"
     - "Opera Software\\Opera Stable"
@@ -11,7 +10,6 @@
     - "Discord\\Local Storage"
     - "Discord\\leveldb"
   
-  # Formerly sensitive_files
   accessed_paths:
     - "Cookies"
     - "Login Data"
@@ -26,7 +24,6 @@
   require_internet: true
   conditions_percentage: 0.7
   
-  # Unified Monitored APIs (formerly crypto_apis + archive_apis)
   monitored_apis:
     - "CryptUnprotectData"
     - "BCryptDecrypt"
@@ -46,24 +43,24 @@
   
   entropy_threshold: 7.0
   
-  # Formerly archive_tools
   file_actions:
     - "7z"
     - "tar"
   
-  # Formerly archive_actions (extensions)
   file_extensions:
     - ".zip"
     - ".rar"
-
+  
   max_staging_lifetime_ms: 60000
   
-  # New Specific Termination Logic
+  # Renamed for generic use
   terminated_processes:
     - "msedge.exe"
     - "chrome.exe"
     - "brave.exe"
     - "opera.exe"
+  
+  termination_window_ms: 3600000 
   
   allowlisted_apps:
     - pattern: "chrome.exe"

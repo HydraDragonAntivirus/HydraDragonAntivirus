@@ -490,6 +490,7 @@ impl BehaviorEngine {
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
+        let pid = state.pid;  // Capture PID early for debug logging
         
         // Signature check
         if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
@@ -509,12 +510,22 @@ impl BehaviorEngine {
             for b_path in &rule.browsed_paths {
                 let norm_b_path = b_path.to_lowercase().replace("\\", "/");
                 if filepath.contains(&norm_b_path) {
-                    if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Matched browsed path '{}' in '{}'", rule.name, b_path, filepath)); }
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched browsed path '{}' in '{}'", 
+                            rule.name, pid, b_path, filepath
+                        )); 
+                    }
                     state.browsed_paths_tracker.insert(b_path.clone(), SystemTime::now());
                     
                     for s_file in &rule.accessed_paths {
                         if filepath.contains(&s_file.to_lowercase()) {
-                            if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Matched accessed path (sensitive) '{}'", rule.name, s_file)); }
+                            if rule.debug { 
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Rule '{}' (PID: {}): Matched accessed path (sensitive) '{}'", 
+                                    rule.name, pid, s_file
+                                )); 
+                            }
                             state.accessed_paths_tracker.insert(s_file.clone());
                         }
                     }
@@ -525,21 +536,36 @@ impl BehaviorEngine {
             for s_path in &rule.staging_paths {
                 let norm_s_path = s_path.to_lowercase().replace("\\", "/");
                 if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
-                    if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Matched staging path '{}'", rule.name, s_path)); }
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
+                            rule.name, pid, s_path
+                        )); 
+                    }
                     state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
                 }
             }
 
             // Entropy
             if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
-                if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': High entropy {:.2} > {:.2}", rule.name, msg.entropy, rule.entropy_threshold)); }
+                if rule.debug { 
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Rule '{}' (PID: {}): High entropy {:.2} > {:.2}", 
+                        rule.name, pid, msg.entropy, rule.entropy_threshold
+                    )); 
+                }
                 state.high_entropy_detected = true;
             }
 
             // Monitored APIs
             for api in &rule.monitored_apis {
                 if filepath.contains(&api.to_lowercase()) {
-                    if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Monitored API used '{}'", rule.name, api)); }
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API used '{}'", 
+                            rule.name, pid, api
+                        )); 
+                    }
                     state.monitored_api_count += 1;
                 }
             }
@@ -547,7 +573,12 @@ impl BehaviorEngine {
             // File Actions
             for action in &rule.file_actions {
                 if filepath.contains(&action.to_lowercase()) {
-                    if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': File action/tool detected '{}'", rule.name, action)); }
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): File action/tool detected '{}'", 
+                            rule.name, pid, action
+                        )); 
+                    }
                     state.file_action_detected = true;
                 }
             }
@@ -555,7 +586,12 @@ impl BehaviorEngine {
             // Extensions
             for ext in &rule.file_extensions {
                 if filepath.ends_with(&ext.to_lowercase()) || filepath.contains(&ext.to_lowercase()) {
-                    if rule.debug { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Extension match '{}'", rule.name, ext)); }
+                    if rule.debug { 
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Extension match '{}'", 
+                            rule.name, pid, ext
+                        )); 
+                    }
                     state.extension_match_detected = true;
                 }
             }
@@ -575,7 +611,8 @@ impl BehaviorEngine {
             file_action_detected,
             extension_match_detected,
             has_valid_signature,
-            signature_checked
+            signature_checked,
+            pid  // Added PID extraction
         ) = {
             let s = self.process_states.get(&gid).unwrap();
             (
@@ -588,7 +625,8 @@ impl BehaviorEngine {
                 s.file_action_detected,
                 s.extension_match_detected,
                 s.has_valid_signature,
-                s.signature_checked
+                s.signature_checked,
+                s.pid  // Added PID extraction
             )
         };
 
@@ -597,7 +635,12 @@ impl BehaviorEngine {
         for rule in &self.rules {
             let is_allowlisted = self.check_allowlist(&precord.appname, rule, Some(&precord.exepath));
             if is_allowlisted {
-                if rule.debug { Logging::debug(&format!("Rule '{}' skipped for {} (allowlisted)", rule.name, precord.appname)); }
+                if rule.debug { 
+                    Logging::debug(&format!(
+                        "Rule '{}' skipped for {} (PID: {}) (allowlisted)", 
+                        rule.name, precord.appname, pid
+                    )); 
+                }
                 continue;
             }
 
@@ -605,8 +648,8 @@ impl BehaviorEngine {
             if !rule.stages.is_empty() {
                 if self.evaluate_stages(rule, &parent_name, has_valid_signature, signature_checked, precord, msg, &irp_op) {
                      Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} matched rule '{}' (stage triggered)",
-                        precord.appname, rule.name
+                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched rule '{}' (stage triggered)",
+                        precord.appname, pid, rule.name
                     ));
                     precord.is_malicious = true;
                 }
@@ -644,7 +687,12 @@ impl BehaviorEngine {
                         false
                     }
                 });
-                if rule.debug && matched { Logging::debug(&format!("[BehaviorEngine] Rule '{}': Found recently terminated target process (window: {}ms)", rule.name, window)); }
+                if rule.debug && matched { 
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Rule '{}' (PID: {}): Found recently terminated target process (window: {}ms)", 
+                        rule.name, pid, window
+                    )); 
+                }
                 matched
             } else {
                 true 
@@ -706,12 +754,26 @@ impl BehaviorEngine {
                 if terminated_match { satisfied_conditions += 1; }
             }
 
-            // LOGGING THE RESULT
+            // LOGGING THE RESULT (with PID added)
             if rule.debug && total_tracked_conditions > 0 {
                 Logging::debug(&format!(
-                    "[BehaviorEngine] Rule '{}' Status: {}/{} conditions. [Browsed: {}/{}, Staged: {}, Online: {}, Parent: {}, Access: {}, Entropy: {}, APIs: {}, Actions: {}, Exts: {}, Term: {}]",
-                    rule.name, satisfied_conditions, total_tracked_conditions,
-                    recent_access_count, rule.multi_access_threshold, has_staged_data, is_online, is_suspicious_parent, has_sensitive_access, high_entropy_detected, monitored_api_count, file_action_detected, extension_match_detected, terminated_match
+                    "[BehaviorEngine] Rule '{}' for {} (PID: {}): {}/{} conditions. [Browsed: {}/{}, Staged: {}, Online: {}, Parent: {}, Access: {}, Entropy: {}, APIs: {}, Actions: {}, Exts: {}, Term: {}]",
+                    rule.name,
+                    precord.appname,
+                    pid,  // Added PID here
+                    satisfied_conditions, 
+                    total_tracked_conditions,
+                    recent_access_count, 
+                    rule.multi_access_threshold, 
+                    has_staged_data, 
+                    is_online, 
+                    is_suspicious_parent, 
+                    has_sensitive_access, 
+                    high_entropy_detected, 
+                    monitored_api_count, 
+                    file_action_detected, 
+                    extension_match_detected, 
+                    terminated_match
                 ));
             }
 
@@ -721,8 +783,8 @@ impl BehaviorEngine {
 
                 if satisfied_ratio >= threshold {
                     Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} matched rule '{}'. Satisfied {}/{} conditions ({:.1}%)",
-                        precord.appname, rule.name, satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0
+                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched rule '{}'. Satisfied {}/{} conditions ({:.1}%)",
+                        precord.appname, pid, rule.name, satisfied_conditions, total_tracked_conditions, satisfied_ratio * 100.0
                     ));
                     precord.is_malicious = true;
                 }
