@@ -297,6 +297,7 @@ impl ActionOnKill for KillAction {
                 // Mark the process as terminated for behavioral rules
                 self.process_terminated.insert(proc.appname.to_lowercase());
             }
+
             }
         }
         Ok(())
