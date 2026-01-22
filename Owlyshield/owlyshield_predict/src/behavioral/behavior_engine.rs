@@ -687,6 +687,10 @@ impl BehaviorEngine {
             };
 
 
+            // Prepare a temporary "terminated processes" set including the current process
+            let mut terminated_set = self.process_terminated.clone();
+            terminated_set.insert(precord.appname.to_lowercase());
+
             // ---------- CONDITION TRACKING ----------
             let mut satisfied_conditions = 0;
             let mut total_tracked_conditions = 0;
@@ -741,6 +745,10 @@ impl BehaviorEngine {
             }
 
             if !rule.terminated_processes.is_empty() {
+                // Use the temporary set here
+                let terminated_match = rule.terminated_processes.iter().any(|proc| {
+                    terminated_set.contains(&proc.to_lowercase())
+                });
                 check!("terminated_proc", terminated_match);
             }
 
