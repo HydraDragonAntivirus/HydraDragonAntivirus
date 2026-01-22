@@ -264,7 +264,6 @@ pub mod process_record_handling {
 
     pub trait ProcessRecordIOHandler {
         fn handle_io(&mut self, process_record: &mut ProcessRecord);
-        fn handle_behavior_detection(&mut self, process_record: &mut ProcessRecord);
     }
 
     pub struct ProcessRecordHandlerLive<'a> {
@@ -340,12 +339,6 @@ pub mod process_record_handling {
                     );
                 }
             }
-        }
-
-        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {
-            // Behavioral detections are now handled directly within BehaviorEngine
-            // through ActionsOnKill::with_handler(KillAction), so this is no longer needed
-            // for those detections.
         }
 
         #[cfg(target_os = "linux")]
@@ -427,8 +420,6 @@ pub mod process_record_handling {
                     .expect("Cannot write csv learn file");
             }
         }
-
-        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl ProcessRecordHandlerReplay {
@@ -504,8 +495,6 @@ pub mod process_record_handling {
                 }
             }
         }
-
-        fn handle_behavior_detection(&mut self, _precord: &mut ProcessRecord) {}
     }
 
     impl<'a> ProcessRecordHandlerNovelty<'a> {
@@ -935,7 +924,6 @@ pub mod worker_instance {
                 }
 
                 if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_behavior_detection(precord);
                     process_record_handler.handle_io(precord);
                 }
                 for postprocessor in &mut self.iomsg_postprocessors {
