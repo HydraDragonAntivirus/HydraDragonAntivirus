@@ -328,6 +328,7 @@ pub struct BehaviorEngine {
     pub rules: Vec<BehaviorRule>,
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
+    process_terminated: HashSet::new(),
 }
 
 impl BehaviorEngine {
@@ -677,17 +678,9 @@ impl BehaviorEngine {
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
 
             let terminated_match = if !rule.terminated_processes.is_empty() {
-                let mut kills = 0;
-
-                for proc in &rule.terminated_processes {
-                    if let Some(count) =
-                        self.process_termination_history.get(&proc.to_lowercase())
-                    {
-                        kills += count;
-                    }
-                }
-
-                kills > 0
+                rule.terminated_processes.iter().any(|proc| {
+                    self.process_terminated.contains(&proc.to_lowercase())
+                })
             } else {
                 true
             };
