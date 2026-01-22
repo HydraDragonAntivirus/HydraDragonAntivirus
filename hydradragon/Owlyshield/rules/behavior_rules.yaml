@@ -50,7 +50,6 @@
     - ".zip"
     - ".rar"
 
-  # Renamed for generic use
   terminated_processes:
     - "msedge.exe"
     - "chrome.exe"
