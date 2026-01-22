@@ -1,16 +1,13 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
-  description: >
-    Advanced detection for browser stealers using IoC-style indicators.
-    Includes signature-based allowlisting and separated archive monitoring.
-  conditions_percentage: 0.5
-  require_internet: true
-  time_window_ms: 30000
-  multi_access_threshold: 2
-  max_staging_lifetime_ms: 60000
-  entropy_threshold: 7.0
-  require_browser_closed_recently: true
-
-  browser_paths: *browser_paths
+  debug: true
+  browser_paths:
+    - "Google\\Chrome\\User Data"
+    - "Opera Software\\Opera Stable"
+    - "Opera Software\\Opera GX Stable"
+    - "BraveSoftware\\Brave-Browser\\User Data"
+    - "Microsoft\\Edge\\User Data"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
   sensitive_files:
     - "Cookies"
     - "Login Data"
@@ -18,7 +15,26 @@
     - "Local State"
   staging_paths:
     - "AppData\\Local\\Temp"
-
+  multi_access_threshold: 2
+  time_window_ms: 30000
+  require_internet: true
+  conditions_percentage: 0.5
+  
+  # Advanced Indicators
+  crypto_apis:
+    - "CryptUnprotectData"
+    - "BCryptDecrypt"
+    - "NCryptDecrypt"
+    - "DPAPI"
+  suspicious_parents:
+    - "powershell.exe"
+    - "cmd.exe"
+    - "wscript.exe"
+    - "cscript.exe"
+    - "mshta.exe"
+    - "python.exe"
+    - "node.exe"
+  entropy_threshold: 7.0
   # Archive Signals (Separated)
   archive_apis:
     - "CreateZip"
@@ -30,23 +46,8 @@
     - ".zip"
     - ".rar"
 
-  # Crypto Indicators
-  crypto_apis:
-    - "CryptUnprotectData"
-    - "BCryptDecrypt"
-    - "NCryptDecrypt"
-    - "DPAPI"
-
-  # Process Ancestry Indicators
-  suspicious_parents:
-    - "powershell.exe"
-    - "cmd.exe"
-    - "wscript.exe"
-    - "cscript.exe"
-    - "mshta.exe"
-    - "python.exe"
-    - "node.exe"
-
+  max_staging_lifetime_ms: 60000
+  require_browser_closed_recently: true
   # Advanced Allowlist (Signature-based)
   allowlisted_apps:
     - pattern: "chrome.exe"

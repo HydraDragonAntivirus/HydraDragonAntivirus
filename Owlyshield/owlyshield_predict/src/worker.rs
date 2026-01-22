@@ -828,28 +828,48 @@ pub mod worker_instance {
         }
 
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                let _ = self.behavior_engine.scan_all_processes(config, &*threat_handler);
-            }
-
+            // 1. Refresh system process list
             self.sys.refresh_processes();
+            
             for (pid, process) in self.sys.processes() {
                 let gid = pid.as_u32() as u64;
-        
+                let exepath = process.exe().to_path_buf();
+                let appname = process.name().to_string();
+
+                if exepath.to_str().unwrap_or("").is_empty() {
+                    continue;
+                }
+
+                // 2. If it's a new process, create the record AND notify Behavior Engine
                 if self.process_records.get_precord_by_gid(gid).is_none() {
-                    let exepath = process.exe().to_path_buf();
-                    let appname = process.name().to_string();
-        
-                    if exepath.to_str().unwrap_or("").is_empty() {
-                        continue;
-                    }
-        
                     let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(gid, precord);
-        
-                    Logging::info(&format!("[PROCESS SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
-                        appname, gid, pid, exepath.display()));
+
+                    // REGISTER with Behavior Engine so it enters the "Evaluating" pool
+                    #[cfg(feature = "behavior_engine")]
+                    {
+                        // We "poke" the behavior engine with an empty event or a dedicated init call
+                        // This ensures the GID exists in process_states for the next scan_all_processes call
+                        self.behavior_engine.register_process(gid, pid.as_u32(), exepath.clone(), appname.clone());
+                    }
+
+                    Logging::info(&format!("[PROCESS SCAN] Scanned & Registered: {} (GID: {}, PID: {})", 
+                        appname, gid, pid));
+                }
+            }
+
+            // 3. Now run the behavior engine scan over all registered processes
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
+                
+                // Transfer detections back to global process_records
+                for det in detections {
+                    if let Some(record) = self.process_records.get_mut_precord_by_gid(det.gid) {
+                        record.is_malicious = true;
+                        record.termination_requested = det.termination_requested;
+                        record.quarantine_requested = det.quarantine_requested;
+                    }
                 }
             }
         }
@@ -987,19 +1007,27 @@ pub mod worker_instance {
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(iomsg.gid, precord);
                     
+                    // SYNC FIX: Register with Behavior Engine immediately on discovery
+                    #[cfg(feature = "behavior_engine")]
+                    {
+                        self.behavior_engine.register_process(
+                            iomsg.gid, 
+                            iomsg.pid as u32, 
+                            exepath.clone(), 
+                            appname.clone()
+                        );
+                    }
+
                     // Track in learning engine
                     #[cfg(feature = "realtime_learning")]
                     {
                         self.learning_engine.track_process(iomsg.gid, appname.clone());
                         self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
                     }
-                                           
                 }
                 Some(_) => {}
             }
         }
-
-
 
         fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
             exepath.file_name()?.to_str().map(|s| s.to_string())
