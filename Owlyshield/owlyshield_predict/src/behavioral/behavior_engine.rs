@@ -837,7 +837,6 @@ impl BehaviorEngine {
         }
     }
 
-
     fn evaluate_stages(
         &self, 
         rule: &BehaviorRule, 
