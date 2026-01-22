@@ -800,12 +800,8 @@ impl BehaviorEngine {
 
                     let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                     actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    {
-                        self.process_terminated.insert(precord.appname.to_lowercase());
-                    }
-
+                    self.process_terminated.insert(precord.appname.to_lowercase());
+                    
                     if rule.response.terminate_process {
                         break;
                     }
