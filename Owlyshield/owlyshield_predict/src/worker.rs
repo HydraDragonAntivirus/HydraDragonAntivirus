@@ -749,206 +749,65 @@ pub mod worker_instance {
 
     use crate::logging::Logging;
 
-    // Add to worker_instance.rs in Worker implementation
-
     impl<'a> Worker<'a> {
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
-            // Check if this is a process lifecycle event
-            if iomsg.is_process_event() {
-                match IrpMajorOp::from_byte(iomsg.irp_op) {
-                    IrpMajorOp::IrpProcessCreate => {
-                        self.handle_process_create(iomsg, config);
-                        return;
-                    }
-                    IrpMajorOp::IrpProcessTerminate => {
-                        self.handle_process_terminate(iomsg);
-                        return;
-                    }
-                    _ => {} // Shouldn't happen, but continue to normal processing
-                }
-            }
+        // =========================================================================
+        // Constructors & Builders
+        // =========================================================================
 
-            // Normal I/O event processing
-            self.register_precord(iomsg);
-            let tracking_key = iomsg.gid;
-            
-            if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
-                // Get AVIntegration from self if hydradragon feature is enabled
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                {
-                    if let Some(av_integration) = self.av_integration.as_mut() {
-                        precord.add_irp_record(iomsg, Some(av_integration));
-                    } else {
-                        precord.add_irp_record(iomsg, None);
-                    }
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
-                {
-                    precord.add_irp_record(iomsg, None);
-                }
-
-                // Pass the config and threat_handler to the behavior engine
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if let Some(ref th) = self.threat_handler {
-                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
-                }
-                
-                #[cfg(feature = "realtime_learning")]
-                {
-                    self.learning_engine.update_activity(tracking_key);
-                    if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
-                        tracker.track_io_operation(iomsg, precord);
-                    }
-                }
-
-                if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_io(precord);
-                }
-                for postprocessor in &mut self.iomsg_postprocessors {
-                    postprocessor.postprocess(iomsg, precord);
-                }
-            }
-        }
-
-        /// Handle instant process creation notification from kernel
-        fn handle_process_create(&mut self, iomsg: &mut IOMessage, config: &Config) {
-            let exe_path = PathBuf::from(&iomsg.filepathstr);
-            let app_name = exe_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&format!("PROC_{}", iomsg.pid))
-                .to_string();
-            
-            let parent_pid = iomsg.get_parent_pid().unwrap_or(0);
-            
-            Logging::info(&format!(
-                "[INSTANT DETECT] Process spawned: {} (GID: {}, PID: {}, Parent: {}, Path: {})",
-                app_name, iomsg.gid, iomsg.pid, parent_pid, exe_path.display()
-            ));
-            
-            // Create ProcessRecord with process path already set
-            iomsg.runtime_features.exepath = exe_path.clone();
-            iomsg.runtime_features.exe_still_exists = exe_path.exists();
-            
-            let precord = ProcessRecord::from(iomsg, app_name.clone(), exe_path.clone());
-            self.process_records.insert_precord(iomsg.gid, precord);
-            
-            // Register with behavior engine IMMEDIATELY
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                self.behavior_engine.register_process(
-                    iomsg.gid,
-                    iomsg.pid as u32,
-                    exe_path.clone(),
-                    app_name.clone()
-                );
-                
-                // Run INSTANT signature-based scan (before process does anything malicious)
-                if let Some(ref th) = self.threat_handler {
-                    let detections = self.behavior_engine.scan_all_processes(config, &**th);
-                    
-                    for det in detections {
-                        if det.gid == iomsg.gid {
-                            Logging::warning(&format!(
-                                "[INSTANT KILL] Malicious signature detected on spawn: {} (GID: {})",
-                                app_name, iomsg.gid
-                            ));
-                            
-                            if let Some(record) = self.process_records.get_precord_mut_by_gid(det.gid) {
-                                record.is_malicious = true;
-                                record.termination_requested = det.termination_requested;
-                                record.quarantine_requested = det.quarantine_requested;
-                                
-                                // Kill before it can do damage!
-                                if det.termination_requested {
-                                    th.kill(iomsg.gid);
-                                    record.time_killed = Some(std::time::SystemTime::now());
-                                    
-                                    // Optional: Quarantine the executable
-                                    if det.quarantine_requested {
-                                        th.kill_and_quarantine(iomsg.gid, &exe_path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Track in learning engine
-            #[cfg(feature = "realtime_learning")]
-            {
-                self.learning_engine.track_process(iomsg.gid, app_name.clone());
-                self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, app_name));
-            }
-        }
-
-        /// Handle process termination notification from kernel
-        fn handle_process_terminate(&mut self, iomsg: &IOMessage) {
-            Logging::debug(&format!(
-                "[INSTANT] Process terminated: GID {} (PID: {})",
-                iomsg.gid, iomsg.pid
-            ));
-            
-            // Notify behavior engine
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                if let Some(precord) = self.process_records.process_records.peek(&iomsg.gid) {
-                    self.behavior_engine.report_process_termination(precord.appname.clone());
-                }
-            }
-            
-            // Learning engine cleanup
-            #[cfg(feature = "realtime_learning")]
-            {
-                if let Some(precord) = self.process_records.process_records.pop(&iomsg.gid) {
-                    if let Some(tracker) = self.api_trackers.remove(&iomsg.gid) {
-                        self.learning_engine.process_terminated(iomsg.gid, &tracker, &precord);
-                    }
-                }
-            }
-            
-            // Remove from tracking (if not already removed by learning engine)
-            #[cfg(not(feature = "realtime_learning"))]
-            {
-                self.process_records.process_records.pop(&iomsg.gid);
-            }
-        }
-    }
-
-    impl<'a> Worker<'a> {
-		pub fn new(config: &'a Config, app_settings: AppSettings) -> Worker<'a> {
-			Worker {
-				whitelist: None,
-				process_records: ProcessRecords::new(),
-				process_record_handler: None,
-				exepath_handler: Box::<ExepathLive>::default(),
-				iomsg_postprocessors: vec![],
-                // --- ADDED: Initialize new field ---
+        pub fn new(config: &'a Config, app_settings: AppSettings) -> Worker<'a> {
+            Worker {
+                whitelist: None,
+                process_records: ProcessRecords::new(),
+                process_record_handler: None,
+                exepath_handler: Box::<ExepathLive>::default(),
+                iomsg_postprocessors: vec![],
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(
+                    config[Param::NoveltyPath].as_str(),
+                    Some(app_settings.win_verify_trust_path.to_str().unwrap()),
+                ),
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
-                app_settings, // Initialize app_settings
+                app_settings,
                 threat_handler: None,
                 sys: sysinfo::System::new_all(),
-			}
-		}
+            }
+        }
+
+        pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
+            Worker {
+                whitelist: Some(whitelist),
+                process_records: ProcessRecords::new(),
+                process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
+                exepath_handler: Box::<ExePathReplay>::default(),
+                iomsg_postprocessors: vec![],
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                av_integration: None,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                behavior_engine: BehaviorEngine::new(),
+                #[cfg(feature = "realtime_learning")]
+                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(
+                    config[Param::NoveltyPath].as_str(),
+                    Some(app_settings.win_verify_trust_path.to_str().unwrap()),
+                ),
+                #[cfg(feature = "realtime_learning")]
+                api_trackers: std::collections::HashMap::new(),
+                app_settings,
+                threat_handler: None,
+                sys: sysinfo::System::new_all(),
+            }
+        }
 
         pub fn whitelist(mut self, whitelist: &'a WhiteList) -> Worker<'a> {
             self.whitelist = Some(whitelist);
             self
         }
 
-        pub fn process_record_handler(
-            mut self,
-            phandler: Box<dyn ProcessRecordIOHandler + 'a>,
-        ) -> Worker<'a> {
+        pub fn process_record_handler(mut self, phandler: Box<dyn ProcessRecordIOHandler + 'a>) -> Worker<'a> {
             self.process_record_handler = Some(phandler);
             self
         }
@@ -963,19 +822,13 @@ pub mod worker_instance {
             self
         }
 
-
-
-        pub fn register_iomsg_postprocessor(
-            mut self,
-            postprecessor: Box<dyn IOMsgPostProcessor>,
-        ) -> Worker<'a> {
+        pub fn register_iomsg_postprocessor(mut self, postprecessor: Box<dyn IOMsgPostProcessor>) -> Worker<'a> {
             self.iomsg_postprocessors.push(postprecessor);
             self
         }
 
-        // --- ADDED: Builder method to set the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        #[allow(dead_code)] // Silencing warning, this builder method is used externally
+        #[allow(dead_code)]
         pub fn av_integration(mut self, av_integration: Option<crate::av_integration::AVIntegration<'a>>) -> Worker<'a> {
             self.av_integration = av_integration;
             self
@@ -985,37 +838,212 @@ pub mod worker_instance {
             self
         }
 
+        // =========================================================================
+        // Core Processing Logic
+        // =========================================================================
+
+        /// Main entry point for I/O Messages.
+        /// Handles process lifecycle events (Create/Terminate) and standard I/O operations.
+        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+            // 1. Check if this is a process lifecycle event (Priority Handling)
+            if iomsg.is_process_event() {
+                match IrpMajorOp::from_byte(iomsg.irp_op) {
+                    IrpMajorOp::IrpProcessCreate => {
+                        self.handle_process_create(iomsg, config);
+                        return;
+                    }
+                    IrpMajorOp::IrpProcessTerminate => {
+                        self.handle_process_terminate(iomsg);
+                        return;
+                    }
+                    _ => {} // Shouldn't happen given is_process_event(), but continue to normal processing
+                }
+            }
+
+            // 2. Normal I/O event processing
+            self.register_precord(iomsg);
+            let tracking_key = iomsg.gid;
+
+            if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
+                
+                // HydraDragon / AV Integration
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                {
+                    if let Some(av_integration) = self.av_integration.as_mut() {
+                        precord.add_irp_record(iomsg, Some(av_integration));
+                    } else {
+                        precord.add_irp_record(iomsg, None);
+                    }
+                }
+
+                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+                {
+                    precord.add_irp_record(iomsg, None);
+                }
+
+                // Behavior Engine Analysis
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if let Some(ref th) = self.threat_handler {
+                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
+                }
+
+                // Realtime Learning Update
+                #[cfg(feature = "realtime_learning")]
+                {
+                    self.learning_engine.update_activity(tracking_key);
+                    if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
+                        tracker.track_io_operation(iomsg, precord);
+                    }
+                }
+
+                // Post-processing and Handlers
+                if let Some(process_record_handler) = &mut self.process_record_handler {
+                    process_record_handler.handle_io(precord);
+                }
+                for postprocessor in &mut self.iomsg_postprocessors {
+                    postprocessor.postprocess(iomsg, precord);
+                }
+            }
+        }
+
+        // =========================================================================
+        // Lifecycle Handlers
+        // =========================================================================
+
+        /// Handle instant process creation notification from kernel
+        fn handle_process_create(&mut self, iomsg: &mut IOMessage, config: &Config) {
+            let exe_path = PathBuf::from(&iomsg.filepathstr);
+            let app_name = exe_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&format!("PROC_{}", iomsg.pid))
+                .to_string();
+
+            let parent_pid = iomsg.get_parent_pid().unwrap_or(0);
+
+            Logging::info(&format!(
+                "[INSTANT DETECT] Process spawned: {} (GID: {}, PID: {}, Parent: {}, Path: {})",
+                app_name, iomsg.gid, iomsg.pid, parent_pid, exe_path.display()
+            ));
+
+            // Create ProcessRecord with process path already set
+            iomsg.runtime_features.exepath = exe_path.clone();
+            iomsg.runtime_features.exe_still_exists = exe_path.exists();
+
+            let precord = ProcessRecord::from(iomsg, app_name.clone(), exe_path.clone());
+            self.process_records.insert_precord(iomsg.gid, precord);
+
+            // Register with behavior engine IMMEDIATELY
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                self.behavior_engine.register_process(
+                    iomsg.gid,
+                    iomsg.pid as u32,
+                    exe_path.clone(),
+                    app_name.clone(),
+                );
+
+                // Run INSTANT signature-based scan (before process does anything malicious)
+                if let Some(ref th) = self.threat_handler {
+                    let detections = self.behavior_engine.scan_all_processes(config, &**th);
+
+                    for det in detections {
+                        if det.gid == iomsg.gid {
+                            Logging::warning(&format!(
+                                "[INSTANT KILL] Malicious signature detected on spawn: {} (GID: {})",
+                                app_name, iomsg.gid
+                            ));
+
+                            if let Some(record) = self.process_records.get_precord_mut_by_gid(det.gid) {
+                                record.is_malicious = true;
+                                record.termination_requested = det.termination_requested;
+                                record.quarantine_requested = det.quarantine_requested;
+
+                                // Kill before it can do damage!
+                                if det.termination_requested {
+                                    th.kill(iomsg.gid);
+                                    record.time_killed = Some(std::time::SystemTime::now());
+
+                                    // Optional: Quarantine the executable
+                                    if det.quarantine_requested {
+                                        th.kill_and_quarantine(iomsg.gid, &exe_path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Track in learning engine
+            #[cfg(feature = "realtime_learning")]
+            {
+                self.learning_engine.track_process(iomsg.gid, app_name.clone());
+                self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, app_name));
+            }
+        }
+
+        /// Handle process termination notification from kernel
+        fn handle_process_terminate(&mut self, iomsg: &IOMessage) {
+            Logging::debug(&format!(
+                "[INSTANT] Process terminated: GID {} (PID: {})",
+                iomsg.gid, iomsg.pid
+            ));
+
+            // Notify behavior engine
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                if let Some(precord) = self.process_records.process_records.peek(&iomsg.gid) {
+                    self.behavior_engine.report_process_termination(precord.appname.clone());
+                }
+            }
+
+            // Learning engine cleanup
+            #[cfg(feature = "realtime_learning")]
+            {
+                if let Some(precord) = self.process_records.process_records.pop(&iomsg.gid) {
+                    if let Some(tracker) = self.api_trackers.remove(&iomsg.gid) {
+                        self.learning_engine.process_terminated(iomsg.gid, &tracker, &precord);
+                    }
+                }
+            }
+
+            // Remove from tracking (if not already removed by learning engine)
+            #[cfg(not(feature = "realtime_learning"))]
+            {
+                self.process_records.process_records.pop(&iomsg.gid);
+            }
+        }
+
+        // =========================================================================
+        // Maintenance & Helpers
+        // =========================================================================
+
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             // 1. Refresh system process list
             self.sys.refresh_processes();
 
-            // 2. Scan ONLY existing ProcessRecords (never create new ones)
+            // 2. Scan ONLY existing ProcessRecords (never create new ones here)
             for (pid, _process) in self.sys.processes() {
                 let pid_u32 = pid.as_u32();
 
-                // IDENTITY-SAFE LOOKUP
-                // Find the ProcessRecord that already owns this PID
-                let Some((gid, _precord)) = self.process_records
+                // IDENTITY-SAFE LOOKUP: Find the ProcessRecord that already owns this PID
+                if let Some((gid, _precord)) = self.process_records
                     .process_records
                     .iter()
-                    .find(|(_, pr)| pr.pids.contains(&pid_u32))
-                else {
-                    // Process exists in OS but not yet known by kernel/IO path
-                    // It WILL be registered later via process_io()
+                    .find(|(_, pr)| pr.pids.contains(&pid_u32)) 
+                {
+                    // Process matches known record
+                    let _ = gid;
+                } else {
                     continue;
                 };
-
-                // Optional: sanity check process still alive
-                // (do nothing here – behavior engine handles logic)
-                let _ = gid;
             }
 
             // 3. Run behavior engine scan on already-registered processes
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                let detections = self
-                    .behavior_engine
-                    .scan_all_processes(config, &*threat_handler);
+                let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
                 // 4. Apply detections back to ProcessRecords
                 for det in detections {
@@ -1028,93 +1056,20 @@ pub mod worker_instance {
             }
         }
 
-
-		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
-			Worker {
-				whitelist: Some(whitelist),
-				process_records: ProcessRecords::new(),
-				process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
-				exepath_handler: Box::<ExePathReplay>::default(),
-				iomsg_postprocessors: vec![],
-                // --- ADDED: Initialize new field (None for replay) ---
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                av_integration: None,
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                behavior_engine: BehaviorEngine::new(),
-                #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
-                #[cfg(feature = "realtime_learning")]
-                api_trackers: HashMap::new(),
-                app_settings, // Initialize app_settings
-                threat_handler: None,
-                sys: sysinfo::System::new_all(),
-			}
-		}
-
-        pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
-            self.register_precord(iomsg);
-            let tracking_key = iomsg.gid;
-            if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
-                // Get AVIntegration from self if hydradragon feature is enabled
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                {
-                    // --- MODIFIED: Use self.av_integration field ---
-                    // This removes the need for the global static and fixes the import error.
-                    if let Some(av_integration) = self.av_integration.as_mut() {
-                        // Pass the mutable reference to AVIntegration
-                        precord.add_irp_record(iomsg, Some(av_integration));
-                    } else {
-                        // No AVIntegration instance available
-                        precord.add_irp_record(iomsg, None);
-                    }
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
-                {
-                    precord.add_irp_record(iomsg, None);
-                }
-
-                // Pass the config and threat_handler to the behavior engine
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if let Some(ref th) = self.threat_handler {
-                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
-                }
-                // --- ADDED: Update learning engine activity ---
-                #[cfg(feature = "realtime_learning")]
-                {
-                    self.learning_engine.update_activity(tracking_key);
-                    if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
-                        tracker.track_io_operation(iomsg, precord);
-                    }
-                }
-
-                if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_io(precord);
-                }
-                for postprocessor in &mut self.iomsg_postprocessors {
-                    postprocessor.postprocess(iomsg, precord);
-                }
-            }
-        }
-
         pub fn process_suspended_records(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             self.process_records.process_suspended_procs(config, threat_handler);
 
-            // --- ADDED: Learn on Exit (Scan for terminated processes) & Behavior Engine Termination Check ---
-            // Calculate terminated GIDs if EITHER feature is enabled
+            // Learn on Exit (Scan for terminated processes) & Behavior Engine Termination Check
             #[cfg(any(feature = "realtime_learning", all(target_os = "windows", feature = "behavior_engine")))]
             {
                 let mut terminated_gids = Vec::new();
                 let now = std::time::SystemTime::now();
 
-                // Check which processes are likely dead
+                // Check which processes are likely dead based on inactivity
                 for (gid, proc) in self.process_records.process_records.iter() {
-                    // Heuristic: If last message was > 10s ago and it's not a long-poll system process
                     let inactive_duration = now.duration_since(proc.time).unwrap_or(std::time::Duration::from_secs(0));
                     
-                    // Reduced from 30s to 0s for faster termination detection
                     if inactive_duration > std::time::Duration::from_secs(0) {
-                        // Check if at least one PID in the family is still alive
                         let mut family_dead = true;
                         for pid in &proc.pids {
                             if is_process_alive(*pid) {
@@ -1131,13 +1086,6 @@ pub mod worker_instance {
 
                 // Process terminated GIDs
                 for gid in terminated_gids {
-                    // We peek first to get info before removing (or remove and use)
-                    // Removing here is tricky if both engines need it. 
-                    // process_records.process_records is an LRU cache.
-                    
-                    // BEHAVIOR ENGINE: Needs notification, but doesn't necessarily need us to remove the record immediately?
-                    // Actually, if it's dead, we should notify.
-                    // Let's get the appname first.
                     let mut app_name = String::new();
                     if let Some(precord) = self.process_records.process_records.peek(&gid) {
                         app_name = precord.appname.clone();
@@ -1145,21 +1093,18 @@ pub mod worker_instance {
 
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     if !app_name.is_empty() {
-                         self.behavior_engine.report_process_termination(app_name.clone());
+                        self.behavior_engine.report_process_termination(app_name.clone());
                     }
 
-                    // LEARNING ENGINE: Needs to process AND remove (or we remove after)
                     #[cfg(feature = "realtime_learning")]
                     {
-                         if let Some(precord) = self.process_records.process_records.pop(&gid) {
+                        if let Some(precord) = self.process_records.process_records.pop(&gid) {
                             if let Some(tracker) = self.api_trackers.remove(&gid) {
-                                 self.learning_engine.process_terminated(gid, &tracker, &precord);
+                                self.learning_engine.process_terminated(gid, &tracker, &precord);
                             }
                         }
                     }
-                    
-                    // If NO learning engine, we should probably still pop it eventually to keep cache clean?
-                    // The LRU cache handles size limits, but dead processes sticking around is waste.
+
                     #[cfg(not(feature = "realtime_learning"))]
                     {
                         self.process_records.process_records.pop(&gid);
@@ -1171,7 +1116,7 @@ pub mod worker_instance {
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
             match self.process_records.get_precord_by_gid(iomsg.gid) {
                 None => {
-                    // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
+                    // SCANNING ISSUE FALLBACK: Try to get path
                     let exepath_opt = self.exepath_handler.exepath(iomsg);
                     let (exepath, appname): (PathBuf, String) = match exepath_opt {
                         Some(path) => {
@@ -1179,12 +1124,10 @@ pub mod worker_instance {
                             (path, name)
                         }
                         None => {
-                            // Use PID as name if path unknown to ensure everything is "scanned"
                             (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
                         }
                     };
 
-                    // LOGGING FIX: Log the scanned process immediately
                     Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
                         appname, iomsg.gid, iomsg.pid, exepath.display()));
 
