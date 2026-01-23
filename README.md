@@ -19,7 +19,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
-- This project doesn't replace your daily AV and not an AV.
+- This project doesn't replace your daily AV and this project not an AV.
 - You must uninstall it manually; the auto-uninstaller won't work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - Disable Secure Boot if the driver installation fails.
