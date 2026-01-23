@@ -624,6 +624,7 @@ pub enum ProcessState {
     Running,
     Suspended,
     Killed,
+    Terminated,
 }
 
 impl fmt::Display for ProcessState {
@@ -632,6 +633,7 @@ impl fmt::Display for ProcessState {
             ProcessState::Running => write!(f, "RUNNING"),
             ProcessState::Suspended => write!(f, "SUSPENDED"),
             ProcessState::Killed => write!(f, "KILLED"),
+            ProcessState::Terminated => write!(f, "TERMINATED"),
         }
     }
 }

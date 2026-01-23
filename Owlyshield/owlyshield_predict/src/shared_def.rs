@@ -25,6 +25,10 @@ pub enum FileChangeInfo {
     /// Temp file: created and deleted on close
     ChangeDeleteNewFile,
     ChangeOverwriteFile,
+    RegCreateKey,
+    RegSetValue,
+    RegDeleteValue,
+    RegRenameKey,
 }
 
 /// See [`IOMessage`] struct.
@@ -73,6 +77,10 @@ pub enum IrpMajorOp {
     _IrpCleanUp, //not used (yet)
     /// Registry operation
     IrpRegistry,
+    /// Process creation
+    IrpProcessCreate,
+    /// Process termination
+    IrpProcessTerminate,
 }
 
 impl IrpMajorOp {
@@ -85,6 +93,8 @@ impl IrpMajorOp {
             4 => IrpMajorOp::IrpCreate,
             5 => IrpMajorOp::IrpCreate,
             6 => IrpMajorOp::IrpRegistry,
+            7 => IrpMajorOp::IrpProcessCreate,
+            8 => IrpMajorOp::IrpProcessTerminate,
             _ => IrpMajorOp::IrpNone,
         }
     }

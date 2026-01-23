@@ -7,7 +7,7 @@ use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
 
-use crate::shared_def::{IOMessage, IrpMajorOp};
+use crate::shared_def::{IOMessage, IrpMajorOp, FileChangeInfo};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
@@ -833,18 +833,55 @@ impl BehaviorEngine {
             for condition in &stage.conditions {
                 match condition {
                     RuleCondition::File { op, path_pattern } => {
+                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
                         let op_matches = match op.as_str() {
-                            "write" => *irp_op == IrpMajorOp::IrpWrite,
-                            "read" => *irp_op == IrpMajorOp::IrpRead,
-                            "create" => *irp_op == IrpMajorOp::IrpCreate || *irp_op == IrpMajorOp::IrpWrite,
-                            "delete" => *irp_op == IrpMajorOp::IrpSetInfo,
+                            "write" => irp_op_enum == IrpMajorOp::IrpWrite,
+                            "read" => irp_op_enum == IrpMajorOp::IrpRead,
+                            "create" => irp_op_enum == IrpMajorOp::IrpCreate && (
+                                msg.file_change == FileChangeInfo::ChangeNewFile as u8 || 
+                                msg.file_change == FileChangeInfo::ChangeDeleteNewFile as u8 ||
+                                msg.file_change == FileChangeInfo::ChangeOverwriteFile as u8
+                            ),
+                            "delete" => (irp_op_enum == IrpMajorOp::IrpSetInfo || irp_op_enum == IrpMajorOp::IrpCreate) && (
+                                msg.file_change == FileChangeInfo::ChangeDeleteFile as u8 || 
+                                msg.file_change == FileChangeInfo::ChangeDeleteNewFile as u8
+                            ),
+                            "rename" => irp_op_enum == IrpMajorOp::IrpSetInfo && (
+                                msg.file_change == FileChangeInfo::ChangeRenameFile as u8 ||
+                                msg.file_change == FileChangeInfo::ChangeExtensionChanged as u8
+                            ),
                             _ => false,
                         };
                         if !op_matches { stage_satisfied = false; break; }
                         if !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
                     },
-                    RuleCondition::Process { op: _, pattern } => {
-                         if !self.matches_pattern(pattern, &precord.appname) { stage_satisfied = false; break; }
+                    RuleCondition::Registry { op, key_pattern, value_name: _, expected_data: _ } => {
+                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
+                        if irp_op_enum != IrpMajorOp::IrpRegistry { stage_satisfied = false; break; }
+
+                        let op_matches = match op.as_str() {
+                            "set" => msg.file_change == FileChangeInfo::RegSetValue as u8,
+                            "create" => msg.file_change == FileChangeInfo::RegCreateKey as u8,
+                            "delete" => msg.file_change == FileChangeInfo::RegDeleteValue as u8,
+                            "rename" => msg.file_change == FileChangeInfo::RegRenameKey as u8,
+                            _ => false,
+                        };
+                        if !op_matches { stage_satisfied = false; break; }
+                        if !self.matches_pattern(key_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                    },
+                    RuleCondition::Process { op, pattern } => {
+                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
+                        let op_matches = match op.as_str() {
+                            "create" => irp_op_enum == IrpMajorOp::IrpProcessCreate,
+                            "terminate" => irp_op_enum == IrpMajorOp::IrpProcessTerminate,
+                            _ => self.matches_pattern(pattern, &precord.appname),
+                        };
+                        if !op_matches { stage_satisfied = false; break; }
+                        
+                        // If it's a lifecycle event, check the process name in the event msg
+                        if op == "create" || op == "terminate" {
+                            if !self.matches_pattern(pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                        }
                     },
                     _ => {
                         stage_satisfied = false;

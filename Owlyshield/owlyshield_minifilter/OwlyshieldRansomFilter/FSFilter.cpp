@@ -1700,7 +1700,29 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         DbgPrint("!!! FSFilter: Open Process recording, is parent safe: %d, is process safe: %d\n",
                  startsWith(procName, driverData->GetSystemRootPath()),
                  startsWith(parentName, driverData->GetSystemRootPath()));
-        driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+        ULONGLONG gid = driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+
+        // Send creation message to usermode
+        PIRP_ENTRY newEntry = new IRP_ENTRY();
+        if (newEntry != NULL) {
+            PDRIVER_MESSAGE newItem = &newEntry->data;
+            newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
+            newItem->Gid = gid;
+            newItem->IRP_OP = IRP_PROCESS_CREATE;
+
+            if (procName != NULL) {
+                USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE) ? procName->Length : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
+                newEntry->Buffer[copyLen / 2] = L'\0';
+                newEntry->filePath.Length = copyLen;
+                newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                newEntry->filePath.Buffer = newEntry->Buffer;
+            }
+
+            if (!driverData->AddIrpMessage(newEntry)) {
+                delete newEntry;
+            }
+        }
 
         if (parentName != NULL)
             ExFreePoolWithTag(parentName, 'RW');
@@ -1709,6 +1731,22 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
     else
     {
         DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
+
+        BOOLEAN found = FALSE;
+        ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
+        if (found) {
+            PIRP_ENTRY newEntry = new IRP_ENTRY();
+            if (newEntry != NULL) {
+                PDRIVER_MESSAGE newItem = &newEntry->data;
+                newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
+                newItem->Gid = gid;
+                newItem->IRP_OP = IRP_PROCESS_TERMINATE;
+                if (!driverData->AddIrpMessage(newEntry)) {
+                    delete newEntry;
+                }
+            }
+        }
+
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
 }

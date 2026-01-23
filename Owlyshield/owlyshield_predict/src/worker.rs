@@ -612,6 +612,9 @@ pub mod worker_instance {
     };
     use crate::worker::process_records::ProcessRecords;
     use crate::IOMessage;
+    use crate::shared_def::IrpMajorOp;
+    use crate::process::ProcessState;
+    use crate::logging::Logging;
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
@@ -746,8 +749,6 @@ pub mod worker_instance {
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         sys: sysinfo::System,
     }
-
-    use crate::logging::Logging;
 
     impl<'a> Worker<'a> {
 		pub fn new(config: &'a Config, app_settings: AppSettings) -> Worker<'a> {
@@ -923,8 +924,28 @@ pub mod worker_instance {
                 if let Some(process_record_handler) = &mut self.process_record_handler {
                     process_record_handler.handle_io(precord);
                 }
+
+                // Handle Process Termination immediately
+                if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessTerminate {
+                    precord.process_state = ProcessState::Terminated;
+                    Logging::info(&format!("[KERNEL SCAN] Process Terminated: {} (GID: {}, PID: {})", 
+                        precord.appname, precord.gid, iomsg.pid));
+                }
+
                 for postprocessor in &mut self.iomsg_postprocessors {
                     postprocessor.postprocess(iomsg, precord);
+                }
+            }
+
+            // Handle clean up after releasing the borrow
+            if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessTerminate {
+                #[cfg(feature = "realtime_learning")]
+                {
+                    if let Some(precord) = self.process_records.process_records.pop(&tracking_key) {
+                        if let Some(tracker) = self.api_trackers.remove(&tracking_key) {
+                            self.learning_engine.process_terminated(tracking_key, &tracker, &precord);
+                        }
+                    }
                 }
             }
         }
@@ -938,13 +959,16 @@ pub mod worker_instance {
                 let mut terminated_gids = Vec::new();
                 let now = std::time::SystemTime::now();
 
-                // Check which processes are likely dead
+                // Check which processes are likely dead (Fallback for missed notifications)
                 for (gid, proc) in self.process_records.process_records.iter() {
-                    // Heuristic: If last message was > 10s ago and it's not a long-poll system process
+                    if proc.process_state == ProcessState::Terminated {
+                        terminated_gids.push(*gid);
+                        continue;
+                    }
+
+                    // Heuristic: If last message was > 30s ago and all PIDs are dead
                     let inactive_duration = now.duration_since(proc.time).unwrap_or(std::time::Duration::from_secs(0));
-                    
                     if inactive_duration > std::time::Duration::from_secs(30) {
-                        // Check if at least one PID in the family is still alive
                         let mut family_dead = true;
                         for pid in &proc.pids {
                             if is_process_alive(*pid) {
@@ -952,7 +976,6 @@ pub mod worker_instance {
                                 break;
                             }
                         }
-
                         if family_dead {
                             terminated_gids.push(*gid);
                         }

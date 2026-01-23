@@ -93,7 +93,7 @@ BOOLEAN UnicodeContainsInsensitive(_In_ PUNICODE_STRING Source, _In_ PCWSTR Patt
     return found;
 }
 
-VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid)
+VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid, UCHAR RegOp)
 {
     if (!driverData) return;
 
@@ -112,6 +112,7 @@ VOID SendRegistryAlert(PUNICODE_STRING RegPath, PCWSTR Operation, HANDLE Pid)
 
     // Set Code
     newEntry->data.IRP_OP = IRP_REGISTRY;
+    newEntry->data.FileChange = RegOp;
 
     // Copy Path
     if (RegPath && RegPath->Buffer) {
@@ -213,7 +214,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
 
                     if (TRUE) // Monitor all registry deletions
                     {
-                        SendRegistryAlert(&RegPath, L"DELETE_VALUE", hPid);
+                        SendRegistryAlert(&RegPath, L"DELETE_VALUE", hPid, REG_DELETE_VALUE);
                         
                         // If already marked as malicious by prediction, BLOCK it
                         if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
@@ -235,7 +236,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (TRUE)
                     {
-                        SendRegistryAlert(&RegPath, L"DELETE_KEY", hPid);
+                        SendRegistryAlert(&RegPath, L"DELETE_KEY", hPid, REG_DELETE_VALUE);
                         if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
                              Status = STATUS_ACCESS_DENIED;
                         } else {
@@ -296,7 +297,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                     
                     if (TRUE)
                     {
-                        SendRegistryAlert(&RegPath, L"SET_VALUE", hPid);
+                        SendRegistryAlert(&RegPath, L"SET_VALUE", hPid, REG_SET_VALUE);
                         if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
                              Status = STATUS_ACCESS_DENIED;
                         } else {
@@ -316,7 +317,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
                 {
                     if (TRUE)
                     {
-                        SendRegistryAlert(&RegPath, L"RENAME_KEY", hPid);
+                        SendRegistryAlert(&RegPath, L"RENAME_KEY", hPid, REG_RENAME_KEY);
                         if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
                              Status = STATUS_ACCESS_DENIED;
                         } else {
@@ -334,7 +335,7 @@ NTSTATUS RegistryCallback(_In_ PVOID CallbackContext, _In_ PVOID Argument1, _In_
             {
                 if (GetNameForRegistryObject(&RegPath, pInfo->Object))
                 {
-                    SendRegistryAlert(&RegPath, L"SET_SECURITY", hPid);
+                    SendRegistryAlert(&RegPath, L"SET_SECURITY", hPid, REG_SET_VALUE);
                     if (driverData->IsProcessMalicious((ULONG)(ULONG_PTR)hPid)) {
                          Status = STATUS_ACCESS_DENIED;
                     } else {
