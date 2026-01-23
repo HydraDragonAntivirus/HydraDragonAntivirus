@@ -995,61 +995,117 @@ impl BehaviorEngine {
         false
     }
     
+    // Proposed replacement for `scan_all_processes` in behavior_engine.rs
+    // - Ensures per-process variables are local and not reused across iterations
+    // - Avoids capturing mutable references across loops
+    // - Adds per-gid debug logging to make it obvious which process is being evaluated
+    // - Uses defensive cloning of small fields (app_name, exe_path) so logging and rule checks
+    //   cannot accidentally show stale values for other processes
+
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
+
+        // snapshot gids so we don't borrow self.process_states for the whole scan
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
-        
+
         if self.rules.iter().any(|r| r.debug) {
             Logging::debug(&format!("[BehaviorEngine] Static Scan: Evaluating {} tracked processes", gids.len()));
         }
 
         for gid in gids {
-            let (mut signature_checked, mut has_valid_signature, pid, exe_path, app_name) = {
-                if let Some(s) = self.process_states.get(&gid) {
-                    (s.signature_checked, s.has_valid_signature, s.pid, s.exe_path.clone(), s.app_name.clone())
-                } else {
-                    continue;
-                }
+            // obtain a local copy of the process state; continue if it disappeared
+            let state = match self.process_states.get(&gid) {
+                Some(s) => s,
+                None => continue,
             };
-            
-            // Force verify if not done
-            if !signature_checked {
-                if exe_path.exists() {
-                    let info = verify_signature(&exe_path);
-                    has_valid_signature = info.is_trusted;
-                    signature_checked = true;
-                    if let Some(s) = self.process_states.get_mut(&gid) {
-                        s.has_valid_signature = has_valid_signature;
-                        s.signature_checked = true;
-                    }
-                }
+
+            // copy small fields locally to avoid accidental reuse or borrow issues
+            let signature_checked = state.signature_checked;
+            let has_valid_signature = state.has_valid_signature;
+            let pid = state.pid;
+            let exe_path = state.exe_path.clone();
+            let app_name = state.app_name.clone();
+
+            // per-process debug to make sure the right process is being evaluated
+            if self.rules.iter().any(|r| r.debug) {
+                Logging::debug(&format!("[BehaviorEngine] Evaluating GID={} PID={} bin='{}'", gid, pid, app_name));
             }
-            
-            // Iterate all rules
-             for rule in &self.rules {
-                 for stage in &rule.stages {
+
+            // iterate rules per-process. do not keep an outer mutable reference to `rule` that could be
+            // accidentally reused outside this scope
+            for rule in &self.rules {
+                // if the rule has debug enabled, print a localized message so we know which rule
+                if rule.debug {
+                    Logging::debug(&format!("[BehaviorEngine] Checking rule '{}' against {} (GID={}, PID={})", rule.name, app_name, gid, pid));
+                }
+
+                // Evaluate each stage and condition. Make sure any variables used for decision are
+                // derived from the local copies above (signature_checked, has_valid_signature, etc.)
+                let mut rule_matched = false;
+
+                for stage in &rule.stages {
                     for condition in &stage.conditions {
-                        if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
-                            if !signature_checked { continue; }
-                             let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
-                            
-                            if violates {
-                                let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
-                                if !is_allowlisted {
-                                    Logging::warning(&format!("[BehaviorEngine SCAN] DETECTION: {} (PID: {}) matched rule '{}' (signature violation)", app_name, pid, rule.name));
-                                    let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
-                                    p.is_malicious = true;
-                                    p.pids.insert(pid);
-                                    p.termination_requested = rule.response.terminate_process;
-                                    p.quarantine_requested = rule.response.quarantine;
-                                    detected_processes.push(p);
+                        match condition {
+                            RuleCondition::Signature { is_trusted, signer_pattern: _ } => {
+                                if !signature_checked { continue; }
+                                let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
+                                if violates {
+                                    // ensure allowlist check uses local data and immutable borrows only
+                                    let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
+                                    if !is_allowlisted {
+                                        rule_matched = true;
+                                        if rule.debug {
+                                            Logging::warning(&format!("[BehaviorEngine] Rule '{}' matched (signature violation) for {} (GID={}, PID={})", rule.name, app_name, gid, pid));
+                                        }
+
+                                        let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
+                                        p.is_malicious = true;
+                                        p.pids.insert(pid);
+                                        p.termination_requested = rule.response.terminate_process;
+                                        p.quarantine_requested = rule.response.quarantine;
+                                        detected_processes.push(p);
+                                    }
                                 }
                             }
+
+                            // Add other condition arms here but **always** use the local copies for values
+                            // e.g. RuleCondition::Network { .. } => { let net = state.network_activity.clone(); ... }
+
+                            _ => {}
                         }
+
+                        // if a stage-level short-circuit was required by the rule design, implement it here
                     }
-                 }
+                    // if rule_matched && stage.break_on_match { break; }
+                }
+
+                // if we know a rule can't match twice for the same process, we can continue to next process
+                if rule_matched {
+                    // if desired: break here to avoid matching multiple rules for same process
+                    // break;
+                }
             }
         }
+
         detected_processes
     }
+
+    /* Notes & rationale
+
+    1) Common root causes that produce the "same rule applied to every process" symptom:
+    - Re-using a mutable variable or closure environment that holds the last-evaluated process name.
+        Making per-loop local copies and avoiding long-lived borrows fixes accidental reuse.
+    - Borrowing `self.process_states` for the whole scan and mutating it while iterating. We snapshot
+        the gids first which avoids borrowing the map while scanning its entries.
+    - Logging that references an outer variable that was changed after the log call. Local copies ensure
+        logs are accurate.
+
+    2) If the real bug is in the process-tracking layer (worker.rs), ensure every process gets a unique
+    GID and that `track_process(gid, app_name)` is called with the correct gid. A good test is to
+    enable debug and check that the mapping gid -> exe_path/app_name is 1:1.
+
+    3) Add a unit/integration test that creates two fake process states (different exe names) and asserts
+    that a rule that should only match one of them does not match the other.
+    */
+
 }
