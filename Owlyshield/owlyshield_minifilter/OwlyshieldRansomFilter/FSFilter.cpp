@@ -1606,21 +1606,18 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
 // new code process recording
 _Use_decl_annotations_
+_Use_decl_annotations_
 VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
-    // FIX: Add early safety check for commHandle
     if (commHandle == NULL || commHandle->CommClosed)
         return;
 
-    // FIX: Additional safety check for ZwQueryInformationProcess before any usage
-    if (ZwQueryInformationProcess == NULL)
-    {
+    if (ZwQueryInformationProcess == NULL) {
         DbgPrint("!!! FSFilter: Cannot process notification - ZwQueryInformationProcess is NULL\n");
         return;
     }
 
-    if (Create)
-    {
+    if (Create) {
         NTSTATUS hr;
         HANDLE procHandleParent = NULL;
         HANDLE procHandleProcess = NULL;
@@ -1634,18 +1631,16 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         clientIdProcess.UniqueThread = 0;
 
         OBJECT_ATTRIBUTES objAttribs;
-
         InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
         hr = ZwOpenProcess(&procHandleParent, PROCESS_ALL_ACCESS, &objAttribs, &clientIdParent);
-        if (!NT_SUCCESS(hr))
-        {
+        if (!NT_SUCCESS(hr)) {
             DbgPrint("!!! FSFilter: Failed to open parent process: %#010x.\n", hr);
             return;
         }
+        
         hr = ZwOpenProcess(&procHandleProcess, PROCESS_ALL_ACCESS, &objAttribs, &clientIdProcess);
-        if (!NT_SUCCESS(hr))
-        {
+        if (!NT_SUCCESS(hr)) {
             DbgPrint("!!! FSFilter: Failed to open process: %#010x.\n", hr);
             ZwClose(procHandleParent);
             return;
@@ -1655,8 +1650,7 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         PUNICODE_STRING parentName = NULL;
 
         hr = GetProcessNameByHandle(procHandleParent, &parentName);
-        if (!NT_SUCCESS(hr))
-        {
+        if (!NT_SUCCESS(hr)) {
             DbgPrint("!!! FSFilter: Failed to get parent name: %#010x\n", hr);
             ZwClose(procHandleParent);
             ZwClose(procHandleProcess);
@@ -1664,8 +1658,7 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         }
 
         hr = GetProcessNameByHandle(procHandleProcess, &procName);
-        if (!NT_SUCCESS(hr))
-        {
+        if (!NT_SUCCESS(hr)) {
             DbgPrint("!!! FSFilter: Failed to get process name: %#010x\n", hr);
             if (parentName != NULL)
                 ExFreePoolWithTag(parentName, 'RW');
@@ -1675,18 +1668,15 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
         }
 
         DbgPrint("!!! FSFilter: New Process, parent: %wZ. Pid: %d\n", parentName, (ULONG)(ULONG_PTR)ParentId);
+        DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
         ZwClose(procHandleParent);
         ZwClose(procHandleProcess);
 
-        DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
-
         BOOLEAN found = FALSE;
-        if (startsWith(procName, driverData->GetSystemRootPath()) &&   // process in safe area
-            startsWith(parentName, driverData->GetSystemRootPath()) && // parent in safe area
-            (driverData->GetProcessGid((ULONG)(ULONG_PTR)ParentId, &found) == 0) &&
-            !found) // parent is not documented, if it was there was a recursive call from not safe process which
-                    // resulted in safe are in windows dir
+        if (startsWith(procName, driverData->GetSystemRootPath()) &&
+            startsWith(parentName, driverData->GetSystemRootPath()) &&
+            (driverData->GetProcessGid((ULONG)(ULONG_PTR)ParentId, &found) == 0) && !found) 
         {
             DbgPrint("!!! FSFilter: Open Process not recorded, both parent and process are safe\n");
             if (parentName != NULL)
@@ -1695,19 +1685,91 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
                 ExFreePoolWithTag(procName, 'RW');
             return;
         }
-        // options to reach: process is not safe (parent safe or not), process safe parent is not, both safe but before
-        // parent there was unsafe process
+
         DbgPrint("!!! FSFilter: Open Process recording, is parent safe: %d, is process safe: %d\n",
                  startsWith(procName, driverData->GetSystemRootPath()),
                  startsWith(parentName, driverData->GetSystemRootPath()));
-        driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+
+        // Record in driver's internal tracking (returns GID)
+        ULONGLONG gid = driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
+
+        // ============================================
+        // NEW: SEND INSTANT NOTIFICATION TO USERSPACE
+        // ============================================
+        PIRP_ENTRY newEntry = new IRP_ENTRY();
+        if (newEntry != NULL) {
+            PDRIVER_MESSAGE msg = &newEntry->data;
+            PUNICODE_STRING filePath = &(newEntry->filePath);
+            
+            // Set to process creation operation
+            msg->IRP_OP = IRP_PROCESS_CREATE;
+            msg->Gid = gid;
+            msg->PID = (ULONG)(ULONG_PTR)ProcessId;
+            
+            // Store parent PID in MemSizeUsed field (reusing existing field)
+            msg->MemSizeUsed = (ULONGLONG)(ULONG_PTR)ParentId;
+            
+            // Copy process path to filePath
+            filePath->Length = procName->Length;
+            filePath->MaximumLength = MAX_FILE_NAME_SIZE;
+            if (procName->Length < MAX_FILE_NAME_SIZE) {
+                RtlCopyMemory(newEntry->Buffer, procName->Buffer, procName->Length);
+                filePath->Buffer = (PWCH)newEntry->Buffer;
+            }
+            
+            // Mark as not requiring entropy calculation
+            msg->isEntropyCalc = FALSE;
+            msg->Entropy = 0.0;
+            msg->FileChange = FILE_CHANGE_NOT_SET;
+            msg->FileLocationInfo = FILE_NOT_PROTECTED;
+            
+            DbgPrint("!!! FSFilter: [INSTANT] Sending process creation (GID: %llu, PID: %u, Path: %wZ)\n", 
+                     gid, msg->PID, filePath);
+            
+            // Send to userspace queue immediately
+            if (!driverData->AddIrpMessage(newEntry)) {
+                delete newEntry;
+                DbgPrint("!!! FSFilter: Failed to queue process creation message\n");
+            }
+        } else {
+            DbgPrint("!!! FSFilter: Failed to allocate process creation message\n");
+        }
+        // ============================================
 
         if (parentName != NULL)
             ExFreePoolWithTag(parentName, 'RW');
-        // Note: procName is managed by RecordNewProcess, don't free it here
+        // Note: procName managed by RecordNewProcess, don't free
     }
-    else
-    {
+    else {
+        // ============================================
+        // PROCESS TERMINATION
+        // ============================================
+        BOOLEAN found = FALSE;
+        ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
+        
+        if (found && gid != 0) {
+            // Send termination notification
+            PIRP_ENTRY termEntry = new IRP_ENTRY();
+            if (termEntry != NULL) {
+                PDRIVER_MESSAGE msg = &termEntry->data;
+                
+                msg->IRP_OP = IRP_PROCESS_TERMINATE;
+                msg->Gid = gid;
+                msg->PID = (ULONG)(ULONG_PTR)ProcessId;
+                msg->isEntropyCalc = FALSE;
+                msg->Entropy = 0.0;
+                msg->FileChange = FILE_CHANGE_NOT_SET;
+                msg->FileLocationInfo = FILE_NOT_PROTECTED;
+                
+                DbgPrint("!!! FSFilter: [INSTANT] Sending process termination (GID: %llu, PID: %u)\n", 
+                         gid, msg->PID);
+                
+                if (!driverData->AddIrpMessage(termEntry)) {
+                    delete termEntry;
+                }
+            }
+        }
+        
         DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }

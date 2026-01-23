@@ -94,8 +94,7 @@ impl ThreatHandler for WindowsThreatHandler {
             }
         }
         
-        // 2. Small delay to ensure process is dead and handles are closed
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        // (Removed delay to ensure immediate action)
 
         // 3. Prepare quarantine path
         let quarantine_dir = std::path::Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine");

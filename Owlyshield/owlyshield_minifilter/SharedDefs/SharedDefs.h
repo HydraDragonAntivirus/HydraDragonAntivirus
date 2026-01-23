@@ -92,7 +92,10 @@ enum IRP_MAJOR_OP
     IRP_CREATE,
     IRP_CLEANUP,
     IRP_REGISTRY,
+    IRP_PROCESS_CREATE,    // NEW: Process creation notification
+    IRP_PROCESS_TERMINATE  // NEW: Process termination notification
 };
+
 
 // NEW: Action types for threat response
 enum THREAT_ACTION_TYPE

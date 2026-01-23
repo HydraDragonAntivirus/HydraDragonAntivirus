@@ -73,6 +73,10 @@ pub enum IrpMajorOp {
     _IrpCleanUp, //not used (yet)
     /// Registry operation
     IrpRegistry,
+    /// NEW: Process creation notification (instant detection)
+    IrpProcessCreate,
+    /// NEW: Process termination notification
+    IrpProcessTerminate,
 }
 
 impl IrpMajorOp {
@@ -83,8 +87,10 @@ impl IrpMajorOp {
             2 => IrpMajorOp::IrpWrite,
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
-            5 => IrpMajorOp::IrpCreate,
+            5 => IrpMajorOp::_IrpCleanUp,
             6 => IrpMajorOp::IrpRegistry,
+            7 => IrpMajorOp::IrpProcessCreate,    // NEW
+            8 => IrpMajorOp::IrpProcessTerminate, // NEW
             _ => IrpMajorOp::IrpNone,
         }
     }
@@ -155,6 +161,7 @@ impl FileId {
 /// - extension: The file extension
 /// - `file_id_id`:  File ID on the disk (`FILE_ID_INFO`)
 /// - `mem_size_used`: Number of bytes transferred (`IO_STATUS_BLOCK.Information`)
+///   - **Special case for IrpProcessCreate**: Contains parent PID
 /// - `entropy`: (Optional) File Entropy calculated by the driver
 /// - `is_entropy_calc`: is the entropy calculated?
 /// - `pid`: Pid responsible for this io activity
@@ -165,6 +172,9 @@ impl FileId {
 ///     * SETINFO (3)
 ///     * CREATE (4)
 ///     * CLEANUP (5)
+///     * REGISTRY (6)
+///     * PROCESS_CREATE (7) - NEW: Instant process detection
+///     * PROCESS_TERMINATE (8) - NEW: Process termination
 /// - `file_change`: type of i/o operation:
 ///     * `FILE_CHANGE_NOT_SET` (0)
 ///     * `FILE_OPEN_DIRECTORY` (1)
@@ -181,6 +191,7 @@ impl FileId {
 ///     * `FILE_MOVED_IN` (2)
 ///     * `FILE_MOVED_OUT` (3)
 /// - filepath: File path on the disk
+///   - **Special case for IrpProcessCreate/IrpProcessTerminate**: Contains process executable path
 /// - gid: Group Identifier (maintained by the minifilter) of the operation
 /// - `runtime_features`: see class [`RuntimeFeatures`]
 /// - `file_size`: size of the file. Can be equal to -1 if the file path is not found.
@@ -202,6 +213,33 @@ pub struct IOMessage {
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
     pub time: SystemTime,
+}
+
+impl IOMessage {
+    /// Helper: Get parent PID from process creation messages
+    /// (stored in mem_sized_used field)
+    pub fn get_parent_pid(&self) -> Option<u32> {
+        if self.irp_op == 7 { // IrpProcessCreate
+            Some(self.mem_sized_used as u32)
+        } else {
+            None
+        }
+    }
+    
+    /// Helper: Check if this is a process lifecycle event
+    pub fn is_process_event(&self) -> bool {
+        matches!(self.irp_op, 7 | 8) // IrpProcessCreate or IrpProcessTerminate
+    }
+    
+    /// Helper: Check if this is a process creation event
+    pub fn is_process_create(&self) -> bool {
+        self.irp_op == 7
+    }
+    
+    /// Helper: Check if this is a process termination event
+    pub fn is_process_terminate(&self) -> bool {
+        self.irp_op == 8
+    }
 }
 
 impl Default for IOMessage {
