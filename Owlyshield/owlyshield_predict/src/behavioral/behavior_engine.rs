@@ -994,14 +994,7 @@ impl BehaviorEngine {
         if check_udp(AF_INET6.0) { return true; }
         false
     }
-    
-    // Proposed replacement for `scan_all_processes` in behavior_engine.rs
-    // - Ensures per-process variables are local and not reused across iterations
-    // - Avoids capturing mutable references across loops
-    // - Adds per-gid debug logging to make it obvious which process is being evaluated
-    // - Uses defensive cloning of small fields (app_name, exe_path) so logging and rule checks
-    //   cannot accidentally show stale values for other processes
-
+        
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
 
@@ -1013,81 +1006,182 @@ impl BehaviorEngine {
         }
 
         for gid in gids {
-            // obtain a local copy of the process state; continue if it disappeared
+            // fetch a snapshot of state for this gid; skip if gone
             let state = match self.process_states.get(&gid) {
-                Some(s) => s,
+                Some(s) => s.clone(),
                 None => continue,
             };
 
-            // copy small fields locally to avoid accidental reuse or borrow issues
-            let signature_checked = state.signature_checked;
-            let has_valid_signature = state.has_valid_signature;
+            // local convenience vars
             let pid = state.pid;
-            let exe_path = state.exe_path.clone();
             let app_name = state.app_name.clone();
+            let exe_path_buf = state.exe_path.clone();
+            let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
-            // per-process debug to make sure the right process is being evaluated
             if self.rules.iter().any(|r| r.debug) {
                 Logging::debug(&format!("[BehaviorEngine] Evaluating GID={} PID={} bin='{}'", gid, pid, app_name));
             }
 
-            // iterate rules per-process. do not keep an outer mutable reference to `rule` that could be
-            // accidentally reused outside this scope
             for rule in &self.rules {
-                // if the rule has debug enabled, print a localized message so we know which rule
                 if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] Checking rule '{}' against {} (GID={}, PID={})", rule.name, app_name, gid, pid));
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Checking rule '{}' against {} (GID={}, PID={})",
+                        rule.name, app_name, gid, pid
+                    ));
                 }
 
-                // Evaluate each stage and condition. Make sure any variables used for decision are
-                // derived from the local copies above (signature_checked, has_valid_signature, etc.)
-                let mut rule_matched = false;
+                // ---------- STAGE EVALUATION ----------
+                // We cannot evaluate stage-level conditions here because scan_all_processes
+                // doesn't have a recent IOMessage context. The live per-event path-based
+                // stage evaluation still happens in process_event -> check_rules via evaluate_stages.
+                // So here we only use the accumulated/latching state.
 
-                for stage in &rule.stages {
-                    for condition in &stage.conditions {
-                        match condition {
-                            RuleCondition::Signature { is_trusted, .. } => {
-                                if signature_checked {
-                                    let violates = if *is_trusted {
-                                        !has_valid_signature
-                                    } else {
-                                        has_valid_signature
-                                    };
+                // ---------- ACCUMULATION (mirror check_rules) ----------
+                let browsed_access_count: usize = state.browsed_paths_tracker.len();
+                let has_staged_data = !state.staged_files_written.is_empty();
 
-                                    if violates && !self.check_allowlist(&app_name, rule, Some(&exe_path)) {
-                                        rule_matched = true;
-                                    }
-                                }
-                            }
+                // is_online: check active connections for the process or latched network activity
+                let is_online = if rule.require_internet {
+                    // check active tcp/udp connections for this pid OR the latched network flag
+                    self.has_active_connections(state.pid) || state.network_activity_detected
+                } else {
+                    true
+                };
 
-                            RuleCondition::Network { requires_internet } => {
-                                if *requires_internet && state.network_activity {
-                                    rule_matched = true;
-                                }
-                            }
+                let parent_name = state.parent_name.clone();
+                let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
+                    let parent = parent_name.to_lowercase();
+                    rule.suspicious_parents.iter().any(|p| {
+                        let p_l = p.to_lowercase();
+                        parent.contains(&p_l) || p_l.contains(&parent)
+                    })
+                } else {
+                    false
+                };
 
-                            RuleCondition::TerminatedProc => {
-                                if state.terminated {
-                                    rule_matched = true;
-                                }
-                            }
+                let has_sensitive_access = !state.accessed_paths_tracker.is_empty();
+                let terminated_match = if !rule.terminated_processes.is_empty() {
+                    // use engine-level terminated set plus this process name
+                    let mut terminated_set = self.process_terminated.clone();
+                    terminated_set.insert(app_name.to_lowercase());
+                    rule.terminated_processes.iter().any(|proc| terminated_set.contains(&proc.to_lowercase()))
+                } else {
+                    true
+                };
 
-                            _ => {}
+                // condition trackers from state
+                let high_entropy_detected = state.high_entropy_detected;
+                let monitored_api_count = state.monitored_api_count;
+                let file_action_detected = state.file_action_detected;
+                let extension_match_detected = state.extension_match_detected;
+                let has_valid_signature = state.has_valid_signature;
+                let signature_checked = state.signature_checked;
+
+                // ---------- CONDITION TRACKING ----------
+                let mut satisfied_conditions: usize = 0;
+                let mut total_tracked_conditions: usize = 0;
+                let mut condition_results: Vec<(&str, bool)> = Vec::new();
+
+                macro_rules! check {
+                    ($name:expr, $cond:expr) => {{
+                        total_tracked_conditions += 1;
+                        let hit = $cond;
+                        if hit { satisfied_conditions += 1; }
+                        condition_results.push(($name, hit));
+                    }};
+                }
+
+                if !rule.browsed_paths.is_empty() {
+                    check!("browsed_paths", browsed_access_count >= rule.multi_access_threshold);
+                }
+
+                if !rule.staging_paths.is_empty() {
+                    check!("staging", has_staged_data);
+                }
+
+                if rule.require_internet {
+                    check!("internet", is_online);
+                }
+
+                if !rule.suspicious_parents.is_empty() {
+                    check!("parent", is_suspicious_parent);
+                }
+
+                if !rule.accessed_paths.is_empty() {
+                    check!("accessed_paths", has_sensitive_access);
+                }
+
+                if rule.entropy_threshold > 0.01 {
+                    check!("entropy", high_entropy_detected);
+                }
+
+                if !rule.monitored_apis.is_empty() {
+                    check!("apis", monitored_api_count > 0);
+                }
+
+                if !rule.file_actions.is_empty() {
+                    check!("file_actions", file_action_detected);
+                }
+
+                if !rule.file_extensions.is_empty() {
+                    check!("extensions", extension_match_detected);
+                }
+
+                if !rule.terminated_processes.is_empty() {
+                    check!("terminated_proc", terminated_match);
+                }
+
+                // ---------- DEBUG OUTPUT ----------
+                if rule.debug && total_tracked_conditions > 0 {
+                    let breakdown = condition_results.iter()
+                        .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Rule '{}' for {}: {}/{} [{}] (Online: {})",
+                        rule.name,
+                        app_name,
+                        satisfied_conditions,
+                        total_tracked_conditions,
+                        breakdown,
+                        is_online
+                    ));
+                }
+
+                // ---------- DECISION ----------
+                if total_tracked_conditions > 0 {
+                    let ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
+                    let threshold = if rule.conditions_percentage > 0.0 {
+                        rule.conditions_percentage
+                    } else {
+                        1.0
+                    };
+
+                    if ratio >= threshold {
+                        // Build a ProcessRecord similar to the one created in process_event flow.
+                        // Convert exe_path to string for the constructor — adjust if your ProcessRecord::new signature differs.
+                        let mut p = ProcessRecord::new(
+                            gid,
+                            app_name.clone(),
+                            exe_path_str.clone().into(),
+                        );
+                        p.is_malicious = true;
+                        p.pids.insert(pid);
+                        p.termination_requested = rule.response.terminate_process;
+                        p.quarantine_requested = rule.response.quarantine;
+                        detected_processes.push(p);
+
+                        if rule.debug {
+                            Logging::warning(&format!(
+                                "[BehaviorEngine] DETECTION (scan): {} (PID: {}) matched '{}' ({:.1}%)",
+                                app_name,
+                                pid,
+                                rule.name,
+                                ratio * 100.0
+                            ));
                         }
-
-                        if rule_matched {
-                            let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
-                            p.is_malicious = true;
-                            p.pids.insert(pid);
-                            p.termination_requested = rule.response.terminate_process;
-                            p.quarantine_requested = rule.response.quarantine;
-                            detected_processes.push(p);
-                            break;
-                        }
-                    }
-
-                    if rule_matched {
-                        break;
+                        // do not break here: allow multiple rules to detect the same process in a single scan
                     }
                 }
             }
@@ -1095,23 +1189,4 @@ impl BehaviorEngine {
 
         detected_processes
     }
-
-    /* Notes & rationale
-
-    1) Common root causes that produce the "same rule applied to every process" symptom:
-    - Re-using a mutable variable or closure environment that holds the last-evaluated process name.
-        Making per-loop local copies and avoiding long-lived borrows fixes accidental reuse.
-    - Borrowing `self.process_states` for the whole scan and mutating it while iterating. We snapshot
-        the gids first which avoids borrowing the map while scanning its entries.
-    - Logging that references an outer variable that was changed after the log call. Local copies ensure
-        logs are accurate.
-
-    2) If the real bug is in the process-tracking layer (worker.rs), ensure every process gets a unique
-    GID and that `track_process(gid, app_name)` is called with the correct gid. A good test is to
-    enable debug and check that the mapping gid -> exe_path/app_name is 1:1.
-
-    3) Add a unit/integration test that creates two fake process states (different exe names) and asserts
-    that a rule that should only match one of them does not match the other.
-    */
-
 }
