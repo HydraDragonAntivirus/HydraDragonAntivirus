@@ -1,0 +1,41 @@
+; SimplePYASProtection.inf
+; Legacy kernel driver installation
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ManufacturerName%
+CatalogFile=SimplePYASProtection.cat
+DriverVer=10/20/2025,1.0.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+SimplePYASProtection.sys = 1,,
+
+[DefaultInstall.NTamd64]
+CopyFiles=Drivers_Dir
+
+[DefaultInstall.NTamd64.Services]
+AddService = SimplePYASProtection,0x00000002, SimplePYASProtection_Service_Inst
+
+[Drivers_Dir]
+SimplePYASProtection.sys
+
+[SimplePYASProtection_Service_Inst]
+DisplayName = %SimplePYASProtection.SVCDESC%
+ServiceType = 1 ; SERVICE_KERNEL_DRIVER
+StartType = 1   ; SERVICE_SYSTEM_START
+ErrorControl = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\SimplePYASProtection.sys
+
+[Strings]
+ManufacturerName="SimplePYAS"
+DiskName = "SimplePYASProtection Installation Disk"
+SimplePYASProtection.SVCDESC = "SimplePYASProtection Kernel Driver"
