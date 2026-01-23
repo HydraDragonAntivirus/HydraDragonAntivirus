@@ -932,9 +932,8 @@ pub mod worker_instance {
         pub fn process_suspended_records(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             self.process_records.process_suspended_procs(config, threat_handler);
 
-            // --- ADDED: Learn on Exit (Scan for terminated processes) & Behavior Engine Termination Check ---
-            // Calculate terminated GIDs if EITHER feature is enabled
-            #[cfg(any(feature = "realtime_learning", all(target_os = "windows", feature = "behavior_engine")))]
+            // --- ADDED: Learn on Exit (Scan for terminated processes) ---
+            #[cfg(feature = "realtime_learning")]
             {
                 let mut terminated_gids = Vec::new();
                 let now = std::time::SystemTime::now();
@@ -960,40 +959,12 @@ pub mod worker_instance {
                     }
                 }
 
-                // Process terminated GIDs
+                // Finalize learning for terminated processes
                 for gid in terminated_gids {
-                    // We peek first to get info before removing (or remove and use)
-                    // Removing here is tricky if both engines need it. 
-                    // process_records.process_records is an LRU cache.
-                    
-                    // BEHAVIOR ENGINE: Needs notification, but doesn't necessarily need us to remove the record immediately?
-                    // Actually, if it's dead, we should notify.
-                    // Let's get the appname first.
-                    let mut app_name = String::new();
-                    if let Some(precord) = self.process_records.process_records.peek(&gid) {
-                        app_name = precord.appname.clone();
-                    }
-
-                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                    if !app_name.is_empty() {
-                         self.behavior_engine.report_process_termination(app_name.clone());
-                    }
-
-                    // LEARNING ENGINE: Needs to process AND remove (or we remove after)
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                         if let Some(precord) = self.process_records.process_records.pop(&gid) {
-                            if let Some(tracker) = self.api_trackers.remove(&gid) {
-                                 self.learning_engine.process_terminated(gid, &tracker, &precord);
-                            }
+                    if let Some(precord) = self.process_records.process_records.pop(&gid) {
+                        if let Some(tracker) = self.api_trackers.remove(&gid) {
+                             self.learning_engine.process_terminated(gid, &tracker, &precord);
                         }
-                    }
-                    
-                    // If NO learning engine, we should probably still pop it eventually to keep cache clean?
-                    // The LRU cache handles size limits, but dead processes sticking around is waste.
-                    #[cfg(not(feature = "realtime_learning"))]
-                    {
-                        self.process_records.process_records.pop(&gid);
                     }
                 }
             }

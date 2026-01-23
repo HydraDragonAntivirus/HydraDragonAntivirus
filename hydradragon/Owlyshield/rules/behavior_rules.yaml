@@ -2,14 +2,13 @@
   debug: true
   
   browsed_paths:
-    - "%USERPROFILE%\\Google\\Chrome\\User Data"
-    - "%USERPROFILE%\\AppData\\Local\\Google\\Chrome\\User Data"
+    - "Google\\Chrome\\User Data"
     - "Opera Software\\Opera Stable"
     - "Opera Software\\Opera GX Stable"
     - "BraveSoftware\\Brave-Browser\\User Data"
     - "Microsoft\\Edge\\User Data"
-    - "%APPDATA%\\Discord\\Local Storage"
-    - "%APPDATA%\\Discord\\leveldb"
+    - "Discord\\Local Storage"
+    - "Discord\\leveldb"
   
   accessed_paths:
     - "Cookies"
@@ -18,8 +17,7 @@
     - "Local State"
   
   staging_paths:
-    - "%TEMP%"
-    - "%APPDATA%\\Local\\Temp"
+    - "AppData\\Local\\Temp"
   
   multi_access_threshold: 2
   require_internet: true
@@ -30,16 +28,9 @@
     - "BCryptDecrypt"
     - "NCryptDecrypt"
     - "DPAPI"
-  
-  archive_apis:
     - "CreateZip"
     - "CreateRar"
   
-  archive_tools:
-    - "7z.exe"
-    - "tar.exe"
-    - "winrar.exe"
-
   suspicious_parents:
     - "powershell.exe"
     - "cmd.exe"
@@ -51,7 +42,9 @@
   
   entropy_threshold: 7.0
   
-  file_actions: []
+  file_actions:
+    - "7z"
+    - "tar"
   
   file_extensions:
     - ".zip"
@@ -92,32 +85,6 @@
       must_be_signed: false
     - pattern: "vscodium.exe"
       must_be_signed: false
-
-  stages:
-    - name: "Generic Startup Persistence Check"
-      conditions:
-        - type: "Registry"
-          op: "write"
-          key_pattern: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\*"
-          # Removed value_name/expected_data to allow detecting ANY startup addition "via registry"
-
-    - name: "Sensitive Data Theft"
-      conditions:
-        - type: "DataExfiltrationPattern"
-          detect_temp_staging: true
-          source_patterns: ["*Credentials*"]
-
-    - name: "Resource Access Fingerprint"
-      conditions:
-        - type: "File"
-          path_pattern: "*\\Electrum\\wallets*"
-          op: "read"
-
-    - name: "GID Validation"
-      conditions:
-        - type: "Process"
-          op: "check_gid"
-          pattern: "*"
 
   response:
     terminate_process: true

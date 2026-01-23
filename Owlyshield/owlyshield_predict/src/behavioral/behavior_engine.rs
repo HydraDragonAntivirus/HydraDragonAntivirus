@@ -397,45 +397,10 @@ impl BehaviorEngine {
         Ok(rules)
     }
 
-    pub fn expand_env_vars(&self, path: &str) -> String {
-        // Regex to find %VAR% patterns. 
-        // We use lazy_static or compile it once if performance was critical, but here local is fine for now.
-        // Cached in behavior engine would be better but requires more changes. 
-        // For now, simpler is better to match "don't create things I didn't request".
-        if let Ok(re) = Regex::new(r"%([^%]+)%") {
-            re.replace_all(path, |caps: &regex::Captures| {
-                let key = &caps[1];
-                // Try to look up the env var. If found, replace.
-                // If not found, keep the original placeholder string (caps[0]).
-                std::env::var(key).unwrap_or_else(|_| caps[0].to_string())
-            }).to_string()
-        } else {
-            path.to_string()
-        }
-    }
-
     fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
         let mut final_rules = Vec::new();
         for mut rule in raw_rules {
             rule.finalize_rich_fields();
-            
-            rule.browsed_paths = rule.browsed_paths.iter().map(|p| self.expand_env_vars(p)).collect();
-            rule.accessed_paths = rule.accessed_paths.iter().map(|p| self.expand_env_vars(p)).collect();
-            rule.staging_paths = rule.staging_paths.iter().map(|p| self.expand_env_vars(p)).collect();
-            
-            if !rule.stages.is_empty() {
-                for stage in &mut rule.stages {
-                    for condition in &mut stage.conditions {
-                         match condition {
-                            RuleCondition::File { path_pattern, .. } => *path_pattern = self.expand_env_vars(path_pattern),
-                            RuleCondition::Registry { key_pattern, .. } => *key_pattern = self.expand_env_vars(key_pattern),
-                            RuleCondition::SensitivePathAccess { patterns, .. } => *patterns = patterns.iter().map(|p| self.expand_env_vars(p)).collect(),
-                            _ => {}
-                         }
-                    }
-                }
-            }
-
             if let Some(yaml_private) = rule.private_rules.take() {
                 if let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
                     let mut processed_private = self.finalize_rules(private_rules);
@@ -445,14 +410,6 @@ impl BehaviorEngine {
                     final_rules.extend(processed_private);
                 }
             }
-
-            if !rule.archive_apis.is_empty() {
-                 rule.monitored_apis.extend(rule.archive_apis.clone());
-            }
-            if !rule.archive_tools.is_empty() {
-                 rule.file_actions.extend(rule.archive_tools.clone());
-            }
-
             final_rules.push(rule);
         }
         final_rules
@@ -543,7 +500,8 @@ impl BehaviorEngine {
         for rule in &self.rules {
             // Browsed Paths
             for b_path in &rule.browsed_paths {
-                if Self::path_matches(&filepath, b_path) {
+                let norm_b_path = b_path.to_lowercase().replace("\\", "/");
+                if filepath.contains(&norm_b_path) {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Matched browsed path '{}' in '{}'", 
@@ -553,8 +511,7 @@ impl BehaviorEngine {
                     state.browsed_paths_tracker.insert(b_path.clone(), SystemTime::now());
                     
                     for s_file in &rule.accessed_paths {
-                        // Check if accessed path matches usage
-                        if Self::path_matches(&filepath, s_file) {
+                        if filepath.contains(&s_file.to_lowercase()) {
                             if rule.debug { 
                                 Logging::debug(&format!(
                                     "[BehaviorEngine] Rule '{}' (PID: {}): Matched accessed path (sensitive) '{}'", 
@@ -569,7 +526,8 @@ impl BehaviorEngine {
 
             // Staging
             for s_path in &rule.staging_paths {
-                if Self::path_matches(&filepath, s_path) && irp_op == IrpMajorOp::IrpWrite {
+                let norm_s_path = s_path.to_lowercase().replace("\\", "/");
+                if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
@@ -593,12 +551,6 @@ impl BehaviorEngine {
 
             // Monitored APIs
             for api in &rule.monitored_apis {
-                // APIs usually are just strings like "CryptUnprotectData", simple contains is fine usually,
-                // but let's use path_matches for consistency if they are paths, though usually they are function names.
-                // For function names, standard contains is safer/faster if not path.
-                // Assuming description says APIs might be DLL paths too?
-                // The rule has "CryptUnprotectData", so simple contains is correct.
-                // BUT, let's stick to simple contains for APIs as they aren't file paths usually.
                 if filepath.contains(&api.to_lowercase()) {
                     if rule.debug { 
                         Logging::debug(&format!(
@@ -612,9 +564,7 @@ impl BehaviorEngine {
 
             // File Actions
             for action in &rule.file_actions {
-                // "7z.exe", "tar.exe" -> simple contains is sufficient but if full path is provided...
-                // Let's use path_matches just in case rule has "C:\Program Files\7-Zip\7z.exe"
-                if Self::path_matches(&filepath, action) {
+                if filepath.contains(&action.to_lowercase()) {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): File action/tool detected '{}'", 
@@ -865,8 +815,6 @@ impl BehaviorEngine {
                     }
                 }
             }
-            
-            // (Removed explicit 'terminated_processes' override. Now tracked via standard conditions above)
         }
     }
 
@@ -895,77 +843,8 @@ impl BehaviorEngine {
                         if !op_matches { stage_satisfied = false; break; }
                         if !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
                     },
-                    RuleCondition::Registry { op, key_pattern, value_name: _, expected_data: _ } => {
-                       if *irp_op != IrpMajorOp::IrpRegistry {
-                           stage_satisfied = false; break;
-                       }
-                       let op_matches = match op.as_str() {
-                           "any" | "write" | "set" | "read" | "query" => true,
-                           _ => true,
-                       };
-                       if !op_matches { stage_satisfied = false; break; }
-                       if !self.matches_pattern(key_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
-                    },
-                    RuleCondition::Process { op, pattern } => {
-                         if op == "check_gid" {
-                             // Dynamic GID Validation during event processing
-                             // If GID is tracked, it is valid.
-                             if !self.process_states.contains_key(&msg.gid) {
-                                 stage_satisfied = false; break;
-                             }
-                         } else {
-                             if !self.matches_pattern(pattern, &precord.appname) { stage_satisfied = false; break; }
-                         }
-                    },
-                    RuleCondition::DataExfiltrationPattern { source_patterns: _, min_source_reads: _, detect_temp_staging, detect_archive: _ } => {
-                         if let Some(state) = self.process_states.get(&msg.gid) {
-                             if state.accessed_paths_tracker.is_empty() {
-                                 stage_satisfied = false; break;
-                             }
-
-                             let is_write = *irp_op == IrpMajorOp::IrpWrite || *irp_op == IrpMajorOp::IrpCreate;
-                             if !is_write { stage_satisfied = false; break; }
-
-                             let mut is_suspicious_dest = false;
-                             if *detect_temp_staging {
-                                 for s_path in &rule.staging_paths {
-                                     if msg.filepathstr.to_lowercase().contains(&s_path.to_lowercase()) {
-                                         is_suspicious_dest = true;
-                                         break;
-                                     }
-                                 }
-                                 if !is_suspicious_dest && (msg.filepathstr.to_lowercase().contains("\\temp\\") || msg.filepathstr.to_lowercase().contains("\\appdata\\local\\temp")) {
-                                     is_suspicious_dest = true;
-                                 }
-                             }
-                             
-                             if !is_suspicious_dest { stage_satisfied = false; break; }
-                             
-                             // transformation check: "how it's transformed"
-                             // User wants to track if we saw file actions (archivers) or APIs (crypto/compression)
-                             // We check if the process context has indicators of this.
-                             let has_transformation = state.file_action_detected || state.monitored_api_count > 0;
-                             if !has_transformation {
-                                 // If we are strictly tracking "flow", we might require this.
-                                 // However, simple copy-exfil might not transform.
-                                 // But the user request "Track... how it's transformed" implies we should look for it.
-                                 // We will log a debug but NOT block detection if detect_archive is false, 
-                                 // to be safe, UNLESS we want strict "Stealer" flow which usually implies Archiving.
-                                 // Given the user context "Stealer.BehavesLike.Exela", it heavily implies archiving.
-                                 // I'll make it a soft requirement or strict based on rule features.
-                                 // Let's assume strict if 'file_actions' or 'monitored_apis' are present in rule.
-                                 if !rule.file_actions.is_empty() || !rule.monitored_apis.is_empty() {
-                                     // If rule defines tools, we expect them? No, maybe just one.
-                                     // Let's enforce it if we found sensitive data AND writing to temp.
-                                     // If zero transformation, it's just a copy.
-                                     stage_satisfied = false; break; 
-                                 }
-                             }
-                             
-                             if rule.debug { Logging::debug(&format!("[BehaviorEngine] Data Exfil Step Matched: Read sensitive -> Transformed -> Write to Temp ({})", msg.filepathstr)); }
-                         } else {
-                             stage_satisfied = false; break;
-                         }
+                    RuleCondition::Process { op: _, pattern } => {
+                         if !self.matches_pattern(pattern, &precord.appname) { stage_satisfied = false; break; }
                     },
                     _ => {
                         stage_satisfied = false;
@@ -1113,76 +992,27 @@ impl BehaviorEngine {
              for rule in &self.rules {
                  for stage in &rule.stages {
                     for condition in &stage.conditions {
-                        match condition {
-                            RuleCondition::Signature { is_trusted, signer_pattern: _ } => {
-                                if !signature_checked { continue; }
-                                let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
-                                
-                                if violates {
-                                    let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
-                                    if !is_allowlisted {
-                                        Logging::warning(&format!("[BehaviorEngine SCAN] DETECTION: {} (PID: {}) matched rule '{}' (signature violation)", app_name, pid, rule.name));
-                                        let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
-                                        p.is_malicious = true;
-                                        p.pids.insert(pid);
-                                        p.termination_requested = rule.response.terminate_process;
-                                        p.quarantine_requested = rule.response.quarantine;
-                                        detected_processes.push(p);
-                                    }
+                        if let RuleCondition::Signature { is_trusted, signer_pattern: _ } = condition {
+                            if !signature_checked { continue; }
+                             let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
+                            
+                            if violates {
+                                let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
+                                if !is_allowlisted {
+                                    Logging::warning(&format!("[BehaviorEngine SCAN] DETECTION: {} (PID: {}) matched rule '{}' (signature violation)", app_name, pid, rule.name));
+                                    let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
+                                    p.is_malicious = true;
+                                    p.pids.insert(pid);
+                                    p.termination_requested = rule.response.terminate_process;
+                                    p.quarantine_requested = rule.response.quarantine;
+                                    detected_processes.push(p);
                                 }
-                            },
-                            RuleCondition::Process { op, pattern: _ } if op == "check_gid" => {
-                                // Explicitly validate that the GID exists in our tracking state.
-                                // If the rule requires "check_gid", it implies we must confirm we are tracking this GID context.
-                                let has_state = self.process_states.contains_key(&gid);
-                                if !has_state {
-                                     // This should theoretically not happen if we are iterating GIDs, but good for sanity.
-                                     Logging::warning(&format!("[BehaviorEngine] GID {} check failed: Not found in state map.", gid));
-                                } else {
-                                     if let Some(s) = self.process_states.get(&gid) {
-                                         if self.rules.iter().any(|r| r.debug) {
-                                             Logging::debug(&format!("[BehaviorEngine] GID {} Validated. Current PID: {} (Context Active)", gid, s.pid));
-                                         }
-                                     }
-                                }
-                            },
-                            _ => {}
+                            }
                         }
                     }
                  }
             }
         }
         detected_processes
-    }
-
-
-    pub fn report_process_termination(&mut self, app_name: String) {
-        self.process_terminated.insert(app_name.to_lowercase());
-    }
-
-    /// Robust path matching that handles drive letters vs kernel paths
-    pub fn path_matches(event_path: &str, rule_pattern: &str) -> bool {
-        let event_lower = event_path.to_lowercase();
-        let rule_lower = rule_pattern.to_lowercase().replace("\\", "/");
-        let event_lower_norm = event_lower.replace("\\", "/");
-
-        // 1. Direct contains check
-        if event_lower_norm.contains(&rule_lower) {
-            return true;
-        }
-
-        // 2. Drive letter handling: "c:/users/" vs "/device/harddiskvolume3/users/"
-        // If rule pattern starts with a drive letter + colon (e.g. "c:"), try matching without it
-        if rule_lower.len() > 2 && rule_lower.chars().nth(1) == Some(':') {
-            let path_without_drive = &rule_lower[2..]; // Skip "c:"
-            // Ensure we don't match partial folder names by checking strict boundaries if possible,
-            // but for "contains" logic, just checking the path part is usually what we want 
-            // if we are looking for "users/victim/..." in a kernel path.
-            if event_lower_norm.contains(path_without_drive) {
-                return true;
-            }
-        }
-
-        false
     }
 }
