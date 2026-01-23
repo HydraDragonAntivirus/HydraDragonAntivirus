@@ -483,6 +483,7 @@ impl BehaviorEngine {
             }
         }
 
+        // --- Network (same as before) ---
         let network_keywords = [
             "internetopen", "internetconnect", "httpopen", "httpsend", 
             "urldownload", "socket", "connect", "wsasend", "wsarecv",
@@ -492,13 +493,13 @@ impl BehaviorEngine {
         if network_keywords.iter().any(|k| filepath.contains(k)) {
             state.network_activity_detected = true;
             if self.rules.iter().any(|r| r.debug) {
-                 Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
+                Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
             }
         }
 
         // --- Event Tracking ---
         for rule in &self.rules {
-            // Browsed Paths
+            // Browsed Paths (record the browse)
             for b_path in &rule.browsed_paths {
                 let norm_b_path = b_path.to_lowercase().replace("\\", "/");
                 if filepath.contains(&norm_b_path) {
@@ -508,26 +509,33 @@ impl BehaviorEngine {
                             rule.name, pid, b_path, filepath
                         )); 
                     }
+                    // keep timestamp of last browse (existing structure)
                     state.browsed_paths_tracker.insert(b_path.clone(), SystemTime::now());
-                    
-                    for s_file in &rule.accessed_paths {
-                        if filepath.contains(&s_file.to_lowercase()) {
-                            if rule.debug { 
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Rule '{}' (PID: {}): Matched accessed path (sensitive) '{}'", 
-                                    rule.name, pid, s_file
-                                )); 
-                            }
-                            state.accessed_paths_tracker.insert(s_file.clone());
-                        }
-                    }
                 }
             }
 
-            // Staging
+            // FIX: accessed_paths must be independent of browsed_paths
+            for s_file in &rule.accessed_paths {
+                let norm_s = s_file.to_lowercase();
+                if filepath.contains(&norm_s) {
+                    if rule.debug {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Sensitive file accessed '{}'",
+                            rule.name, pid, s_file
+                        ));
+                    }
+                    state.accessed_paths_tracker.insert(s_file.clone());
+                }
+            }
+
+            // Staging (broadened to include write/create/rename operations)
             for s_path in &rule.staging_paths {
                 let norm_s_path = s_path.to_lowercase().replace("\\", "/");
-                if filepath.contains(&norm_s_path) && irp_op == IrpMajorOp::IrpWrite {
+                let is_staging_op = match irp_op {
+                    IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo => true,
+                    _ => false,
+                };
+                if filepath.contains(&norm_s_path) && is_staging_op {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
@@ -550,21 +558,34 @@ impl BehaviorEngine {
             }
 
             // Monitored APIs
+            // NOTE: API calls often aren't visible via filepath. Also consider IOCTL events as proxy for API-like behavior.
             for api in &rule.monitored_apis {
                 if filepath.contains(&api.to_lowercase()) {
                     if rule.debug { 
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API used '{}'", 
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API text matched '{}'", 
                             rule.name, pid, api
                         )); 
                     }
                     state.monitored_api_count += 1;
                 }
             }
+            // Cheap heuristic: treat DeviceIoControl as an API-like indicator (helps when API names aren't in filepath)
+            if irp_op == IrpMajorOp::IrpDeviceIoControl {
+                // increment once per matching rule to avoid runaway counts
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Rule '{}' (PID: {}): IOCTL observed, inferring monitored API usage",
+                        rule.name, pid
+                    ));
+                }
+                state.monitored_api_count = state.monitored_api_count.saturating_add(1);
+            }
 
-            // File Actions
+            // File Actions (tools / actions)
             for action in &rule.file_actions {
-                if filepath.contains(&action.to_lowercase()) {
+                let norm_action = action.to_lowercase();
+                if filepath.contains(&norm_action) {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): File action/tool detected '{}'", 
@@ -575,20 +596,36 @@ impl BehaviorEngine {
                 }
             }
 
-            // Extensions
+            // Extensions: prefer creation operations but keep previous behavior for compatibility
             for ext in &rule.file_extensions {
-                if filepath.ends_with(&ext.to_lowercase()) || filepath.contains(&ext.to_lowercase()) {
+                let norm_ext = ext.to_lowercase();
+                let ext_hit = filepath.ends_with(&norm_ext) || filepath.contains(&norm_ext);
+                let ext_create = ext_hit && (irp_op == IrpMajorOp::IrpCreate || irp_op == IrpMajorOp::IrpWrite);
+                if ext_create || ext_hit {
                     if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Extension match '{}'", 
-                            rule.name, pid, ext
-                        )); 
+                        Logging::debug(&format!("[BehaviorEngine] Rule '{}' (PID: {}): Extension match '{}'", rule.name, pid, ext)); 
                     }
                     state.extension_match_detected = true;
                 }
             }
+
+            // Optional: if this IOMessage conveys that this process terminated another, record it.
+            // Many drivers/sources will present process termination via a specific IRP or a file_change code.
+            // If msg.file_change corresponds to process termination, capture victim name into process_terminated global set (legacy behavior).
+            if irp_op == IrpMajorOp::IrpProcessTerminate {
+                // try to extract victim name from filepath (best-effort)
+                let victim = msg.filepathstr.to_lowercase();
+                if !victim.is_empty() {
+                    // legacy global set — keeps existing behaviour while we recommend migrating to per-killer mapping
+                    self.process_terminated.insert(victim.clone());
+                    if self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!("[BehaviorEngine] Process termination observed by GID={} victim='{}'", gid, victim));
+                    }
+                }
+            }
         }
 
+        // Now evaluate rules for this event (original logic)
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
     }
 
