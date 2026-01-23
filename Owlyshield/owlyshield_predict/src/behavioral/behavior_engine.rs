@@ -299,7 +299,8 @@ pub struct ProcessBehaviorState {
     pub browsed_paths_tracker: HashMap<String, SystemTime>,
     pub accessed_paths_tracker: HashSet<String>,
     pub staged_files_written: HashMap<PathBuf, SystemTime>,
-    
+    pub terminated_processes: HashSet<String>,
+
     pub monitored_api_count: usize,
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
@@ -570,17 +571,6 @@ impl BehaviorEngine {
                     state.monitored_api_count += 1;
                 }
             }
-            // Cheap heuristic: treat DeviceIoControl as an API-like indicator (helps when API names aren't in filepath)
-            if irp_op == IrpMajorOp::IrpDeviceIoControl {
-                // increment once per matching rule to avoid runaway counts
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Rule '{}' (PID: {}): IOCTL observed, inferring monitored API usage",
-                        rule.name, pid
-                    ));
-                }
-                state.monitored_api_count = state.monitored_api_count.saturating_add(1);
-            }
 
             // File Actions (tools / actions)
             for action in &rule.file_actions {
@@ -609,17 +599,20 @@ impl BehaviorEngine {
                 }
             }
 
-            // Optional: if this IOMessage conveys that this process terminated another, record it.
-            // Many drivers/sources will present process termination via a specific IRP or a file_change code.
-            // If msg.file_change corresponds to process termination, capture victim name into process_terminated global set (legacy behavior).
             if irp_op == IrpMajorOp::IrpProcessTerminate {
-                // try to extract victim name from filepath (best-effort)
                 let victim = msg.filepathstr.to_lowercase();
                 if !victim.is_empty() {
-                    // legacy global set — keeps existing behaviour while we recommend migrating to per-killer mapping
+                    // global (keep existing behavior)
                     self.process_terminated.insert(victim.clone());
+
+                    // per-process (THIS is the missing piece)
+                    state.terminated_processes.insert(victim.clone());
+
                     if self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!("[BehaviorEngine] Process termination observed by GID={} victim='{}'", gid, victim));
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] GID={} PID={} terminated '{}'",
+                            gid, pid, victim
+                        ));
                     }
                 }
             }
