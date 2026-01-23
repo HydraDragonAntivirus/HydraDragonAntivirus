@@ -529,7 +529,7 @@ mod process_records {
     impl ProcessRecords {
         pub fn new() -> ProcessRecords {
             ProcessRecords {
-                process_records: LruCache::new(NonZeroUsize::new(1024).unwrap()),
+                process_records: LruCache::new(NonZeroUsize::new(10000).unwrap()),
             }
         }
 
@@ -819,48 +819,74 @@ pub mod worker_instance {
         }
 
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
-            // 1. Refresh system process list
-            self.sys.refresh_processes();
-
-            // 2. Scan ONLY existing ProcessRecords (never create new ones)
-            for (pid, _process) in self.sys.processes() {
-                let pid_u32 = pid.as_u32();
-
-                // IDENTITY-SAFE LOOKUP
-                // Find the ProcessRecord that already owns this PID
-                let Some((gid, _precord)) = self.process_records
-                    .process_records
-                    .iter()
-                    .find(|(_, pr)| pr.pids.contains(&pid_u32))
-                else {
-                    // Process exists in OS but not yet known by kernel/IO path
-                    // It WILL be registered later via process_io()
-                    continue;
-                };
-
-                // Optional: sanity check process still alive
-                // (do nothing here – behavior engine handles logic)
-                let _ = gid;
-            }
-
-            // 3. Run behavior engine scan on already-registered processes
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                let detections = self
-                    .behavior_engine
-                    .scan_all_processes(config, &*threat_handler);
+                // 1. Refresh system process list
+                self.sys.refresh_processes();
 
-                // 4. Apply detections back to ProcessRecords
+                // 2. Register ALL running processes with behavior engine
+                for (pid, process) in self.sys.processes() {
+                    let pid_u32 = pid.as_u32();
+                    let exe_path = process.exe().to_path_buf();
+                    let app_name = process.name().to_string();
+                    
+                    // Check if behavior engine already knows this PID
+                    let already_tracked = self.behavior_engine.process_states
+                        .values()
+                        .any(|state| state.pid == pid_u32);
+                    
+                    if !already_tracked {
+                        // Use PID as temporary GID for behavior engine tracking
+                        // High bit set to avoid collision with kernel GIDs
+                        let temp_gid = pid_u32 as u64 | 0x8000_0000_0000_0000;
+                        
+                        self.behavior_engine.register_process(
+                            temp_gid,
+                            pid_u32,
+                            exe_path.clone(),
+                            app_name.clone()
+                        );
+                        
+                        Logging::debug(&format!(
+                            "[KERNEL SCAN] Registered Process: {} (PID: {}, Path: {})", 
+                            app_name, pid_u32, exe_path.display()
+                        ));
+                    }
+                }
+
+                // 3. Run behavior engine scan on ALL tracked processes
+                let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
+
+                // 4. Apply detections - match by PID instead of GID
                 for det in detections {
-                    if let Some(record) = self.process_records.get_precord_mut_by_gid(det.gid) {
+                    // Try to find the corresponding ProcessRecord by matching PIDs
+                    let matching_record = self.process_records.process_records
+                        .iter_mut()
+                        .find(|(_, pr)| pr.pids.iter().any(|pid| {
+                            // Check if this ProcessRecord contains any of the detection's PIDs
+                            self.behavior_engine.process_states
+                                .get(&det.gid)
+                                .map(|state| state.pid == *pid)
+                                .unwrap_or(false)
+                        }));
+                    
+                    if let Some((_, record)) = matching_record {
                         record.is_malicious = true;
                         record.termination_requested = det.termination_requested;
                         record.quarantine_requested = det.quarantine_requested;
+                    } else {
+                        // This is a scanned process without kernel tracking yet
+                        // Log it but don't create a ProcessRecord
+                        if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
+                            Logging::warning(&format!(
+                                "[SCAN DETECTION] Process {} (PID: {}) matched behavioral rules but has no kernel tracking (not yet accessed files)",
+                                state.app_name, state.pid
+                            ));
+                        }
                     }
                 }
             }
         }
-
 
 		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
 			Worker {

@@ -64,14 +64,23 @@ pub fn run() {
         buf.resize(buf_size, 0);
         let mut cursor_index = 0;
 
-        while cursor_index + buf_size < file_len {
-            // TODO ToFix! last 1000 buffer ignored
+        while cursor_index < file_len {
             buf.fill(0);
             file.seek(SeekFrom::Start(cursor_index as u64)).unwrap();
-            file.read_exact(&mut buf).unwrap();
+            
+            // Read remaining bytes if less than buf_size
+            let bytes_remaining = file_len - cursor_index;
+            let bytes_to_read = bytes_remaining.min(buf_size);
+            
+            if bytes_to_read < buf_size {
+                // Partial read for the final chunk
+                file.read_exact(&mut buf[0..bytes_to_read]).unwrap();
+            } else {
+                file.read_exact(&mut buf).unwrap();
+            }
 
-            let mut cursor_record_end = buf_size;
-            for i in 0..(buf_size - 3) {
+            let mut cursor_record_end = bytes_to_read;
+            for i in 0..(bytes_to_read.saturating_sub(3)) {
                 // A strange chain is used to avoid collisions with the windows fileid
                 if buf[i] == 255u8 && buf[i + 1] == 0u8 && buf[i + 2] == 13u8 && buf[i + 3] == 10u8
                 {
@@ -85,7 +94,7 @@ pub fn run() {
                     worker.process_io(&mut iomsg, &config);
                 }
                 Err(_e) => {
-                    println!("Error deserializing buffer {cursor_index}"); // buffer is too small
+                    println!("Error deserializing buffer at offset {cursor_index}");
                 }
             }
 
@@ -111,7 +120,7 @@ pub fn run() {
 
         let (tx_iomsgs, rx_iomsgs) = channel::<IOMessage>();
 
-        // Run connectors and the worker thread (no redundant cfg!(not(feature = "replay")) check)
+        // Run connectors and the worker thread
         Connectors::on_startup(&config);
 
         // Spawn the worker thread that consumes IO messages and performs analysis
@@ -196,7 +205,7 @@ pub fn run() {
                 }
             }
 
-            // --- Event-driven worker loop: block on recv(), immediate processing ---
+            // --- Event-driven worker loop: immediate processing with direct scanning ---
             loop {
                 let mut iomsg = match rx_iomsgs.recv() {
                     Ok(msg) => msg,
@@ -206,7 +215,8 @@ pub fn run() {
                 // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
 
-                // Immediately run scans and suspended-record processing after processing the message.
+                // Immediately run scans and suspended-record processing after every message
+                // No throttling - direct scan on every event
                 if let Some(handler) = worker.threat_handler.as_ref() {
                     let th_scan = handler.clone_box();
                     let th_suspended = handler.clone_box();
@@ -231,7 +241,7 @@ pub fn run() {
                         }
                     }
                 } else {
-                    // No sleep here — immediate loop to keep latency down
+                    // No sleep here - immediate loop to keep latency down
                 }
             } else {
                 panic!("Can't receive Driver Message?");
