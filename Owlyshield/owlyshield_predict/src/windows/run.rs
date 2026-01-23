@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime};
 use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -138,7 +137,7 @@ pub fn run() {
 
             // Initialize threat handler early to reuse the driver connection
             let win_threat_handler = WindowsThreatHandler::from(driver);
-            worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
+            worker = worker.threat_handler(Box::new(win_threat_handler.clone())) ;
 
             #[cfg(all(target_os = "windows", feature = "hydradragon"))]
             {
@@ -203,7 +202,7 @@ pub fn run() {
                 use crate::realtime_learning::RealtimeLearningEngine;
                 let rules_dir = Path::new(&thread_config[Param::RulesPath]);
                 let learner = RealtimeLearningEngine::new(
-                    rules_dir.to_str().unwrap_or("."),
+                    rules_dir.to_str().unwrap_or("."), 
                     Some(worker.app_settings.win_verify_trust_path.to_str().unwrap()),
                 );
 
@@ -230,39 +229,27 @@ pub fn run() {
                 }
             }
 
-            let mut last_scan = SystemTime::now();
-            let mut last_suspended_check = SystemTime::now();
-
+            // === Event-driven worker loop (blocking recv, immediate scans) ===
             loop {
-                // Use recv_timeout to allow periodic tasks even when idle
-                match rx_iomsgs.recv_timeout(Duration::from_millis(50)) {
+                match rx_iomsgs.recv() {
                     Ok(mut iomsg) => {
+                        // Process the incoming IO message immediately
                         worker.process_io(&mut iomsg, &thread_config);
+
+                        // Immediately run scans and suspended-record processing after processing the message.
+                        if let Some(handler) = worker.threat_handler.as_ref() {
+                            // clone_box twice so each call receives its own boxed handler
+                            let th_scan = handler.clone_box();
+                            let th_suspended = handler.clone_box();
+
+                            worker.scan_processes(&thread_config, th_scan);
+                            worker.process_suspended_records(&thread_config, th_suspended);
+                        }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        // Just a timeout, continue to periodic checks
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    Err(std::sync::mpsc::RecvError) => {
+                        // Channel disconnected: exit loop
                         break;
                     }
-                }
-
-                let now = SystemTime::now();
-
-                // Periodic scan every 2 seconds
-                if now.duration_since(last_scan).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(2) {
-                    if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
-                        worker.scan_processes(&thread_config, th);
-                    }
-                    last_scan = now;
-                }
-
-                // Periodic check for suspended processes every 500ms
-                if now.duration_since(last_suspended_check).unwrap_or(Duration::from_secs(0)) > Duration::from_millis(500) {
-                    if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
-                        worker.process_suspended_records(&thread_config, th);
-                    }
-                    last_suspended_check = now;
                 }
             }
         });
@@ -281,7 +268,6 @@ pub fn run() {
                         }
                     }
                 } else {
-                    // (Removed sleep to maximize throughput)
                 }
             } else {
                 panic!("Can't receive Driver Message?");
