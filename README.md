@@ -12,7 +12,6 @@
 ## Description
 - Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
 - HydraDragonPlatform - Unified Executable Analysis & Detection Framework
-- Enjoy beyond capabilities of AV/AM/EDR/XDR/MDR.
 
 ## License
 
@@ -20,6 +19,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
+- This project doesn't replace your daily AV and not an AV.
 - You must uninstall it manually; the auto-uninstaller won't work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - Disable Secure Boot if the driver installation fails.
