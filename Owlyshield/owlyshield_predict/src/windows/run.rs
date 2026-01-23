@@ -230,40 +230,25 @@ pub fn run() {
                 }
             }
 
-            let mut last_scan = SystemTime::now();
-            let mut last_suspended_check = SystemTime::now();
+            let mut count = 0;
+            let mut timer = SystemTime::now();
 
             loop {
-                // Use recv_timeout to allow periodic tasks even when idle
-                match rx_iomsgs.recv_timeout(Duration::from_millis(50)) {
-                    Ok(mut iomsg) => {
-                        worker.process_io(&mut iomsg, &thread_config);
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        // Just a timeout, continue to periodic checks
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        break;
-                    }
-                }
+                let mut iomsg = rx_iomsgs.recv().unwrap();
+                worker.process_io(&mut iomsg, &thread_config);
 
-                let now = SystemTime::now();
-
-                // Periodic scan every 2 seconds
-                if now.duration_since(last_scan).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(2) {
+                if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
                     if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
                         worker.scan_processes(&thread_config, th);
+                        if let Some(th2) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
+                            worker.process_suspended_records(&thread_config, th2);
+                        }
                     }
-                    last_scan = now;
+                    count = 0;
+                    timer = SystemTime::now();
                 }
 
-                // Periodic check for suspended processes every 500ms
-                if now.duration_since(last_suspended_check).unwrap_or(Duration::from_secs(0)) > Duration::from_millis(500) {
-                    if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
-                        worker.process_suspended_records(&thread_config, th);
-                    }
-                    last_suspended_check = now;
-                }
+                count += 1;
             }
         });
 
@@ -281,7 +266,7 @@ pub fn run() {
                         }
                     }
                 } else {
-                    // (Removed sleep to maximize throughput)
+                    thread::sleep(Duration::from_millis(10));
                 }
             } else {
                 panic!("Can't receive Driver Message?");

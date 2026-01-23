@@ -194,7 +194,8 @@ impl<'a> AVIntegration<'a> {
     /// Main loop to handle queued threat events
     pub fn handle_event_loop(&self) {
         loop {
-            // (Removed loop delay to increase event throughput)
+            // Placeholder: integrate event queue or pipe-based event reading later
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
     }
 
@@ -433,6 +434,7 @@ fn scan_request_server_loop(tx: Sender<EDRScanRequest>) {
             }
 
             let _ = CloseHandle(pipe_handle);
+            thread::sleep(Duration::from_millis(50));
         }
     }
 }
