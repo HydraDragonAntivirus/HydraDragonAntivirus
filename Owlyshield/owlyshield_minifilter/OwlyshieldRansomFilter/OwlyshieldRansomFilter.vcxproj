@@ -75,6 +75,7 @@
     <ClCompile Include="Communication.cpp" />
     <ClCompile Include="DriverData.cpp" />
     <ClCompile Include="Regedit.cpp" />
+    <ClCompile Include="ProcessProtection.cpp" />
     <Inf Include="OwlyshieldRansomFilter.inf" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -406,6 +407,7 @@
     <ClInclude Include="KernelString.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
+    <ClInclude Include="ProcessProtection.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

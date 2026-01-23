@@ -79,8 +79,10 @@ pub enum IrpMajorOp {
     IrpRegistry,
     /// Process creation
     IrpProcessCreate,
-    /// Process termination
+    /// Process termination (normal exit)
     IrpProcessTerminate,
+    /// External process attempting to terminate another (attacker -> target)
+    IrpProcessTerminateAttempt,
 }
 
 impl IrpMajorOp {
@@ -95,6 +97,7 @@ impl IrpMajorOp {
             6 => IrpMajorOp::IrpRegistry,
             7 => IrpMajorOp::IrpProcessCreate,
             8 => IrpMajorOp::IrpProcessTerminate,
+            9 => IrpMajorOp::IrpProcessTerminateAttempt,
             _ => IrpMajorOp::IrpNone,
         }
     }
@@ -209,6 +212,10 @@ pub struct IOMessage {
     pub file_location_info: u8,
     pub filepathstr: String,
     pub gid: u64,
+    /// For IrpProcessTerminateAttempt: PID of the attacking process (0 if not applicable)
+    pub attacker_pid: u32,
+    /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
+    pub attacker_gid: u64,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
     pub time: SystemTime,
@@ -228,6 +235,8 @@ impl Default for IOMessage {
             file_location_info: 0,
             filepathstr: String::new(),
             gid: 0,
+            attacker_pid: 0,
+            attacker_gid: 0,
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,
             time: SystemTime::now(),

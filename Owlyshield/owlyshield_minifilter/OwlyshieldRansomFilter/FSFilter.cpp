@@ -16,6 +16,7 @@ Environment:
 
 #include "FsFilter.h"
 #include "Regedit.h"
+#include "ProcessProtection.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -217,6 +218,13 @@ Return Value:
     // Initialize Registry Protection
     RegeditDriverEntry();
 
+    // Initialize Process Protection (ObRegisterCallbacks for termination detection)
+    status = InitProcessProtection();
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("!!! FSFilter: InitProcessProtection failed: 0x%X (non-fatal, continuing)\n", status);
+        // Don't fail driver load - this is an enhancement, not critical
+    }
+
     // Set the quarantine path
     UNICODE_STRING quarantinePathString;
     RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
@@ -254,6 +262,9 @@ Return Value:
 
     // Registry Cleanup
     RegeditUnloadDriver();
+
+    // Process Protection Cleanup (ObUnRegisterCallbacks)
+    UninitProcessProtection();
 
     // Stop filter processing
     if (driverData) {

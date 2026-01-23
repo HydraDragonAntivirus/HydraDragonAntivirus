@@ -98,6 +98,7 @@ enum IRP_MAJOR_OP
     IRP_REGISTRY,
     IRP_PROCESS_CREATE,
     IRP_PROCESS_TERMINATE,
+    IRP_PROCESS_TERMINATE_ATTEMPT,  // External process attempting to terminate another
 };
 
 // NEW: Action types for threat response
@@ -131,6 +132,11 @@ typedef struct _DRIVER_MESSAGE
     UNICODE_STRING
     filePath;      // 16 bytes unicode string - filename, also contains size and max size, buffer is outside the struct
     ULONGLONG Gid; // 8 bytes process ransomwatch gid
+    
+    // For IRP_PROCESS_TERMINATE_ATTEMPT: Info about the attacker process
+    ULONG AttackerPID;      // 4 bytes - PID of process attempting termination (0 if not applicable)
+    ULONGLONG AttackerGid;  // 8 bytes - GID of attacker process (0 if not tracked)
+    
     PVOID
     next; // 8 bytes - next PDRIVER_MESSAGE, we use it to allow adding the fileName to the same buffer, this pointer
           // should point to the next PDRIVER_MESSAGE in buffer (kernel handled)

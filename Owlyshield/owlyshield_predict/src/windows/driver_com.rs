@@ -330,6 +330,10 @@ pub struct CDriverMsg {
     pub file_location_info: c_uchar,
     pub filepath: UnicodeString,
     pub gid: c_ulonglong,
+    /// For IRP_PROCESS_TERMINATE_ATTEMPT: PID of attacker process (0 if not applicable)
+    pub attacker_pid: c_ulong,
+    /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
+    pub attacker_gid: c_ulonglong,
     /// null (0x0) when there is no [`IOMessage`] remaining
     pub next: *const CDriverMsg,
 }
@@ -413,6 +417,8 @@ impl IOMessage {
             file_location_info: c_drivermsg.file_location_info,
             filepathstr: c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
             gid: c_drivermsg.gid,
+            attacker_pid: c_drivermsg.attacker_pid,
+            attacker_gid: c_drivermsg.attacker_gid,
             runtime_features: RuntimeFeatures::new(),
             file_size: match PathBuf::from(
                 &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),

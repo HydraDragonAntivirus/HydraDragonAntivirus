@@ -616,6 +616,38 @@ impl BehaviorEngine {
                     }
                 }
             }
+
+            // NEW: Handle external termination ATTEMPTS (not self-termination)
+            // This is triggered when process A tries to terminate process B
+            // The message's GID/PID is the TARGET (victim), attacker_gid/attacker_pid is the ATTACKER
+            if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
+                let victim_path = msg.filepathstr.to_lowercase();
+                
+                // Only track if there's an attacker (not self-termination) 
+                if msg.attacker_pid != 0 && msg.attacker_pid != msg.pid {
+                    // Track this in the ATTACKER's state, not the victim's
+                    // Look up attacker's state by attacker_gid
+                    if msg.attacker_gid != 0 {
+                        if let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
+                            if !victim_path.is_empty() {
+                                attacker_state.terminated_processes.insert(victim_path.clone());
+                            }
+                        }
+                    }
+                    
+                    // Also track globally
+                    if !victim_path.is_empty() {
+                        self.process_terminated.insert(victim_path.clone());
+                    }
+
+                    if self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] EXTERNAL termination attempt: Attacker PID {} (GID {}) -> Target PID {} '{}'" ,
+                            msg.attacker_pid, msg.attacker_gid, msg.pid, victim_path
+                        ));
+                    }
+                }
+            }
         }
 
         // Now evaluate rules for this event (original logic)
