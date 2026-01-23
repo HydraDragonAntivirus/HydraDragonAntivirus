@@ -748,6 +748,7 @@ pub mod worker_instance {
     }
 
     use crate::logging::Logging;
+    use crate::shared_def::IrpMajorOp;
 
     impl<'a> Worker<'a> {
         // =========================================================================

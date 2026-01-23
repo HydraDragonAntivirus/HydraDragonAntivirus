@@ -873,18 +873,13 @@ FSPostOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltO
 
 Routine Description:
 
-    Post opeartion callback. we reach here in case of IRP_MJ_CREATE or IRP_MJ_READ
+    Post operation callback. We reach here in case of IRP_MJ_CREATE or IRP_MJ_READ
 
 Arguments:
 
     Data - The structure which describes the operation parameters.
-
-    FltObject - The structure which describes the objects affected by this
-        operation.
-
-    CompletionContext - The operation context passed fron the pre-create
-        callback.
-
+    FltObjects - The structure which describes the objects affected by this operation.
+    CompletionContext - The operation context passed from the pre-create callback.
     Flags - Flags to say why we are getting this post-operation callback.
 
 Return Value:
@@ -894,12 +889,10 @@ Return Value:
 
 --*/
 {
-    // DbgPrint("!!! FSFilter: Enter post op for irp: %s, pid of process: %u\n",
-    // FltGetIrpName(Data->Iopb->MajorFunction), FltGetRequestorProcessId(Data));
-
+    // Handle operation failure or reparse
     if (!NT_SUCCESS(Data->IoStatus.Status) || (STATUS_REPARSE == Data->IoStatus.Status))
     {
-        // DbgPrint("!!! FSFilter: finished post operation, already failed \n");
+        // If we allocated a context for READ, we must free it because the operation failed
         if (CompletionContext != nullptr && Data->Iopb->MajorFunction == IRP_MJ_READ)
         {
             delete (PIRP_ENTRY)CompletionContext;
@@ -907,41 +900,43 @@ Return Value:
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
 
+    // Handle Create Operation
     if (Data->Iopb->MajorFunction == IRP_MJ_CREATE)
     {
         return FSProcessCreateIrp(Data, FltObjects);
     }
+    // Handle Read Operation
     else if (Data->Iopb->MajorFunction == IRP_MJ_READ)
     {
-        // FIX: Ensure CompletionContext exists before using it
-        if (CompletionContext == nullptr) {
-             return FLT_POSTOP_FINISHED_PROCESSING;
-        }
-
-        if (Data->Iopb->Parameters.Read.Length == 0)
+        // If no context was passed from PreOp, we have nothing to track
+        if (CompletionContext == nullptr)
         {
-            // FIX: 'newEntry' is undefined here. We delete the context passed in.
-            delete (PIRP_ENTRY)CompletionContext;
-            
-            // FIX: Must return POSTOP status, not PREOP status
             return FLT_POSTOP_FINISHED_PROCESSING;
         }
-        
-        // FIX: In PostOp, we don't assign *CompletionContext = ... 
-        // We simply pass the existing CompletionContext to our helper function.
-        // *CompletionContext = newEntry; 
 
-        // DEBUG LOG ONLY IF NOT IN RECURSIVE CONTEXT
-        // FIX: Ensure IS_DEBUG_IRP is defined in your header
-        if (IS_DEBUG_IRP && !KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
-            DbgPrint("FsFilter: IRP READ WITH CALLBACK! ****************** \n");
+        // If the read length is 0 (EOF or empty read), just clean up
+        if (Data->Iopb->Parameters.Read.Length == 0)
+        {
+            delete (PIRP_ENTRY)CompletionContext;
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
 
-        // FIX: Removed early 'return FLT_PREOP_SUCCESS_WITH_CALLBACK' here 
-        // so the code below can actually execute.
+        // Debug Logging
+        // Using 'if constexpr' (C++17) or standard 'if' depending on your standard.
+        // If IS_DEBUG_IRP is 0/false, the compiler optimizes this block away.
+        if (IS_DEBUG_IRP)
+        {
+            if (!KeIsExecutingDpc())
+            {
+                DbgPrint("FsFilter: IRP READ WITH CALLBACK! ****************** \n");
+            }
+        }
 
-        // return FLT_POSTOP_FINISHED_PROCESSING;
+        // Pass context to helper.
+        // IMPORTANT: FSProcessPostReadIrp MUST take ownership and delete CompletionContext
         return FSProcessPostReadIrp(Data, FltObjects, CompletionContext, Flags);
     }
+
     return FLT_POSTOP_FINISHED_PROCESSING;
 }
 
