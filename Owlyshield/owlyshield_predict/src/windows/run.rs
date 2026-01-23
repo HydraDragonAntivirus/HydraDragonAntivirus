@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime};
 use std::sync::mpsc::channel;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -197,58 +196,24 @@ pub fn run() {
                 }
             }
 
-            // --- REALTIME LEARNING INTEGRATION ---
-            #[cfg(feature = "realtime_learning")]
-            {
-                use crate::realtime_learning::RealtimeLearningEngine;
-                let rules_dir = Path::new(&thread_config[Param::RulesPath]);
-                let learner = RealtimeLearningEngine::new(
-                    rules_dir.to_str().unwrap_or("."),
-                    Some(worker.app_settings.win_verify_trust_path.to_str().unwrap()),
-                );
-
-                // 1. Process Quarantine Logs
-                let quarantine_path = Path::new(r"C:\ProgramData\HydraDragonAntivirus\Quarantine_Log\quarantine_log.json");
-                let learned_rules = learner.process_quarantine_log(quarantine_path);
-
-                if !learned_rules.is_empty() {
-                    Logging::info(&format!(
-                        "Realtime Learning: Generated {} rules from quarantine history",
-                        learned_rules.len()
-                    ));
-
-                    // 2. Save Rules
-                    let learned_rules_path = rules_dir.join("learned_rules.yaml");
-                    if let Err(e) = learner.save_rules_to_yaml(&learned_rules, &learned_rules_path) {
-                        Logging::error(&format!("Failed to save learned rules: {}", e));
-                    } else {
-                        // 3. Load Rules into Engine
-                        if let Err(e) = worker.behavior_engine.load_additional_rules(&learned_rules_path) {
-                            Logging::error(&format!("Failed to load learned rules: {}", e));
-                        }
-                    }
-                }
-            }
-
-            let mut count = 0;
-            let mut timer = SystemTime::now();
-
+            // --- Event-driven worker loop: block on recv(), immediate processing ---
             loop {
-                let mut iomsg = rx_iomsgs.recv().unwrap();
+                let mut iomsg = match rx_iomsgs.recv() {
+                    Ok(msg) => msg,
+                    Err(_) => break, // channel disconnected
+                };
+
+                // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
 
-                if count > 200 && SystemTime::now().duration_since(timer).unwrap() > Duration::from_secs(3) {
-                    if let Some(th) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
-                        worker.scan_processes(&thread_config, th);
-                        if let Some(th2) = worker.threat_handler.as_ref().map(|h| h.clone_box()) {
-                            worker.process_suspended_records(&thread_config, th2);
-                        }
-                    }
-                    count = 0;
-                    timer = SystemTime::now();
-                }
+                // Immediately run scans and suspended-record processing after processing the message.
+                if let Some(handler) = worker.threat_handler.as_ref() {
+                    let th_scan = handler.clone_box();
+                    let th_suspended = handler.clone_box();
 
-                count += 1;
+                    worker.scan_processes(&thread_config, th_scan);
+                    worker.process_suspended_records(&thread_config, th_suspended);
+                }
             }
         });
 
@@ -266,7 +231,7 @@ pub fn run() {
                         }
                     }
                 } else {
-                    thread::sleep(Duration::from_millis(10));
+                    // No sleep here — immediate loop to keep latency down
                 }
             } else {
                 panic!("Can't receive Driver Message?");
