@@ -1046,43 +1046,49 @@ impl BehaviorEngine {
                 for stage in &rule.stages {
                     for condition in &stage.conditions {
                         match condition {
-                            RuleCondition::Signature { is_trusted, signer_pattern: _ } => {
-                                if !signature_checked { continue; }
-                                let violates = if *is_trusted { !has_valid_signature } else { has_valid_signature };
-                                if violates {
-                                    // ensure allowlist check uses local data and immutable borrows only
-                                    let is_allowlisted = self.check_allowlist(&app_name, rule, Some(&exe_path));
-                                    if !is_allowlisted {
-                                        rule_matched = true;
-                                        if rule.debug {
-                                            Logging::warning(&format!("[BehaviorEngine] Rule '{}' matched (signature violation) for {} (GID={}, PID={})", rule.name, app_name, gid, pid));
-                                        }
+                            RuleCondition::Signature { is_trusted, .. } => {
+                                if signature_checked {
+                                    let violates = if *is_trusted {
+                                        !has_valid_signature
+                                    } else {
+                                        has_valid_signature
+                                    };
 
-                                        let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
-                                        p.is_malicious = true;
-                                        p.pids.insert(pid);
-                                        p.termination_requested = rule.response.terminate_process;
-                                        p.quarantine_requested = rule.response.quarantine;
-                                        detected_processes.push(p);
+                                    if violates && !self.check_allowlist(&app_name, rule, Some(&exe_path)) {
+                                        rule_matched = true;
                                     }
                                 }
                             }
 
-                            // Add other condition arms here but **always** use the local copies for values
-                            // e.g. RuleCondition::Network { .. } => { let net = state.network_activity.clone(); ... }
+                            RuleCondition::Network { requires_internet } => {
+                                if *requires_internet && state.network_activity {
+                                    rule_matched = true;
+                                }
+                            }
+
+                            RuleCondition::TerminatedProc => {
+                                if state.terminated {
+                                    rule_matched = true;
+                                }
+                            }
 
                             _ => {}
                         }
 
-                        // if a stage-level short-circuit was required by the rule design, implement it here
+                        if rule_matched {
+                            let mut p = ProcessRecord::new(gid, app_name.clone(), exe_path.clone());
+                            p.is_malicious = true;
+                            p.pids.insert(pid);
+                            p.termination_requested = rule.response.terminate_process;
+                            p.quarantine_requested = rule.response.quarantine;
+                            detected_processes.push(p);
+                            break;
+                        }
                     }
-                    // if rule_matched && stage.break_on_match { break; }
-                }
 
-                // if we know a rule can't match twice for the same process, we can continue to next process
-                if rule_matched {
-                    // if desired: break here to avoid matching multiple rules for same process
-                    // break;
+                    if rule_matched {
+                        break;
+                    }
                 }
             }
         }
