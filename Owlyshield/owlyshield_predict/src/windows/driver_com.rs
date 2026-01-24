@@ -129,9 +129,12 @@ impl Driver {
                 .expect("Cannot get driver message from driver");
         }
         if tmp != 0 {
-            let reply_irp: ReplyIrp;
+            let mut reply_irp: ReplyIrp;
             unsafe {
                 reply_irp = ptr::read_unaligned(vecnew.as_ptr() as *const ReplyIrp);
+                // FIX: The kernel cannot set a valid user-mode pointer for `data`.
+                // We must set it ourselves to point to the memory immediately following the struct.
+                reply_irp.data = vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
             }
             return Some(reply_irp);
         }
