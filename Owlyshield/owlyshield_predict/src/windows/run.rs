@@ -244,7 +244,9 @@ pub fn run() {
                     // No sleep here - immediate loop to keep latency down
                 }
             } else {
-                panic!("Can't receive Driver Message?");
+                // If get_irp returns None (e.g. malformed data), just log and continue
+                // DON'T PANIC!
+                // Logging::warning("Received invalid driver message or empty poll"); 
             }
         }
     }
