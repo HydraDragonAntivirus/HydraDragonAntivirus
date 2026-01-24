@@ -381,12 +381,12 @@ impl ReplyIrp {
                 let msg_ptr = current_ptr as *mut CDriverMsg;
                 let msg = &mut *msg_ptr;
 
-                // Fixup buffer pointer if it's null or a kernel address
-                let buffer_addr = msg.filepath.buffer as usize;
-                if buffer_addr < 0x1000 || buffer_addr > 0x7FFFFFFFFFFF {
-                    if msg.filepath.length > 0 {
-                        msg.filepath.buffer = current_ptr.add(mem::size_of::<CDriverMsg>()) as *const wchar_t;
-                    }
+                // Always fixup buffer pointer to point to the appended data
+                // The pointer coming from kernel is not valid in user space
+                if msg.filepath.length > 0 {
+                    msg.filepath.buffer = current_ptr.add(mem::size_of::<CDriverMsg>()) as *const wchar_t;
+                } else {
+                    msg.filepath.buffer = ptr::null();
                 }
 
                 res.push(&*msg_ptr);
