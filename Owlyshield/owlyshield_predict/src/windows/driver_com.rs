@@ -132,22 +132,6 @@ impl Driver {
             let mut reply_irp: ReplyIrp;
             unsafe {
                 reply_irp = ptr::read_unaligned(vecnew.as_ptr() as *const ReplyIrp);
-                
-                // Validate that we have enough data for the header
-                let header_size = mem::size_of::<ReplyIrp>() as u32;
-                if tmp < header_size {
-                    println!("Error: Received message smaller than header. tmp: {}, header: {}", tmp, header_size);
-                    return None;
-                }
-
-                // Validate that claimed data size fits in the bytes read
-                let available_data = (tmp - header_size) as u64;
-                if reply_irp.data_size > available_data {
-                     println!("Error: Data size validation failed. Claimed: {}, Available: {}", reply_irp.data_size, available_data);
-                     // Claimed size exceeds available bytes - corrupt or malicious
-                     return None;
-                }
-
                 // FIX: The kernel cannot set a valid user-mode pointer for `data`.
                 // We must set it ourselves to point to the memory immediately following the struct.
                 reply_irp.data = vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
@@ -393,37 +377,16 @@ impl ReplyIrp {
         let mut res = vec![];
         unsafe {
             let mut current_ptr = self.data as *mut u8;
-            let buffer_end = current_ptr.add(self.data_size as usize);
-
             for _ in 0..self.num_ops {
-                if current_ptr.is_null() || current_ptr >= buffer_end {
+                if current_ptr.is_null() {
                     break;
                 }
-                
-                // Alignment check (8-byte alignment)
-                if (current_ptr as usize) % 8 != 0 {
-                    break;
-                }
-
-                // Header check
-                if current_ptr.add(mem::size_of::<CDriverMsg>()) > buffer_end {
-                    break;
-                }
-
                 let msg_ptr = current_ptr as *mut CDriverMsg;
                 let msg = &mut *msg_ptr;
 
                 // Always fixup buffer pointer to point to the appended data
                 // The pointer coming from kernel is not valid in user space
                 if msg.filepath.length > 0 {
-                    let name_buffer_size = msg.filepath.length as usize;
-                    let aligned_name_buffer_size = (name_buffer_size + 7) & !7;
-                    let total_size = mem::size_of::<CDriverMsg>() + aligned_name_buffer_size;
-                    
-                    if current_ptr.add(total_size) > buffer_end {
-                         break;
-                    }
-                    
                     msg.filepath.buffer = current_ptr.add(mem::size_of::<CDriverMsg>()) as *const wchar_t;
                 } else {
                     msg.filepath.buffer = ptr::null();
