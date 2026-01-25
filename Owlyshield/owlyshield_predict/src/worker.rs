@@ -625,7 +625,7 @@ pub mod worker_instance {
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
-    use sysinfo::{SystemExt, ProcessExt, PidExt};
+    use sysinfo::{SystemExt, ProcessExt};
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
 
