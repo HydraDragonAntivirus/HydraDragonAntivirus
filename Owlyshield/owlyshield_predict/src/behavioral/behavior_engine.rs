@@ -300,6 +300,7 @@ pub struct ProcessBehaviorState {
     pub accessed_paths_tracker: HashSet<String>,
     pub staged_files_written: HashMap<PathBuf, SystemTime>,
     pub terminated_processes: HashSet<String>,
+    pub detected_apis: HashSet<String>,
 
     pub monitored_api_count: usize,
     pub high_entropy_detected: bool,
@@ -469,7 +470,9 @@ impl BehaviorEngine {
 
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        // Consistently normalize path for matching: lowercase, forward slashes, trim trailing slashes
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
+        let norm_filepath = filepath.trim_end_matches('/');
         let pid = state.pid;
         
         // --- Signature check ---
@@ -491,7 +494,7 @@ impl BehaviorEngine {
             "winhttp", "dnsquery"
         ];
         
-        if network_keywords.iter().any(|k| filepath.contains(k)) {
+        if network_keywords.iter().any(|k| norm_filepath.contains(k)) {
             state.network_activity_detected = true;
             if self.rules.iter().any(|r| r.debug) {
                 Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
@@ -503,7 +506,8 @@ impl BehaviorEngine {
             // Browsed Paths (record the browse)
             for b_path in &rule.browsed_paths {
                 let norm_b_path = b_path.to_lowercase().replace("\\", "/");
-                if filepath.contains(&norm_b_path) {
+                let norm_b_path = norm_b_path.trim_end_matches('/');
+                if norm_filepath.contains(norm_b_path) {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Matched browsed path '{}' in '{}'", 
@@ -517,8 +521,9 @@ impl BehaviorEngine {
 
             // FIX: accessed_paths must be independent of browsed_paths
             for s_file in &rule.accessed_paths {
-                let norm_s = s_file.to_lowercase();
-                if filepath.contains(&norm_s) {
+                let norm_s = s_file.to_lowercase().replace("\\", "/");
+                let norm_s = norm_s.trim_end_matches('/');
+                if norm_filepath.contains(norm_s) {
                     if rule.debug {
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Sensitive file accessed '{}'",
@@ -532,11 +537,12 @@ impl BehaviorEngine {
             // Staging (broadened to include write/create/rename operations)
             for s_path in &rule.staging_paths {
                 let norm_s_path = s_path.to_lowercase().replace("\\", "/");
+                let norm_s_path = norm_s_path.trim_end_matches('/');
                 let is_staging_op = match irp_op {
                     IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo => true,
                     _ => false,
                 };
-                if filepath.contains(&norm_s_path) && is_staging_op {
+                if norm_filepath.contains(norm_s_path) && is_staging_op {
                     if rule.debug { 
                         Logging::debug(&format!(
                             "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
@@ -559,16 +565,19 @@ impl BehaviorEngine {
             }
 
             // Monitored APIs
-            // NOTE: API calls often aren't visible via filepath. Also consider IOCTL events as proxy for API-like behavior.
+            // Match against both filepath and extension field (which may contain registry value info)
+            let extension_lc = msg.extension.to_lowercase();
             for api in &rule.monitored_apis {
-                if filepath.contains(&api.to_lowercase()) {
-                    if rule.debug { 
+                let api_lc = api.to_lowercase();
+                if norm_filepath.contains(&api_lc) || extension_lc.contains(&api_lc) {
+                    if rule.debug && !state.detected_apis.contains(&api_lc) { 
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API text matched '{}'", 
-                            rule.name, pid, api
+                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API matched '{}' (File: {}, Ext: {})", 
+                            rule.name, pid, api, msg.filepathstr, msg.extension
                         )); 
                     }
-                    state.monitored_api_count += 1;
+                    state.detected_apis.insert(api_lc);
+                    state.monitored_api_count = state.detected_apis.len();
                 }
             }
 
@@ -605,13 +614,14 @@ impl BehaviorEngine {
                     // global (keep existing behavior)
                     self.process_terminated.insert(victim.clone());
 
-                    // per-process (THIS is the missing piece)
-                    state.terminated_processes.insert(victim.clone());
-
+                    // We DON'T add to state.terminated_processes here because this event 
+                    // is for the process itself dying. Crediting itself for self-termination 
+                    // is what caused the false positive.
+                    
                     if self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] GID={} PID={} terminated '{}'",
-                            gid, pid, victim
+                            "[BehaviorEngine] GID={} PID={} self-terminated",
+                            gid, pid
                         ));
                     }
                 }
@@ -670,6 +680,7 @@ impl BehaviorEngine {
             browsed_paths_tracker,
             staged_files_written,
             accessed_paths_tracker,
+            terminated_processes,
             parent_name,
             high_entropy_detected,
             monitored_api_count,
@@ -685,6 +696,7 @@ impl BehaviorEngine {
                 s.browsed_paths_tracker.clone(),
                 s.staged_files_written.clone(),
                 s.accessed_paths_tracker.clone(),
+                s.terminated_processes.clone(),
                 s.parent_name.clone(),
                 s.high_entropy_detected,
                 s.monitored_api_count,
@@ -743,19 +755,6 @@ impl BehaviorEngine {
 
             let has_sensitive_access = !accessed_paths_tracker.is_empty();
 
-            let terminated_match = if !rule.terminated_processes.is_empty() {
-                rule.terminated_processes.iter().any(|proc| {
-                    self.process_terminated.contains(&proc.to_lowercase())
-                })
-            } else {
-                true
-            };
-
-
-            // Prepare a temporary "terminated processes" set including the current process
-            let mut terminated_set = self.process_terminated.clone();
-            terminated_set.insert(precord.appname.to_lowercase());
-
             // ---------- CONDITION TRACKING ----------
             let mut satisfied_conditions = 0;
             let mut total_tracked_conditions = 0;
@@ -810,9 +809,12 @@ impl BehaviorEngine {
             }
 
             if !rule.terminated_processes.is_empty() {
-                // Use the temporary set here
-                let terminated_match = rule.terminated_processes.iter().any(|proc| {
-                    terminated_set.contains(&proc.to_lowercase())
+                // Correct check: has the actor killed any of the processes in the rule list?
+                let terminated_match = rule.terminated_processes.iter().any(|rule_proc| {
+                    let rule_proc_lc = rule_proc.to_lowercase();
+                    terminated_processes.iter().any(|victim_path| {
+                        victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                    })
                 });
                 check!("terminated_proc", terminated_match);
             }

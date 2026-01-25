@@ -593,7 +593,6 @@ mod process_records {
 }
 
 // Replaced by crate::threat_handler::ThreatHandler
-use crate::threat_handler::ThreatHandler;
 
 pub mod worker_instance {
     use std::path::{Path, PathBuf};
@@ -619,15 +618,13 @@ pub mod worker_instance {
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
     #[cfg(feature = "realtime_learning")]
-    use crate::realtime_learning::api_tracker::ApiTracker;
-    use crate::utils::is_process_alive;
+    use std::collections::HashMap;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
-    use std::collections::HashMap;
-    use sysinfo::{SystemExt, ProcessExt};
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use crate::behavioral::behavior_engine::BehaviorEngine;
+    use crate::realtime_learning::ApiTracker;
 
     pub trait IOMsgPostProcessor {
         fn postprocess(&mut self, iomsg: &mut IOMessage, precord: &ProcessRecord);
@@ -749,7 +746,6 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
-        sys: sysinfo::System,
     }
 
     impl<'a> Worker<'a> {
@@ -779,7 +775,6 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings, // Initialize app_settings
                 threat_handler: None,
-                sys: sysinfo::System::new_all(),
 			}
 		}
 
@@ -830,38 +825,14 @@ pub mod worker_instance {
 
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // 1. Refresh system process list
-                self.sys.refresh_processes();
+                // NO MORE SYSRefresh - iterate over kernel-tracked processes
+                let gids: Vec<u64> = self.process_records.process_records.iter().map(|(&g, _)| g).collect();
 
-                // 2. Register ALL running processes with behavior engine
-                for (pid, process) in self.sys.processes() {
-                    let pid_u32 = pid.as_u32();
-                    let exe_path = process.exe().to_path_buf();
-                    let app_name = process.name().to_string();
-                    
-                    // Check if behavior engine already knows this PID
-                    let already_tracked = self.behavior_engine.process_states
-                        .values()
-                        .any(|state| state.pid == pid_u32);
-                    
-                    if !already_tracked {
-                        // Use PID as temporary GID for behavior engine tracking
-                        // High bit set to avoid collision with kernel GIDs
-                        let temp_gid = pid_u32 as u64 | 0x8000_0000_0000_0000;
-                        
-                        self.behavior_engine.register_process(
-                            temp_gid,
-                            pid_u32,
-                            exe_path.clone(),
-                            app_name.clone()
-                        );
-                        
-                        Logging::debug(&format!(
-                            "[KERNEL SCAN] Registered Process: {} (PID: {}, Path: {})", 
-                            app_name, pid_u32, exe_path.display()
-                        ));
-                    }
+                for gid in gids {
+                    // Processes are already registered in behavior_engine during register_precord
+                    // so we just let behavior_engine scan them.
                 }
 
                 // 3. Run behavior engine scan on ALL tracked processes
@@ -924,7 +895,6 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings, // Initialize app_settings
                 threat_handler: None,
-                sys: sysinfo::System::new_all(),
 			}
 		}
 
@@ -1001,28 +971,10 @@ pub mod worker_instance {
             #[cfg(feature = "realtime_learning")]
             {
                 let mut terminated_gids = Vec::new();
-                let now = std::time::SystemTime::now();
-
-                // Check which processes are likely dead (Fallback for missed notifications)
                 for (gid, proc) in self.process_records.process_records.iter() {
+                    // Reliable kernel termination
                     if proc.process_state == ProcessState::Terminated {
                         terminated_gids.push(*gid);
-                        continue;
-                    }
-
-                    // Heuristic: If last message was > 30s ago and all PIDs are dead
-                    let inactive_duration = now.duration_since(proc.time).unwrap_or(std::time::Duration::from_secs(0));
-                    if inactive_duration > std::time::Duration::from_secs(30) {
-                        let mut family_dead = true;
-                        for pid in &proc.pids {
-                            if is_process_alive(*pid) {
-                                family_dead = false;
-                                break;
-                            }
-                        }
-                        if family_dead {
-                            terminated_gids.push(*gid);
-                        }
                     }
                 }
 
@@ -1038,18 +990,23 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            match self.process_records.get_precord_by_gid(iomsg.gid) {
+            match self.process_records.get_precord_mut_by_gid(iomsg.gid) {
                 None => {
-                    // SCANNING ISSUE FALLBACK: Try to get path, but don't drop if it fails
-                    let exepath_opt = self.exepath_handler.exepath(iomsg);
-                    let (exepath, appname): (PathBuf, String) = match exepath_opt {
-                        Some(path) => {
-                            let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
-                            (path, name)
-                        }
-                        None => {
-                            // Use PID as name if path unknown to ensure everything is "scanned"
-                            (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                    // KERNEL FIX: Use path from IOMessage if available (IRP_PROCESS_CREATE)
+                    let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+                    let (exepath, appname): (PathBuf, String) = if irp_op == IrpMajorOp::IrpProcessCreate && !iomsg.filepathstr.is_empty() {
+                        let path = PathBuf::from(&iomsg.filepathstr);
+                        let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
+                        (path, name)
+                    } else {
+                        // Fallback to handler (which might use sysinfo, but we prefer kernel)
+                        let exepath_opt = self.exepath_handler.exepath(iomsg);
+                        match exepath_opt {
+                            Some(path) => {
+                                let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
+                                (path, name)
+                            }
+                            None => (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
                         }
                     };
 
