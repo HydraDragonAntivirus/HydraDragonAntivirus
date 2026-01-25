@@ -11,6 +11,7 @@ use crate::{
 };
 use crate::config::Param;
 use crate::watchlist::WatchList;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
 
@@ -36,6 +37,7 @@ pub fn run() {
     let config = config::Config::new();
     let _current_exe_path = std::env::current_exe().unwrap();
     let rules_dir = PathBuf::from(&config[Param::RulesPath]);
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     let app_settings = AppSettings::load(&rules_dir)
         .expect("Failed to load app settings from rules/settings.yaml");
 
@@ -52,7 +54,10 @@ pub fn run() {
         let app_settings_replay = AppSettings::load(&rules_dir)
             .expect("Failed to load app settings for replay");
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay);
+        #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+        let mut worker = Worker::new_replay(&config, &whitelist);
 
         let filename = &Path::new(&config[Param::ProcessActivityLogPath])
             .join(Path::new("drivermessages.txt"));
@@ -142,7 +147,10 @@ pub fn run() {
                 watchlist.refresh_periodically();
             }
 
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let mut worker = Worker::new(&thread_config, thread_app_settings);
+            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+            let mut worker = Worker::new(&thread_config);
 
             // Initialize threat handler early to reuse the driver connection
             let win_threat_handler = WindowsThreatHandler::from(driver);
@@ -229,22 +237,28 @@ pub fn run() {
 
         // Main thread: read driver messages and forward to worker thread
         loop {
-            if let Some(reply_irp) = driver.get_irp(&mut vecnew) {
-                if reply_irp.num_ops > 0 {
-                    let drivermsgs = CDriverMsgs::new(&reply_irp);
-                    for drivermsg in drivermsgs {
-                        let iomsg = IOMessage::from_driver_msg(&drivermsg);
-                        if tx_iomsgs.send(iomsg).is_ok() {
-                        } else {
-                            println!("Cannot send iomsg");
-                            Logging::error("Cannot send iomsg");
+            match driver.get_irp(&mut vecnew) {
+                Ok(Some(reply_irp)) => {
+                    if reply_irp.num_ops > 0 {
+                        let drivermsgs = CDriverMsgs::new(&reply_irp);
+                        for drivermsg in drivermsgs {
+                            let iomsg = IOMessage::from_driver_msg(&drivermsg);
+                            if tx_iomsgs.send(iomsg).is_err() {
+                                println!("Cannot send iomsg");
+                                Logging::error("Cannot send iomsg");
+                            }
                         }
                     }
-                } else {
-                    // No sleep here - immediate loop to keep latency down
                 }
-            } else {
-                panic!("Can't receive Driver Message?");
+                Ok(None) => {
+                    // No messages, small sleep to prevent 100% CPU
+                    thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Err(e) => {
+                    // Don't panic, log and wait before retry
+                    Logging::error(&format!("Driver communication error (HRESULT: 0x{:X})", e.code().0));
+                    thread::sleep(std::time::Duration::from_millis(100));
+                }
             }
         }
     }

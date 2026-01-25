@@ -59,6 +59,7 @@ typedef struct _COM_MESSAGE
     ULONG pid;
     ULONGLONG gid;
     WCHAR path[MAX_FILE_NAME_LENGTH];
+    WCHAR quarantine_path[MAX_FILE_NAME_LENGTH]; // Added to match usermode
 
 } COM_MESSAGE, *PCOM_MESSAGE;
 

@@ -468,7 +468,8 @@ VOID DriverData::DriverGetIrps(
         USHORT alignedNameBufferSize = (nameBufferSize + 7) & ~7;
         ULONG requiredSize = sizeof(DRIVER_MESSAGE) + alignedNameBufferSize;
 
-        if (requiredSize > BufferSizeRemain) {
+        if (requiredSize > BufferSizeRemain || requiredSize > BufferSize) {
+            DbgPrint("!!! Driver: Output buffer too small for message. Required: %lu, Remaining: %lu\n", requiredSize, BufferSizeRemain);
             // Not enough space, put it back to the temp list and break
             InsertHeadList(&tempIrpList, irpEntryList);
             break;

@@ -898,7 +898,7 @@ pub mod worker_instance {
             }
         }
 
-		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, app_settings: AppSettings) -> Worker<'a> {
+		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
 			Worker {
 				whitelist: Some(whitelist),
 				process_records: ProcessRecords::new(),
@@ -911,9 +911,17 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
+                learning_engine: {
+                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
+                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                    let trust_path = None;
+                    
+                    crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), trust_path)
+                },
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings, // Initialize app_settings
                 threat_handler: None,
                 sys: sysinfo::System::new_all(),

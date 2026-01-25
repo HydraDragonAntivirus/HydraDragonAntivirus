@@ -109,7 +109,7 @@ impl Driver {
     /// Ask the driver for a [`ReplyIrp`], if any. This is a low-level function and the returned object
     /// uses C pointers. Managing C pointers requires a special care, because of the Rust timelines.
     /// [`ReplyIrp`] is optional since the minifilter returns null if there is no new activity.
-    pub fn get_irp(&self, vecnew: &mut Vec<u8>) -> Option<ReplyIrp> {
+    pub fn get_irp(&self, vecnew: &mut Vec<u8>) -> Result<Option<ReplyIrp>, Error> {
         let mut get_irp_msg = Driver::build_irp_msg(
             DriverComMessageType::MessageGetOps,
             get_current_pid().unwrap(),
@@ -118,15 +118,19 @@ impl Driver {
         );
         let mut tmp: u32 = 0;
         unsafe {
-            FilterSendMessage(
+            let status = FilterSendMessage(
                 self.handle,
                 ptr::addr_of_mut!(get_irp_msg) as *mut c_void,
                 mem::size_of::<DriverComMessage>() as c_ulong,
                 Some(vecnew.as_ptr() as *mut c_void),
                 65536,
                 ptr::addr_of_mut!(tmp) as *mut u32,
-            )
-                .expect("Cannot get driver message from driver");
+            );
+            
+            if let Err(e) = status {
+                crate::logging::Logging::error(&format!("FilterSendMessage failed: 0x{:X}", e.code().0));
+                return Err(e);
+            }
         }
         if tmp != 0 {
             let mut reply_irp: ReplyIrp;
@@ -136,9 +140,9 @@ impl Driver {
                 // We must set it ourselves to point to the memory immediately following the struct.
                 reply_irp.data = vecnew.as_ptr().add(mem::size_of::<ReplyIrp>()) as *const CDriverMsg;
             }
-            return Some(reply_irp);
+            return Ok(Some(reply_irp));
         }
-        None
+        Ok(None)
     }
 
     /// Ask the minifilter to kill all pids related to the given *gid*. Pids are killed in drivermode
@@ -377,17 +381,31 @@ impl ReplyIrp {
         let mut res = vec![];
         unsafe {
             let mut current_ptr = self.data as *mut u8;
+            let end_ptr = current_ptr.add(self.data_size as usize);
+            
             for _ in 0..self.num_ops {
-                if current_ptr.is_null() {
+                if current_ptr.is_null() || current_ptr >= end_ptr {
                     break;
                 }
                 let msg_ptr = current_ptr as *mut CDriverMsg;
+                
+                // Safety check: ensure CDriverMsg fits
+                if current_ptr.add(mem::size_of::<CDriverMsg>()) > end_ptr {
+                    break;
+                }
+                
                 let msg = &mut *msg_ptr;
 
                 // Always fixup buffer pointer to point to the appended data
                 // The pointer coming from kernel is not valid in user space
                 if msg.filepath.length > 0 {
-                    msg.filepath.buffer = current_ptr.add(mem::size_of::<CDriverMsg>()) as *const wchar_t;
+                    let path_ptr = current_ptr.add(mem::size_of::<CDriverMsg>());
+                    if path_ptr.add(msg.filepath.length as usize) > end_ptr {
+                        msg.filepath.buffer = ptr::null();
+                        msg.filepath.length = 0;
+                    } else {
+                        msg.filepath.buffer = path_ptr as *const wchar_t;
+                    }
                 } else {
                     msg.filepath.buffer = ptr::null();
                 }

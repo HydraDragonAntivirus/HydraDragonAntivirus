@@ -623,6 +623,7 @@ impl BehaviorEngine {
         // This is triggered when process A tries to terminate process B
         // The message's GID/PID is the TARGET (victim), attacker_gid/attacker_pid is the ATTACKER
         // NOTE: This is handled OUTSIDE the rule loop to avoid double mutable borrow
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
             let victim_path = msg.filepathstr.to_lowercase();
             
