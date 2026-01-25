@@ -213,8 +213,10 @@ pub struct IOMessage {
     pub filepathstr: String,
     pub gid: u64,
     /// For IrpProcessTerminateAttempt: PID of the attacking process (0 if not applicable)
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_pid: u32,
     /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_gid: u64,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
@@ -235,7 +237,9 @@ impl Default for IOMessage {
             file_location_info: 0,
             filepathstr: String::new(),
             gid: 0,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_pid: 0,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: 0,
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,

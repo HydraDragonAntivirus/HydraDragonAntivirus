@@ -420,7 +420,9 @@ impl IOMessage {
             file_location_info: c_drivermsg.file_location_info,
             filepathstr: c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
             gid: c_drivermsg.gid,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_pid: c_drivermsg.attacker_pid,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: c_drivermsg.attacker_gid,
             runtime_features: RuntimeFeatures::new(),
             file_size: match PathBuf::from(

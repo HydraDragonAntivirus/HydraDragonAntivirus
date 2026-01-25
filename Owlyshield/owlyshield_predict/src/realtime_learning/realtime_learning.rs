@@ -10,7 +10,7 @@ use crate::realtime_learning::api_tracker::ApiTracker;
 use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
 // use crate::logging::Logging;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
 
 use serde::{Serialize, Deserialize};
@@ -443,14 +443,21 @@ impl RealtimeLearningEngine {
 
         if should_generate_rules {
             // Trigger dynamic rule generation and persistence immediately
-            let benign_rules = self.generate_benign_rules();
-            if !benign_rules.is_empty() {
-                 let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
-                 if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
-                     eprintln!("Failed to save rules on exit: {}", e);
-                 } else {
-                     println!("[Real-Time Learning] Auto-rule PERSISTED for {} on exit", proc_name);
-                 }
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                let benign_rules = self.generate_benign_rules();
+                if !benign_rules.is_empty() {
+                     let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
+                     if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
+                         eprintln!("Failed to save rules on exit: {}", e);
+                     } else {
+                         println!("[Real-Time Learning] Auto-rule PERSISTED for {} on exit", proc_name);
+                     }
+                }
+            }
+            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+            {
+                let _ = proc_name;
             }
         }
     }
@@ -533,6 +540,7 @@ impl RealtimeLearningEngine {
     }
 
     /// Process quarantine log and generate blocking rules
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn process_quarantine_log(&self, log_path: &Path) -> Vec<BehaviorRule> {
         let mut rules = Vec::new();
         
@@ -607,6 +615,7 @@ impl RealtimeLearningEngine {
     }
 
     /// Generate allowlist rules for benign processes
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn generate_benign_rules(&self) -> Vec<BehaviorRule> {
         let mut rules = Vec::new();
         let mut processed_names = HashSet::new();
@@ -639,6 +648,7 @@ impl RealtimeLearningEngine {
     }
 
     /// Save generates rules to valid YAML file
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn save_rules_to_yaml(&self, rules: &[BehaviorRule], path: &Path) -> std::io::Result<()> {
         if let Ok(file) = std::fs::File::create(path) {
             serde_yaml::to_writer(file, rules).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))

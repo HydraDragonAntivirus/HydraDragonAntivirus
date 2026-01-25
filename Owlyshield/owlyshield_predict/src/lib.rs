@@ -9,6 +9,7 @@ extern crate num_derive;
 
 pub mod actions_on_kill;
 pub mod config;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 pub mod behavioral;
 pub mod connectors;
 pub mod csvwriter;

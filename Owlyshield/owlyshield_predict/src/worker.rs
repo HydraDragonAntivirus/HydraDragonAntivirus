@@ -621,6 +621,7 @@ pub mod worker_instance {
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::api_tracker::ApiTracker;
     use crate::utils::is_process_alive;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
@@ -745,13 +746,14 @@ pub mod worker_instance {
         pub learning_engine: crate::realtime_learning::RealtimeLearningEngine,
         #[cfg(feature = "realtime_learning")]
         pub api_trackers: HashMap<u64, ApiTracker>,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         sys: sysinfo::System,
     }
 
     impl<'a> Worker<'a> {
-		pub fn new(config: &'a Config, app_settings: AppSettings) -> Worker<'a> {
+		pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
 			Worker {
 				whitelist: None,
 				process_records: ProcessRecords::new(),
@@ -764,9 +766,17 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 behavior_engine: BehaviorEngine::new(),
                 #[cfg(feature = "realtime_learning")]
-                learning_engine: crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), Some(app_settings.win_verify_trust_path.to_str().unwrap())),
+                learning_engine: {
+                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
+                    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                    let trust_path = None;
+                    
+                    crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), trust_path)
+                },
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings, // Initialize app_settings
                 threat_handler: None,
                 sys: sysinfo::System::new_all(),
