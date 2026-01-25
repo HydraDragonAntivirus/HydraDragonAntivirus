@@ -162,7 +162,7 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
     PEPROCESS currentProc = PsGetCurrentProcess();
     PEPROCESS targetProc = (PEPROCESS)pOperationInformation->Object;
 
-    // 2. Skip self-access - REMOVED per user request to allow behavior engine to decide
+    // 2. Skip self-access - REMOVED to allow behavior engine to decide
     // If the caller is the same as the target, this is self-termination
     /*
     if (currentProc == targetProc)
@@ -172,7 +172,7 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
     HANDLE callerPid = PsGetProcessId(currentProc);
     HANDLE targetPid = PsGetProcessId(targetProc);
 
-    // 3. PID equality check (redundant but safe) - REMOVED per user request
+    // 3. PID equality check (redundant but safe) - REMOVED
     /*
     if (callerPid == targetPid)
         return OB_PREOP_SUCCESS;
