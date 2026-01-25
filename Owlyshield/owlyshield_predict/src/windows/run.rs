@@ -50,7 +50,8 @@ pub fn run() {
         )
         .unwrap();
 
-        // For replay we load a separate AppSettings instance so we don't move `app_settings` used below
+        // For replay we load a separate AppSettings instance if behavior engine is enabled
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let app_settings_replay = AppSettings::load(&rules_dir)
             .expect("Failed to load app settings for replay");
 
@@ -130,6 +131,7 @@ pub fn run() {
 
         // Spawn the worker thread that consumes IO messages and performs analysis
         let thread_config = config; // moved into thread
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let thread_app_settings = app_settings; // moved into thread
         thread::spawn(move || {
             let whitelist = whitelist::WhiteList::from(
