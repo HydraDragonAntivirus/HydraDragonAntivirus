@@ -2,3 +2,9 @@
 \Desktop\Sanctum\
 \AppData\Roaming\Sanctum\
 \??\C:\Windows\explorer.exe
+\\SOFTWARE\\OwlyShield
+\\Services\\SimplePYASProtection
+\\Services\\owlyshield_ransom
+\\Services\\sanctum_ppl_runner"
+\\Services\\MBRFilter
+\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon
