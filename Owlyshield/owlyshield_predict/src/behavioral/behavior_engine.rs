@@ -135,6 +135,9 @@ pub struct BehaviorRule {
     pub terminated_processes: Vec<String>, 
 
     #[serde(default)]
+    pub detect_self_termination: bool,
+
+    #[serde(default)]
     pub entropy_threshold: f64,
     #[serde(default)]
     pub conditions_percentage: f32,
@@ -300,6 +303,7 @@ pub struct ProcessBehaviorState {
     pub accessed_paths_tracker: HashSet<String>,
     pub staged_files_written: HashMap<PathBuf, SystemTime>,
     pub terminated_processes: HashSet<String>,
+    pub self_terminated_processes: HashSet<String>,
     pub detected_apis: HashSet<String>,
 
     pub monitored_api_count: usize,
@@ -322,6 +326,9 @@ impl ProcessBehaviorState {
         state.pid = pid;
         state.exe_path = exe_path;
         state.app_name = app_name;
+        state.self_terminated_processes = HashSet::new();
+        state.terminated_processes = HashSet::new();
+        state.detected_apis = HashSet::new();
         state
     }
 }
@@ -629,21 +636,22 @@ impl BehaviorEngine {
         }
         // Drop the mutable borrow of `state` here (end of the loop scope)
 
-        // NEW: Handle external termination ATTEMPTS (not self-termination)
-        // This is triggered when process A tries to terminate process B
-        // The message's GID/PID is the TARGET (victim), attacker_gid/attacker_pid is the ATTACKER
-        // NOTE: This is handled OUTSIDE the rule loop to avoid double mutable borrow
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
             let victim_path = msg.filepathstr.to_lowercase();
             
-            // Only track if there's an attacker (not self-termination) 
-            if msg.attacker_pid != 0 && msg.attacker_pid != msg.pid {
-                // Track this in the ATTACKER's state, not the victim's
-                // Look up attacker's state by attacker_gid
+            if msg.attacker_pid != 0 {
+                // Determine if this is self-termination or external
+                let is_self = msg.attacker_pid == msg.pid;
+                
+                // Track this in the ATTACKER's state
                 if msg.attacker_gid != 0 {
                     if let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
                         if !victim_path.is_empty() {
-                            attacker_state.terminated_processes.insert(victim_path.clone());
+                            if is_self {
+                                attacker_state.self_terminated_processes.insert(victim_path.clone());
+                            } else {
+                                attacker_state.terminated_processes.insert(victim_path.clone());
+                            }
                         }
                     }
                 }
@@ -654,9 +662,10 @@ impl BehaviorEngine {
                 }
 
                 if self.rules.iter().any(|r| r.debug) {
+                    let log_type = if is_self { "SELF" } else { "EXTERNAL" };
                     Logging::debug(&format!(
-                        "[BehaviorEngine] EXTERNAL termination attempt: Attacker PID {} (GID {}) -> Target PID {} '{}'" ,
-                        msg.attacker_pid, msg.attacker_gid, msg.pid, victim_path
+                        "[BehaviorEngine] {} termination attempt: Attacker PID {} (GID {}) -> Target PID {} '{}'" ,
+                        log_type, msg.attacker_pid, msg.attacker_gid, msg.pid, victim_path
                     ));
                 }
             }
@@ -696,6 +705,7 @@ impl BehaviorEngine {
                 s.staged_files_written.clone(),
                 s.accessed_paths_tracker.clone(),
                 s.terminated_processes.clone(),
+                s.self_terminated_processes.clone(),
                 s.parent_name.clone(),
                 s.high_entropy_detected,
                 s.monitored_api_count,
@@ -811,9 +821,22 @@ impl BehaviorEngine {
                 // Correct check: has the actor killed any of the processes in the rule list?
                 let terminated_match = rule.terminated_processes.iter().any(|rule_proc| {
                     let rule_proc_lc = rule_proc.to_lowercase();
-                    terminated_processes.iter().any(|victim_path| {
+                    
+                    // Check external terminations
+                    let ext_match = terminated_processes.iter().any(|victim_path| {
                         victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
-                    })
+                    });
+
+                    // Check self-terminations only if explicitly allowed by the rule
+                    let self_match = if rule.detect_self_termination {
+                        self_terminated_processes.iter().any(|victim_path| {
+                            victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                        })
+                    } else {
+                        false
+                    };
+
+                    ext_match || self_match
                 });
                 check!("terminated_proc", terminated_match);
             }

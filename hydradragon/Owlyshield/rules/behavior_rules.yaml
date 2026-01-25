@@ -1,5 +1,6 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   debug: true
+  detect_self_termination: true
   
   browsed_paths:
     - "Google\\Chrome\\User Data"
