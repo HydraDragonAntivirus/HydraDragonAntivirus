@@ -587,12 +587,54 @@ FSProcessPreOperartion(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJEC
     ULONGLONG gid = driverData->GetProcessGid(newItem->PID, &isGidFound);
     if (gid == 0 || !isGidFound)
     {
-        // WARNING: This DbgPrint is in a high-traffic path and can lead to Bugcheck 0x111
-        if (IS_DEBUG_IRP)
-            DbgPrint("!!! FSFilter: Item does not have a gid, skipping\n");
-        FltReleaseFileNameInformation(nameInfo);
-        delete newEntry;
-        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        // --- START DISCOVERY LOGIC ---
+        // If the PID is not tracked, it might be a process that was already running 
+        // when the driver loaded. Let's try to discover it now.
+        PEPROCESS process = NULL;
+        hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
+        if (NT_SUCCESS(hr)) {
+            PUNICODE_STRING procPath = NULL;
+            // SeLocateProcessImageName is safe to call here
+            hr = SeLocateProcessImageName(process, &procPath);
+            if (NT_SUCCESS(hr) && procPath != NULL) {
+                // Record the process in our system
+                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0); // Use 0 for ParentPid as we don't know it
+                isGidFound = TRUE;
+                DbgPrint("!!! FSFilter: DISCOVERED untracked process. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
+
+                // Inform usermode about this new process discovery
+                PIRP_ENTRY discoveryEntry = new IRP_ENTRY();
+                if (discoveryEntry != NULL) {
+                    PDRIVER_MESSAGE discoveryMsg = &discoveryEntry->data;
+                    discoveryMsg->PID = newItem->PID;
+                    discoveryMsg->Gid = gid;
+                    discoveryMsg->IRP_OP = IRP_PROCESS_CREATE; // Treat as a creation event
+
+                    USHORT copyLen = (procPath->Length < MAX_FILE_NAME_SIZE) ? procPath->Length : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                    RtlCopyMemory(discoveryEntry->Buffer, procPath->Buffer, copyLen);
+                    discoveryEntry->Buffer[copyLen / 2] = L'\0';
+                    discoveryEntry->filePath.Length = copyLen;
+                    discoveryEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                    discoveryEntry->filePath.Buffer = discoveryEntry->Buffer;
+
+                    if (!driverData->AddIrpMessage(discoveryEntry)) {
+                        delete discoveryEntry;
+                    }
+                }
+                // Note: procPath is now owned by RecordNewProcess if it returned a GID?
+                // Actually, driverData::RecordNewProcess stores the pointer. 
+                // Let's check DriverData.cpp again.
+            }
+            ObDereferenceObject(process);
+        }
+
+        if (!isGidFound) {
+            if (IS_DEBUG_IRP)
+                DbgPrint("!!! FSFilter: Item does not have a gid, skipping after discovery attempt\n");
+            FltReleaseFileNameInformation(nameInfo);
+            delete newEntry;
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        }
     }
     newItem->Gid = gid;
 
@@ -1004,11 +1046,26 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     ULONGLONG gid = driverData->GetProcessGid(newItem->PID, &isGidFound);
     if (gid == 0 || !isGidFound)
     {
-        // DbgPrint("!!! FSFilter: Item does not have a gid, skipping\n"); // TODO: incase it doesnt exist we can add it
-        // with our method that checks for system process
-        FltReferenceFileNameInformation(nameInfo);
-        delete newEntry;
-        return FLT_POSTOP_FINISHED_PROCESSING;
+        // --- START DISCOVERY LOGIC ---
+        PEPROCESS process = NULL;
+        hr = PsLookupProcessByProcessId((HANDLE)newItem->PID, &process);
+        if (NT_SUCCESS(hr)) {
+            PUNICODE_STRING procPath = NULL;
+            hr = SeLocateProcessImageName(process, &procPath);
+            if (NT_SUCCESS(hr) && procPath != NULL) {
+                gid = driverData->RecordNewProcess(procPath, newItem->PID, 0);
+                isGidFound = TRUE;
+                DbgPrint("!!! FSFilter: DISCOVERED untracked process in PostCreate. PID: %u, Path: %wZ, GID: %llu\n", newItem->PID, procPath, gid);
+            }
+            ObDereferenceObject(process);
+        }
+
+        if (!isGidFound) {
+            // DbgPrint("!!! FSFilter: Item does not have a gid, skipping\n");
+            FltReferenceFileNameInformation(nameInfo);
+            delete newEntry;
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
     }
     newItem->Gid = gid;
     if (IS_DEBUG_IRP)

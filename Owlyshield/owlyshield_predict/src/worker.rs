@@ -199,7 +199,8 @@ pub mod process_record_handling {
     use windows::Win32::Foundation::CloseHandle;
     #[cfg(target_os = "windows")]
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, 
+        PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     #[cfg(target_os = "linux")]
     use std::path::Path;
@@ -230,7 +231,7 @@ pub mod process_record_handling {
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf> {
             let pid = iomsg.pid;
             unsafe {
-                let r_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+                let r_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
                 if let Ok(handle) = r_handle {
                     if !(handle.is_invalid() || handle.0 == 0) {
                         let mut buffer = vec![0u16; 1024];
