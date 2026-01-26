@@ -290,7 +290,7 @@ pub struct ResponseAction {
     #[serde(default)] pub record: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProcessBehaviorState {
     pub browsed_paths_tracker: HashMap<String, SystemTime>,
     pub accessed_paths_tracker: HashSet<String>,
