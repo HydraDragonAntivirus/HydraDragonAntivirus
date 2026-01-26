@@ -1,0 +1,78 @@
+// cx_Freeze main stub detector for 5.x+
+// Emirhan Uçan <semaemirhan555@gmail.com>
+init("packer", "cx_Freeze(5.x+)", "Python", "");
+
+function detect() {
+    if (typeof PE === 'undefined') return false;
+
+    var pythonDlls = [
+        "python27.dll", "python35.dll", "python36.dll", "python37.dll",
+        "python38.dll", "python39.dll", "python310.dll", "python311.dll",
+        "python312.dll", "python313.dll"
+    ];
+
+    var foundDll = null;
+    for (var i = 0; i < pythonDlls.length; i++) {
+        if (PE.isLibraryPresent(pythonDlls[i])) {
+            foundDll = pythonDlls[i];
+            break;
+        }
+    }
+    if (!foundDll) return false;
+
+    var apiFns = [
+        "PyObject_GetAttrString", "PySys_SetArgvEx", "PyObject_CallObject",
+        "PyRun_SimpleString", "Py_Initialize", "Py_Finalize"
+    ];
+    var hitCount = 0;
+    for (var j = 0; j < apiFns.length; j++) {
+        if (PE.isLibraryFunctionPresent(foundDll, apiFns[j])) hitCount++;
+    }
+    if (hitCount < 3) return false;
+
+    if (!checkCxFreezeSignatures()) return false;
+
+    var pyVer = foundDll.replace("python", "").replace(".dll", "");
+    if (pyVer.length > 2) pyVer = pyVer.charAt(0) + "." + pyVer.substring(1);
+
+    bDetected = true;
+    sVersion = pyVer;
+    return result();
+}
+
+function checkCxFreezeSignatures() {
+    var sigs = [
+        "cx_Freeze: Python error in main script",
+        "Unable to calculate directory of executable!",
+        "Out of memory creating sys.path!",
+        "cx_Freeze",
+        "library.zip",
+        "_cx_freeze",
+        "Python is not installed as a framework",
+        "Error initializing Python",
+        "sys.path",
+        "__loader__",
+        "frozen"
+    ];
+
+    var size = PE.getSize();
+    for (var i = 0; i < sigs.length; i++) {
+        if (PE.findString(0, size, sigs[i]) !== -1) return true;
+    }
+
+    var secs = PE.getNumberOfSections();
+    for (var s = 0; s < secs; s++) {
+        var off = PE.getSectionFileOffset(s), sz = PE.getSectionFileSize(s);
+        if (off >= 0 && sz > 0 && (PE.findString(off, sz, "library.zip") !== -1 || PE.findString(off, sz, "python") !== -1)) return true;
+    }
+
+    if (PE.isResourcesPresent && PE.isResourcesPresent()) {
+        var resCount = PE.getNumberOfResources();
+        for (var r = 0; r < resCount; r++) {
+            var name = (PE.getResourceNameByNumber(r) || "").toLowerCase();
+            if (name.indexOf("python") !== -1 || name.indexOf("library") !== -1) return true;
+        }
+    }
+
+    return false;
+}
