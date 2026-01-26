@@ -200,12 +200,6 @@ pub struct BehaviorRule {
 
 impl BehaviorRule {
     pub fn finalize_rich_fields(&mut self) {
-        if !self.archive_apis.is_empty() {
-             self.monitored_apis.extend(self.archive_apis.iter().cloned());
-        }
-        if !self.archive_tools.is_empty() {
-             self.file_actions.extend(self.archive_tools.iter().cloned());
-        }
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = s.to_lowercase(),
