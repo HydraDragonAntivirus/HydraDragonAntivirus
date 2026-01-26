@@ -851,13 +851,25 @@ pub mod worker_instance {
                         record.termination_requested = det.termination_requested;
                         record.quarantine_requested = det.quarantine_requested;
                     } else {
-                        // This is a scanned process without kernel tracking yet
-                        // Log it but don't create a ProcessRecord
+                        // CREATE ProcessRecord for detected processes without kernel I/O tracking yet
                         if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
                             Logging::warning(&format!(
-                                "[SCAN DETECTION] Process {} (PID: {}) matched behavioral rules but has no kernel tracking (not yet accessed files)",
+                                "[SCAN DETECTION] Process {} (PID: {}) matched behavioral rules - creating ProcessRecord immediately",
                                 state.app_name, state.pid
                             ));
+                            
+                            // Create a ProcessRecord for this detected process
+                            let mut precord = ProcessRecord::new(
+                                det.gid,
+                                state.pid,
+                                state.app_name.clone(),
+                                state.exe_path.clone(),
+                            );
+                            precord.is_malicious = true;
+                            precord.termination_requested = det.termination_requested;
+                            precord.quarantine_requested = det.quarantine_requested;
+                            
+                            self.process_records.insert_precord(det.gid, precord);
                         }
                     }
                 }
@@ -1006,14 +1018,20 @@ pub mod worker_instance {
                     };
 
                     // LOGGING FIX: Log the scanned process immediately
-                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
-                        appname, iomsg.gid, iomsg.pid, exepath.display()));
+                    let log_type = if irp_op == IrpMajorOp::IrpProcessCreate {
+                        "[PROCESS CREATE]"
+                    } else {
+                        "[KERNEL SCAN]"
+                    };
+                    
+                    Logging::info(&format!("{} Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
+                        log_type, appname, iomsg.gid, iomsg.pid, exepath.display()));
 
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(iomsg.gid, precord);
                     
                     // SYNC FIX: Register with Behavior Engine immediately on discovery
-                    #[cfg(feature = "behavior_engine")]
+                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     {
                         self.behavior_engine.register_process(
                             iomsg.gid, 
@@ -1037,13 +1055,24 @@ pub mod worker_instance {
                     {
                         let path = PathBuf::from(&iomsg.filepathstr);
                         if let Some(name) = self.appname_from_exepath(&path) {
-                            precord.exepath = path;
-                            precord.appname = name;
+                            precord.exepath = path.clone();
+                            precord.appname = name.clone();
 
                             Logging::info(&format!(
                                 "[KERNEL SCAN] Updated Process: {} (GID: {}, PID: {}, Path: {})",
                                 precord.appname, iomsg.gid, iomsg.pid, precord.exepath.display()
                             ));
+                            
+                            // Also update in behavior engine
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            {
+                                self.behavior_engine.register_process(
+                                    iomsg.gid,
+                                    iomsg.pid as u32,
+                                    path,
+                                    name,
+                                );
+                            }
                         }
                     }
                 }
