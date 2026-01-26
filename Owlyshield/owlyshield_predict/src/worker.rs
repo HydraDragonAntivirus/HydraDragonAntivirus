@@ -990,52 +990,54 @@ pub mod worker_instance {
         }
 
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            match self.process_records.get_precord_mut_by_gid(iomsg.gid) {
+            // 1. Resolve Identity (Path and Name) FIRST
+            // We check the cache first; if not found, we use the Kernel Create info or Fallback.
+            let (exepath, appname) = match self.process_records.get_precord_mut_by_gid(iomsg.gid) {
+                Some(pr) => (pr.exe_path.clone(), pr.app_name.clone()),
                 None => {
                     // KERNEL FIX: Use path from IOMessage if available (IRP_PROCESS_CREATE)
                     let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
-                    let (exepath, appname): (PathBuf, String) = if irp_op == IrpMajorOp::IrpProcessCreate && !iomsg.filepathstr.is_empty() {
+                    if irp_op == IrpMajorOp::IrpProcessCreate && !iomsg.filepathstr.is_empty() {
                         let path = PathBuf::from(&iomsg.filepathstr);
                         let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
                         (path, name)
                     } else {
-                        // Fallback to handler (which might use sysinfo, but we prefer kernel)
-                        let exepath_opt = self.exepath_handler.exepath(iomsg);
-                        match exepath_opt {
+                        match self.exepath_handler.exepath(iomsg) {
                             Some(path) => {
                                 let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
                                 (path, name)
                             }
-                            None => (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                            None => (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid)),
                         }
-                    };
-
-                    // LOGGING FIX: Log the scanned process immediately
-                    Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
-                        appname, iomsg.gid, iomsg.pid, exepath.display()));
-
-                    let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                    self.process_records.insert_precord(iomsg.gid, precord);
-                    
-                    // SYNC FIX: Register with Behavior Engine immediately on discovery
-                    #[cfg(feature = "behavior_engine")]
-                    {
-                        self.behavior_engine.register_process(
-                            iomsg.gid, 
-                            iomsg.pid as u32, 
-                            exepath.clone(), 
-                            appname.clone()
-                        );
-                    }
-
-                    // Track in learning engine
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.learning_engine.track_process(iomsg.gid, appname.clone());
-                        self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
                     }
                 }
-                Some(_) => {}
+            };
+
+            // 2. PROACTIVE SYNC: Register with Behavior Engine every single time
+            // This ensures the BehaviorEngine's internal HashMap is ALWAYS in sync with the Worker.
+            #[cfg(feature = "behavior_engine")]
+            {
+                self.behavior_engine.register_process(
+                    iomsg.gid, 
+                    iomsg.pid as u32, 
+                    exepath.clone(), 
+                    appname.clone()
+                );
+            }
+
+            // 3. Worker Tracking: Only insert a new record if we don't already have one
+            if self.process_records.get_precord_mut_by_gid(iomsg.gid).is_none() {
+                Logging::info(&format!("[KERNEL SCAN] Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
+                    appname, iomsg.gid, iomsg.pid, exepath.display()));
+
+                let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
+                self.process_records.insert_precord(iomsg.gid, precord);
+
+                #[cfg(feature = "realtime_learning")]
+                {
+                    self.learning_engine.track_process(iomsg.gid, appname.clone());
+                    self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
+                }
             }
         }
 
