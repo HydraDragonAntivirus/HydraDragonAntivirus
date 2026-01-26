@@ -48,9 +48,7 @@
     - "node.exe"
   
   entropy_threshold: 7.0
-  
-  file_actions: []
-  
+
   file_extensions:
     - ".zip"
     - ".rar"

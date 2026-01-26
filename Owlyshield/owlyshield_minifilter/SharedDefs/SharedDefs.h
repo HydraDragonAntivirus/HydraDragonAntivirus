@@ -134,6 +134,9 @@ typedef struct _DRIVER_MESSAGE
     filePath;      // 16 bytes unicode string - filename, also contains size and max size, buffer is outside the struct
     ULONGLONG Gid; // 8 bytes process ransomwatch gid
     
+    // Parent PID of the process
+    ULONG ParentPid;        // 4 bytes
+    
     // For IRP_PROCESS_TERMINATE_ATTEMPT: Info about the attacker process
     ULONG AttackerPID;      // 4 bytes - PID of process attempting termination (0 if not applicable)
     ULONGLONG AttackerGid;  // 8 bytes - GID of attacker process (0 if not tracked)

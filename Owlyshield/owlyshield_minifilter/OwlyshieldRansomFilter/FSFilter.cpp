@@ -1758,6 +1758,7 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
             PDRIVER_MESSAGE newItem = &newEntry->data;
             newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
             newItem->Gid = gid;
+            newItem->ParentPid = (ULONG)(ULONG_PTR)ParentId;
             newItem->IRP_OP = IRP_PROCESS_CREATE;
 
             if (procName != NULL) {
