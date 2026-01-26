@@ -212,6 +212,8 @@ pub struct IOMessage {
     pub file_location_info: u8,
     pub filepathstr: String,
     pub gid: u64,
+    /// Parent PID of the process
+    pub parent_pid: u32,
     /// For IrpProcessTerminateAttempt: PID of the attacking process (0 if not applicable)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_pid: u32,
@@ -237,6 +239,7 @@ impl Default for IOMessage {
             file_location_info: 0,
             filepathstr: String::new(),
             gid: 0,
+            parent_pid: 0,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_pid: 0,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

@@ -3,7 +3,6 @@ use core::ffi::c_void;
 use std::mem;
 use std::ptr;
 
-use sysinfo::{get_current_pid, Pid};
 use wchar::wchar_t;
 use widestring::U16CString;
 
@@ -67,7 +66,7 @@ impl Driver {
 
         let mut get_irp_msg: DriverComMessage = DriverComMessage {
             r#type: DriverComMessageType::MessageSetPid as c_ulong,
-            pid: usize::from(get_current_pid().unwrap()) as c_ulong,
+            pid: std::process::id() as c_ulong,
             gid: 140713315094899,
             path: buf, //wch!("\0"),
             quarantine_path: [0; 520],
@@ -112,7 +111,7 @@ impl Driver {
     pub fn get_irp(&self, vecnew: &mut Vec<u8>) -> Result<Option<ReplyIrp>, Error> {
         let mut get_irp_msg = Driver::build_irp_msg(
             DriverComMessageType::MessageGetOps,
-            get_current_pid().unwrap(),
+            std::process::id(),
             0,
             "",
         );
@@ -280,13 +279,13 @@ impl Driver {
 
     fn build_irp_msg(
         commsgtype: DriverComMessageType,
-        pid: Pid,
+        pid: u32,
         gid: u64,
         path: &str,
     ) -> DriverComMessage {
         DriverComMessage {
             r#type: commsgtype as c_ulong, // MessageSetPid
-            pid: usize::from(pid) as c_ulong,
+            pid: pid as c_ulong,
             gid,
             path: Driver::string_to_commessage_buffer(path),
             quarantine_path: [0; 520],
@@ -337,6 +336,8 @@ pub struct CDriverMsg {
     pub file_location_info: c_uchar,
     pub filepath: UnicodeString,
     pub gid: c_ulonglong,
+    /// Parent PID of the process
+    pub parent_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: PID of attacker process (0 if not applicable)
     pub attacker_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
@@ -438,6 +439,7 @@ impl IOMessage {
             file_location_info: c_drivermsg.file_location_info,
             filepathstr: c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
             gid: c_drivermsg.gid,
+            parent_pid: c_drivermsg.parent_pid as u32,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_pid: c_drivermsg.attacker_pid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

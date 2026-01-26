@@ -28,13 +28,6 @@ use std::collections::HashSet;
 use std::fmt::Formatter;
 use std::ops::Mul;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, SystemTime};
-use std::{fmt, thread};
-use slc_paths::clustering::{clustering, Clusters};
-use sysinfo::{Pid, ProcessStatus};
 
 use crate::shared_def::{
     FileChangeInfo,
@@ -585,13 +578,10 @@ impl ProcessRecord {
         }
     }
 
-    fn _is_process_still_running(&self, system: &System) -> bool {
+    pub fn is_any_pid_alive(&self) -> bool {
         for p in &self.pids {
-            let pid = Pid::from_str(&p.to_string()).unwrap();
-            if let Some(process) = system.process(pid) {
-                if process.status().to_string() == ProcessStatus::Run.to_string() {
-                    return true;
-                }
+            if crate::utils::is_process_alive(*p) {
+                return true;
             }
         }
         false
