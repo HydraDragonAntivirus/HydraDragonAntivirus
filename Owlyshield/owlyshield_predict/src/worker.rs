@@ -827,6 +827,26 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
+                // CRITICAL: Sync ALL processes from behavior_engine to process_records
+                // This ensures we have ProcessRecords for processes that don't generate IO events
+                for (gid, state) in self.behavior_engine.process_states.iter() {
+                    // Skip if already in process_records
+                    if self.process_records.get_precord_by_gid(*gid).is_none() {
+                        // Register this process that behavior_engine knows about but worker doesn't
+                        let precord = ProcessRecord::new(
+                            *gid,
+                            state.app_name.clone(),
+                            state.exe_path.clone(),
+                        );
+                        self.process_records.insert_precord(*gid, precord);
+                        
+                        Logging::debug(&format!(
+                            "[PROCESS SYNC] Registered process from behavior_engine: {} (GID: {}, PID: {})",
+                            state.app_name, gid, state.pid
+                        ));
+                    }
+                }
+
                 // Run behavior engine scan on ALL tracked processes
                 let total_tracked = self.behavior_engine.process_states.len();
                 
