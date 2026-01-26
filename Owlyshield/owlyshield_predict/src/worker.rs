@@ -827,35 +827,49 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // NO MORE SYSRefresh - iterate over kernel-tracked processes
-                let gids: Vec<u64> = self.process_records.process_records.iter().map(|(&g, _)| g).collect();
+                // Run behavior engine scan on ALL tracked processes
+                let total_tracked = self.behavior_engine.process_states.len();
+                
+                // Log all tracked processes for diagnostics
+                if total_tracked > 0 {
+                    Logging::info(&format!("[BEHAVIOR SCAN] Static Scan: Evaluating {} tracked processes", total_tracked));
+                    for (gid, state) in self.behavior_engine.process_states.iter() {
+                        Logging::debug(&format!("[BEHAVIOR SCAN] Tracking GID={} PID={} bin='{}' path='{}'", 
+                            gid, state.pid, state.app_name, state.exe_path.display()));
+                    }
+                } else {
+                    Logging::warning("[BEHAVIOR SCAN] No processes are being tracked by behavior engine!");
+                }
 
-                // 2. Run behavior engine scan on ALL tracked processes
+                // Scan ALL processes tracked by behavior engine
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
-                // 3. Apply detections - match by PID instead of GID
+                // Log detection results
+                if !detections.is_empty() {
+                    Logging::info(&format!("[BEHAVIOR SCAN] Found {} detections", detections.len()));
+                }
+
+                // Apply detections
                 for det in detections {
-                    // Try to find the corresponding ProcessRecord by matching PIDs
+                    // Try to find the corresponding ProcessRecord by GID
                     let matching_record = self.process_records.process_records
                         .iter_mut()
-                        .find(|(_, pr)| pr.pids.iter().any(|pid| {
-                            // Check if this ProcessRecord contains any of the detection's PIDs
-                            self.behavior_engine.process_states
-                                .get(&det.gid)
-                                .map(|state| state.pid == *pid)
-                                .unwrap_or(false)
-                        }));
+                        .find(|(gid, _)| **gid == det.gid);
                     
                     if let Some((_, record)) = matching_record {
                         record.is_malicious = true;
                         record.termination_requested = det.termination_requested;
                         record.quarantine_requested = det.quarantine_requested;
+                        Logging::warning(&format!(
+                            "[DETECTION] Process {} (GID: {}) marked as malicious from behavior scan",
+                            record.appname, det.gid
+                        ));
                     } else {
                         // CREATE ProcessRecord for detected processes without kernel I/O tracking yet
                         if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
                             Logging::warning(&format!(
-                                "[SCAN DETECTION] Process {} (PID: {}) matched behavioral rules - creating ProcessRecord immediately",
-                                state.app_name, state.pid
+                                "[SCAN DETECTION] Process {} (GID: {}, PID: {}) matched behavioral rules - creating ProcessRecord",
+                                state.app_name, det.gid, state.pid
                             ));
                             
                             // Create a ProcessRecord for this detected process
