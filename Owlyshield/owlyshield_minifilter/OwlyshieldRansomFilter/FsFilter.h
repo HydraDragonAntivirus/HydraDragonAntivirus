@@ -29,69 +29,6 @@ Environment:
 #include "KernelString.h"
 #include "ShanonEntropy.h"
 
-// ============================================================================
-// System Information Structures and Declarations for Process Enumeration
-// ============================================================================
-
-// System information class enum
-typedef enum _SYSTEM_INFORMATION_CLASS {
-    SystemBasicInformation = 0,
-    SystemProcessInformation = 5,
-    SystemPerformanceInformation = 2,
-    SystemTimeOfDayInformation = 3,
-    // ... other values exist but we only need SystemProcessInformation
-} SYSTEM_INFORMATION_CLASS;
-
-// System process information structure
-typedef struct _SYSTEM_PROCESS_INFORMATION {
-    ULONG NextEntryOffset;
-    ULONG NumberOfThreads;
-    LARGE_INTEGER Reserved[3];
-    LARGE_INTEGER CreateTime;
-    LARGE_INTEGER UserTime;
-    LARGE_INTEGER KernelTime;
-    UNICODE_STRING ImageName;
-    KPRIORITY BasePriority;
-    HANDLE UniqueProcessId;
-    HANDLE InheritedFromUniqueProcessId;
-    ULONG HandleCount;
-    ULONG SessionId;
-    ULONG_PTR PageDirectoryBase;
-    SIZE_T PeakVirtualSize;
-    SIZE_T VirtualSize;
-    ULONG PageFaultCount;
-    SIZE_T PeakWorkingSetSize;
-    SIZE_T WorkingSetSize;
-    SIZE_T QuotaPeakPagedPoolUsage;
-    SIZE_T QuotaPagedPoolUsage;
-    SIZE_T QuotaPeakNonPagedPoolUsage;
-    SIZE_T QuotaNonPagedPoolUsage;
-    SIZE_T PagefileUsage;
-    SIZE_T PeakPagefileUsage;
-    SIZE_T PrivatePageCount;
-    LARGE_INTEGER ReadOperationCount;
-    LARGE_INTEGER WriteOperationCount;
-    LARGE_INTEGER OtherOperationCount;
-    LARGE_INTEGER ReadTransferCount;
-    LARGE_INTEGER WriteTransferCount;
-    LARGE_INTEGER OtherTransferCount;
-} SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
-
-// ZwQuerySystemInformation function declaration
-NTSYSAPI
-NTSTATUS
-NTAPI
-ZwQuerySystemInformation(
-    _In_ SYSTEM_INFORMATION_CLASS SystemInformationClass,
-    _Out_writes_bytes_opt_(SystemInformationLength) PVOID SystemInformation,
-    _In_ ULONG SystemInformationLength,
-    _Out_opt_ PULONG ReturnLength
-);
-
-// ============================================================================
-// Function Declarations
-// ============================================================================
-
 NTSTATUS
 FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 
@@ -139,6 +76,9 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 BOOLEAN
 FSIsFileNameInScanDirs(CONST PUNICODE_STRING path);
 
+// NEW: Enumerate all existing processes on driver load
+VOID EnumerateExistingProcesses(VOID);
+
 // ZwQueryInformationProcess - dynamic loaded function which query info data about already opened processes
 typedef NTSTATUS (*QUERY_INFO_PROCESS)(__in HANDLE ProcessHandle, __in PROCESSINFOCLASS ProcessInformationClass,
                                        __out_bcount(ProcessInformationLength) PVOID ProcessInformation,
@@ -164,10 +104,8 @@ VOID CopyExtension(PWCHAR dest, PFLT_FILE_NAME_INFORMATION nameInfo);
 // When a new process enter we add it to parent gid if there is any.
 // if parent doesnt have a gid and both are system process, new process isnt recorded
 // else we create a new gid for process
-_IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create);
 
-// NEW: Enumerate all existing processes on driver load
-VOID EnumerateExistingProcesses(VOID);
+_IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create);
 
 // Process and quarantine functions
 NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name);

@@ -236,104 +236,97 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
-// **NEW FUNCTION**
-VOID EnumerateExistingProcesses(VOID) {
-    ULONG bufferSize = 0;
-    PVOID processBuffer = NULL;
-    
-    // Get buffer size needed
-    NTSTATUS status = ZwQuerySystemInformation(
-        SystemProcessInformation,
-        NULL,
-        0,
-        &bufferSize
-    );
-    
-    if (status != STATUS_INFO_LENGTH_MISMATCH) {
-        return;
-    }
-    
-    // Allocate buffer
-    processBuffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'PROC');
-    if (!processBuffer) {
-        return;
-    }
-    
-    // Get process list
-    status = ZwQuerySystemInformation(
-        SystemProcessInformation,
-        processBuffer,
-        bufferSize,
-        &bufferSize
-    );
-    
-    if (NT_SUCCESS(status)) {
-        PSYSTEM_PROCESS_INFORMATION processInfo = 
-            (PSYSTEM_PROCESS_INFORMATION)processBuffer;
-        
-        while (TRUE) {
-            if (processInfo->UniqueProcessId != 0 && 
-                processInfo->UniqueProcessId != (HANDLE)4) {
-                
-                // Record this process
-                ULONG pid = (ULONG)(ULONG_PTR)processInfo->UniqueProcessId;
-                ULONG parentPid = (ULONG)(ULONG_PTR)processInfo->InheritedFromUniqueProcessId;
-                
-                // Try to get process name
+VOID EnumerateExistingProcesses(VOID)
+{
+    // Windows PIDs are always multiples of 4.
+    // A safe upper limit for PIDs on modern Windows is usually around 65k-100k,
+    // but we can scan higher to be safe. 262144 (0x40000) is a robust limit.
+    for (ULONG pidNum = 4; pidNum < 0x40000; pidNum += 4)
+    {
+
+        HANDLE pid = (HANDLE)(ULONG_PTR)pidNum;
+        PEPROCESS process = NULL;
+
+        // 1. Check if a process exists with this PID
+        // PsLookupProcessByProcessId is fully documented and stable.
+        NTSTATUS status = PsLookupProcessByProcessId(pid, &process);
+
+        if (NT_SUCCESS(status))
+        {
+            // Found a valid process.
+            // Skip System (4) and Idle (0) just like your original code.
+            // (Note: Loop starts at 4, so 0 is implicitly skipped, we just check 4)
+            if (pidNum != 4)
+            {
                 HANDLE procHandle = NULL;
-                CLIENT_ID clientId;
-                clientId.UniqueProcess = processInfo->UniqueProcessId;
-                clientId.UniqueThread = 0;
-                
-                OBJECT_ATTRIBUTES objAttr;
-                InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-                
-                if (NT_SUCCESS(ZwOpenProcess(&procHandle, PROCESS_ALL_ACCESS, 
-                                            &objAttr, &clientId))) {
+
+                // 2. Open a Kernel Handle to the process object
+                // ObOpenObjectByPointer is safer than ZwOpenProcess when we already have the object pointer.
+                status = ObOpenObjectByPointer(process, OBJ_KERNEL_HANDLE, NULL,
+                                               PROCESS_ALL_ACCESS, // Needed for ZwQueryInformationProcess
+                                               *PsProcessType, KernelMode, &procHandle);
+
+                if (NT_SUCCESS(status))
+                {
                     PUNICODE_STRING procName = NULL;
-                    if (NT_SUCCESS(GetProcessNameByHandle(procHandle, &procName))) {
-                        // Record in driverData
-                        ULONGLONG gid = driverData->RecordNewProcess(
-                            procName, pid, parentPid
-                        );
-                        
-                        // Send to usermode
+                    ULONG parentPid = 0;
+                    ULONGLONG gid = 0;
+
+                    // 3. Get Process Name (Using your existing helper)
+                    if (NT_SUCCESS(GetProcessNameByHandle(procHandle, &procName)))
+                    {
+
+                        // 4. Get Parent PID
+                        // We use ZwQueryInformationProcess with ProcessBasicInformation (Class 0)
+                        PROCESS_BASIC_INFORMATION pbi = {0};
+                        ULONG returnLength = 0;
+
+                        status = ZwQueryInformationProcess(procHandle, ProcessBasicInformation, &pbi, sizeof(pbi),
+                                                           &returnLength);
+
+                        if (NT_SUCCESS(status))
+                        {
+                            parentPid = (ULONG)pbi.InheritedFromUniqueProcessId;
+                        }
+
+                        // 5. Record in Driver Data
+                        gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
+
+                        // 6. Send to User Mode (Copy of your original logic)
                         PIRP_ENTRY newEntry = new IRP_ENTRY();
-                        if (newEntry != NULL) {
-                            newEntry->data.PID = pid;
+                        if (newEntry != NULL)
+                        {
+                            newEntry->data.PID = pidNum;
                             newEntry->data.Gid = gid;
                             newEntry->data.ParentPid = parentPid;
                             newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
-                            
-                            USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE) 
-                                ? procName->Length 
-                                : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+
+                            USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE)
+                                                 ? procName->Length
+                                                 : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+
                             RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
                             newEntry->Buffer[copyLen / 2] = L'\0';
                             newEntry->filePath.Length = copyLen;
                             newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                             newEntry->filePath.Buffer = newEntry->Buffer;
-                            
-                            if (!driverData->AddIrpMessage(newEntry)) {
+
+                            if (!driverData->AddIrpMessage(newEntry))
+                            {
                                 delete newEntry;
                             }
                         }
                     }
+
+                    // Cleanup Handle
                     ZwClose(procHandle);
                 }
             }
-            
-            if (processInfo->NextEntryOffset == 0) {
-                break;
-            }
-            
-            processInfo = (PSYSTEM_PROCESS_INFORMATION)(
-                (PUCHAR)processInfo + processInfo->NextEntryOffset
-            );
+
+            // Cleanup Process Object Reference from PsLookup...
+            ObDereferenceObject(process);
         }
     }
-    
-    ExFreePoolWithTag(processBuffer, 'PROC');
 }
 
 NTSTATUS
