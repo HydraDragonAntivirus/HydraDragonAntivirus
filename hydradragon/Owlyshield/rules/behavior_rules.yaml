@@ -30,8 +30,6 @@
     - "BCryptDecrypt"
     - "NCryptDecrypt"
     - "DPAPI"
-  
-  monitored_apis  _apis:
     - "CreateZip"
     - "CreateRar"
   
