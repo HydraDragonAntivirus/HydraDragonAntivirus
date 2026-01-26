@@ -15,12 +15,13 @@ pub mod predictor {
     pub trait PredictorHandlerBehavioral: PredictorHandler {
         fn is_prediction_required(
             &self,
-            threshold_drivermsgs: usize,
+            _threshold_drivermsgs: usize,
             _predictions_count: usize,
-            precord: &ProcessRecord,
+            _precord: &ProcessRecord,
         ) -> bool {
-            // Proactive scanning enabled
-            precord.driver_msg_count % threshold_drivermsgs == 0
+            // ALWAYS TRUE: Evaluates every single event immediately.
+            // No more waiting for message counts or thresholds.
+            true
         }
     }
 
