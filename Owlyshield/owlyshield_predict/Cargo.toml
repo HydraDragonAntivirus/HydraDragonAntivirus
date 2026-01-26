@@ -37,6 +37,7 @@ regex = "1.12.2"
 winreg = "0.55.0"
 sha2 = "0.10.9"
 hex = "0.4.3"
+sysinfo = "0.38.0"
 
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
