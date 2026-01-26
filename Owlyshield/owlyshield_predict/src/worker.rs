@@ -830,10 +830,10 @@ pub mod worker_instance {
                 // NO MORE SYSRefresh - iterate over kernel-tracked processes
                 let gids: Vec<u64> = self.process_records.process_records.iter().map(|(&g, _)| g).collect();
 
-                // 3. Run behavior engine scan on ALL tracked processes
+                // 2. Run behavior engine scan on ALL tracked processes
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
-                // 4. Apply detections - match by PID instead of GID
+                // 3. Apply detections - match by PID instead of GID
                 for det in detections {
                     // Try to find the corresponding ProcessRecord by matching PIDs
                     let matching_record = self.process_records.process_records
