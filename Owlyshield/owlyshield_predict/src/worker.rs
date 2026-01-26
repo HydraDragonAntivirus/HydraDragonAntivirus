@@ -826,7 +826,6 @@ pub mod worker_instance {
 
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 // NO MORE SYSRefresh - iterate over kernel-tracked processes
                 let gids: Vec<u64> = self.process_records.process_records.iter().map(|(&g, _)| g).collect();
