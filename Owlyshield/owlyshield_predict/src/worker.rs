@@ -830,11 +830,6 @@ pub mod worker_instance {
                 // NO MORE SYSRefresh - iterate over kernel-tracked processes
                 let gids: Vec<u64> = self.process_records.process_records.iter().map(|(&g, _)| g).collect();
 
-                for gid in gids {
-                    // Processes are already registered in behavior_engine during register_precord
-                    // so we just let behavior_engine scan them.
-                }
-
                 // 3. Run behavior engine scan on ALL tracked processes
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
@@ -1035,7 +1030,23 @@ pub mod worker_instance {
                         self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
                     }
                 }
-                Some(_) => {}
+                Some(precord) => {
+                    // Upgrade UNKNOWN → real path if we get better info later
+                    if precord.exepath.to_string_lossy() == "UNKNOWN"
+                        && !iomsg.filepathstr.is_empty()
+                    {
+                        let path = PathBuf::from(&iomsg.filepathstr);
+                        if let Some(name) = self.appname_from_exepath(&path) {
+                            precord.exepath = path;
+                            precord.appname = name;
+
+                            Logging::info(&format!(
+                                "[KERNEL SCAN] Updated Process: {} (GID: {}, PID: {}, Path: {})",
+                                precord.appname, iomsg.gid, iomsg.pid, precord.exepath.display()
+                            ));
+                        }
+                    }
+                }
             }
         }
 
