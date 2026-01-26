@@ -38,6 +38,7 @@ use std::{env, path::Path, sync::OnceLock};
 #[path = "windows/av_integration.rs"]
 pub mod av_integration;
 // Conditionally compile AVIntegration `use` statement
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 mod behavioral;
 
 // ============================================================================
