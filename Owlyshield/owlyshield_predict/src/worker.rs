@@ -616,7 +616,7 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
-    use sysinfo::{ProcessExt, System, SystemExt, PidExt};
+    use sysinfo::{System, ProcessesToUpdate, ProcessRefreshKind};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     #[cfg(feature = "realtime_learning")]
@@ -781,24 +781,35 @@ pub mod worker_instance {
         }
 
         pub fn discover_existing_processes(&mut self) {
-            if let Some(ref mut sys) = self.process_discovery_system {
+            if let Some(sys) = self.process_discovery_system.as_mut() {
                 Logging::info("[STARTUP] Discovering all running processes...");
                 
                 sys.refresh_all();
-                let mut count = 0;
-                let mut skipped = 0;
-                
-                for (pid, process) in sys.processes() {
+            }
+            
+            // Collect process data in a separate scope to release the mutable borrow
+            let processes: Vec<_> = {
+                if let Some(sys) = self.process_discovery_system.as_ref() {
+                    sys.processes().iter().map(|(p, pr)| {
+                        let exepath = pr.exe().map(|path| PathBuf::from(path)).unwrap_or_else(|| PathBuf::from(""));
+                        let appname = pr.name().to_string_lossy().to_string();
+                        (*p, exepath, appname)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            };
+            
+            let mut count = 0;
+            let mut skipped = 0;
+            
+            for (pid, exepath, appname) in processes {
                     let pid_u32 = pid.as_u32();
                     
                     // Skip system process
                     if pid_u32 == 4 {
                         continue;
                     }
-                    
-                    // Get process information
-                    let exepath = PathBuf::from(process.exe());
-                    let appname = process.name().to_string();
                     
                     // Skip invalid paths
                     if exepath.to_string_lossy().is_empty() || appname.is_empty() {
@@ -819,7 +830,6 @@ pub mod worker_instance {
                     
                     // Create ProcessRecord
                     let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                    precord.parent_pid = parent_pid;
                     
                     // Register in process_records
                     self.process_records.insert_precord(gid, precord);
@@ -848,7 +858,6 @@ pub mod worker_instance {
                     count, skipped
                 ));
             }
-        }
         
         /// Generate GID for discovered processes (must match your kernel's logic)
         fn generate_gid_for_discovery(&self, pid: u32, exepath: &PathBuf) -> u64 {
@@ -1133,10 +1142,10 @@ pub mod worker_instance {
                                 } else {
                                     // NEW: Try sysinfo as last resort before marking as UNKNOWN
                                     if let Some(ref mut sys) = self.process_discovery_system {
-                                        sys.refresh_processes();
+                                        sys.refresh_processes_specifics(ProcessesToUpdate::All, false, ProcessRefreshKind::everything());
                                         if let Some(process) = sys.process(sysinfo::Pid::from_u32(iomsg.pid)) {
-                                            let path = PathBuf::from(process.exe());
-                                            let name = process.name().to_string();
+                                            let path = process.exe().map(|p| PathBuf::from(p)).unwrap_or_else(|| PathBuf::from(""));
+                                            let name = process.name().to_string_lossy().to_string();
                                             
                                             if !path.to_string_lossy().is_empty() && !name.is_empty() {
                                                 Logging::debug(&format!(
@@ -1223,10 +1232,10 @@ pub mod worker_instance {
                         } else {
                             // NEW: Try sysinfo fallback for upgrade
                             if let Some(ref mut sys) = self.process_discovery_system {
-                                sys.refresh_processes();
+                                sys.refresh_processes_specifics(ProcessesToUpdate::All, false, ProcessRefreshKind::everything());
                                 if let Some(process) = sys.process(sysinfo::Pid::from_u32(iomsg.pid)) {
-                                    let path = PathBuf::from(process.exe());
-                                    let name = process.name().to_string();
+                                    let path = process.exe().map(|p| PathBuf::from(p)).unwrap_or_else(|| PathBuf::from(""));
+                                    let name = process.name().to_string_lossy().to_string();
                                     
                                     if !path.to_string_lossy().is_empty() && !name.is_empty() {
                                         precord.exepath = path.clone();
