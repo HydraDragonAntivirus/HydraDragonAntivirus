@@ -199,8 +199,7 @@ pub mod process_record_handling {
     use windows::Win32::Foundation::CloseHandle;
     #[cfg(target_os = "windows")]
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, 
-        PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     #[cfg(target_os = "linux")]
     use std::path::Path;
