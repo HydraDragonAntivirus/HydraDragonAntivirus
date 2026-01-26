@@ -1053,8 +1053,8 @@ pub mod worker_instance {
                         && !iomsg.filepathstr.is_empty()
                     {
                         let path = PathBuf::from(&iomsg.filepathstr);
-                        // Extract appname before releasing borrow
-                        let name_opt = self.appname_from_exepath(&path);
+                        // Extract appname inline to avoid reborrowing self
+                        let name_opt = path.file_name().and_then(|f| f.to_str()).map(|s| s.to_string());
                         
                         if let Some(name) = name_opt {
                             precord.exepath = path.clone();
