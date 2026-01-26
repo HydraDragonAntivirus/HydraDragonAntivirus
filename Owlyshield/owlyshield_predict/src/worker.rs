@@ -825,9 +825,6 @@ pub mod worker_instance {
                         continue;
                     }
                     
-                    // Get parent PID
-                    let parent_pid = process.parent().map(|p| p.as_u32()).unwrap_or(0);
-                    
                     // Create ProcessRecord
                     let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     
