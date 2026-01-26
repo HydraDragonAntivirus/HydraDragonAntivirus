@@ -905,9 +905,35 @@ pub mod worker_instance {
 		}
 
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+            // CRITICAL: Register process on IRP_PROCESS_CREATE BEFORE any other processing
+            let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
+            let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
+            
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
+            
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
+                // IMMEDIATE SCAN: If this is a new process creation, scan it right away
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if is_process_create {
+                    if let Some(ref th) = self.threat_handler {
+                        // Evaluate process against behavior rules immediately
+                        let detections = self.behavior_engine.scan_all_processes(config, &**th);
+                        for det in detections {
+                            if det.gid == tracking_key {
+                                precord.is_malicious = true;
+                                precord.termination_requested = det.termination_requested;
+                                precord.quarantine_requested = det.quarantine_requested;
+                                Logging::info(&format!(
+                                    "[BEHAVIOR SCAN] Process {} (GID: {}, PID: {}) triggered detection on creation",
+                                    precord.appname, precord.gid, iomsg.pid
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                }
+                
                 // Get AVIntegration from self if hydradragon feature is enabled
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 {
@@ -946,7 +972,7 @@ pub mod worker_instance {
                 }
 
                 // Handle Process Termination immediately
-                if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessTerminate {
+                if irp_op == IrpMajorOp::IrpProcessTerminate {
                     precord.process_state = ProcessState::Terminated;
                     Logging::info(&format!("[KERNEL SCAN] Process Terminated: {} (GID: {}, PID: {})", 
                         precord.appname, precord.gid, iomsg.pid));
@@ -958,7 +984,7 @@ pub mod worker_instance {
             }
 
             // Handle clean up after releasing the borrow
-            if IrpMajorOp::from_byte(iomsg.irp_op) == IrpMajorOp::IrpProcessTerminate {
+            if irp_op == IrpMajorOp::IrpProcessTerminate {
                 #[cfg(feature = "realtime_learning")]
                 {
                     if let Some(precord) = self.process_records.process_records.pop(&tracking_key) {
@@ -1012,7 +1038,17 @@ pub mod worker_instance {
                                 let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
                                 (path, name)
                             }
-                            None => (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                            None => {
+                                // IMPROVED: Try to look up from runtime_features if available
+                                if !iomsg.runtime_features.exepath.as_os_str().is_empty() {
+                                    let path = iomsg.runtime_features.exepath.clone();
+                                    let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
+                                    (path, name)
+                                } else {
+                                    // Last resort: mark as UNKNOWN for later resolution
+                                    (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                }
+                            }
                         }
                     };
 
@@ -1023,8 +1059,14 @@ pub mod worker_instance {
                         "[KERNEL SCAN]"
                     };
                     
-                    Logging::info(&format!("{} Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
-                        log_type, appname, iomsg.gid, iomsg.pid, exepath.display()));
+                    // DIAGNOSTIC: Log if we couldn't get a proper name
+                    if appname.starts_with("PROC_") {
+                        Logging::warning(&format!("{} [UNRESOLVED] Process: {} (GID: {}, PID: {})", 
+                            log_type, appname, iomsg.gid, iomsg.pid));
+                    } else {
+                        Logging::info(&format!("{} Scanned Process: {} (GID: {}, PID: {}, Path: {})", 
+                            log_type, appname, iomsg.gid, iomsg.pid, exepath.display()));
+                    }
 
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(iomsg.gid, precord);
@@ -1048,10 +1090,11 @@ pub mod worker_instance {
                     }
                 }
                 Some(precord) => {
-                    // Upgrade UNKNOWN → real path if we get better info later
-                    if precord.exepath.to_string_lossy() == "UNKNOWN"
-                        && !iomsg.filepathstr.is_empty()
-                    {
+                    // Upgrade UNKNOWN or PROC_* → real path if we get better info later
+                    let needs_upgrade = precord.exepath.to_string_lossy() == "UNKNOWN" 
+                        || precord.appname.starts_with("PROC_");
+                    
+                    if needs_upgrade && !iomsg.filepathstr.is_empty() {
                         let path = PathBuf::from(&iomsg.filepathstr);
                         // Extract appname inline to avoid reborrowing self
                         let name_opt = path.file_name().and_then(|f| f.to_str()).map(|s| s.to_string());
