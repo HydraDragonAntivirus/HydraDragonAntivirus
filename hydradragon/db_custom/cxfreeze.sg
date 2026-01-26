@@ -8,7 +8,7 @@ function detect() {
     var pythonDlls = [
         "python27.dll", "python35.dll", "python36.dll", "python37.dll",
         "python38.dll", "python39.dll", "python310.dll", "python311.dll",
-        "python312.dll", "python313.dll"
+        "python312.dll", "python313.dll", python314.dll"
     ];
 
     var foundDll = null;
