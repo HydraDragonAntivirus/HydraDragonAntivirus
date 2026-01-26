@@ -215,6 +215,8 @@ pub fn run() {
                 }
             }
 
+            worker.discover_existing_processes();
+
             // --- Event-driven worker loop: immediate processing with direct scanning ---
             loop {
                 let mut iomsg = match rx_iomsgs.recv() {

@@ -202,6 +202,9 @@ Return Value:
         return STATUS_UNSUCCESSFUL;
     }
 
+    // **NEW: Enumerate existing processes on driver load**
+    EnumerateExistingProcesses();
+
     status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutine, FALSE);
     if (!NT_SUCCESS(status))
     {
@@ -231,6 +234,106 @@ Return Value:
     driverData->SetQuarantinePath(&quarantinePathString);
 
     return STATUS_SUCCESS;
+}
+
+// **NEW FUNCTION**
+VOID EnumerateExistingProcesses(VOID) {
+    ULONG bufferSize = 0;
+    PVOID processBuffer = NULL;
+    
+    // Get buffer size needed
+    NTSTATUS status = ZwQuerySystemInformation(
+        SystemProcessInformation,
+        NULL,
+        0,
+        &bufferSize
+    );
+    
+    if (status != STATUS_INFO_LENGTH_MISMATCH) {
+        return;
+    }
+    
+    // Allocate buffer
+    processBuffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'PROC');
+    if (!processBuffer) {
+        return;
+    }
+    
+    // Get process list
+    status = ZwQuerySystemInformation(
+        SystemProcessInformation,
+        processBuffer,
+        bufferSize,
+        &bufferSize
+    );
+    
+    if (NT_SUCCESS(status)) {
+        PSYSTEM_PROCESS_INFORMATION processInfo = 
+            (PSYSTEM_PROCESS_INFORMATION)processBuffer;
+        
+        while (TRUE) {
+            if (processInfo->UniqueProcessId != 0 && 
+                processInfo->UniqueProcessId != (HANDLE)4) {
+                
+                // Record this process
+                ULONG pid = (ULONG)(ULONG_PTR)processInfo->UniqueProcessId;
+                ULONG parentPid = (ULONG)(ULONG_PTR)processInfo->InheritedFromUniqueProcessId;
+                
+                // Try to get process name
+                HANDLE procHandle = NULL;
+                CLIENT_ID clientId;
+                clientId.UniqueProcess = processInfo->UniqueProcessId;
+                clientId.UniqueThread = 0;
+                
+                OBJECT_ATTRIBUTES objAttr;
+                InitializeObjectAttributes(&objAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+                
+                if (NT_SUCCESS(ZwOpenProcess(&procHandle, PROCESS_ALL_ACCESS, 
+                                            &objAttr, &clientId))) {
+                    PUNICODE_STRING procName = NULL;
+                    if (NT_SUCCESS(GetProcessNameByHandle(procHandle, &procName))) {
+                        // Record in driverData
+                        ULONGLONG gid = driverData->RecordNewProcess(
+                            procName, pid, parentPid
+                        );
+                        
+                        // Send to usermode
+                        PIRP_ENTRY newEntry = new IRP_ENTRY();
+                        if (newEntry != NULL) {
+                            newEntry->data.PID = pid;
+                            newEntry->data.Gid = gid;
+                            newEntry->data.ParentPid = parentPid;
+                            newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
+                            
+                            USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE) 
+                                ? procName->Length 
+                                : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                            RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
+                            newEntry->Buffer[copyLen / 2] = L'\0';
+                            newEntry->filePath.Length = copyLen;
+                            newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                            newEntry->filePath.Buffer = newEntry->Buffer;
+                            
+                            if (!driverData->AddIrpMessage(newEntry)) {
+                                delete newEntry;
+                            }
+                        }
+                    }
+                    ZwClose(procHandle);
+                }
+            }
+            
+            if (processInfo->NextEntryOffset == 0) {
+                break;
+            }
+            
+            processInfo = (PSYSTEM_PROCESS_INFORMATION)(
+                (PUCHAR)processInfo + processInfo->NextEntryOffset
+            );
+        }
+    }
+    
+    ExFreePoolWithTag(processBuffer, 'PROC');
 }
 
 NTSTATUS

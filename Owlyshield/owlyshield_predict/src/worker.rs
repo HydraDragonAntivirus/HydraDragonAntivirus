@@ -593,8 +593,6 @@ mod process_records {
     }
 }
 
-// Replaced by crate::threat_handler::ThreatHandler
-
 pub mod worker_instance {
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{channel, Sender};
@@ -618,6 +616,9 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
+    use sysinfo::{ProcessExt, System, SystemExt, PidExt};
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -735,7 +736,6 @@ pub mod worker_instance {
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
-        // --- ADDED: Field to hold the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
         av_integration: Option<crate::av_integration::AVIntegration<'a>>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -747,17 +747,17 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
+        process_discovery_system: Option<System>,
     }
 
     impl<'a> Worker<'a> {
-		pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
-			Worker {
-				whitelist: None,
-				process_records: ProcessRecords::new(),
-				process_record_handler: None,
-				exepath_handler: Box::<ExepathLive>::default(),
-				iomsg_postprocessors: vec![],
-                // --- ADDED: Initialize new field ---
+        pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
+            Worker {
+                whitelist: None,
+                process_records: ProcessRecords::new(),
+                process_record_handler: None,
+                exepath_handler: Box::<ExepathLive>::default(),
+                iomsg_postprocessors: vec![],
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -774,10 +774,94 @@ pub mod worker_instance {
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                app_settings, // Initialize app_settings
+                app_settings,
                 threat_handler: None,
-			}
-		}
+                process_discovery_system: Some(System::new_all()),
+            }
+        }
+
+        pub fn discover_existing_processes(&mut self) {
+            if let Some(ref mut sys) = self.process_discovery_system {
+                Logging::info("[STARTUP] Discovering all running processes...");
+                
+                sys.refresh_all();
+                let mut count = 0;
+                let mut skipped = 0;
+                
+                for (pid, process) in sys.processes() {
+                    let pid_u32 = pid.as_u32();
+                    
+                    // Skip system process
+                    if pid_u32 == 4 {
+                        continue;
+                    }
+                    
+                    // Get process information
+                    let exepath = PathBuf::from(process.exe());
+                    let appname = process.name().to_string();
+                    
+                    // Skip invalid paths
+                    if exepath.to_string_lossy().is_empty() || appname.is_empty() {
+                        skipped += 1;
+                        continue;
+                    }
+                    
+                    // Generate GID (unique per process instance)
+                    let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
+                    
+                    // Check if already tracked (kernel might have discovered it)
+                    if self.process_records.get_precord_by_gid(gid).is_some() {
+                        continue;
+                    }
+                    
+                    // Get parent PID
+                    let parent_pid = process.parent().map(|p| p.as_u32()).unwrap_or(0);
+                    
+                    // Create ProcessRecord
+                    let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    precord.parent_pid = parent_pid;
+                    
+                    // Register in process_records
+                    self.process_records.insert_precord(gid, precord);
+                    
+                    // Register in behavior engine
+                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    {
+                        self.behavior_engine.register_process(
+                            gid, 
+                            pid_u32, 
+                            exepath.clone(), 
+                            appname.clone()
+                        );
+                    }
+                    
+                    count += 1;
+                    
+                    Logging::debug(&format!(
+                        "[STARTUP] Discovered: {} (PID: {}, GID: {}, Path: {})",
+                        appname, pid_u32, gid, exepath.display()
+                    ));
+                }
+                
+                Logging::info(&format!(
+                    "[STARTUP] Process discovery complete: {} processes registered, {} skipped",
+                    count, skipped
+                ));
+            }
+        }
+        
+        /// Generate GID for discovered processes (must match your kernel's logic)
+        fn generate_gid_for_discovery(&self, pid: u32, exepath: &PathBuf) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            pid.hash(&mut hasher);
+            exepath.hash(&mut hasher);
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .hash(&mut hasher);
+            hasher.finish()
+        }
 
         pub fn whitelist(mut self, whitelist: &'a WhiteList) -> Worker<'a> {
             self.whitelist = Some(whitelist);
@@ -802,8 +886,6 @@ pub mod worker_instance {
             self
         }
 
-
-
         pub fn register_iomsg_postprocessor(
             mut self,
             postprecessor: Box<dyn IOMsgPostProcessor>,
@@ -812,9 +894,8 @@ pub mod worker_instance {
             self
         }
 
-        // --- ADDED: Builder method to set the AVIntegration instance ---
         #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-        #[allow(dead_code)] // Silencing warning, this builder method is used externally
+        #[allow(dead_code)]
         pub fn av_integration(mut self, av_integration: Option<crate::av_integration::AVIntegration<'a>>) -> Worker<'a> {
             self.av_integration = av_integration;
             self
@@ -827,12 +908,8 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // CRITICAL: Sync ALL processes from behavior_engine to process_records
-                // This ensures we have ProcessRecords for processes that don't generate IO events
                 for (gid, state) in self.behavior_engine.process_states.iter() {
-                    // Skip if already in process_records
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
-                        // Register this process that behavior_engine knows about but worker doesn't
                         let precord = ProcessRecord::new(
                             *gid,
                             state.app_name.clone(),
@@ -847,10 +924,8 @@ pub mod worker_instance {
                     }
                 }
 
-                // Run behavior engine scan on ALL tracked processes
                 let total_tracked = self.behavior_engine.process_states.len();
                 
-                // Log all tracked processes for diagnostics
                 if total_tracked > 0 {
                     Logging::info(&format!("[BEHAVIOR SCAN] Static Scan: Evaluating {} tracked processes", total_tracked));
                     for (gid, state) in self.behavior_engine.process_states.iter() {
@@ -861,17 +936,13 @@ pub mod worker_instance {
                     Logging::warning("[BEHAVIOR SCAN] No processes are being tracked by behavior engine!");
                 }
 
-                // Scan ALL processes tracked by behavior engine
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
-                // Log detection results
                 if !detections.is_empty() {
                     Logging::info(&format!("[BEHAVIOR SCAN] Found {} detections", detections.len()));
                 }
 
-                // Apply detections
                 for det in detections {
-                    // Try to find the corresponding ProcessRecord by GID
                     let matching_record = self.process_records.process_records
                         .iter_mut()
                         .find(|(gid, _)| **gid == det.gid);
@@ -885,14 +956,12 @@ pub mod worker_instance {
                             record.appname, det.gid
                         ));
                     } else {
-                        // CREATE ProcessRecord for detected processes without kernel I/O tracking yet
                         if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
                             Logging::warning(&format!(
                                 "[SCAN DETECTION] Process {} (GID: {}, PID: {}) matched behavioral rules - creating ProcessRecord",
                                 state.app_name, det.gid, state.pid
                             ));
                             
-                            // Create a ProcessRecord for this detected process
                             let mut precord = ProcessRecord::new(
                                 det.gid,
                                 state.app_name.clone(),
@@ -909,14 +978,13 @@ pub mod worker_instance {
             }
         }
 
-		pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
-			Worker {
-				whitelist: Some(whitelist),
-				process_records: ProcessRecords::new(),
-				process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
-				exepath_handler: Box::<ExePathReplay>::default(),
-				iomsg_postprocessors: vec![],
-                // --- ADDED: Initialize new field (None for replay) ---
+        pub fn new_replay(config: &'a Config, whitelist: &'a WhiteList, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
+            Worker {
+                whitelist: Some(whitelist),
+                process_records: ProcessRecords::new(),
+                process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
+                exepath_handler: Box::<ExePathReplay>::default(),
+                iomsg_postprocessors: vec![],
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 av_integration: None,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -933,13 +1001,13 @@ pub mod worker_instance {
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                app_settings, // Initialize app_settings
+                app_settings,
                 threat_handler: None,
-			}
-		}
+                process_discovery_system: None, // No discovery in replay mode
+            }
+        }
 
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
-            // CRITICAL: Register process on IRP_PROCESS_CREATE BEFORE any other processing
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             
@@ -947,11 +1015,9 @@ pub mod worker_instance {
             let tracking_key = iomsg.gid;
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
-                // IMMEDIATE SCAN: If this is a new process creation, scan it right away
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create {
                     if let Some(ref th) = self.threat_handler {
-                        // Evaluate process against behavior rules immediately
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);
                         for det in detections {
                             if det.gid == tracking_key {
@@ -968,16 +1034,11 @@ pub mod worker_instance {
                     }
                 }
                 
-                // Get AVIntegration from self if hydradragon feature is enabled
                 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
                 {
-                    // --- MODIFIED: Use self.av_integration field ---
-                    // This removes the need for the global static and fixes the import error.
                     if let Some(av_integration) = self.av_integration.as_mut() {
-                        // Pass the mutable reference to AVIntegration
                         precord.add_irp_record(iomsg, Some(av_integration));
                     } else {
-                        // No AVIntegration instance available
                         precord.add_irp_record(iomsg, None);
                     }
                 }
@@ -987,12 +1048,11 @@ pub mod worker_instance {
                     precord.add_irp_record(iomsg, None);
                 }
 
-                // Pass the config and threat_handler to the behavior engine
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if let Some(ref th) = self.threat_handler {
                     self.behavior_engine.process_event(precord, iomsg, config, &**th);
                 }
-                // --- ADDED: Update learning engine activity ---
+                
                 #[cfg(feature = "realtime_learning")]
                 {
                     self.learning_engine.update_activity(tracking_key);
@@ -1005,7 +1065,6 @@ pub mod worker_instance {
                     process_record_handler.handle_io(precord);
                 }
 
-                // Handle Process Termination immediately
                 if irp_op == IrpMajorOp::IrpProcessTerminate {
                     precord.process_state = ProcessState::Terminated;
                     Logging::info(&format!("[KERNEL SCAN] Process Terminated: {} (GID: {}, PID: {})", 
@@ -1017,7 +1076,6 @@ pub mod worker_instance {
                 }
             }
 
-            // Handle clean up after releasing the borrow
             if irp_op == IrpMajorOp::IrpProcessTerminate {
                 #[cfg(feature = "realtime_learning")]
                 {
@@ -1033,18 +1091,15 @@ pub mod worker_instance {
         pub fn process_suspended_records(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             self.process_records.process_suspended_procs(config, threat_handler);
 
-            // --- ADDED: Learn on Exit (Scan for terminated processes) ---
             #[cfg(feature = "realtime_learning")]
             {
                 let mut terminated_gids = Vec::new();
                 for (gid, proc) in self.process_records.process_records.iter() {
-                    // Reliable kernel termination
                     if proc.process_state == ProcessState::Terminated {
                         terminated_gids.push(*gid);
                     }
                 }
 
-                // Finalize learning for terminated processes
                 for gid in terminated_gids {
                     if let Some(precord) = self.process_records.process_records.pop(&gid) {
                         if let Some(tracker) = self.api_trackers.remove(&gid) {
@@ -1058,14 +1113,12 @@ pub mod worker_instance {
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
             match self.process_records.get_precord_mut_by_gid(iomsg.gid) {
                 None => {
-                    // KERNEL FIX: Use path from IOMessage if available (IRP_PROCESS_CREATE)
                     let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
                     let (exepath, appname): (PathBuf, String) = if irp_op == IrpMajorOp::IrpProcessCreate && !iomsg.filepathstr.is_empty() {
                         let path = PathBuf::from(&iomsg.filepathstr);
                         let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
                         (path, name)
                     } else {
-                        // Fallback to handler (which might use sysinfo, but we prefer kernel)
                         let exepath_opt = self.exepath_handler.exepath(iomsg);
                         match exepath_opt {
                             Some(path) => {
@@ -1073,27 +1126,44 @@ pub mod worker_instance {
                                 (path, name)
                             }
                             None => {
-                                // IMPROVED: Try to look up from runtime_features if available
                                 if !iomsg.runtime_features.exepath.as_os_str().is_empty() {
                                     let path = iomsg.runtime_features.exepath.clone();
                                     let name = self.appname_from_exepath(&path).unwrap_or_else(|| String::from("DEFAULT"));
                                     (path, name)
                                 } else {
-                                    // Last resort: mark as UNKNOWN for later resolution
-                                    (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                    // NEW: Try sysinfo as last resort before marking as UNKNOWN
+                                    if let Some(ref mut sys) = self.process_discovery_system {
+                                        sys.refresh_processes();
+                                        if let Some(process) = sys.process(sysinfo::Pid::from_u32(iomsg.pid)) {
+                                            let path = PathBuf::from(process.exe());
+                                            let name = process.name().to_string();
+                                            
+                                            if !path.to_string_lossy().is_empty() && !name.is_empty() {
+                                                Logging::debug(&format!(
+                                                    "[SYSINFO FALLBACK] Resolved process via sysinfo: {} (PID: {})",
+                                                    name, iomsg.pid
+                                                ));
+                                                (path, name)
+                                            } else {
+                                                (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                            }
+                                        } else {
+                                            (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                        }
+                                    } else {
+                                        (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                    }
                                 }
                             }
                         }
                     };
 
-                    // LOGGING FIX: Log the scanned process immediately
                     let log_type = if irp_op == IrpMajorOp::IrpProcessCreate {
                         "[PROCESS CREATE]"
                     } else {
                         "[KERNEL SCAN]"
                     };
                     
-                    // DIAGNOSTIC: Log if we couldn't get a proper name
                     if appname.starts_with("PROC_") {
                         Logging::warning(&format!("{} [UNRESOLVED] Process: {} (GID: {}, PID: {})", 
                             log_type, appname, iomsg.gid, iomsg.pid));
@@ -1105,7 +1175,6 @@ pub mod worker_instance {
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(iomsg.gid, precord);
                     
-                    // SYNC FIX: Register with Behavior Engine immediately on discovery
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     {
                         self.behavior_engine.register_process(
@@ -1116,7 +1185,6 @@ pub mod worker_instance {
                         );
                     }
 
-                    // Track in learning engine
                     #[cfg(feature = "realtime_learning")]
                     {
                         self.learning_engine.track_process(iomsg.gid, appname.clone());
@@ -1124,33 +1192,62 @@ pub mod worker_instance {
                     }
                 }
                 Some(precord) => {
-                    // Upgrade UNKNOWN or PROC_* → real path if we get better info later
                     let needs_upgrade = precord.exepath.to_string_lossy() == "UNKNOWN" 
                         || precord.appname.starts_with("PROC_");
                     
-                    if needs_upgrade && !iomsg.filepathstr.is_empty() {
-                        let path = PathBuf::from(&iomsg.filepathstr);
-                        // Extract appname inline to avoid reborrowing self
-                        let name_opt = path.file_name().and_then(|f| f.to_str()).map(|s| s.to_string());
-                        
-                        if let Some(name) = name_opt {
-                            precord.exepath = path.clone();
-                            precord.appname = name.clone();
-
-                            Logging::info(&format!(
-                                "[KERNEL SCAN] Updated Process: {} (GID: {}, PID: {}, Path: {})",
-                                precord.appname, iomsg.gid, iomsg.pid, precord.exepath.display()
-                            ));
+                    if needs_upgrade {
+                        // Try iomsg filepath first
+                        if !iomsg.filepathstr.is_empty() {
+                            let path = PathBuf::from(&iomsg.filepathstr);
+                            let name_opt = path.file_name().and_then(|f| f.to_str()).map(|s| s.to_string());
                             
-                            // Also update in behavior engine
-                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            {
-                                self.behavior_engine.register_process(
-                                    iomsg.gid,
-                                    iomsg.pid as u32,
-                                    path,
-                                    name,
-                                );
+                            if let Some(name) = name_opt {
+                                precord.exepath = path.clone();
+                                precord.appname = name.clone();
+
+                                Logging::info(&format!(
+                                    "[KERNEL SCAN] Updated Process: {} (GID: {}, PID: {}, Path: {})",
+                                    precord.appname, iomsg.gid, iomsg.pid, precord.exepath.display()
+                                ));
+                                
+                                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                                {
+                                    self.behavior_engine.register_process(
+                                        iomsg.gid,
+                                        iomsg.pid as u32,
+                                        path,
+                                        name,
+                                    );
+                                }
+                            }
+                        } else {
+                            // NEW: Try sysinfo fallback for upgrade
+                            if let Some(ref mut sys) = self.process_discovery_system {
+                                sys.refresh_processes();
+                                if let Some(process) = sys.process(sysinfo::Pid::from_u32(iomsg.pid)) {
+                                    let path = PathBuf::from(process.exe());
+                                    let name = process.name().to_string();
+                                    
+                                    if !path.to_string_lossy().is_empty() && !name.is_empty() {
+                                        precord.exepath = path.clone();
+                                        precord.appname = name.clone();
+                                        
+                                        Logging::info(&format!(
+                                            "[SYSINFO UPGRADE] Updated Process: {} (GID: {}, PID: {}, Path: {})",
+                                            precord.appname, iomsg.gid, iomsg.pid, precord.exepath.display()
+                                        ));
+                                        
+                                        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                                        {
+                                            self.behavior_engine.register_process(
+                                                iomsg.gid,
+                                                iomsg.pid as u32,
+                                                path,
+                                                name,
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
