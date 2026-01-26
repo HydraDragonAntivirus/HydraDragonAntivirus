@@ -15,7 +15,6 @@ use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
-use sysinfo::{SystemExt, ProcessExt, PidExt};
 
 // --- Windows Specific Imports ---
 use windows::Win32::NetworkManagement::IpHelper::{
@@ -449,28 +448,20 @@ impl BehaviorEngine {
         if !self.process_states.contains_key(&gid) {
             let mut s = ProcessBehaviorState::new(msg.pid as u32, precord.exepath.clone(), precord.appname.clone());
             
-            // Parent logic
-            let mut sys = sysinfo::System::new_all();
-            sys.refresh_processes();
+            // Parent logic: rely on kernel msg.parent_pid instead of sysinfo snapshot
+            let parent_pid = msg.parent_pid as u32; 
             let mut parent_found = false;
 
-            if let Some(proc) = sys.process(sysinfo::Pid::from(msg.pid as usize)) {
-                if let Some(parent_pid) = proc.parent() {
-                    if let Some(parent_proc) = sys.process(parent_pid) {
-                        s.parent_name = parent_proc.name().to_string();
-                        parent_found = true;
-                    } else {
-                        let ppid_u32 = parent_pid.as_u32();
-                        for existing_state in self.process_states.values() {
-                            if existing_state.pid == ppid_u32 {
-                                s.parent_name = existing_state.app_name.clone();
-                                parent_found = true;
-                                break;
-                            }
-                        }
-                    }
+            // Resolve parent name from internal state tracker
+            // We iterate because states are keyed by GID, but we need to match by PID
+            for existing_state in self.process_states.values() {
+                if existing_state.pid == parent_pid {
+                    s.parent_name = existing_state.app_name.clone();
+                    parent_found = true;
+                    break;
                 }
             }
+
             if !parent_found { s.parent_name = "unknown".to_string(); }
             self.process_states.insert(gid, s);
         }
@@ -684,6 +675,9 @@ impl BehaviorEngine {
         config: &Config,
         actions: &mut ActionsOnKill
     ) {
+        // Capture reference to state for use in method calls
+        let state_ref = self.process_states.get(&gid).unwrap();
+
         let (
             browsed_paths_tracker,
             staged_files_written,
@@ -699,25 +693,22 @@ impl BehaviorEngine {
             signature_checked,
             network_activity_detected,
             pid
-        ) = {
-            let s = self.process_states.get(&gid).unwrap();
-            (
-                s.browsed_paths_tracker.clone(),
-                s.staged_files_written.clone(),
-                s.accessed_paths_tracker.clone(),
-                s.terminated_processes.clone(),
-                s.self_terminated_processes.clone(),
-                s.parent_name.clone(),
-                s.high_entropy_detected,
-                s.monitored_api_count,
-                s.file_action_detected,
-                s.extension_match_detected,
-                s.has_valid_signature,
-                s.signature_checked,
-                s.network_activity_detected,
-                s.pid
-            )
-        };
+        ) = (
+            state_ref.browsed_paths_tracker.clone(),
+            state_ref.staged_files_written.clone(),
+            state_ref.accessed_paths_tracker.clone(),
+            state_ref.terminated_processes.clone(),
+            state_ref.self_terminated_processes.clone(),
+            state_ref.parent_name.clone(),
+            state_ref.high_entropy_detected,
+            state_ref.monitored_api_count,
+            state_ref.file_action_detected,
+            state_ref.extension_match_detected,
+            state_ref.has_valid_signature,
+            state_ref.signature_checked,
+            state_ref.network_activity_detected,
+            state_ref.pid
+        );
 
         let now = SystemTime::now();
 
@@ -732,15 +723,7 @@ impl BehaviorEngine {
 
             // ---------- STAGES ----------
             if !rule.stages.is_empty() {
-                if self.evaluate_stages(
-                    rule,
-                    &parent_name,
-                    has_valid_signature,
-                    signature_checked,
-                    precord,
-                    msg,
-                    &irp_op
-                ) {
+                if self.evaluate_stages_from_state(rule, state_ref) {
                     precord.is_malicious = true;
                 }
             }
@@ -908,83 +891,408 @@ impl BehaviorEngine {
         }
     }
 
-    fn evaluate_stages(
-        &self, 
-        rule: &BehaviorRule, 
-        parent_name: &str, 
-        has_valid_signature: bool,
-        signature_checked: bool,
-        precord: &ProcessRecord,
-        msg: &IOMessage,
-        irp_op: &IrpMajorOp
+    /// Evaluate stages based on accumulated state during static scans
+    fn evaluate_stages_from_state(
+        &self,
+        rule: &BehaviorRule,
+        state: &ProcessBehaviorState
     ) -> bool {
+        let mut satisfied_stages = 0;
+        
         for stage in &rule.stages {
             let mut stage_satisfied = true;
+            
             for condition in &stage.conditions {
                 match condition {
                     RuleCondition::File { op, path_pattern } => {
-                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
-                        let op_matches = match op.as_str() {
-                            "write" => irp_op_enum == IrpMajorOp::IrpWrite,
-                            "read" => irp_op_enum == IrpMajorOp::IrpRead,
-                            "create" => irp_op_enum == IrpMajorOp::IrpCreate && (
-                                msg.file_change == FileChangeInfo::ChangeNewFile as u8 || 
-                                msg.file_change == FileChangeInfo::ChangeDeleteNewFile as u8 ||
-                                msg.file_change == FileChangeInfo::ChangeOverwriteFile as u8
-                            ),
-                            "delete" => (irp_op_enum == IrpMajorOp::IrpSetInfo || irp_op_enum == IrpMajorOp::IrpCreate) && (
-                                msg.file_change == FileChangeInfo::ChangeDeleteFile as u8 || 
-                                msg.file_change == FileChangeInfo::ChangeDeleteNewFile as u8
-                            ),
-                            "rename" => irp_op_enum == IrpMajorOp::IrpSetInfo && (
-                                msg.file_change == FileChangeInfo::ChangeRenameFile as u8 ||
-                                msg.file_change == FileChangeInfo::ChangeExtensionChanged as u8
-                            ),
+                        // Check accumulated file operations based on op type
+                        let has_match = match op.as_str() {
+                            "write" | "create" => {
+                                state.staged_files_written.keys().any(|path| {
+                                    self.matches_pattern(path_pattern, &path.to_string_lossy())
+                                })
+                            },
+                            "read" => {
+                                state.browsed_paths_tracker.keys().any(|path| {
+                                    self.matches_pattern(path_pattern, path)
+                                }) || state.accessed_paths_tracker.iter().any(|path| {
+                                    self.matches_pattern(path_pattern, path)
+                                })
+                            },
+                            "delete" => {
+                                // File deletions are tracked in staged_files_written during delete operations
+                                state.staged_files_written.keys().any(|path| {
+                                    self.matches_pattern(path_pattern, &path.to_string_lossy())
+                                })
+                            },
+                            "rename" => {
+                                // File renames are tracked in staged_files_written during rename operations
+                                state.staged_files_written.keys().any(|path| {
+                                    self.matches_pattern(path_pattern, &path.to_string_lossy())
+                                })
+                            },
                             _ => false,
                         };
-                        if !op_matches { stage_satisfied = false; break; }
-                        if !self.matches_pattern(path_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                        if !has_match { stage_satisfied = false; break; }
                     },
-                    RuleCondition::Registry { op, key_pattern, value_name: _, expected_data: _ } => {
-                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
-                        if irp_op_enum != IrpMajorOp::IrpRegistry { stage_satisfied = false; break; }
-
-                        let op_matches = match op.as_str() {
-                            "set" => msg.file_change == FileChangeInfo::RegSetValue as u8,
-                            "create" => msg.file_change == FileChangeInfo::RegCreateKey as u8,
-                            "delete" => msg.file_change == FileChangeInfo::RegDeleteValue as u8,
-                            "rename" => msg.file_change == FileChangeInfo::RegRenameKey as u8,
-                            _ => false,
+                    
+                    RuleCondition::Registry { op, key_pattern, value_name, expected_data } => {
+                        // Registry operations are tracked via monitored_apis and detected_apis
+                        // Check if registry operation pattern matches any detected API calls
+                        let registry_keywords = match op.as_str() {
+                            "set" => vec!["regsetvalue", "regsetvalueex", "regsetkeysecurity"],
+                            "create" => vec!["regcreatekey", "regcreatekeyex"],
+                            "delete" => vec!["regdeletevalue", "regdeletekey"],
+                            "rename" => vec!["regrenamekey"],
+                            _ => vec![],
                         };
-                        if !op_matches { stage_satisfied = false; break; }
-                        if !self.matches_pattern(key_pattern, &msg.filepathstr) { stage_satisfied = false; break; }
-                    },
-                    RuleCondition::Process { op, pattern } => {
-                        let irp_op_enum = IrpMajorOp::from_byte(msg.irp_op);
-                        let op_matches = match op.as_str() {
-                            "create" => irp_op_enum == IrpMajorOp::IrpProcessCreate,
-                            "terminate" => irp_op_enum == IrpMajorOp::IrpProcessTerminate,
-                            _ => self.matches_pattern(pattern, &precord.appname),
-                        };
-                        if !op_matches { stage_satisfied = false; break; }
                         
-                        // If it's a lifecycle event, check the process name in the event msg
-                        if op == "create" || op == "terminate" {
-                            if !self.matches_pattern(pattern, &msg.filepathstr) { stage_satisfied = false; break; }
+                        let has_registry_op = registry_keywords.iter().any(|keyword| {
+                            state.detected_apis.iter().any(|api| api.contains(keyword))
+                        });
+                        
+                        // Also check if the key_pattern was accessed (tracked in browsed/accessed paths)
+                        let key_accessed = state.browsed_paths_tracker.keys().any(|path| {
+                            self.matches_pattern(key_pattern, path)
+                        }) || state.accessed_paths_tracker.iter().any(|path| {
+                            self.matches_pattern(key_pattern, path)
+                        });
+                        
+                        if !has_registry_op && !key_accessed {
+                            stage_satisfied = false;
+                            break;
+                        }
+                        
+                        // Note: value_name and expected_data checks would require more detailed tracking
+                        // For static scans, we can only verify the operation type and key pattern
+                    },
+                    
+                    RuleCondition::Process { op, pattern } => {
+                        let has_match = match op.as_str() {
+                            "terminate" => {
+                                state.terminated_processes.iter().any(|victim| {
+                                    self.matches_pattern(pattern, victim)
+                                }) || (rule.detect_self_termination && 
+                                    state.self_terminated_processes.iter().any(|victim| {
+                                        self.matches_pattern(pattern, victim)
+                                    }))
+                            },
+                            "create" => {
+                                // Process creation is tracked via detected_apis (CreateProcess, etc.)
+                                state.detected_apis.iter().any(|api| {
+                                    api.contains("createprocess") || api.contains("ntcreateuserprocess")
+                                }) && self.matches_pattern(pattern, &state.app_name)
+                            },
+                            _ => self.matches_pattern(pattern, &state.app_name),
+                        };
+                        if !has_match { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::Service { op, name_pattern } => {
+                        // Service operations tracked via detected_apis
+                        let service_keywords = match op.as_str() {
+                            "create" => vec!["createservice"],
+                            "start" => vec!["startservice"],
+                            "stop" => vec!["stopservice"],
+                            "delete" => vec!["deleteservice"],
+                            _ => vec!["service"],
+                        };
+                        
+                        let has_service_op = service_keywords.iter().any(|keyword| {
+                            state.detected_apis.iter().any(|api| api.contains(keyword))
+                        });
+                        
+                        if !has_service_op {
+                            stage_satisfied = false;
+                            break;
                         }
                     },
-                    _ => {
+                    
+                    RuleCondition::Network { op, dest_pattern } => {
+                        // Network activity is tracked via network_activity_detected flag
+                        if !state.network_activity_detected {
+                            stage_satisfied = false;
+                            break;
+                        }
+                        
+                        // If specific destination pattern is required, check detected_apis
+                        if let Some(dest) = dest_pattern {
+                            let has_dest = state.detected_apis.iter().any(|api| {
+                                self.matches_pattern(dest, api)
+                            });
+                            if !has_dest {
+                                stage_satisfied = false;
+                                break;
+                            }
+                        }
+                    },
+                    
+                    RuleCondition::Api { name_pattern, module_pattern } => {
+                        let has_api = state.detected_apis.iter().any(|api| {
+                            self.matches_pattern(name_pattern, api) &&
+                            self.matches_pattern(module_pattern, api)
+                        });
+                        if !has_api { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::Heuristic { metric, threshold } => {
+                        // Heuristics are tracked via state flags
+                        let metric_value = match metric.as_str() {
+                            "entropy" => if state.high_entropy_detected { 1.0 } else { 0.0 },
+                            "api_count" => state.monitored_api_count as f64,
+                            "file_access_count" => state.accessed_paths_tracker.len() as f64,
+                            "browsed_count" => state.browsed_paths_tracker.len() as f64,
+                            "staged_count" => state.staged_files_written.len() as f64,
+                            _ => 0.0,
+                        };
+                        
+                        if metric_value < *threshold {
+                            stage_satisfied = false;
+                            break;
+                        }
+                    },
+                    
+                    RuleCondition::OperationCount { op_type, path_pattern, comparison, threshold } => {
+                        // Count operations from accumulated state
+                        let count = match op_type.as_str() {
+                            "read" => state.browsed_paths_tracker.len() + state.accessed_paths_tracker.len(),
+                            "write" | "create" => state.staged_files_written.len(),
+                            _ => 0,
+                        };
+                        
+                        // Apply path_pattern filter if specified
+                        let filtered_count = if let Some(pattern) = path_pattern {
+                            match op_type.as_str() {
+                                "read" => {
+                                    state.browsed_paths_tracker.keys().filter(|p| self.matches_pattern(pattern, p)).count() +
+                                    state.accessed_paths_tracker.iter().filter(|p| self.matches_pattern(pattern, p)).count()
+                                },
+                                "write" | "create" => {
+                                    state.staged_files_written.keys()
+                                        .filter(|p| self.matches_pattern(pattern, &p.to_string_lossy()))
+                                        .count()
+                                },
+                                _ => 0,
+                            }
+                        } else {
+                            count
+                        };
+                        
+                        let matches = match comparison {
+                            Comparison::Gt => filtered_count > *threshold as usize,
+                            Comparison::Gte => filtered_count >= *threshold as usize,
+                            Comparison::Lt => filtered_count < *threshold as usize,
+                            Comparison::Lte => filtered_count <= *threshold as usize,
+                            Comparison::Eq => filtered_count == *threshold as usize,
+                            Comparison::Ne => filtered_count != *threshold as usize,
+                        };
+                        
+                        if !matches { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::ExtensionPattern { patterns, match_mode, op_type } => {
+                        // Check if files with matching extensions were accessed
+                        let matching_count = match op_type.as_str() {
+                            "write" | "create" => {
+                                state.staged_files_written.keys()
+                                    .filter(|p| {
+                                        if let Some(ext) = p.extension() {
+                                            let ext_str = ext.to_string_lossy().to_lowercase();
+                                            patterns.iter().any(|pat| {
+                                                let pat_lc = pat.trim_start_matches('.').to_lowercase();
+                                                ext_str == pat_lc
+                                            })
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .count()
+                            },
+                            _ => {
+                                state.browsed_paths_tracker.keys()
+                                    .filter(|p| {
+                                        patterns.iter().any(|pat| {
+                                            let pat_lc = pat.to_lowercase();
+                                            p.to_lowercase().ends_with(&pat_lc)
+                                        })
+                                    })
+                                    .count()
+                            },
+                        };
+                        
+                        let matches = match match_mode {
+                            MatchMode::All => matching_count == patterns.len(),
+                            MatchMode::Any => matching_count > 0,
+                            MatchMode::Count(n) => matching_count == *n,
+                            MatchMode::AtLeast(n) => matching_count >= *n,
+                        };
+                        
+                        if !matches { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::EntropyThreshold { metric, comparison, threshold } => {
+                        // Entropy is tracked via high_entropy_detected flag
+                        let entropy_detected = state.high_entropy_detected;
+                        let matches = match comparison {
+                            Comparison::Gte => entropy_detected, // If detected, it exceeded the threshold
+                            _ => entropy_detected,
+                        };
+                        if !matches { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::FileCount { category, comparison, threshold } => {
+                        let count = match category.as_str() {
+                            "accessed" => state.accessed_paths_tracker.len() as u64,
+                            "browsed" => state.browsed_paths_tracker.len() as u64,
+                            "staged" => state.staged_files_written.len() as u64,
+                            _ => 0,
+                        };
+                        
+                        let matches = match comparison {
+                            Comparison::Gt => count > *threshold,
+                            Comparison::Gte => count >= *threshold,
+                            Comparison::Lt => count < *threshold,
+                            Comparison::Lte => count <= *threshold,
+                            Comparison::Eq => count == *threshold,
+                            Comparison::Ne => count != *threshold,
+                        };
+                        
+                        if !matches { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::Signature { is_trusted, signer_pattern } => {
+                        if !state.signature_checked {
+                            stage_satisfied = false;
+                            break;
+                        }
+                        if *is_trusted != state.has_valid_signature {
+                            stage_satisfied = false;
+                            break;
+                        }
+                        // Note: signer_pattern would require storing signer info in state
+                        if signer_pattern.is_some() {
+                            // Cannot verify signer pattern in static scan without extended state
+                            stage_satisfied = false;
+                            break;
+                        }
+                    },
+                    
+                    RuleCondition::DirectorySpread { category, comparison, threshold } => {
+                        // Count unique directories accessed
+                        let unique_dirs: std::collections::HashSet<_> = match category.as_str() {
+                            "accessed" => {
+                                state.accessed_paths_tracker.iter()
+                                    .filter_map(|p| Path::new(p).parent())
+                                    .collect()
+                            },
+                            "browsed" => {
+                                state.browsed_paths_tracker.keys()
+                                    .filter_map(|p| Path::new(p).parent())
+                                    .collect()
+                            },
+                            "staged" => {
+                                state.staged_files_written.keys()
+                                    .filter_map(|p| p.parent())
+                                    .collect()
+                            },
+                            _ => std::collections::HashSet::new(),
+                        };
+                        
+                        let count = unique_dirs.len() as u64;
+                        let matches = match comparison {
+                            Comparison::Gt => count > *threshold,
+                            Comparison::Gte => count >= *threshold,
+                            Comparison::Lt => count < *threshold,
+                            Comparison::Lte => count <= *threshold,
+                            Comparison::Eq => count == *threshold,
+                            Comparison::Ne => count != *threshold,
+                        };
+                        
+                        if !matches { stage_satisfied = false; break; }
+                    },
+                    
+                    RuleCondition::ProcessAncestry { ancestor_pattern, max_depth } => {
+                        // Check parent name (depth 1)
+                        if !self.matches_pattern(ancestor_pattern, &state.parent_name) {
+                            stage_satisfied = false;
+                            break;
+                        }
+                        // Note: max_depth > 1 would require extended parent chain tracking
+                    },
+                    
+                    RuleCondition::CommandLineMatch { patterns, match_mode } => {
+                        // Command line matching would require storing command line in state
+                        // For now, this is not supported in static scans
                         stage_satisfied = false;
                         break;
-                    }
+                    },
+                    
+                    RuleCondition::SensitivePathAccess { patterns, op_type, min_unique_paths } => {
+                        let matching_paths: std::collections::HashSet<String> = match op_type.as_str() {
+                            "read" => {
+                                state.accessed_paths_tracker.iter()
+                                    .filter(|p| patterns.iter().any(|pat| self.matches_pattern(pat, p)))
+                                    .cloned()
+                                    .collect()
+                            },
+                            "write" => {
+                                state.staged_files_written.keys()
+                                    .filter(|p| patterns.iter().any(|pat| {
+                                        self.matches_pattern(pat, &p.to_string_lossy())
+                                    }))
+                                    .map(|p| p.to_string_lossy().to_string())
+                                    .collect()
+                            },
+                            _ => std::collections::HashSet::new(),
+                        };
+                        
+                        let count = matching_paths.len() as u32;
+                        let min_required = min_unique_paths.unwrap_or(1);
+                        
+                        if count < min_required {
+                            stage_satisfied = false;
+                            break;
+                        }
+                    },
+                    
+                    // Advanced conditions that require runtime data
+                    RuleCondition::ByteThreshold { .. } |
+                    RuleCondition::ExtensionRatio { .. } |
+                    RuleCondition::RateOfChange { .. } |
+                    RuleCondition::SelfModification { .. } |
+                    RuleCondition::ClusterPattern { .. } |
+                    RuleCondition::TempDirectoryWrite { .. } |
+                    RuleCondition::ArchiveCreation { .. } |
+                    RuleCondition::DataExfiltrationPattern { .. } |
+                    RuleCondition::DriveActivity { .. } |
+                    RuleCondition::MemoryScan { .. } => {
+                        // These conditions require detailed runtime metrics not available in static state
+                        // They can only be evaluated during live event processing
+                        stage_satisfied = false;
+                        break;
+                    },
                 }
             }
-             if stage_satisfied {
-                if rule.debug { Logging::debug(&format!("[BehaviorEngine] DEBUG: Stage '{}' Satisfied!", stage.name)); }
-                return true;
+            
+            if stage_satisfied {
+                satisfied_stages += 1;
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Static Scan: Stage '{}' satisfied for {}",
+                        stage.name, state.app_name
+                    ));
+                }
             }
         }
-        false
+        
+        // Check if minimum stages requirement is met
+        let min_stages = if rule.min_stages_satisfied > 0 {
+            rule.min_stages_satisfied
+        } else {
+            1 // Default: at least one stage must be satisfied
+        };
+        
+        satisfied_stages >= min_stages
     }
     
     fn check_allowlist(&self, proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {
@@ -1121,10 +1429,37 @@ impl BehaviorEngine {
                 }
 
                 // ---------- STAGE EVALUATION ----------
-                // We cannot evaluate stage-level conditions here because scan_all_processes
-                // doesn't have a recent IOMessage context. The live per-event path-based
-                // stage evaluation still happens in process_event -> check_rules via evaluate_stages.
-                // So here we only use the accumulated/latching state.
+                // For static scans, we evaluate stages based on accumulated state
+                // rather than individual IO events
+                let stages_satisfied = if !rule.stages.is_empty() {
+                    self.evaluate_stages_from_state(rule, &state)
+                } else {
+                    false
+                };
+
+                // If stages are defined and satisfied, mark as detection
+                if !rule.stages.is_empty() && stages_satisfied {
+                    let mut p = ProcessRecord::new(
+                        gid,
+                        app_name.clone(),
+                        exe_path_str.clone().into(),
+                    );
+                    p.is_malicious = true;
+                    p.pids.insert(pid);
+                    p.termination_requested = rule.response.terminate_process;
+                    p.quarantine_requested = rule.response.quarantine;
+                    detected_processes.push(p);
+
+                    if rule.debug {
+                        Logging::warning(&format!(
+                            "[BehaviorEngine] DETECTION (scan/stages): {} (PID: {}) matched '{}' via stages",
+                            app_name,
+                            pid,
+                            rule.name
+                        ));
+                    }
+                    continue; // Move to next rule
+                }
 
                 // ---------- ACCUMULATION (mirror check_rules) ----------
                 let browsed_access_count: usize = state.browsed_paths_tracker.len();
@@ -1150,11 +1485,28 @@ impl BehaviorEngine {
                 };
 
                 let has_sensitive_access = !state.accessed_paths_tracker.is_empty();
+                
+                // FIX: Use the state's terminated_processes instead of engine-level
                 let terminated_match = if !rule.terminated_processes.is_empty() {
-                    // use engine-level terminated set plus this process name
-                    let mut terminated_set = self.process_terminated.clone();
-                    terminated_set.insert(app_name.to_lowercase());
-                    rule.terminated_processes.iter().any(|proc| terminated_set.contains(&proc.to_lowercase()))
+                    rule.terminated_processes.iter().any(|rule_proc| {
+                        let rule_proc_lc = rule_proc.to_lowercase();
+                        
+                        // Check external terminations
+                        let ext_match = state.terminated_processes.iter().any(|victim_path| {
+                            victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                        });
+
+                        // Check self-terminations only if explicitly allowed by the rule
+                        let self_match = if rule.detect_self_termination {
+                            state.self_terminated_processes.iter().any(|victim_path| {
+                                victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                            })
+                        } else {
+                            false
+                        };
+
+                        ext_match || self_match
+                    })
                 } else {
                     true
                 };
@@ -1164,8 +1516,6 @@ impl BehaviorEngine {
                 let monitored_api_count = state.monitored_api_count;
                 let file_action_detected = state.file_action_detected;
                 let extension_match_detected = state.extension_match_detected;
-                let has_valid_signature = state.has_valid_signature;
-                let signature_checked = state.signature_checked;
 
                 // ---------- CONDITION TRACKING ----------
                 let mut satisfied_conditions: usize = 0;
@@ -1249,8 +1599,6 @@ impl BehaviorEngine {
                     };
 
                     if ratio >= threshold {
-                        // Build a ProcessRecord similar to the one created in process_event flow.
-                        // Convert exe_path to string for the constructor — adjust if your ProcessRecord::new signature differs.
                         let mut p = ProcessRecord::new(
                             gid,
                             app_name.clone(),
@@ -1271,7 +1619,6 @@ impl BehaviorEngine {
                                 ratio * 100.0
                             ));
                         }
-                        // do not break here: allow multiple rules to detect the same process in a single scan
                     }
                 }
             }
