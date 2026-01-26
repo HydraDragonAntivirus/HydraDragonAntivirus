@@ -689,6 +689,7 @@ impl BehaviorEngine {
             staged_files_written,
             accessed_paths_tracker,
             terminated_processes,
+            self_terminated_processes,
             parent_name,
             high_entropy_detected,
             monitored_api_count,
