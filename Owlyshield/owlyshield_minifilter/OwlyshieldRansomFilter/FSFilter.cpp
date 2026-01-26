@@ -1749,25 +1749,7 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 
         DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
-        BOOLEAN found = FALSE;
-        if (startsWith(procName, driverData->GetSystemRootPath()) &&   // process in safe area
-            startsWith(parentName, driverData->GetSystemRootPath()) && // parent in safe area
-            (driverData->GetProcessGid((ULONG)(ULONG_PTR)ParentId, &found) == 0) &&
-            !found) // parent is not documented, if it was there was a recursive call from not safe process which
-                    // resulted in safe are in windows dir
-        {
-            DbgPrint("!!! FSFilter: Open Process not recorded, both parent and process are safe\n");
-            if (parentName != NULL)
-                ExFreePoolWithTag(parentName, 'RW');
-            if (procName != NULL)
-                ExFreePoolWithTag(procName, 'RW');
-            return;
-        }
-        // options to reach: process is not safe (parent safe or not), process safe parent is not, both safe but before
-        // parent there was unsafe process
-        DbgPrint("!!! FSFilter: Open Process recording, is parent safe: %d, is process safe: %d\n",
-                 startsWith(procName, driverData->GetSystemRootPath()),
-                 startsWith(parentName, driverData->GetSystemRootPath()));
+        // ALWAYS record the process and send message to usermode
         ULONGLONG gid = driverData->RecordNewProcess(procName, (ULONG)(ULONG_PTR)ProcessId, (ULONG)(ULONG_PTR)ParentId);
 
         // Send creation message to usermode
