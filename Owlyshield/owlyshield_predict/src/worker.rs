@@ -861,7 +861,6 @@ pub mod worker_instance {
                             // Create a ProcessRecord for this detected process
                             let mut precord = ProcessRecord::new(
                                 det.gid,
-                                state.pid,
                                 state.app_name.clone(),
                                 state.exe_path.clone(),
                             );
@@ -1054,7 +1053,10 @@ pub mod worker_instance {
                         && !iomsg.filepathstr.is_empty()
                     {
                         let path = PathBuf::from(&iomsg.filepathstr);
-                        if let Some(name) = self.appname_from_exepath(&path) {
+                        // Extract appname before releasing borrow
+                        let name_opt = self.appname_from_exepath(&path);
+                        
+                        if let Some(name) = name_opt {
                             precord.exepath = path.clone();
                             precord.appname = name.clone();
 
