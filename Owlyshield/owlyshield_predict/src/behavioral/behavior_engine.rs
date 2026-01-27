@@ -1403,116 +1403,10 @@ impl BehaviorEngine {
             }
 
             // ===================================================================
-            // PRIORITY 1: RICH DETECTION LOGIC (if defined)
+            // UNIFIED DETECTION LOGIC
+            // Rich Logic and Stages now contribute to the condition percentage
             // ===================================================================
-            if let Some(detection_logic) = &rule.detection_logic {
-                let state = self.process_states.get(&gid).unwrap();
-                
-                // Calculate condition percentage to ensure it meets threshold
-                let total_conditions = state.satisfied_named_conditions.len() + 
-                    (rule.named_conditions.len().saturating_sub(state.satisfied_named_conditions.len()));
-                let conditions_ratio = if total_conditions > 0 {
-                    state.satisfied_named_conditions.len() as f32 / total_conditions as f32
-                } else {
-                    0.0
-                };
-                
-                let conditions_threshold = if rule.conditions_percentage > 0.0 {
-                    rule.conditions_percentage
-                } else {
-                    1.0
-                };
-                
-                // Only mark as detection if BOTH:
-                // 1. Detection logic evaluates to true (all conditions matched)
-                // 2. Condition percentage meets/exceeds threshold
-                if self.evaluate_detection_condition(detection_logic, state, rule) 
-                    && conditions_ratio >= conditions_threshold {
-                    let satisfied_conds: Vec<_> = state.satisfied_named_conditions.iter().cloned().collect();
-                    
-                    Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION (Rich Logic): {} (PID: {}) matched '{}' (Conditions: {:?}, {:.1}%)",
-                        precord.appname,
-                        pid,
-                        rule.name,
-                        satisfied_conds,
-                        conditions_ratio * 100.0
-                    ));
-
-                    precord.is_malicious = true;
-
-                    let threat_info = ThreatInfo {
-                        threat_type_label: "Rich Behavioral Detection",
-                        virus_name: &rule.name,
-                        prediction: conditions_ratio,
-                        match_details: Some(format!(
-                            "Matched conditions: {} ({:.1}%)",
-                            satisfied_conds.join(", "),
-                            conditions_ratio * 100.0
-                        )),
-                        terminate: rule.response.terminate_process,
-                        quarantine: rule.response.quarantine,
-                        kill_and_remove: rule.response.kill_and_remove,
-                        revert: rule.response.auto_revert,
-                    };
-
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                    self.process_terminated.insert(precord.appname.to_lowercase());
-                    
-                    if rule.response.terminate_process {
-                        break;
-                    }
-                    
-                    continue; // Skip legacy evaluation for this rule
-                }
-            }
-
-            // ===================================================================
-            // PRIORITY 2: STAGES (if defined)
-            // ===================================================================
-            if !rule.stages.is_empty() {
-                let (stage_detected, stage_confidence) = self.evaluate_stages_from_state(rule, state_ref);
-                if stage_detected {
-                    Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION (Stages): {} (PID: {}) matched '{}' ({:.1}% confidence)",
-                        precord.appname,
-                        pid,
-                        rule.name,
-                        stage_confidence * 100.0
-                    ));
-
-                    precord.is_malicious = true;
-
-                    let threat_info = ThreatInfo {
-                        threat_type_label: "Stage-based Detection",
-                        virus_name: &rule.name,
-                        prediction: stage_confidence,
-                        match_details: Some(format!(
-                            "{} stages matched ({:.1}%)",
-                            rule.stages.len(), stage_confidence * 100.0
-                        )),
-                        terminate: rule.response.terminate_process,
-                        quarantine: rule.response.quarantine,
-                        kill_and_remove: rule.response.kill_and_remove,
-                        revert: rule.response.auto_revert,
-                    };
-
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                    self.process_terminated.insert(precord.appname.to_lowercase());
-                    
-                    if rule.response.terminate_process {
-                        break;
-                    }
-                    
-                    continue; // Skip legacy evaluation if stages matched
-                }
-            }
-
-            // ===================================================================
-            // PRIORITY 3: LEGACY SIMPLE CONDITIONS
-            // ===================================================================
+            
             let browsed_access_count: usize = browsed_paths_tracker.len();
             let has_staged_data = !staged_files_written.is_empty();
 
@@ -1544,6 +1438,26 @@ impl BehaviorEngine {
                 }};
             }
 
+            // ===================================================================
+            // RICH LOGIC CONDITION (if defined, contributes to percentage)
+            // ===================================================================
+            if let Some(detection_logic) = &rule.detection_logic {
+                let state = self.process_states.get(&gid).unwrap();
+                let rich_logic_satisfied = self.evaluate_detection_condition(detection_logic, state, rule);
+                check!("rich_logic", rich_logic_satisfied);
+            }
+
+            // ===================================================================
+            // STAGES CONDITION (if defined, contributes to percentage)
+            // ===================================================================
+            if !rule.stages.is_empty() {
+                let (stage_detected, _stage_confidence) = self.evaluate_stages_from_state(rule, state_ref);
+                check!("stages", stage_detected);
+            }
+
+            // ===================================================================
+            // LEGACY CONDITIONS
+            // ===================================================================
             if !rule.browsed_paths.is_empty() {
                 check!(
                     "browsed_paths",
@@ -1632,7 +1546,7 @@ impl BehaviorEngine {
 
                 if ratio >= threshold {
                     Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION (Legacy): {} (PID: {}) matched '{}' ({:.1}%)",
+                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({:.1}%)",
                         precord.appname,
                         pid,
                         rule.name,
@@ -1934,58 +1848,11 @@ impl BehaviorEngine {
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
             for rule in &self.rules {
-                // Check rich detection logic first
-                if let Some(detection_logic) = &rule.detection_logic {
-                    if self.evaluate_detection_condition(detection_logic, &state, rule) {
-                        let satisfied_conds: Vec<_> = state.satisfied_named_conditions.iter().cloned().collect();
-                        
-                        let mut p = ProcessRecord::new(
-                            gid,
-                            app_name.clone(),
-                            exe_path_str.clone().into(),
-                        );
-                        p.is_malicious = true;
-                        p.pids.insert(pid);
-                        p.termination_requested = rule.response.terminate_process;
-                        p.quarantine_requested = rule.response.quarantine;
-                        detected_processes.push(p);
-
-                        if rule.debug {
-                            Logging::warning(&format!(
-                                "[BehaviorEngine] DETECTION (scan/rich): {} (PID: {}) matched '{}' (Conditions: {:?})",
-                                app_name, pid, rule.name, satisfied_conds
-                            ));
-                        }
-                        continue;
-                    }
-                }
+                // ===================================================================
+                // UNIFIED DETECTION LOGIC
+                // Rich Logic and Stages contribute to the condition percentage
+                // ===================================================================
                 
-                // Then check stages
-                if !rule.stages.is_empty() {
-                    let (stage_detected, stage_confidence) = self.evaluate_stages_from_state(rule, &state);
-                    if stage_detected {
-                        let mut p = ProcessRecord::new(
-                            gid,
-                            app_name.clone(),
-                            exe_path_str.clone().into(),
-                        );
-                        p.is_malicious = true;
-                        p.pids.insert(pid);
-                        p.termination_requested = rule.response.terminate_process;
-                        p.quarantine_requested = rule.response.quarantine;
-                        detected_processes.push(p);
-
-                        if rule.debug {
-                            Logging::warning(&format!(
-                                "[BehaviorEngine] DETECTION (scan/stages): {} (PID: {}) matched '{}' via stages ({:.1}%)",
-                                app_name, pid, rule.name, stage_confidence * 100.0
-                            ));
-                        }
-                        continue;
-                    }
-                }
-
-                // Finally check legacy conditions
                 let browsed_access_count = state.browsed_paths_tracker.len();
                 let has_staged_data = !state.staged_files_written.is_empty();
                 let is_online = if rule.require_internet {
@@ -2033,6 +1900,24 @@ impl BehaviorEngine {
                 let mut satisfied_conditions: usize = 0;
                 let mut total_tracked_conditions: usize = 0;
                 
+                // Rich Logic condition
+                if let Some(detection_logic) = &rule.detection_logic {
+                    total_tracked_conditions += 1;
+                    if self.evaluate_detection_condition(detection_logic, &state, rule) {
+                        satisfied_conditions += 1;
+                    }
+                }
+                
+                // Stages condition
+                if !rule.stages.is_empty() {
+                    total_tracked_conditions += 1;
+                    let (stage_detected, _) = self.evaluate_stages_from_state(rule, &state);
+                    if stage_detected {
+                        satisfied_conditions += 1;
+                    }
+                }
+                
+                // Legacy conditions
                 if !rule.browsed_paths.is_empty() {
                     total_tracked_conditions += 1;
                     if browsed_access_count >= rule.multi_access_threshold {
@@ -2126,7 +2011,7 @@ impl BehaviorEngine {
                         
                         if rule.debug {
                             Logging::warning(&format!(
-                                "[BehaviorEngine] DETECTION (scan/legacy): {} (PID: {}) matched '{}' ({:.1}%)",
+                                "[BehaviorEngine] DETECTION (scan): {} (PID: {}) matched '{}' ({:.1}%)",
                                 app_name, pid, rule.name, ratio * 100.0
                             ));
                         }
