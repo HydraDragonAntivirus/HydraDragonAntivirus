@@ -170,15 +170,7 @@ pub struct NamedConditionGroup {
     pub sensitive_paths: Vec<String>,
     #[serde(default)]
     pub temp_writes: bool,
-    
-    // Archive/compression
-    #[serde(default)]
-    pub archive_tools: Vec<String>,
-    #[serde(default)]
-    pub archive_apis: Vec<String>,
-    #[serde(default)]
-    pub archive_extensions: Vec<String>,
-    
+
     // Persistence mechanisms
     #[serde(default)]
     pub persistence_locations: Vec<String>,
@@ -366,10 +358,6 @@ pub struct BehaviorRule {
     pub entropy_threshold: f64,
     #[serde(default)]
     pub conditions_percentage: f32,
-    #[serde(default)]
-    pub archive_apis: Vec<String>,
-    #[serde(default)]
-    pub archive_tools: Vec<String>,
     
     // =========================================================================
     // NEW RICH CONDITION SYSTEM
@@ -465,6 +453,7 @@ impl BehaviorRule {
             cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase().replace("\\", "/")).collect();
             cond_group.process_names = cond_group.process_names.iter().map(|s| s.to_lowercase()).collect();
             cond_group.parent_names = cond_group.parent_names.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.file_actions = cond_group.file_actions.iter().map(|s| s.to_lowercase()).collect();
         }
     }
 }
@@ -1162,6 +1151,23 @@ impl BehaviorEngine {
                     }
                 }
                 
+                // Check file actions
+                if !matched && !cond_group.file_actions.is_empty() {
+                    for action in &cond_group.file_actions {
+                        let norm_action = action.to_lowercase();
+                        if filepath.contains(&norm_action) {
+                            matched = true;
+                            if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': File action match '{}'",
+                                    cond_name, action
+                                ));
+                            }
+                            break;
+                        }
+                    }
+                }
+                
                 // If matched, update state
                 if matched {
                     state.satisfied_named_conditions.insert(cond_name.clone());
@@ -1407,178 +1413,143 @@ impl BehaviorEngine {
             // Rich Logic and Stages now contribute to the condition percentage
             // ===================================================================
             
-            let browsed_access_count: usize = browsed_paths_tracker.len();
-            let has_staged_data = !staged_files_written.is_empty();
-
-            let is_online = if rule.require_internet {
-                precord.pids.iter().any(|&pid| self.has_active_connections(pid))
-                    || network_activity_detected
-            } else {
-                true
-            };
-
-            let is_suspicious_parent = rule.suspicious_parents.iter().any(|p| {
-                let p = p.to_lowercase();
-                let parent = parent_name.to_lowercase();
-                parent.contains(&p) || p.contains(&parent)
-            });
-
-            let has_sensitive_access = !accessed_paths_tracker.is_empty();
-
-            let mut satisfied_conditions = 0;
-            let mut total_tracked_conditions = 0;
+            // ===================================================================
+            // 1. EVALUATE LEGACY INDICATORS RATIO
+            // ===================================================================
+            let mut legacy_satisfied = 0;
+            let mut legacy_total = 0;
             let mut condition_results: Vec<(&str, bool)> = Vec::new();
 
-            macro_rules! check {
+            macro_rules! check_legacy {
                 ($name:expr, $cond:expr) => {{
-                    total_tracked_conditions += 1;
+                    legacy_total += 1;
                     let hit = $cond;
-                    if hit { satisfied_conditions += 1; }
+                    if hit { legacy_satisfied += 1; }
                     condition_results.push(($name, hit));
                 }};
             }
 
-            // ===================================================================
-            // RICH LOGIC CONDITION (if defined, contributes to percentage)
-            // ===================================================================
-            if let Some(detection_logic) = &rule.detection_logic {
-                let state = self.process_states.get(&gid).unwrap();
-                let rich_logic_satisfied = self.evaluate_detection_condition(detection_logic, state, rule);
-                check!("rich_logic", rich_logic_satisfied);
-            }
-
-            // ===================================================================
-            // STAGES CONDITION (if defined, contributes to percentage)
-            // ===================================================================
-            if !rule.stages.is_empty() {
-                let (stage_detected, _stage_confidence) = self.evaluate_stages_from_state(rule, state_ref);
-                check!("stages", stage_detected);
-            }
-
-            // ===================================================================
-            // LEGACY CONDITIONS
-            // ===================================================================
             if !rule.browsed_paths.is_empty() {
-                check!(
-                    "browsed_paths",
-                    browsed_access_count >= rule.multi_access_threshold
-                );
+                check_legacy!("browsed_paths", browsed_access_count >= rule.multi_access_threshold);
             }
-    
             if !rule.staging_paths.is_empty() {
-                check!("staging", has_staged_data);
+                check_legacy!("staging", has_staged_data);
             }
-
             if rule.require_internet {
-                check!("internet", is_online);
+                check_legacy!("internet", is_online);
             }
-
             if !rule.suspicious_parents.is_empty() {
-                check!("parent", is_suspicious_parent);
+                check_legacy!("parent", is_suspicious_parent);
             }
-
             if !rule.accessed_paths.is_empty() {
-                check!("accessed_paths", has_sensitive_access);
+                check_legacy!("accessed_paths", has_sensitive_access);
             }
-
             if rule.entropy_threshold > 0.01 {
-                check!("entropy", high_entropy_detected);
+                check_legacy!("entropy", high_entropy_detected);
             }
-
             if !rule.monitored_apis.is_empty() {
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                check!("apis", monitored_api_count >= threshold);
+                check_legacy!("apis", monitored_api_count >= threshold);
             }
-
             if !rule.file_actions.is_empty() {
-                check!("file_actions", file_action_detected);
+                check_legacy!("file_actions", file_action_detected);
             }
-
             if !rule.file_extensions.is_empty() {
-                check!("extensions", extension_match_detected);
+                check_legacy!("extensions", extension_match_detected);
             }
-
             if !rule.terminated_processes.is_empty() {
-                let terminated_match = rule.terminated_processes.iter().any(|rule_proc| {
+                let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
                     let rule_proc_lc = rule_proc.to_lowercase();
-                    
-                    let ext_match = terminated_processes.iter().any(|victim_path| {
-                        victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
-                    });
-
-                    let self_match = if rule.detect_self_termination {
-                        self_terminated_processes.iter().any(|victim_path| {
-                            victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
-                        })
-                    } else {
-                        false
-                    };
-
+                    let ext_match = terminated_processes.iter().any(|v| v.contains(&rule_proc_lc) || rule_proc_lc.contains(v));
+                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| v.contains(&rule_proc_lc) || rule_proc_lc.contains(v));
                     ext_match || self_match
                 });
-                check!("terminated_proc", terminated_match);
+                check_legacy!("terminated_proc", term_hit);
             }
 
-            if rule.debug && total_tracked_conditions > 0 {
+            let legacy_ratio = if legacy_total > 0 { legacy_satisfied as f32 / legacy_total as f32 } else { 0.0 };
+            let legacy_threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
+            let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
+
+            // ===================================================================
+            // 2. EVALUATE RICH LOGIC (Independent Trigger)
+            // ===================================================================
+            let mut rich_triggered = false;
+            if let Some(logic) = &rule.detection_logic {
+                let state = self.process_states.get(&gid).unwrap();
+                rich_triggered = self.evaluate_detection_condition(logic, state, rule);
+            }
+
+            // ===================================================================
+            // 3. EVALUATE ATTACK STAGES (Independent Trigger)
+            // ===================================================================
+            let mut stages_triggered = false;
+            let mut stage_conf = 0.0;
+            if !rule.stages.is_empty() {
+                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref);
+                stages_triggered = detected;
+                stage_conf = conf;
+            }
+
+            // ===================================================================
+            // 4. FINAL DETECTION DECISION
+            // ===================================================================
+            if legacy_triggered || rich_triggered || stages_triggered {
+                let trigger_type = if stages_triggered { "Stage-based" } 
+                                  else if rich_triggered { "Rich-logic" } 
+                                  else { "Legacy" };
+
+                let indicator_ratio = if stages_triggered { stage_conf } 
+                                     else if rich_triggered { 1.0 } 
+                                     else { legacy_ratio };
+
+                Logging::warning(&format!(
+                    "[BehaviorEngine] DETECTION ({}): {} (PID: {}) matched '{}' ({:.1}%)",
+                    trigger_type, precord.appname, pid, rule.name, indicator_ratio * 100.0
+                ));
+
+                if rule.debug {
+                    let breakdown = condition_results.iter()
+                        .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Logging::debug(&format!("[BehaviorEngine] Breakdown for '{}': L_Ratio={:.2} (Thr={:.2}), Rich={}, Stages={}, [{}]", 
+                        rule.name, legacy_ratio, legacy_threshold, rich_triggered, stages_triggered, breakdown));
+                }
+
+                precord.is_malicious = true;
+                let threat_info = ThreatInfo {
+                    threat_type_label: "Behavioral Detection",
+                    virus_name: &rule.name,
+                    prediction: indicator_ratio,
+                    match_details: Some(format!(
+                        "Trigger: {}, Ratio: {:.1}%",
+                        trigger_type, indicator_ratio * 100.0
+                    )),
+                    terminate: rule.response.terminate_process,
+                    quarantine: rule.response.quarantine,
+                    kill_and_remove: rule.response.kill_and_remove,
+                    revert: rule.response.auto_revert,
+                };
+
+                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
+                self.process_terminated.insert(precord.appname.to_lowercase());
+                
+                if rule.response.terminate_process {
+                    break;
+                }
+            } else if rule.debug && (legacy_total > 0 || !rule.stages.is_empty() || rule.detection_logic.is_some()) {
+                // Log non-matches for debugging if debug is enabled
                 let breakdown = condition_results.iter()
                     .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
                     .collect::<Vec<_>>()
                     .join(", ");
-
+                
                 Logging::debug(&format!(
-                    "[BehaviorEngine] Rule '{}' for {}: {}/{} [{}] (Online: {})",
-                    rule.name,
-                    precord.appname,
-                    satisfied_conditions,
-                    total_tracked_conditions,
-                    breakdown,
-                    is_online
+                    "[BehaviorEngine] No match for '{}': Legacy={:.1}%, Rich={}, Stages={} [{}]",
+                    rule.name, legacy_ratio * 100.0, rich_triggered, stages_triggered, breakdown
                 ));
-            }
-
-            if total_tracked_conditions > 0 {
-                let ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
-                let threshold = if rule.conditions_percentage > 0.0 {
-                    rule.conditions_percentage
-                } else {
-                    1.0
-                };
-
-                if ratio >= threshold {
-                    Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION: {} (PID: {}) matched '{}' ({:.1}%)",
-                        precord.appname,
-                        pid,
-                        rule.name,
-                        ratio * 100.0
-                    ));
-
-                    precord.is_malicious = true;
-
-                    let threat_info = ThreatInfo {
-                        threat_type_label: "Behavioral Detection",
-                        virus_name: &rule.name,
-                        prediction: ratio,
-                        match_details: Some(format!(
-                            "{}/{} conditions ({:.1}%)",
-                            satisfied_conditions,
-                            total_tracked_conditions,
-                            ratio * 100.0
-                        )),
-                        terminate: rule.response.terminate_process,
-                        quarantine: rule.response.quarantine,
-                        kill_and_remove: rule.response.kill_and_remove,
-                        revert: rule.response.auto_revert,
-                    };
-
-                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
-                    self.process_terminated.insert(precord.appname.to_lowercase());
-                    
-                    if rule.response.terminate_process {
-                        break;
-                    }
-                }
             }
         }
     }
@@ -1666,21 +1637,60 @@ impl BehaviorEngine {
                         condition_matched = has_match;
                     },
                     
+                    RuleCondition::Api { name_pattern, .. } => {
+                        condition_matched = state.detected_apis.iter().any(|api| {
+                            self.matches_pattern(name_pattern, api)
+                        });
+                    },
+
                     RuleCondition::Network { dest_pattern, .. } => {
                         let mut network_matched = state.network_activity_detected;
                         
-                        if network_matched && let Some(dest) = dest_pattern {
-                            let has_dest = state.detected_apis.iter().any(|api| {
-                                self.matches_pattern(dest, api)
-                            });
-                            network_matched = has_dest;
+                        if network_matched {
+                            if let Some(dest) = dest_pattern {
+                                let has_dest = state.detected_apis.iter().any(|api| {
+                                    self.matches_pattern(dest, api)
+                                });
+                                network_matched = has_dest;
+                            }
                         }
                         condition_matched = network_matched;
                     },
+
+                    RuleCondition::Signature { is_trusted, signer_pattern } => {
+                        if state.signature_checked {
+                            let trust_match = state.has_valid_signature == *is_trusted;
+                            let signer_match = if let Some(pattern) = signer_pattern {
+                                // Since we don't store the signer name in state yet (only has_valid_signature),
+                                // this is a partial implementation. 
+                                // Ideally state should have signer_name.
+                                true 
+                            } else {
+                                true
+                            };
+                            condition_matched = trust_match && signer_match;
+                        }
+                    },
                     
+                    RuleCondition::OperationCount { op_type, path_pattern, comparison, threshold } => {
+                        let count = match op_type.as_str() {
+                            "write" => state.staged_files_written.len() as u64,
+                            "read" => (state.browsed_paths_tracker.len() + state.accessed_paths_tracker.len()) as u64,
+                            _ => 0,
+                        };
+                        condition_matched = match comparison {
+                            Comparison::Gt => count > *threshold,
+                            Comparison::Gte => count >= *threshold,
+                            Comparison::Lt => count < *threshold,
+                            Comparison::Lte => count <= *threshold,
+                            Comparison::Eq => count == *threshold,
+                            Comparison::Ne => count != *threshold,
+                        };
+                    },
+
                     _ => {
-                        // For other condition types, use simplified evaluation
-                        condition_matched = true;
+                        // For other condition types, use simplified evaluation (returning false if not matched)
+                        condition_matched = false;
                     },
                 }
                 
@@ -1897,125 +1907,106 @@ impl BehaviorEngine {
                 let file_action_detected = state.file_action_detected;
                 let extension_match_detected = state.extension_match_detected;
                 
-                let mut satisfied_conditions: usize = 0;
-                let mut total_tracked_conditions: usize = 0;
-                
-                // Rich Logic condition
-                if let Some(detection_logic) = &rule.detection_logic {
-                    total_tracked_conditions += 1;
-                    if self.evaluate_detection_condition(detection_logic, &state, rule) {
-                        satisfied_conditions += 1;
-                    }
-                }
-                
-                // Stages condition
-                if !rule.stages.is_empty() {
-                    total_tracked_conditions += 1;
-                    let (stage_detected, _) = self.evaluate_stages_from_state(rule, &state);
-                    if stage_detected {
-                        satisfied_conditions += 1;
-                    }
-                }
-                
-                // Legacy conditions
+                // ===================================================================
+                // 1. EVALUATE LEGACY INDICATORS RATIO
+                // ===================================================================
+                let mut legacy_satisfied = 0;
+                let mut legacy_total = 0;
+
                 if !rule.browsed_paths.is_empty() {
-                    total_tracked_conditions += 1;
-                    if browsed_access_count >= rule.multi_access_threshold {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if browsed_access_count >= rule.multi_access_threshold { legacy_satisfied += 1; }
                 }
-                
                 if !rule.staging_paths.is_empty() {
-                    total_tracked_conditions += 1;
-                    if has_staged_data {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if has_staged_data { legacy_satisfied += 1; }
                 }
-                
                 if rule.require_internet {
-                    total_tracked_conditions += 1;
-                    if is_online {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if is_online { legacy_satisfied += 1; }
                 }
-                
                 if !rule.suspicious_parents.is_empty() {
-                    total_tracked_conditions += 1;
-                    if is_suspicious_parent {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if is_suspicious_parent { legacy_satisfied += 1; }
                 }
-                
                 if !rule.accessed_paths.is_empty() {
-                    total_tracked_conditions += 1;
-                    if has_sensitive_access {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if has_sensitive_access { legacy_satisfied += 1; }
                 }
-                
                 if rule.entropy_threshold > 0.01 {
-                    total_tracked_conditions += 1;
-                    if high_entropy_detected {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if high_entropy_detected { legacy_satisfied += 1; }
                 }
-                
                 if !rule.monitored_apis.is_empty() {
-                    total_tracked_conditions += 1;
+                    legacy_total += 1;
                     let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                    if monitored_api_count >= threshold {
-                        satisfied_conditions += 1;
-                    }
+                    if monitored_api_count >= threshold { legacy_satisfied += 1; }
                 }
-                
                 if !rule.file_actions.is_empty() {
-                    total_tracked_conditions += 1;
-                    if file_action_detected {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if file_action_detected { legacy_satisfied += 1; }
                 }
-                
                 if !rule.file_extensions.is_empty() {
-                    total_tracked_conditions += 1;
-                    if extension_match_detected {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if extension_match_detected { legacy_satisfied += 1; }
                 }
-                
                 if !rule.terminated_processes.is_empty() {
-                    total_tracked_conditions += 1;
-                    if terminated_match {
-                        satisfied_conditions += 1;
-                    }
+                    legacy_total += 1;
+                    if terminated_match { legacy_satisfied += 1; }
                 }
-                
-                if total_tracked_conditions > 0 {
-                    let ratio = satisfied_conditions as f32 / total_tracked_conditions as f32;
-                    let threshold = if rule.conditions_percentage > 0.0 {
-                        rule.conditions_percentage
-                    } else {
-                        1.0
-                    };
-                    
-                    if ratio >= threshold {
-                        let mut p = ProcessRecord::new(
-                            gid,
-                            app_name.clone(),
-                            exe_path_str.clone().into(),
-                        );
-                        p.is_malicious = true;
-                        p.pids.insert(pid);
-                        p.termination_requested = rule.response.terminate_process;
-                        p.quarantine_requested = rule.response.quarantine;
-                        detected_processes.push(p);
-                        
-                        if rule.debug {
-                            Logging::warning(&format!(
-                                "[BehaviorEngine] DETECTION (scan): {} (PID: {}) matched '{}' ({:.1}%)",
-                                app_name, pid, rule.name, ratio * 100.0
-                            ));
-                        }
+
+                let legacy_ratio = if legacy_total > 0 { legacy_satisfied as f32 / legacy_total as f32 } else { 0.0 };
+                let legacy_threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
+                let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
+
+                // ===================================================================
+                // 2. EVALUATE RICH LOGIC (Independent Trigger)
+                // ===================================================================
+                let mut rich_triggered = false;
+                if let Some(logic) = &rule.detection_logic {
+                    rich_triggered = self.evaluate_detection_condition(logic, &state, rule);
+                }
+
+                // ===================================================================
+                // 3. EVALUATE ATTACK STAGES (Independent Trigger)
+                // ===================================================================
+                let mut stages_triggered = false;
+                let mut stage_conf = 0.0;
+                if !rule.stages.is_empty() {
+                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state);
+                    stages_triggered = detected;
+                    stage_conf = conf;
+                }
+
+                // ===================================================================
+                // 4. FINAL DETECTION DECISION
+                // ===================================================================
+                if legacy_triggered || rich_triggered || stages_triggered {
+                    let indicator_ratio = if stages_triggered { stage_conf } 
+                                         else if rich_triggered { 1.0 } 
+                                         else { legacy_ratio };
+
+                    let trigger_type = if stages_triggered { "Stage-based" } 
+                                      else if rich_triggered { "Rich-logic" } 
+                                      else { "Legacy" };
+
+                    if rule.debug {
+                        Logging::warning(&format!(
+                            "[BehaviorEngine] DETECTION (scan - {}): {} (PID: {}) matched '{}' ({:.1}%)",
+                            trigger_type, app_name, pid, rule.name, indicator_ratio * 100.0
+                        ));
                     }
+
+                    let mut p = ProcessRecord::new(
+                        gid,
+                        app_name.clone(),
+                        exe_path_str.clone().into(),
+                    );
+                    p.is_malicious = true;
+                    p.pids.insert(pid);
+                    p.termination_requested = rule.response.terminate_process;
+                    p.quarantine_requested = rule.response.quarantine;
+                    detected_processes.push(p);
                 }
             }
         }
