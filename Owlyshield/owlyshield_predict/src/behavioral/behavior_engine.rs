@@ -785,8 +785,10 @@ impl BehaviorEngine {
                 check!("entropy", high_entropy_detected);
             }
 
+            // FIX: Apply multi_access_threshold to APIs as well if set, defaulting to 1 if not.
             if !rule.monitored_apis.is_empty() {
-                check!("apis", monitored_api_count > 0);
+                let threshold = std::cmp::max(1, rule.multi_access_threshold);
+                check!("apis", monitored_api_count >= threshold);
             }
 
             if !rule.file_actions.is_empty() {
@@ -1551,8 +1553,10 @@ impl BehaviorEngine {
                     check!("entropy", high_entropy_detected);
                 }
 
+                // FIX: Apply multi_access_threshold to APIs as well if set
                 if !rule.monitored_apis.is_empty() {
-                    check!("apis", monitored_api_count > 0);
+                    let threshold = std::cmp::max(1, rule.multi_access_threshold);
+                    check!("apis", monitored_api_count >= threshold);
                 }
 
                 if !rule.file_actions.is_empty() {
