@@ -1190,60 +1190,40 @@ impl BehaviorEngine {
     ) -> bool {
         match condition {
             DetectionCondition::Named { condition: cond_name } => {
-                let satisfied = state.satisfied_named_conditions.contains(cond_name);
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Evaluate named condition '{}': {}",
-                        cond_name,
-                        if satisfied { "✔" } else { "✘" }
-                    ));
-                }
-                satisfied
+                state.satisfied_named_conditions.contains(cond_name)
             },
             
             DetectionCondition::And { and } => {
-                let result = and.iter().all(|c| self.evaluate_detection_condition(c, state, rule));
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] AND evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                and.iter().all(|c| self.evaluate_detection_condition(c, state, rule))
             },
             
             DetectionCondition::Or { or } => {
-                let result = or.iter().any(|c| self.evaluate_detection_condition(c, state, rule));
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] OR evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                or.iter().any(|c| self.evaluate_detection_condition(c, state, rule))
             },
             
             DetectionCondition::Not { not } => {
-                let result = !self.evaluate_detection_condition(not, state, rule);
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] NOT evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                !self.evaluate_detection_condition(not, state, rule)
             },
             
             DetectionCondition::AllOf { all_of } => {
-                let result = all_of.iter().all(|cond_name| state.satisfied_named_conditions.contains(cond_name));
-                if rule.debug {
-                    let satisfied = all_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
+                let satisfied = all_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
+                let result = satisfied == all_of.len();
+                if rule.debug && !result {
                     Logging::debug(&format!(
-                        "[BehaviorEngine] ALL_OF evaluation: {}/{} ({})",
-                        satisfied, all_of.len(), if result { "✔" } else { "✘" }
+                        "[BehaviorEngine] ALL_OF: {}/{} conditions met",
+                        satisfied, all_of.len()
                     ));
                 }
                 result
             },
             
             DetectionCondition::AnyOf { any_of } => {
-                let result = any_of.iter().any(|cond_name| state.satisfied_named_conditions.contains(cond_name));
-                if rule.debug {
-                    let satisfied = any_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
+                let satisfied = any_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
+                let result = satisfied > 0;
+                if rule.debug && !result {
                     Logging::debug(&format!(
-                        "[BehaviorEngine] ANY_OF evaluation: {}/{} ({})",
-                        satisfied, any_of.len(), if result { "✔" } else { "✘" }
+                        "[BehaviorEngine] ANY_OF: {}/{} conditions met",
+                        satisfied, any_of.len()
                     ));
                 }
                 result
@@ -1254,11 +1234,10 @@ impl BehaviorEngine {
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
                 let result = satisfied_count == *n_of;
-                if rule.debug {
+                if rule.debug && !result {
                     Logging::debug(&format!(
-                        "[BehaviorEngine] N_OF evaluation: {} of {} ({}/{}  {})",
-                        n_of, conditions.len(), satisfied_count, conditions.len(), 
-                        if result { "✔" } else { "✘" }
+                        "[BehaviorEngine] N_OF: need {} of {}, got {}",
+                        n_of, conditions.len(), satisfied_count
                     ));
                 }
                 result
@@ -1269,11 +1248,10 @@ impl BehaviorEngine {
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
                 let result = satisfied_count >= *at_least;
-                if rule.debug {
+                if rule.debug && !result {
                     Logging::debug(&format!(
-                        "[BehaviorEngine] AT_LEAST evaluation: at_least {} ({}/{} {})",
-                        at_least, satisfied_count, conditions.len(), 
-                        if result { "✔" } else { "✘" }
+                        "[BehaviorEngine] AT_LEAST: need {}, got {}/{}",
+                        at_least, satisfied_count, conditions.len()
                     ));
                 }
                 result
@@ -1286,48 +1264,26 @@ impl BehaviorEngine {
                 let total_matching = rule.named_conditions.keys()
                     .filter(|cond_name| self.matches_pattern(all_of_pattern, cond_name))
                     .count();
-                let result = !matching_conditions.is_empty() && matching_conditions.len() == total_matching;
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ALL_OF_PATTERN '{}': {}/{} ({})",
-                        all_of_pattern, matching_conditions.len(), total_matching,
-                        if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                !matching_conditions.is_empty() && matching_conditions.len() == total_matching
             },
             
             DetectionCondition::AnyOfPattern { any_of_pattern } => {
-                let result = state.satisfied_named_conditions.iter()
-                    .any(|cond_name| self.matches_pattern(any_of_pattern, cond_name));
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ANY_OF_PATTERN '{}': {}",
-                        any_of_pattern, if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                state.satisfied_named_conditions.iter()
+                    .any(|cond_name| self.matches_pattern(any_of_pattern, cond_name))
             },
             
             DetectionCondition::Count { count, comparison, threshold } => {
                 let satisfied_count = count.iter()
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
-                let result = match comparison {
+                match comparison {
                     Comparison::Gt => satisfied_count > *threshold,
                     Comparison::Gte => satisfied_count >= *threshold,
                     Comparison::Lt => satisfied_count < *threshold,
                     Comparison::Lte => satisfied_count <= *threshold,
                     Comparison::Eq => satisfied_count == *threshold,
                     Comparison::Ne => satisfied_count != *threshold,
-                };
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] COUNT evaluation: {} {:?} {} ({})",
-                        satisfied_count, comparison, threshold, if result { "✔" } else { "✘" }
-                    ));
                 }
-                result
             },
             
             DetectionCondition::Percentage { percentage, comparison, threshold } => {
@@ -1335,21 +1291,14 @@ impl BehaviorEngine {
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
                 let ratio = satisfied_count as f32 / percentage.len() as f32;
-                let result = match comparison {
+                match comparison {
                     Comparison::Gt => ratio > *threshold,
                     Comparison::Gte => ratio >= *threshold,
                     Comparison::Lt => ratio < *threshold,
                     Comparison::Lte => ratio <= *threshold,
                     Comparison::Eq => (ratio - threshold).abs() < 0.001,
                     Comparison::Ne => (ratio - threshold).abs() >= 0.001,
-                };
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] PERCENTAGE evaluation: {:.1}% {:?} {:.1}% ({})",
-                        ratio * 100.0, comparison, threshold * 100.0, if result { "✔" } else { "✘" }
-                    ));
                 }
-                result
             },
         }
     }
@@ -1730,15 +1679,24 @@ impl BehaviorEngine {
                     1.0  // Default to all conditions required
                 };
                 
-                if stage_ratio >= threshold {
+                let stage_satisfied = stage_ratio >= threshold;
+                
+                // ALWAYS show stage breakdown when debug is enabled
+                if rule.debug {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Stage '{}': {}/{} ({:.1}%) - threshold {:.1}% [{}]",
+                        stage.name, 
+                        stage_satisfied_count, 
+                        stage_total_conditions, 
+                        stage_ratio * 100.0,
+                        threshold * 100.0,
+                        if stage_satisfied { "PASS" } else { "FAIL" }
+                    ));
+                }
+                
+                if stage_satisfied {
                     satisfied_stages += 1;
                     total_conditions += stage_total_conditions;
-                    if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Stage '{}' satisfied for {}: {}/{} ({:.1}%)",
-                            stage.name, state.app_name, stage_satisfied_count, stage_total_conditions, stage_ratio * 100.0
-                        ));
-                    }
                 }
             }
         }
@@ -1758,6 +1716,19 @@ impl BehaviorEngine {
         };
         
         let detected = satisfied_stages >= min_stages;
+        
+        // Show final summary in debug mode
+        if rule.debug && !rule.stages.is_empty() {
+            Logging::debug(&format!(
+                "[BehaviorEngine] Stage Summary for '{}': {}/{} stages passed (min required: {}) [{}]",
+                rule.name,
+                satisfied_stages,
+                rule.stages.len(),
+                min_stages,
+                if detected { "DETECTED" } else { "NOT DETECTED" }
+            ));
+        }
+        
         (detected, stage_confidence)
     }
     
