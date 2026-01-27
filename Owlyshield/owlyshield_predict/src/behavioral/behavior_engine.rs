@@ -546,11 +546,13 @@ impl BehaviorEngine {
             }
 
             // Entropy
-            if msg.is_entropy_calc == 1 && msg.entropy > rule.entropy_threshold {
+            // MODIFIED: Removed "msg.is_entropy_calc == 1" check. 
+            // Now trusts the raw value if it exceeds the threshold, matching Prediction Engine logic.
+            if msg.entropy > rule.entropy_threshold {
                 if rule.debug { 
                     Logging::debug(&format!(
-                        "[BehaviorEngine] Rule '{}' (PID: {}): High entropy {:.2} > {:.2}", 
-                        rule.name, pid, msg.entropy, rule.entropy_threshold
+                        "[BehaviorEngine] Rule '{}' (PID: {}): High entropy {:.2} > {:.2} (Flag: {})", 
+                        rule.name, pid, msg.entropy, rule.entropy_threshold, msg.is_entropy_calc
                     )); 
                 }
                 state.high_entropy_detected = true;
