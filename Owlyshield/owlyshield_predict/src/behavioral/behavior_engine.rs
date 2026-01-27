@@ -1117,6 +1117,23 @@ impl BehaviorEngine {
                     }
                 }
                 
+                // Check parent process names (suspicious origin)
+                if !matched && !cond_group.parent_names.is_empty() {
+                    let parent_lc = state.parent_name.to_lowercase();
+                    for parent_pattern in &cond_group.parent_names {
+                        if parent_lc.contains(parent_pattern) || parent_pattern.contains(&parent_lc) {
+                            matched = true;
+                            if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': Suspicious parent matched '{}'",
+                                    cond_name, state.parent_name
+                                ));
+                            }
+                            break;
+                        }
+                    }
+                }
+                
                 // Check entropy
                 if !matched && cond_group.entropy_threshold > 0.0 && msg.entropy > cond_group.entropy_threshold {
                     matched = true;
@@ -1391,15 +1408,35 @@ impl BehaviorEngine {
             if let Some(detection_logic) = &rule.detection_logic {
                 let state = self.process_states.get(&gid).unwrap();
                 
-                if self.evaluate_detection_condition(detection_logic, state, rule) {
+                // Calculate condition percentage to ensure it meets threshold
+                let total_conditions = state.satisfied_named_conditions.len() + 
+                    (rule.named_conditions.len().saturating_sub(state.satisfied_named_conditions.len()));
+                let conditions_ratio = if total_conditions > 0 {
+                    state.satisfied_named_conditions.len() as f32 / total_conditions as f32
+                } else {
+                    0.0
+                };
+                
+                let conditions_threshold = if rule.conditions_percentage > 0.0 {
+                    rule.conditions_percentage
+                } else {
+                    1.0
+                };
+                
+                // Only mark as detection if BOTH:
+                // 1. Detection logic evaluates to true (all conditions matched)
+                // 2. Condition percentage meets/exceeds threshold
+                if self.evaluate_detection_condition(detection_logic, state, rule) 
+                    && conditions_ratio >= conditions_threshold {
                     let satisfied_conds: Vec<_> = state.satisfied_named_conditions.iter().cloned().collect();
                     
                     Logging::warning(&format!(
-                        "[BehaviorEngine] DETECTION (Rich Logic): {} (PID: {}) matched '{}' (Conditions: {:?})",
+                        "[BehaviorEngine] DETECTION (Rich Logic): {} (PID: {}) matched '{}' (Conditions: {:?}, {:.1}%)",
                         precord.appname,
                         pid,
                         rule.name,
-                        satisfied_conds
+                        satisfied_conds,
+                        conditions_ratio * 100.0
                     ));
 
                     precord.is_malicious = true;
@@ -1407,10 +1444,11 @@ impl BehaviorEngine {
                     let threat_info = ThreatInfo {
                         threat_type_label: "Rich Behavioral Detection",
                         virus_name: &rule.name,
-                        prediction: 1.0,
+                        prediction: conditions_ratio,
                         match_details: Some(format!(
-                            "Matched conditions: {}",
-                            satisfied_conds.join(", ")
+                            "Matched conditions: {} ({:.1}%)",
+                            satisfied_conds.join(", "),
+                            conditions_ratio * 100.0
                         )),
                         terminate: rule.response.terminate_process,
                         quarantine: rule.response.quarantine,
@@ -1434,8 +1472,41 @@ impl BehaviorEngine {
             // PRIORITY 2: STAGES (if defined)
             // ===================================================================
             if !rule.stages.is_empty() {
-                if self.evaluate_stages_from_state(rule, state_ref) {
+                let (stage_detected, stage_confidence) = self.evaluate_stages_from_state(rule, state_ref);
+                if stage_detected {
+                    Logging::warning(&format!(
+                        "[BehaviorEngine] DETECTION (Stages): {} (PID: {}) matched '{}' ({:.1}% confidence)",
+                        precord.appname,
+                        pid,
+                        rule.name,
+                        stage_confidence * 100.0
+                    ));
+
                     precord.is_malicious = true;
+
+                    let threat_info = ThreatInfo {
+                        threat_type_label: "Stage-based Detection",
+                        virus_name: &rule.name,
+                        prediction: stage_confidence,
+                        match_details: Some(format!(
+                            "{} stages matched ({:.1}%)",
+                            rule.stages.len(), stage_confidence * 100.0
+                        )),
+                        terminate: rule.response.terminate_process,
+                        quarantine: rule.response.quarantine,
+                        kill_and_remove: rule.response.kill_and_remove,
+                        revert: rule.response.auto_revert,
+                    };
+
+                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                    actions.run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
+                    self.process_terminated.insert(precord.appname.to_lowercase());
+                    
+                    if rule.response.terminate_process {
+                        break;
+                    }
+                    
+                    continue; // Skip legacy evaluation if stages matched
                 }
             }
 
@@ -1602,13 +1673,18 @@ impl BehaviorEngine {
         &self,
         rule: &BehaviorRule,
         state: &ProcessBehaviorState
-    ) -> bool {
+    ) -> (bool, f32) {
         let mut satisfied_stages = 0;
+        let mut total_conditions = 0;
         
         for stage in &rule.stages {
-            let mut stage_satisfied = true;
+            let mut stage_satisfied_count = 0;
+            let mut stage_total_conditions = 0;
             
             for condition in &stage.conditions {
+                stage_total_conditions += 1;
+                let mut condition_matched = false;
+                
                 match condition {
                     RuleCondition::File { op, path_pattern } => {
                         let has_match = match op.as_str() {
@@ -1631,7 +1707,7 @@ impl BehaviorEngine {
                             },
                             _ => false,
                         };
-                        if !has_match { stage_satisfied = false; break; }
+                        condition_matched = has_match;
                     },
                     
                     RuleCondition::Registry { op, key_pattern, .. } => {
@@ -1653,10 +1729,7 @@ impl BehaviorEngine {
                             self.matches_pattern(key_pattern, path)
                         });
                         
-                        if !has_registry_op && !key_accessed {
-                            stage_satisfied = false;
-                            break;
-                        }
+                        condition_matched = has_registry_op || key_accessed;
                     },
                     
                     RuleCondition::Process { op, pattern } => {
@@ -1676,43 +1749,62 @@ impl BehaviorEngine {
                             },
                             _ => self.matches_pattern(pattern, &state.app_name),
                         };
-                        if !has_match { stage_satisfied = false; break; }
+                        condition_matched = has_match;
                     },
                     
                     RuleCondition::Network { dest_pattern, .. } => {
-                        if !state.network_activity_detected {
-                            stage_satisfied = false;
-                            break;
-                        }
+                        let mut network_matched = state.network_activity_detected;
                         
-                        if let Some(dest) = dest_pattern {
+                        if network_matched && let Some(dest) = dest_pattern {
                             let has_dest = state.detected_apis.iter().any(|api| {
                                 self.matches_pattern(dest, api)
                             });
-                            if !has_dest {
-                                stage_satisfied = false;
-                                break;
-                            }
+                            network_matched = has_dest;
                         }
+                        condition_matched = network_matched;
                     },
                     
                     _ => {
                         // For other condition types, use simplified evaluation
-                        // (Full implementation would mirror the original)
+                        condition_matched = true;
                     },
+                }
+                
+                if condition_matched {
+                    stage_satisfied_count += 1;
                 }
             }
             
-            if stage_satisfied {
-                satisfied_stages += 1;
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Static Scan: Stage '{}' satisfied for {}",
-                        stage.name, state.app_name
-                    ));
+            // Calculate stage satisfaction ratio
+            if stage_total_conditions > 0 {
+                let stage_ratio = stage_satisfied_count as f32 / stage_total_conditions as f32;
+                // Apply conditions_percentage threshold for this stage
+                let threshold = if rule.conditions_percentage > 0.0 {
+                    rule.conditions_percentage
+                } else {
+                    1.0  // Default to all conditions required
+                };
+                
+                if stage_ratio >= threshold {
+                    satisfied_stages += 1;
+                    total_conditions += stage_total_conditions;
+                    if rule.debug {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Stage '{}' satisfied for {}: {}/{} ({:.1}%)",
+                            stage.name, state.app_name, stage_satisfied_count, stage_total_conditions, stage_ratio * 100.0
+                        ));
+                    }
                 }
             }
         }
+        
+        // Calculate overall detection confidence based on matched stages
+        let total_stages = rule.stages.len() as f32;
+        let stage_confidence = if total_stages > 0.0 {
+            satisfied_stages as f32 / total_stages
+        } else {
+            0.0
+        };
         
         let min_stages = if rule.min_stages_satisfied > 0 {
             rule.min_stages_satisfied
@@ -1720,7 +1812,8 @@ impl BehaviorEngine {
             1
         };
         
-        satisfied_stages >= min_stages
+        let detected = satisfied_stages >= min_stages;
+        (detected, stage_confidence)
     }
     
     fn check_allowlist(&self, proc_name: &str, rule: &BehaviorRule, process_path: Option<&Path>) -> bool {
@@ -1868,25 +1961,28 @@ impl BehaviorEngine {
                 }
                 
                 // Then check stages
-                if !rule.stages.is_empty() && self.evaluate_stages_from_state(rule, &state) {
-                    let mut p = ProcessRecord::new(
-                        gid,
-                        app_name.clone(),
-                        exe_path_str.clone().into(),
-                    );
-                    p.is_malicious = true;
-                    p.pids.insert(pid);
-                    p.termination_requested = rule.response.terminate_process;
-                    p.quarantine_requested = rule.response.quarantine;
-                    detected_processes.push(p);
+                if !rule.stages.is_empty() {
+                    let (stage_detected, stage_confidence) = self.evaluate_stages_from_state(rule, &state);
+                    if stage_detected {
+                        let mut p = ProcessRecord::new(
+                            gid,
+                            app_name.clone(),
+                            exe_path_str.clone().into(),
+                        );
+                        p.is_malicious = true;
+                        p.pids.insert(pid);
+                        p.termination_requested = rule.response.terminate_process;
+                        p.quarantine_requested = rule.response.quarantine;
+                        detected_processes.push(p);
 
-                    if rule.debug {
-                        Logging::warning(&format!(
-                            "[BehaviorEngine] DETECTION (scan/stages): {} (PID: {}) matched '{}' via stages",
-                            app_name, pid, rule.name
-                        ));
+                        if rule.debug {
+                            Logging::warning(&format!(
+                                "[BehaviorEngine] DETECTION (scan/stages): {} (PID: {}) matched '{}' via stages ({:.1}%)",
+                                app_name, pid, rule.name, stage_confidence * 100.0
+                            ));
+                        }
+                        continue;
                     }
-                    continue;
                 }
 
                 // Finally check legacy conditions

@@ -120,36 +120,40 @@
       file_operations: ["read"]
   
   # =============================================================================
-  # DETECTION LOGIC - Rich Boolean Expression
+  # DETECTION LOGIC - Rich Boolean Expression with Percentage Matching
   # =============================================================================
+  # Uses named conditions with flexible percentage-based matching
+  # More conditions matched = higher confidence detection
   
   detection_logic:
     and:
-      # Core behavior: Must access browser/credential data
-      - or:
-          - condition: "browser_profile_access"
-          - condition: "discord_token_access"
-          - condition: "crypto_wallet_access"
-      
-      # Must access actual credential files
-      - condition: "credential_file_access"
-      
-      # Must use decryption (browsers encrypt credentials)
-      - condition: "decryption_apis"
-      
-      # Must have exfiltration capability
-      - or:
-          - and:
-              - condition: "archive_creation"
-              - condition: "temp_staging"
-          - condition: "network_exfiltration"
-      
-      # Additional suspicious indicators (at least 1)
+      # TIER 1: CORE BEHAVIOR - At least 1 of browser/credential/crypto access
       - any_of:
+          - "browser_profile_access"
+          - "discord_token_access"
+          - "crypto_wallet_access"
+      
+      # TIER 2: CREDENTIAL EXTRACTION - Must access actual credential files
+      - or:
+          - "credential_file_access"
+          - "exfiltration_pattern"
+      
+      # TIER 3: EXFILTRATION MECHANISM - At least 1 of these methods
+      - any_of:
+          - and:
+              - "archive_creation"
+              - "temp_staging"
+          - "network_exfiltration"
+      
+      # TIER 4: PERCENTAGE-BASED INDICATORS
+      # Each matched indicator increases confidence level
+      - at_least: 2
+        conditions:
           - "suspicious_origin"
           - "obfuscated_binary"
           - "browser_termination"
           - "startup_persistence"
+          - "decryption_apis"
   
   # =============================================================================
   # LEGACY FIELDS (Backward Compatibility - used as fallback)
@@ -175,7 +179,7 @@
     - "%TEMP%"
     - "%APPDATA%\\Local\\Temp"
   
-  multi_access_threshold: 2
+  multi_access_threshold: 6
   require_internet: true
   conditions_percentage: 1.0
   
@@ -193,15 +197,11 @@
     - "winrar.exe"
 
   suspicious_parents:
-    - "powershell.exe"
-    - "cmd.exe"
     - "wscript.exe"
     - "cscript.exe"
     - "mshta.exe"
-    - "python.exe"
-    - "node.exe"
   
-  entropy_threshold: 7.0
+  entropy_threshold: 7.8
 
   file_extensions:
     - ".zip"
