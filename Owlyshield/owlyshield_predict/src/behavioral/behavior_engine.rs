@@ -149,6 +149,8 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub file_extensions: Vec<String>,
     #[serde(default)]
+    pub file_actions: Vec<String>,
+    #[serde(default)]
     pub entropy_threshold: f64,
     #[serde(default)]
     pub file_size_min: Option<u64>,
@@ -1412,6 +1414,25 @@ impl BehaviorEngine {
             // UNIFIED DETECTION LOGIC
             // Rich Logic and Stages now contribute to the condition percentage
             // ===================================================================
+            
+            // Calculate legacy indicator variables
+            let browsed_access_count = browsed_paths_tracker.len();
+            let has_staged_data = !staged_files_written.is_empty();
+            let is_online = if rule.require_internet {
+                self.has_active_connections(pid) || network_activity_detected
+            } else {
+                true
+            };
+            let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
+                let parent_lc = parent_name.to_lowercase();
+                rule.suspicious_parents.iter().any(|p| {
+                    let p_l = p.to_lowercase();
+                    parent_lc.contains(&p_l) || p_l.contains(&parent_lc)
+                })
+            } else {
+                false
+            };
+            let has_sensitive_access = !accessed_paths_tracker.is_empty();
             
             // ===================================================================
             // 1. EVALUATE LEGACY INDICATORS RATIO
