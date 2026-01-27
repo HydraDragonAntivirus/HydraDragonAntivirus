@@ -23,6 +23,9 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 
+// --- Sysinfo Imports for Fallback ---
+use sysinfo::{System, SystemExt, ProcessExt, PidExt, ProcessRefreshKind, ProcessesToUpdate};
+
 // =============================================================================
 // ENUMS AND BASIC TYPES
 // =============================================================================
@@ -98,16 +101,6 @@ fn default_zero() -> usize { 0 }
 // =============================================================================
 
 /// Named condition group - like YARA strings or Sigma detection items
-/// Example:
-/// ```yaml
-/// named_conditions:
-///   internet_api:
-///     apis: ["InternetOpen", "InternetConnect", "HttpSendRequest"]
-///     api_threshold: 2
-///   archive_api:
-///     apis: ["ZipCreate", "RarCompress"]
-///     file_extensions: [".zip", ".rar"]
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NamedConditionGroup {
     // API-related
@@ -224,19 +217,6 @@ pub struct NamedConditionGroup {
 }
 
 /// Detection condition expression - like YARA condition or Sigma detection
-/// Supports complex boolean logic: AND, OR, NOT, quantifiers (n of, all of, any of)
-/// 
-/// Example YAML:
-/// ```yaml
-/// detection_logic:
-///   and:
-///     - condition: "internet_api"
-///     - or:
-///         - condition: "archive_api"
-///         - condition: "staging_behavior"
-///     - not:
-///         condition: "legitimate_tool"
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DetectionCondition {
@@ -351,7 +331,6 @@ pub enum RuleMapping {
 // BEHAVIOR RULE (Main Rule Structure)
 // =============================================================================
 
-/// The Enhanced BehaviorRule with rich YARA/Sigma-style condition support
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorRule {
     pub name: String,
@@ -393,41 +372,15 @@ pub struct BehaviorRule {
     pub archive_tools: Vec<String>,
     
     // =========================================================================
-    // NEW RICH CONDITION SYSTEM (YARA/Sigma-style)
+    // NEW RICH CONDITION SYSTEM
     // =========================================================================
-    
-    /// Named condition groups that can be referenced in detection_logic
-    /// Example:
-    /// ```yaml
-    /// named_conditions:
-    ///   internet_api:
-    ///     apis: ["InternetOpen", "InternetConnect"]
-    ///     api_threshold: 2
-    ///   crypto_api:
-    ///     apis: ["CryptEncrypt", "CryptDecrypt"]
-    ///   sensitive_read:
-    ///     sensitive_paths: ["/users/*/documents", "/users/*/desktop"]
-    ///     file_operations: ["read", "browse"]
-    /// ```
     #[serde(default)]
     pub named_conditions: HashMap<String, NamedConditionGroup>,
-    
-    /// Detection logic combining named conditions with boolean operators
-    /// Example:
-    /// ```yaml
-    /// detection_logic:
-    ///   and:
-    ///     - condition: "internet_api"
-    ///     - or:
-    ///         - condition: "crypto_api"
-    ///         - condition: "archive_api"
-    ///     - condition: "sensitive_read"
-    /// ```
     #[serde(default)]
     pub detection_logic: Option<DetectionCondition>,
     
     // =========================================================================
-    // STAGE-BASED DETECTION (Multi-phase attacks)
+    // STAGE-BASED DETECTION
     // =========================================================================
     #[serde(default)]
     pub stages: Vec<AttackStage>,
@@ -507,7 +460,6 @@ impl BehaviorRule {
         
         // Normalize named condition patterns
         for (_, cond_group) in &mut self.named_conditions {
-            // Normalize API names
             cond_group.apis = cond_group.apis.iter().map(|s| s.to_lowercase()).collect();
             cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase().replace("\\", "/")).collect();
             cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase().replace("\\", "/")).collect();
@@ -579,10 +531,10 @@ pub struct ProcessBehaviorState {
     pub has_valid_signature: bool,
     
     // NEW: Rich condition state tracking
-    pub satisfied_named_conditions: HashSet<String>,  // Track which named conditions are satisfied
-    pub condition_match_counts: HashMap<String, usize>,  // Track match counts for each condition
-    pub condition_first_seen: HashMap<String, SystemTime>,  // Track when condition first matched
-    pub condition_last_seen: HashMap<String, SystemTime>,  // Track when condition last matched
+    pub satisfied_named_conditions: HashSet<String>,
+    pub condition_match_counts: HashMap<String, usize>,
+    pub condition_first_seen: HashMap<String, SystemTime>,
+    pub condition_last_seen: HashMap<String, SystemTime>,
 }
 
 impl ProcessBehaviorState {
@@ -611,6 +563,8 @@ pub struct BehaviorEngine {
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
+    // Persistent system instance for sysinfo fallbacks
+    system: RefCell<System>,
 }
 
 impl BehaviorEngine {
@@ -620,6 +574,7 @@ impl BehaviorEngine {
             process_states: HashMap::new(),
             regex_cache: RefCell::new(HashMap::new()),
             process_terminated: HashSet::new(),
+            system: RefCell::new(System::new()),
         }
     }
 
@@ -723,7 +678,38 @@ impl BehaviorEngine {
         
         // Ensure state exists
         if !self.process_states.contains_key(&gid) {
-            let mut s = ProcessBehaviorState::new(msg.pid as u32, precord.exepath.clone(), precord.appname.clone());
+            // FALLBACK: SELF RESOLUTION
+            // If the incoming record has generic/unknown info, try to resolve it via sysinfo immediately
+            let mut resolved_appname = precord.appname.clone();
+            let mut resolved_exepath = precord.exepath.clone();
+            let mut sys_refreshed = false;
+
+            if resolved_appname == "UNKNOWN" || resolved_appname.is_empty() || resolved_appname.starts_with("PROC_") {
+                let mut sys = self.system.borrow_mut();
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid as u32)]), 
+                    false,
+                    ProcessRefreshKind::new().with_exe().with_user()
+                );
+                sys_refreshed = true;
+                
+                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid as u32)) {
+                   resolved_appname = proc.name().to_string_lossy().to_string();
+                   if let Some(path) = proc.exe() {
+                       resolved_exepath = path.to_path_buf();
+                   }
+                   
+                   // Update the precord so the rest of the pipeline knows
+                   precord.appname = resolved_appname.clone();
+                   precord.exepath = resolved_exepath.clone();
+                   
+                   if self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!("[BehaviorEngine] Resolved SELF via sysinfo fallback: PID {} -> {}", msg.pid, resolved_appname));
+                   }
+                }
+            }
+
+            let mut s = ProcessBehaviorState::new(msg.pid as u32, resolved_exepath, resolved_appname);
             
             let parent_pid = msg.parent_pid as u32; 
             let mut parent_found = false;
@@ -737,11 +723,17 @@ impl BehaviorEngine {
                 }
             }
 
-            // Fallback to sysinfo if kernel didn't provide parent or we couldn't find it
+            // FALLBACK: PARENT RESOLUTION
             if !parent_found && parent_pid != 0 {
-                use sysinfo::{System, SystemExt, ProcessExt, PidExt};
-                let mut sys = System::new();
-                sys.refresh_processes();
+                let mut sys = self.system.borrow_mut();
+                if !sys_refreshed {
+                    // Only refresh if we didn't just do it for self-resolution
+                    sys.refresh_processes_specifics(
+                        ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(parent_pid)]),
+                        false,
+                        ProcessRefreshKind::new()
+                    );
+                }
                 
                 if let Some(parent_proc) = sys.process(sysinfo::Pid::from_u32(parent_pid)) {
                     s.parent_name = parent_proc.name().to_string_lossy().to_string();
@@ -749,7 +741,7 @@ impl BehaviorEngine {
                     
                     if self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Resolved parent via sysinfo: PID {} -> '{}'",
+                            "[BehaviorEngine] Resolved parent via sysinfo fallback: PID {} -> '{}'",
                             parent_pid, s.parent_name
                         ));
                     }
@@ -913,14 +905,53 @@ impl BehaviorEngine {
             
             if msg.attacker_pid != 0 {
                 let is_self = msg.attacker_pid == msg.pid;
+                let mut attacker_found = false;
                 
                 if msg.attacker_gid != 0 {
                     if let Some(attacker_state) = self.process_states.get_mut(&msg.attacker_gid) {
+                        attacker_found = true;
                         if !victim_path.is_empty() {
                             if is_self {
                                 attacker_state.self_terminated_processes.insert(victim_path.clone());
                             } else {
                                 attacker_state.terminated_processes.insert(victim_path.clone());
+                            }
+                        }
+                    }
+                }
+
+                // FALLBACK: ATTACKER RESOLUTION
+                if !attacker_found && !is_self {
+                    // Option A: Try finding by PID in existing states
+                    let mut resolved_attacker_gid = None;
+                    for (gid, state) in &self.process_states {
+                        if state.pid == msg.attacker_pid as u32 {
+                            resolved_attacker_gid = Some(*gid);
+                            break;
+                        }
+                    }
+                    
+                    if let Some(agid) = resolved_attacker_gid {
+                        if let Some(attacker_state) = self.process_states.get_mut(&agid) {
+                            if !victim_path.is_empty() {
+                                attacker_state.terminated_processes.insert(victim_path.clone());
+                            }
+                        }
+                    } else {
+                        // Option B: Sysinfo fallback for logging context (can't track behavior fully without GID)
+                        if self.rules.iter().any(|r| r.debug) {
+                            let mut sys = self.system.borrow_mut();
+                            sys.refresh_processes_specifics(
+                                ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.attacker_pid as u32)]),
+                                false,
+                                ProcessRefreshKind::new()
+                            );
+                            
+                            if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.attacker_pid as u32)) {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Resolved unknown attacker via sysinfo fallback: PID {} -> '{}'",
+                                    msg.attacker_pid, proc.name().to_string_lossy()
+                                ));
                             }
                         }
                     }
@@ -1566,10 +1597,6 @@ impl BehaviorEngine {
             }
         }
     }
-
-    // Copy the evaluate_stages_from_state, check_allowlist, matches_pattern, 
-    // has_active_connections, and scan_all_processes methods from the original file
-    // (They remain unchanged)
     
     fn evaluate_stages_from_state(
         &self,
