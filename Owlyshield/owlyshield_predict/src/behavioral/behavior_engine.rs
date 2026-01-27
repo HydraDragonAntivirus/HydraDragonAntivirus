@@ -7,7 +7,7 @@ use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
 
-use crate::shared_def::{IOMessage, IrpMajorOp, FileChangeInfo};
+use crate::shared_def::{IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
@@ -24,7 +24,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 
 // --- Sysinfo Imports for Fallback ---
-use sysinfo::{System, SystemExt, ProcessExt, PidExt, ProcessRefreshKind, ProcessesToUpdate};
+use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 
 // =============================================================================
 // ENUMS AND BASIC TYPES
@@ -689,7 +689,7 @@ impl BehaviorEngine {
                 sys.refresh_processes_specifics(
                     ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid as u32)]), 
                     false,
-                    ProcessRefreshKind::new().with_exe().with_user()
+                    ProcessRefreshKind::everything()
                 );
                 sys_refreshed = true;
                 
@@ -731,7 +731,7 @@ impl BehaviorEngine {
                     sys.refresh_processes_specifics(
                         ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(parent_pid)]),
                         false,
-                        ProcessRefreshKind::new()
+                        ProcessRefreshKind::everything()
                     );
                 }
                 
@@ -944,7 +944,7 @@ impl BehaviorEngine {
                             sys.refresh_processes_specifics(
                                 ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.attacker_pid as u32)]),
                                 false,
-                                ProcessRefreshKind::new()
+                                ProcessRefreshKind::everything()
                             );
                             
                             if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.attacker_pid as u32)) {
@@ -974,7 +974,7 @@ impl BehaviorEngine {
         // =======================================================================
         // UPDATE RICH NAMED CONDITIONS STATE
         // =======================================================================
-        self.update_named_conditions_state(gid, msg, irp_op, &filepath);
+        self.update_named_conditions_state(gid, msg, &irp_op, &filepath);
 
         // Evaluate rules
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
@@ -985,7 +985,7 @@ impl BehaviorEngine {
     // ==========================================================================
     
     /// Update the state of named conditions based on the current event
-    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: IrpMajorOp, filepath: &str) {
+    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
         let now = SystemTime::now();
         
         for rule in &self.rules {
@@ -1036,10 +1036,10 @@ impl BehaviorEngine {
                             let op_matches = if !cond_group.file_operations.is_empty() {
                                 cond_group.file_operations.iter().any(|op| {
                                     match op.as_str() {
-                                        "read" | "browse" => matches!(irp_op, IrpMajorOp::IrpRead | IrpMajorOp::IrpDirControl),
-                                        "write" => matches!(irp_op, IrpMajorOp::IrpWrite),
-                                        "create" => matches!(irp_op, IrpMajorOp::IrpCreate),
-                                        "delete" => matches!(irp_op, IrpMajorOp::IrpSetInfo), // Simplified
+                                        "read" | "browse" => matches!(*irp_op, IrpMajorOp::IrpRead),
+                                        "write" => matches!(*irp_op, IrpMajorOp::IrpWrite),
+                                        "create" => matches!(*irp_op, IrpMajorOp::IrpCreate),
+                                        "delete" => matches!(*irp_op, IrpMajorOp::IrpSetInfo), // Simplified
                                         _ => true,
                                     }
                                 })
