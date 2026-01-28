@@ -1096,9 +1096,9 @@ impl BehaviorEngine {
                 if !cond_group.apis.is_empty() {
                     let api_matches = cond_group.apis.iter()
                         .filter(|api| {
-                            // Using matches_pattern to support wildcards in API names too
-                            self.matches_pattern(api, filepath) || 
-                            self.matches_pattern(api, &msg.extension.to_lowercase())
+                            // Using matches_pattern_internal to avoid multiple borrows of self
+                            Self::matches_pattern_internal(&self.regex_cache, api, filepath) || 
+                            Self::matches_pattern_internal(&self.regex_cache, api, &msg.extension.to_lowercase())
                         })
                         .count();
                     
@@ -1119,12 +1119,12 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check file paths - FIX: Use matches_pattern instead of contains for wildcards
+                // Check file paths - FIX: Use matches_pattern
                 if !matched && !cond_group.file_paths.is_empty() {
                     for path_pattern in &cond_group.file_paths {
                         // FIX: Support wildcards in file_paths (e.g. *\\wallets*)
                         // We use the raw pattern (matched via regex/wildcard helper) against the normalized filepath
-                        if self.matches_pattern(path_pattern, filepath) {
+                        if Self::matches_pattern_internal(&self.regex_cache, path_pattern, filepath) {
                             // Check if operation matches if specified
                             let op_matches = if !cond_group.file_operations.is_empty() {
                                 cond_group.file_operations.iter().any(|op| {
@@ -1159,7 +1159,7 @@ impl BehaviorEngine {
                     for reg_pattern in &cond_group.registry_keys {
                         // Simple heuristic: if filepath mentions registry or typical registry paths
                         if (filepath.contains("registry") || filepath.contains("\\reg\\")) &&
-                            self.matches_pattern(reg_pattern, filepath) {
+                            Self::matches_pattern_internal(&self.regex_cache, reg_pattern, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1187,11 +1187,11 @@ impl BehaviorEngine {
                 if !matched && !cond_group.terminated_processes.is_empty() {
                     for proc_pattern in &cond_group.terminated_processes {
                         let term_match = state.terminated_processes.iter().any(|victim| {
-                            self.matches_pattern(proc_pattern, victim)
+                            Self::matches_pattern_internal(&self.regex_cache, proc_pattern, victim)
                         });
                         let self_match = if cond_group.detect_self_termination {
                             state.self_terminated_processes.iter().any(|victim| {
-                                self.matches_pattern(proc_pattern, victim)
+                                Self::matches_pattern_internal(&self.regex_cache, proc_pattern, victim)
                             })
                         } else {
                             false
@@ -1217,7 +1217,7 @@ impl BehaviorEngine {
                     if !parent_lc.is_empty() && parent_lc != "unknown" {
                         for parent_pattern in &cond_group.parent_names {
                             // FIX: Use matches_pattern
-                            if self.matches_pattern(parent_pattern, &parent_lc) {
+                            if Self::matches_pattern_internal(&self.regex_cache, parent_pattern, &parent_lc) {
                                 matched = true;
                                 if rule.debug {
                                     Logging::debug(&format!(
@@ -1249,7 +1249,7 @@ impl BehaviorEngine {
                 // Check file extensions - FIX: Use matches_pattern
                 if !matched && !cond_group.file_extensions.is_empty() {
                     for ext in &cond_group.file_extensions {
-                        if filepath.ends_with(&ext.to_lowercase()) || self.matches_pattern(ext, filepath) {
+                        if filepath.ends_with(&ext.to_lowercase()) || Self::matches_pattern_internal(&self.regex_cache, ext, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1265,7 +1265,7 @@ impl BehaviorEngine {
                 // Check file actions - FIX: Use matches_pattern
                 if !matched && !cond_group.file_actions.is_empty() {
                     for action in &cond_group.file_actions {
-                        if self.matches_pattern(action, filepath) {
+                        if Self::matches_pattern_internal(&self.regex_cache, action, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1471,7 +1471,7 @@ impl BehaviorEngine {
         precord: &mut ProcessRecord,
         gid: u64,
         msg: &IOMessage,
-        irp_op: IrpMajorOp,
+        _irp_op: IrpMajorOp,
         config: &Config,
         actions: &mut ActionsOnKill
     ) {
@@ -1680,7 +1680,6 @@ impl BehaviorEngine {
         msg: Option<&IOMessage>, 
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
-        let mut total_conditions = 0;
         
         for stage in &rule.stages {
             let mut stage_satisfied_count = 0;
@@ -1834,7 +1833,6 @@ impl BehaviorEngine {
                 
                 if stage_ratio >= threshold {
                     satisfied_stages += 1;
-                    total_conditions += stage_total_conditions;
                 }
             }
         }
@@ -1879,28 +1877,33 @@ impl BehaviorEngine {
         })
     }
     
-    fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
+    // Static helper function to avoid borrowing &self entirely, solving E0502
+    fn matches_pattern_internal(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
         if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') && !pattern.contains('\\') {
             return text.to_lowercase().contains(&pattern.to_lowercase());
         }
-        let mut cache = self.regex_cache.borrow_mut();
-        if let Some(re) = cache.get(pattern) {
+        let mut cache_map = cache.borrow_mut();
+        if let Some(re) = cache_map.get(pattern) {
             return re.is_match(text);
         }
+        
         // Escape standard regex chars that are not wildcards, then replace wildcards
         // This is a simplified approach; usually you'd want a proper glob-to-regex converter.
         // For now, if it looks like a regex (contains \ or [), we treat it as regex.
         // If it just has * or ?, we do glob logic or just try regex new.
         
-        // Safety: If pattern is actually a regex, use it directly
         match Regex::new(&format!("(?i){}", pattern)) {
             Ok(re) => {
                 let is_match = re.is_match(text);
-                cache.insert(pattern.to_string(), re);
+                cache_map.insert(pattern.to_string(), re);
                 is_match
             }
             Err(_) => text.to_lowercase().contains(&pattern.to_lowercase())
         }
+    }
+    
+    fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
+        Self::matches_pattern_internal(&self.regex_cache, pattern, text)
     }
     
     fn has_active_connections(&self, pid: u32) -> bool {

@@ -922,7 +922,7 @@ pub mod worker_instance {
                         match handle_res {
                             Ok(handle) => {
                                 let mut exit_code: u32 = 0;
-                                if GetExitCodeProcess(handle, &mut exit_code).is_ok() {
+                                if GetExitCodeProcess(handle, &mut exit_code).as_bool() {
                                     if exit_code != STILL_ACTIVE.0 as u32 {
                                         dead_gids.push(*gid);
                                     }
@@ -1022,7 +1022,7 @@ pub mod worker_instance {
                         // If termination is requested, execute via threat_handler
                         if det.termination_requested {
                             if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
-                                threat_handler.kill(state.pid);
+                                threat_handler.kill(det.gid);
                             }
                         }
                     } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
@@ -1034,7 +1034,7 @@ pub mod worker_instance {
                         self.process_records.insert_precord(det.gid, precord);
                         
                         if det.termination_requested {
-                            threat_handler.kill(state.pid);
+                            threat_handler.kill(det.gid);
                         }
                     }
                 }
