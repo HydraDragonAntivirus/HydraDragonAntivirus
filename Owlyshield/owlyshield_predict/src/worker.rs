@@ -904,7 +904,70 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // First, sync behavior engine state to process_records
+                // FIRST: Discover any new processes that started since last scan
+                // This catches processes that haven't triggered I/O events yet
+                let mut sys = System::new_all();
+                sys.refresh_processes(ProcessesToUpdate::All, true);
+                
+                let mut discovered_new = 0;
+                
+                for (pid, process) in sys.processes() {
+                    let pid_u32 = pid.as_u32();
+                    
+                    // Skip system process
+                    if pid_u32 == 4 {
+                        continue;
+                    }
+                    
+                    let exepath = process.exe().map(|p| PathBuf::from(p)).unwrap_or_default();
+                    let appname = process.name().to_string_lossy().to_string();
+                    
+                    // Skip invalid paths
+                    if exepath.to_string_lossy().is_empty() || appname.is_empty() {
+                        continue;
+                    }
+                    
+                    // Generate GID for this process
+                    let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
+                    
+                    // Check if we already know about this process
+                    let already_tracked_in_behavior = self.behavior_engine.process_states.contains_key(&gid);
+                    let already_tracked_in_records = self.process_records.get_precord_by_gid(gid).is_some();
+                    
+                    if already_tracked_in_behavior || already_tracked_in_records {
+                        continue;
+                    }
+                    
+                    // NEW PROCESS - Register it in both tracking systems
+                    Logging::debug(&format!(
+                        "[BEHAVIOR SCAN] Discovered new process during scan: {} (PID: {}, GID: {}, Path: {})",
+                        appname, pid_u32, gid, exepath.display()
+                    ));
+                    
+                    // Register in behavior engine
+                    self.behavior_engine.register_process(
+                        gid,
+                        pid_u32,
+                        exepath.clone(),
+                        appname.clone()
+                    );
+                    
+                    // Register in process records
+                    let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                    self.process_records.insert_precord(gid, precord);
+                    
+                    discovered_new += 1;
+                }
+                
+                if discovered_new > 0 {
+                    Logging::info(&format!(
+                        "[BEHAVIOR SCAN] Discovered {} new processes during scan cycle",
+                        discovered_new
+                    ));
+                }
+
+                // SECOND: Sync behavior engine state to process_records
+                // (In case behavior engine has processes that process_records doesn't)
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
                         let precord = ProcessRecord::new(
@@ -933,14 +996,14 @@ pub mod worker_instance {
                     Logging::warning("[BEHAVIOR SCAN] No processes are being tracked by behavior engine!");
                 }
 
-                // Run the scan
+                // THIRD: Run the scan on all tracked processes
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
                 if !detections.is_empty() {
                     Logging::info(&format!("[BEHAVIOR SCAN] Found {} detections", detections.len()));
                 }
 
-                // Apply detections to process records
+                // FOURTH: Apply detections to process records
                 for det in detections {
                     let matching_record = self.process_records.process_records
                         .iter_mut()
