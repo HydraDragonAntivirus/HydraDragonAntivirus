@@ -791,7 +791,6 @@ impl BehaviorEngine {
             
             self.process_states.insert(gid, s);
         }
-    }
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
