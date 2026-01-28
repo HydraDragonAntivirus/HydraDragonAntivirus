@@ -438,8 +438,130 @@ pub struct BehaviorRule {
     pub min_indicator_count: Option<usize>,
 }
 
+fn expand_environment_variables(text: &str) -> String {
+    if !text.contains('%') {
+        return text.to_string();
+    }
+    // Using a Regex for this is more robust.
+    let re = match Regex::new(r"%([^%]+)%") {
+        Ok(r) => r,
+        Err(_) => return text.to_string(), // Should not happen with this regex
+    };
+    re.replace_all(text, |caps: &regex::Captures| {
+        let var_name = &caps[1];
+        // On Windows, env::var is case-insensitive.
+        std::env::var(var_name).unwrap_or_else(|_| caps[0].to_string())
+    }).to_string()
+}
+
+
 impl BehaviorRule {
     pub fn finalize_rich_fields(&mut self) {
+        // --- Start of environment variable expansion ---
+        let expand_vec = |vec: &mut Vec<String>| {
+            for item in vec.iter_mut() {
+                *item = expand_environment_variables(item);
+            }
+        };
+        let expand_opt_string = |opt: &mut Option<String>| {
+            if let Some(s) = opt {
+                *s = expand_environment_variables(s);
+            }
+        };
+        let expand_cmd_patterns = |patterns: &mut Vec<CommandLinePattern>| {
+            for p in patterns.iter_mut() {
+                p.pattern = expand_environment_variables(&p.pattern);
+            }
+        };
+
+        // Legacy fields
+        expand_vec(&mut self.browsed_paths);
+        expand_vec(&mut self.accessed_paths);
+        expand_vec(&mut self.staging_paths);
+        expand_vec(&mut self.monitored_apis);
+        expand_vec(&mut self.file_actions);
+        expand_vec(&mut self.file_extensions);
+        expand_vec(&mut self.suspicious_parents);
+        expand_vec(&mut self.terminated_processes);
+        expand_vec(&mut self.false_positives);
+
+        // Allowlist
+        for entry in &mut self.allowlisted_apps {
+            match entry {
+                AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
+                AllowlistEntry::Complex { pattern, signers, .. } => {
+                    *pattern = expand_environment_variables(pattern);
+                    expand_vec(signers);
+                }
+            }
+        }
+
+        // Named Conditions
+        for (_, cond_group) in &mut self.named_conditions {
+            expand_vec(&mut cond_group.apis);
+            expand_vec(&mut cond_group.file_paths);
+            expand_vec(&mut cond_group.registry_keys);
+            expand_vec(&mut cond_group.registry_values);
+            expand_vec(&mut cond_group.network_indicators);
+            expand_vec(&mut cond_group.network_domains);
+            expand_vec(&mut cond_group.network_ips);
+            expand_vec(&mut cond_group.process_names);
+            expand_vec(&mut cond_group.parent_names);
+            expand_vec(&mut cond_group.terminated_processes);
+            expand_vec(&mut cond_group.created_processes);
+            expand_vec(&mut cond_group.file_extensions);
+            expand_vec(&mut cond_group.file_actions);
+            expand_cmd_patterns(&mut cond_group.cmdline_patterns);
+            expand_vec(&mut cond_group.cmdline_keywords);
+            expand_vec(&mut cond_group.staging_paths);
+            expand_vec(&mut cond_group.browsed_paths);
+            expand_vec(&mut cond_group.sensitive_paths);
+            expand_vec(&mut cond_group.persistence_locations);
+            expand_vec(&mut cond_group.autorun_keys);
+            expand_vec(&mut cond_group.scheduled_task_apis);
+            expand_vec(&mut cond_group.obfuscation_indicators);
+            expand_vec(&mut cond_group.anti_debug_apis);
+            expand_vec(&mut cond_group.anti_vm_apis);
+            expand_vec(&mut cond_group.trusted_signers);
+            expand_vec(&mut cond_group.untrusted_signers);
+        }
+
+        // Stages
+        for stage in &mut self.stages {
+            for condition in &mut stage.conditions {
+                match condition {
+                    RuleCondition::File { path_pattern, .. } => *path_pattern = expand_environment_variables(path_pattern),
+                    RuleCondition::Registry { key_pattern, value_name, expected_data, .. } => {
+                        *key_pattern = expand_environment_variables(key_pattern);
+                        expand_opt_string(value_name);
+                        expand_opt_string(expected_data);
+                    },
+                    RuleCondition::Process { pattern, .. } => *pattern = expand_environment_variables(pattern),
+                    RuleCondition::Service { name_pattern, .. } => *name_pattern = expand_environment_variables(name_pattern),
+                    RuleCondition::Network { dest_pattern, .. } => expand_opt_string(dest_pattern),
+                    RuleCondition::Api { name_pattern, module_pattern } => {
+                        *name_pattern = expand_environment_variables(name_pattern);
+                        *module_pattern = expand_environment_variables(module_pattern);
+                    },
+                    RuleCondition::OperationCount { path_pattern, .. } => expand_opt_string(path_pattern),
+                    RuleCondition::ExtensionPattern { patterns, .. } => expand_vec(patterns),
+                    RuleCondition::Signature { signer_pattern, .. } => expand_opt_string(signer_pattern),
+                    RuleCondition::ProcessAncestry { ancestor_pattern, .. } => *ancestor_pattern = expand_environment_variables(ancestor_pattern),
+                    RuleCondition::CommandLineMatch { patterns, .. } => expand_cmd_patterns(patterns),
+                    RuleCondition::SensitivePathAccess { patterns, .. } => expand_vec(patterns),
+                    RuleCondition::ArchiveCreation { extensions, .. } => expand_vec(extensions),
+                    RuleCondition::DataExfiltrationPattern { source_patterns, .. } => expand_vec(source_patterns),
+                    RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
+                    _ => {} // Other conditions don't have string patterns
+                }
+            }
+        }
+
+        if let Some(msc) = &mut self.memory_scan_config {
+            expand_vec(&mut msc.target_processes);
+        }
+        // --- End of expansion logic ---
+
         // Normalize allowlist entries
         for entry in &mut self.allowlisted_apps {
             match entry {
@@ -1571,7 +1693,8 @@ impl BehaviorEngine {
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
-                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref);
+                // FIXED: Passed Some(msg) to handle Option wrapper
+                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref, Some(msg));
                 stages_triggered = detected;
                 stage_conf = conf;
             }
@@ -1589,7 +1712,7 @@ impl BehaviorEngine {
                                      else { legacy_ratio };
 
                 Logging::warning(&format!(
-                    "[BehaviorEngine] DETECTION ({}): {} (PID: {}) matched '{}' ({:.1}%)",
+                    "[BehaviorEngine] DETECTION ({}) : {} (PID: {}) matched '{}' ({:.1}%)",
                     trigger_type, precord.appname, pid, rule.name, indicator_ratio * 100.0
                 ));
 
@@ -1642,7 +1765,8 @@ impl BehaviorEngine {
     fn evaluate_stages_from_state(
         &self,
         rule: &BehaviorRule,
-        state: &ProcessBehaviorState
+        state: &ProcessBehaviorState,
+        msg: Option<&IOMessage>, 
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
         let mut total_conditions = 0;
@@ -1664,6 +1788,7 @@ impl BehaviorEngine {
                                 })
                             },
                             "read" => {
+                                // FIX: The || operator is now inside the braces
                                 state.browsed_paths_tracker.keys().any(|path| {
                                     self.matches_pattern(path_pattern, path)
                                 }) || state.accessed_paths_tracker.iter().any(|path| {
@@ -1771,6 +1896,21 @@ impl BehaviorEngine {
                             Comparison::Eq => count == *threshold,
                             Comparison::Ne => count != *threshold,
                         };
+                    },
+                    RuleCondition::EntropyThreshold { metric: _, comparison, threshold } => {
+                        if let Some(m) = msg { 
+                            let entropy = m.entropy;
+                            condition_matched = match comparison {
+                                Comparison::Gt => entropy > *threshold,
+                                Comparison::Gte => entropy >= *threshold,
+                                Comparison::Lt => entropy < *threshold,
+                                Comparison::Lte => entropy <= *threshold,
+                                Comparison::Eq => (entropy - *threshold).abs() < 0.001,
+                                Comparison::Ne => (entropy - *threshold).abs() >= 0.001,
+                            };
+                        } else {
+                            condition_matched = false; // Cannot evaluate without an event
+                        }
                     },
 
                     _ => {
@@ -2064,7 +2204,8 @@ impl BehaviorEngine {
                 let mut stages_triggered = false;
                 let mut stage_conf = 0.0;
                 if !rule.stages.is_empty() {
-                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state);
+                    // FIXED: Passed None because static scan has no active IOMessage
+                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state, None);
                     stages_triggered = detected;
                     stage_conf = conf;
                 }
