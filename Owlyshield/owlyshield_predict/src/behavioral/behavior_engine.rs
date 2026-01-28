@@ -787,7 +787,6 @@ impl BehaviorEngine {
 
             // Final validation - should never be empty at this point
             debug_assert!(!s.parent_name.is_empty(), "parent_name must never be empty");
-            }
             
             self.process_states.insert(gid, s);
         }
