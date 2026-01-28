@@ -25,14 +25,12 @@
       file_operations: ["read", "browse"]
 
     credential_file_access:
-      # Mapping your sensitive_paths logic to file_paths
       file_paths:
         - "Cookies"
         - "Login Data"
         - "Web Data"
         - "Local State"
       file_operations: ["read"]
-      # Mapping min_unique_paths to min_matches
       min_matches: 2
 
     crypto_wallet_access:
@@ -43,7 +41,6 @@
       file_operations: ["read"]
 
     temp_staging:
-      # Mapping staging_paths logic to file_paths
       file_paths:
         - "%TEMP%"
         - "%APPDATA%\\Local\\Temp"
@@ -55,15 +52,12 @@
         - "BCryptDecrypt"
         - "NCryptDecrypt"
         - "DPAPI"
-      # Mapping api_threshold logic to min_matches
       min_matches: 1
 
     archive_creation:
-      # Mapping archive_apis -> apis
       apis:
         - "CreateZip"
         - "CreateRar"
-      # Mapping archive_tools -> process_names
       process_names:
         - "7z.exe"
         - "tar.exe"
@@ -113,26 +107,33 @@
       file_operations: ["read"]
 
   # =============================================================================
-  # SINGLE LOGIC TREE
+  # FIXED DETECTION LOGIC - Proper enum structure
   # =============================================================================
 
   detection_logic:
+    # Top-level AND
     and:
+      # First AND condition: any_of for data source access
       - any_of:
           - "browser_profile_access"
           - "discord_token_access"
           - "crypto_wallet_access"
 
+      # Second AND condition: any_of for credential access
       - any_of:
           - "credential_file_access"
           - "exfiltration_pattern"
 
+      # Third AND condition: OR for exfiltration method
       - or:
+          # Nested AND for archive staging
           - and:
-              - "archive_creation"
-              - "temp_staging"
-          - "network_exfiltration"
+              - condition: "archive_creation"
+              - condition: "temp_staging"
+          # OR just network exfiltration
+          - condition: "network_exfiltration"
 
+      # Fourth AND condition: at_least 2 of these indicators
       - at_least: 2
         conditions:
           - "decryption_apis"
