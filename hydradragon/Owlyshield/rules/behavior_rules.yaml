@@ -1,13 +1,12 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   description: "Detects info stealer behavior targeting browser data and credentials"
   debug: true
-  
+
   # =============================================================================
-  # RICH CONDITION SYSTEM - Named Conditions
+  # SINGLE DETECTION SYSTEM — NAMED CONDITIONS
   # =============================================================================
-  
+
   named_conditions:
-    # Browser data access
     browser_profile_access:
       file_paths:
         - "%USERPROFILE%\\Google\\Chrome\\User Data"
@@ -17,71 +16,69 @@
         - "BraveSoftware\\Brave-Browser\\User Data"
         - "Microsoft\\Edge\\User Data"
       file_operations: ["read", "browse"]
-      min_matches: 2  # At least 2 browser paths accessed
-    
-    # Discord token theft
+      min_matches: 2
+
     discord_token_access:
       file_paths:
         - "%APPDATA%\\Discord\\Local Storage"
         - "%APPDATA%\\Discord\\leveldb"
       file_operations: ["read", "browse"]
-    
-    # Sensitive file access (cookies, passwords, etc.)
+
     credential_file_access:
-      sensitive_paths:
+      # Mapping your sensitive_paths logic to file_paths
+      file_paths:
         - "Cookies"
         - "Login Data"
         - "Web Data"
         - "Local State"
       file_operations: ["read"]
-      min_unique_paths: 2  # At least 2 different credential files
-    
-    # Crypto wallet access
+      # Mapping min_unique_paths to min_matches
+      min_matches: 2
+
     crypto_wallet_access:
       file_paths:
         - "*\\Electrum\\wallets*"
         - "*\\Bitcoin\\wallets*"
         - "*\\Ethereum\\keystore*"
       file_operations: ["read"]
-    
-    # Data staging in temp
+
     temp_staging:
-      staging_paths:
+      # Mapping staging_paths logic to file_paths
+      file_paths:
         - "%TEMP%"
         - "%APPDATA%\\Local\\Temp"
       file_operations: ["write", "create"]
-    
-    # Decryption APIs (for browser credential decryption)
+
     decryption_apis:
       apis:
         - "CryptUnprotectData"
         - "BCryptDecrypt"
         - "NCryptDecrypt"
         - "DPAPI"
-      api_threshold: 1
-    
-    # Archive creation (for exfiltration)
+      # Mapping api_threshold logic to min_matches
+      min_matches: 1
+
     archive_creation:
-      archive_apis:
+      # Mapping archive_apis -> apis
+      apis:
         - "CreateZip"
         - "CreateRar"
-      archive_tools:
+      # Mapping archive_tools -> process_names
+      process_names:
         - "7z.exe"
         - "tar.exe"
         - "winrar.exe"
       file_extensions:
         - ".zip"
         - ".rar"
-    
-    # Network exfiltration
+
     network_exfiltration:
       has_network_activity: true
       network_indicators:
         - "http"
         - "https"
         - "ftp"
-    
-    # Suspicious parent process
+
     suspicious_origin:
       parent_names:
         - "powershell.exe"
@@ -91,12 +88,10 @@
         - "mshta.exe"
         - "python.exe"
         - "node.exe"
-    
-    # High entropy (packed/obfuscated)
+
     obfuscated_binary:
       entropy_threshold: 7.0
-    
-    # Browser process termination (to access locked files)
+
     browser_termination:
       terminated_processes:
         - "msedge.exe"
@@ -104,119 +99,57 @@
         - "brave.exe"
         - "opera.exe"
         - "firefox.exe"
-    
-    # Persistence mechanism
+
     startup_persistence:
       registry_keys:
         - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\*"
       registry_operations: ["set", "create"]
-    
-    # Data exfiltration pattern
+
     exfiltration_pattern:
       file_paths:
         - "*Credentials*"
         - "*Passwords*"
         - "*Tokens*"
       file_operations: ["read"]
-  
+
   # =============================================================================
-  # DETECTION LOGIC - Rich Boolean Expression with Percentage Matching
+  # SINGLE LOGIC TREE
   # =============================================================================
-  # Uses named conditions with flexible percentage-based matching
-  # More conditions matched = higher confidence detection
-  
+
   detection_logic:
     and:
-      # TIER 1: CORE BEHAVIOR - At least 1 of browser/credential/crypto access
       - any_of:
           - "browser_profile_access"
           - "discord_token_access"
           - "crypto_wallet_access"
-      
-      # TIER 2: CREDENTIAL EXTRACTION - Must access actual credential files
-      - or:
+
+      - any_of:
           - "credential_file_access"
           - "exfiltration_pattern"
-      
-      # TIER 3: EXFILTRATION MECHANISM - At least 1 of these methods
-      - any_of:
+
+      - or:
           - and:
               - "archive_creation"
               - "temp_staging"
           - "network_exfiltration"
-      
-      # TIER 4: PERCENTAGE-BASED INDICATORS
-      # Each matched indicator increases confidence level
+
       - at_least: 2
         conditions:
-          - "suspicious_origin"
-          - "obfuscated_binary"
+          - "decryption_apis"
           - "browser_termination"
           - "startup_persistence"
-          - "decryption_apis"
-  
-  # =============================================================================
-  # LEGACY FIELDS (Backward Compatibility - used as fallback)
-  # =============================================================================
-  
-  browsed_paths:
-    - "%USERPROFILE%\\Google\\Chrome\\User Data"
-    - "%USERPROFILE%\\AppData\\Local\\Google\\Chrome\\User Data"
-    - "Opera Software\\Opera Stable"
-    - "Opera Software\\Opera GX Stable"
-    - "BraveSoftware\\Brave-Browser\\User Data"
-    - "Microsoft\\Edge\\User Data"
-    - "%APPDATA%\\Discord\\Local Storage"
-    - "%APPDATA%\\Discord\\leveldb"
-  
-  accessed_paths:
-    - "Cookies"
-    - "Login Data"
-    - "Web Data"
-    - "Local State"
-  
-  staging_paths:
-    - "%TEMP%"
-    - "%APPDATA%\\Local\\Temp"
-  
-  multi_access_threshold: 6
-  require_internet: true
-  conditions_percentage: 1.0
-  
-  monitored_apis:
-    - "CryptUnprotectData"
-    - "BCryptDecrypt"
-    - "NCryptDecrypt"
-    - "DPAPI"
-    - "CreateZip"
-    - "CreateRar"
-  
-  file_actions:
-    - "7z.exe"
-    - "tar.exe"
-    - "winrar.exe"
+          - "suspicious_origin"
+          - "obfuscated_binary"
 
-  suspicious_parents:
-    - "wscript.exe"
-    - "cscript.exe"
-    - "mshta.exe"
-  
-  entropy_threshold: 7.8
-
-  file_extensions:
-    - ".zip"
-    - ".rar"
-
-  terminated_processes:
-    - "msedge.exe"
-    - "chrome.exe"
-    - "brave.exe"
-    - "opera.exe"
-  
   # =============================================================================
-  # ALLOWLIST - Legitimate Tools
+  # RESPONSE, ALLOWLIST, & METADATA
   # =============================================================================
-  
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+
   allowlisted_apps:
     - pattern: "chrome.exe"
       must_be_signed: true
@@ -236,102 +169,31 @@
     - pattern: "code.exe"
       must_be_signed: true
       signers: ["Microsoft.*"]
-    - pattern: "visualstudio.exe"
-      must_be_signed: true
-      signers: ["Microsoft.*"]
     - pattern: "devenv.exe"
       must_be_signed: true
       signers: ["Microsoft.*"]
-    - pattern: "codium.exe"
-      must_be_signed: false
-    - pattern: "vscodium.exe"
-      must_be_signed: false
-  
-  # =============================================================================
-  # STAGES - Multi-Phase Attack Detection (Optional Additional Detection)
-  # =============================================================================
-  
-  stages:
-    - name: "Initial Access & Execution"
-      conditions:
-        - type: "File"
-          path_pattern: "*\\Temp\\*"
-          op: "create"
-    
-    - name: "Credential Theft"
-      conditions:
-        - type: "SensitivePathAccess"
-          patterns:
-            - "*Login Data*"
-            - "*Cookies*"
-            - "*Web Data*"
-          op_type: "read"
-          min_unique_paths: 2
-    
-    - name: "Data Decryption"
-      conditions:
-        - type: "Api"
-          name_pattern: "Crypt.*"
-          module_pattern: "*"
-    
-    - name: "Data Staging"
-      conditions:
-        - type: "TempDirectoryWrite"
-          min_files: 1
-    
-    - name: "Exfiltration Preparation"
-      conditions:
-        - type: "ArchiveCreation"
-          extensions: [".zip", ".rar"]
-          in_temp: true
-    
-    - name: "Persistence"
-      conditions:
-        - type: "Registry"
-          op: "set"
-          key_pattern: "*\\Run\\*"
-  
-  min_stages_satisfied: 3  # At least 3 stages must be detected
-  
-  # =============================================================================
-  # RESPONSE ACTIONS
-  # =============================================================================
-  
-  response:
-    terminate_process: true
-    quarantine: true
-    kill_and_remove: false
-    auto_revert: true
-  
-  # =============================================================================
-  # METADATA
-  # =============================================================================
-  
+
   severity: 95
   level: critical
-  author: "Security Team"
   status: stable
-  
+  author: "Emirhan Ucan"
+
   mitre_attack:
-    - "T1555"       # Credentials from Password Stores
-    - "T1539"       # Steal Web Session Cookie
-    - "T1552.001"   # Credentials in Files
-    - "T1005"       # Data from Local System
-    - "T1140"       # Deobfuscate/Decode Files or Information
-    - "T1560"       # Archive Collected Data
-    - "T1041"       # Exfiltration Over C2 Channel
-    - "T1547.001"   # Registry Run Keys / Startup Folder
-  
+    - "T1555"
+    - "T1539"
+    - "T1552.001"
+    - "T1005"
+    - "T1140"
+    - "T1560"
+    - "T1041"
+    - "T1547.001"
+
   tags:
     - "credential_theft"
     - "browser_stealer"
     - "info_stealer"
     - "data_exfiltration"
-  
-  references:
-    - "https://attack.mitre.org/techniques/T1555/"
-    - "https://attack.mitre.org/techniques/T1539/"
-  
+
   false_positives:
     - "Legitimate password managers"
     - "Browser sync utilities"
