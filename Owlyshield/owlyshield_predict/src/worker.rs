@@ -616,7 +616,7 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
-    use sysinfo::{System, ProcessesToUpdate, ProcessRefreshKind};
+    use sysinfo::{System, ProcessesToUpdate, ProcessRefreshKind, Pid};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     #[cfg(feature = "realtime_learning")]
@@ -904,33 +904,63 @@ pub mod worker_instance {
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // FIRST: Discover any new processes that started since last scan
-                // This catches processes that haven't triggered I/O events yet
+                // Import necessary Win32 modules for the Kernel Check
+                use windows::Win32::System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+                use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+
+                // Refresh system state to identify new and dead processes
+                // We keep sysinfo here because you requested Discovery logic to remain intact
                 let mut sys = System::new_all();
                 sys.refresh_processes(ProcessesToUpdate::All, true);
                 
+                // --- FIRST: Prune dead processes from behavior engine ---
+                // IMPROVEMENT: We use direct Kernel Queries (OpenProcess) for 100% accuracy.
+                let mut dead_gids = Vec::new();
+                for (gid, state) in self.behavior_engine.process_states.iter() {
+                    unsafe {
+                        let handle_res = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, state.pid);
+                        match handle_res {
+                            Ok(handle) => {
+                                let mut exit_code: u32 = 0;
+                                if GetExitCodeProcess(handle, &mut exit_code).is_ok() {
+                                    if exit_code != STILL_ACTIVE.0 as u32 {
+                                        dead_gids.push(*gid);
+                                    }
+                                }
+                                let _ = CloseHandle(handle);
+                            }
+                            Err(_) => {
+                                // Kernel says PID is invalid or gone
+                                dead_gids.push(*gid);
+                            }
+                        }
+                    }
+                }
+
+                if !dead_gids.is_empty() {
+                    Logging::info(&format!("[BEHAVIOR SCAN] Pruning {} dead processes", dead_gids.len()));
+                    for gid in dead_gids {
+                        self.behavior_engine.process_states.remove(&gid);
+                        self.process_records.process_records.pop(&gid);
+                        #[cfg(feature = "realtime_learning")]
+                        self.api_trackers.remove(&gid);
+                    }
+                }
+
+                // --- SECOND: Discover any new processes that started since last scan ---
                 let mut discovered_new = 0;
-                
                 for (pid, process) in sys.processes() {
                     let pid_u32 = pid.as_u32();
-                    
-                    // Skip system process
-                    if pid_u32 == 4 {
-                        continue;
-                    }
+                    if pid_u32 == 4 { continue; } // Skip System
                     
                     let exepath = process.exe().map(|p| PathBuf::from(p)).unwrap_or_default();
                     let appname = process.name().to_string_lossy().to_string();
                     
-                    // Skip invalid paths
                     if exepath.to_string_lossy().is_empty() || appname.is_empty() {
                         continue;
                     }
                     
-                    // Generate GID for this process
                     let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
-                    
-                    // Check if we already know about this process
                     let already_tracked_in_behavior = self.behavior_engine.process_states.contains_key(&gid);
                     let already_tracked_in_records = self.process_records.get_precord_by_gid(gid).is_some();
                     
@@ -938,72 +968,46 @@ pub mod worker_instance {
                         continue;
                     }
                     
-                    // NEW PROCESS - Register it in both tracking systems
                     Logging::debug(&format!(
                         "[BEHAVIOR SCAN] Discovered new process during scan: {} (PID: {}, GID: {}, Path: {})",
                         appname, pid_u32, gid, exepath.display()
                     ));
                     
-                    // Register in behavior engine
-                    self.behavior_engine.register_process(
-                        gid,
-                        pid_u32,
-                        exepath.clone(),
-                        appname.clone()
-                    );
-                    
-                    // Register in process records
+                    self.behavior_engine.register_process(gid, pid_u32, exepath.clone(), appname.clone());
                     let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(gid, precord);
-                    
                     discovered_new += 1;
                 }
                 
                 if discovered_new > 0 {
-                    Logging::info(&format!(
-                        "[BEHAVIOR SCAN] Discovered {} new processes during scan cycle",
-                        discovered_new
-                    ));
+                    Logging::info(&format!("[BEHAVIOR SCAN] Discovered {} new processes", discovered_new));
                 }
 
-                // SECOND: Sync behavior engine state to process_records
-                // (In case behavior engine has processes that process_records doesn't)
+                // --- THIRD: Sync behavior engine state to process_records ---
                 for (gid, state) in self.behavior_engine.process_states.iter() {
                     if self.process_records.get_precord_by_gid(*gid).is_none() {
-                        let precord = ProcessRecord::new(
-                            *gid,
-                            state.app_name.clone(),
-                            state.exe_path.clone(),
-                        );
+                        let precord = ProcessRecord::new(*gid, state.app_name.clone(), state.exe_path.clone());
                         self.process_records.insert_precord(*gid, precord);
-                        
-                        Logging::debug(&format!(
-                            "[PROCESS SYNC] Registered process from behavior_engine: {} (GID: {}, PID: {})",
-                            state.app_name, gid, state.pid
-                        ));
+                        Logging::debug(&format!("[PROCESS SYNC] Registered GID: {} from behavior_engine", gid));
                     }
                 }
 
+                // Log Current Status
                 let total_tracked = self.behavior_engine.process_states.len();
-                
                 if total_tracked > 0 {
-                    Logging::info(&format!("[BEHAVIOR SCAN] Static Scan: Evaluating {} tracked processes", total_tracked));
-                    for (gid, state) in self.behavior_engine.process_states.iter() {
-                        Logging::debug(&format!("[BEHAVIOR SCAN] Tracking GID={} PID={} bin='{}' path='{}'", 
-                            gid, state.pid, state.app_name, state.exe_path.display()));
-                    }
+                    Logging::info(&format!("[BEHAVIOR SCAN] Evaluating {} tracked processes", total_tracked));
                 } else {
-                    Logging::warning("[BEHAVIOR SCAN] No processes are being tracked by behavior engine!");
+                    Logging::warning("[BEHAVIOR SCAN] No processes are being tracked!");
                 }
 
-                // THIRD: Run the scan on all tracked processes
+                // --- FOURTH: Run the scan on all tracked processes ---
                 let detections = self.behavior_engine.scan_all_processes(config, &*threat_handler);
 
                 if !detections.is_empty() {
                     Logging::info(&format!("[BEHAVIOR SCAN] Found {} detections", detections.len()));
                 }
 
-                // FOURTH: Apply detections to process records
+                // --- FIFTH: Apply detections to process records ---
                 for det in detections {
                     let matching_record = self.process_records.process_records
                         .iter_mut()
@@ -1013,28 +1017,24 @@ pub mod worker_instance {
                         record.is_malicious = true;
                         record.termination_requested = det.termination_requested;
                         record.quarantine_requested = det.quarantine_requested;
-                        Logging::warning(&format!(
-                            "[DETECTION] Process {} (GID: {}) marked as malicious from behavior scan",
-                            record.appname, det.gid
-                        ));
-                    } else {
-                        // Detection for process not in records - create it
-                        if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
-                            Logging::warning(&format!(
-                                "[SCAN DETECTION] Process {} (GID: {}, PID: {}) matched behavioral rules - creating ProcessRecord",
-                                state.app_name, det.gid, state.pid
-                            ));
-                            
-                            let mut precord = ProcessRecord::new(
-                                det.gid,
-                                state.app_name.clone(),
-                                state.exe_path.clone(),
-                            );
-                            precord.is_malicious = true;
-                            precord.termination_requested = det.termination_requested;
-                            precord.quarantine_requested = det.quarantine_requested;
-                            
-                            self.process_records.insert_precord(det.gid, precord);
+                        Logging::warning(&format!("[DETECTION] Process {} (GID: {}) marked malicious", record.appname, det.gid));
+                        
+                        // If termination is requested, execute via threat_handler
+                        if det.termination_requested {
+                            if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
+                                threat_handler.kill(state.pid);
+                            }
+                        }
+                    } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
+                        // Handle detection for process not yet in records
+                        let mut precord = ProcessRecord::new(det.gid, state.app_name.clone(), state.exe_path.clone());
+                        precord.is_malicious = true;
+                        precord.termination_requested = det.termination_requested;
+                        precord.quarantine_requested = det.quarantine_requested;
+                        self.process_records.insert_precord(det.gid, precord);
+                        
+                        if det.termination_requested {
+                            threat_handler.kill(state.pid);
                         }
                     }
                 }
