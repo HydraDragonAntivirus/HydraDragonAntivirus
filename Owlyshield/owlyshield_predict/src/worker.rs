@@ -784,7 +784,8 @@ pub mod worker_instance {
             Logging::info("[STARTUP] Discovering pre-existing processes (one-time scan)...");
             
             let mut sys = System::new_all();
-            sys.refresh_processes();
+            // FIX #1: Provide required arguments to refresh_processes
+            sys.refresh_processes(ProcessesToUpdate::All, true);
             
             let mut discovered_count = 0;
             let mut skipped_count = 0;
@@ -1121,8 +1122,26 @@ pub mod worker_instance {
         /// Register or update process record from kernel event
         /// This is the ONLY place where processes should be added to tracking
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
-            match self.process_records.get_precord_mut_by_gid(iomsg.gid) {
-                None => {
+            let gid = iomsg.gid;
+            let pid = iomsg.pid;
+            
+            // FIX #2: Extract appname computation to avoid borrowing conflicts
+            // Check if we need to upgrade or create
+            let needs_action = match self.process_records.get_precord_by_gid(gid) {
+                None => Some(true), // Need to create new
+                Some(precord) => {
+                    let needs_upgrade = precord.exepath.to_string_lossy() == "UNKNOWN" 
+                        || precord.appname.starts_with("PROC_");
+                    if needs_upgrade && !iomsg.filepathstr.is_empty() {
+                        Some(false) // Need to upgrade existing
+                    } else {
+                        None // No action needed
+                    }
+                }
+            };
+            
+            match needs_action {
+                Some(true) => {
                     // New process - get info from kernel
                     let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
                     
@@ -1130,24 +1149,24 @@ pub mod worker_instance {
                         && !iomsg.filepathstr.is_empty() {
                         // Process creation event with path from kernel
                         let path = PathBuf::from(&iomsg.filepathstr);
-                        let name = self.appname_from_exepath(&path)
-                            .unwrap_or_else(|| format!("PROC_{}", iomsg.pid));
+                        let name = Self::appname_from_exepath_static(&path)
+                            .unwrap_or_else(|| format!("PROC_{}", pid));
                         (path, name)
                     } else {
                         // Non-creation event or missing path - query system
                         match self.exepath_handler.exepath(iomsg) {
                             Some(path) => {
-                                let name = self.appname_from_exepath(&path)
-                                    .unwrap_or_else(|| format!("PROC_{}", iomsg.pid));
+                                let name = Self::appname_from_exepath_static(&path)
+                                    .unwrap_or_else(|| format!("PROC_{}", pid));
                                 (path, name)
                             }
                             None => {
                                 // Kernel doesn't know about this process
                                 Logging::warning(&format!(
                                     "[KERNEL] Unknown process PID {} GID {} - kernel may have missed creation event",
-                                    iomsg.pid, iomsg.gid
+                                    pid, gid
                                 ));
-                                (PathBuf::from("UNKNOWN"), format!("PROC_{}", iomsg.pid))
+                                (PathBuf::from("UNKNOWN"), format!("PROC_{}", pid))
                             }
                         }
                     };
@@ -1160,22 +1179,22 @@ pub mod worker_instance {
                     
                     if appname.starts_with("PROC_") || exepath.to_string_lossy() == "UNKNOWN" {
                         Logging::warning(&format!("{} [UNRESOLVED] Process: {} (GID: {}, PID: {})", 
-                            log_type, appname, iomsg.gid, iomsg.pid));
+                            log_type, appname, gid, pid));
                     } else {
                         Logging::info(&format!("{} New Process: {} (GID: {}, PID: {}, Path: {})", 
-                            log_type, appname, iomsg.gid, iomsg.pid, exepath.display()));
+                            log_type, appname, gid, pid, exepath.display()));
                     }
 
                     // Create process record
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
-                    self.process_records.insert_precord(iomsg.gid, precord);
+                    self.process_records.insert_precord(gid, precord);
                     
                     // Register in behavior engine
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     {
                         self.behavior_engine.register_process(
-                            iomsg.gid,
-                            iomsg.pid as u32,
+                            gid,
+                            pid as u32,
                             exepath.clone(),
                             appname.clone()
                         );
@@ -1184,21 +1203,21 @@ pub mod worker_instance {
                     // Register in learning engine
                     #[cfg(feature = "realtime_learning")]
                     {
-                        self.learning_engine.track_process(iomsg.gid, appname.clone());
-                        self.api_trackers.insert(iomsg.gid, ApiTracker::new(iomsg.gid, appname));
+                        self.learning_engine.track_process(gid, appname.clone());
+                        self.api_trackers.insert(gid, ApiTracker::new(gid, appname));
                     }
                 }
-                Some(precord) => {
-                    // Existing process - check if we can upgrade UNKNOWN info
-                    let needs_upgrade = precord.exepath.to_string_lossy() == "UNKNOWN" 
-                        || precord.appname.starts_with("PROC_");
-                    
-                    if needs_upgrade && !iomsg.filepathstr.is_empty() {
-                        let path = PathBuf::from(&iomsg.filepathstr);
-                        if let Some(name) = self.appname_from_exepath(&path) {
+                Some(false) => {
+                    // Existing process - upgrade UNKNOWN info
+                    let path = PathBuf::from(&iomsg.filepathstr);
+                    if let Some(name) = Self::appname_from_exepath_static(&path) {
+                        // Get mutable reference after all immutable operations are done
+                        if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
+                            let old_name = precord.appname.clone();
+                            
                             Logging::info(&format!(
                                 "[KERNEL] Updated Process Info: {} -> {} (GID: {}, PID: {}, Path: {})",
-                                precord.appname, name, iomsg.gid, iomsg.pid, path.display()
+                                old_name, name, gid, pid, path.display()
                             ));
                             
                             precord.exepath = path.clone();
@@ -1207,7 +1226,7 @@ pub mod worker_instance {
                             // Update behavior engine
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                             {
-                                if let Some(state) = self.behavior_engine.process_states.get_mut(&iomsg.gid) {
+                                if let Some(state) = self.behavior_engine.process_states.get_mut(&gid) {
                                     state.exe_path = path;
                                     state.app_name = name;
                                 }
@@ -1215,10 +1234,17 @@ pub mod worker_instance {
                         }
                     }
                 }
+                None => {
+                    // No action needed
+                }
             }
         }
 
         fn appname_from_exepath(&self, exepath: &Path) -> Option<String> {
+            Self::appname_from_exepath_static(exepath)
+        }
+        
+        fn appname_from_exepath_static(exepath: &Path) -> Option<String> {
             exepath.file_name()?.to_str().map(|s| s.to_string())
         }
     }
