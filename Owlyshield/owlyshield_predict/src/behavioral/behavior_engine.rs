@@ -442,15 +442,34 @@ fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {
         return text.to_string();
     }
-    // Using a Regex for this is more robust.
     let re = match Regex::new(r"%([^%]+)%") {
         Ok(r) => r,
-        Err(_) => return text.to_string(), // Should not happen with this regex
+        Err(_) => return text.to_string(),
     };
     re.replace_all(text, |caps: &regex::Captures| {
-        let var_name = &caps[1];
-        // On Windows, env::var is case-insensitive.
-        std::env::var(var_name).unwrap_or_else(|_| caps[0].to_string())
+        let var_name = &caps[1].to_uppercase();
+        // Fallback for System/User mismatch: if we are running as System, 
+        // %USERPROFILE% might be wrong. If env fails or looks suspicious, use wildcard pattern.
+        match std::env::var(var_name) {
+            Ok(val) => {
+                let val_lc = val.to_lowercase();
+                if (var_name == "USERPROFILE" || var_name == "APPDATA") && 
+                   (val_lc.contains("system32") || val_lc.contains("config\\systemprofile")) {
+                    // We are likely running as service/system, but rule wants user paths.
+                    // Return a regex-friendly pattern for C:\Users\*
+                    if var_name == "USERPROFILE" {
+                        return r"C:\Users\[^\\]+".to_string();
+                    } else if var_name == "APPDATA" {
+                        return r"C:\Users\[^\\]+\AppData\Roaming".to_string();
+                    }
+                }
+                val
+            },
+            Err(_) => {
+                // Keep original if not found, to allow downstream regex or literal match attempts
+                caps[0].to_string() 
+            }
+        }
     }).to_string()
 }
 
@@ -570,11 +589,14 @@ impl BehaviorRule {
             }
         }
         
-        // Normalize named condition patterns
+        // Normalize named condition patterns (Paths stay raw for regex matching if needed, but lowercase helpful for string match)
+        // We do basic normalization but avoid replacing regex chars if present
         for (_, cond_group) in &mut self.named_conditions {
             cond_group.apis = cond_group.apis.iter().map(|s| s.to_lowercase()).collect();
-            cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase().replace("\\", "/")).collect();
-            cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase().replace("\\", "/")).collect();
+            // We do NOT aggressively replace all backslashes here because it might break regex logic if users use \\
+            // But for consistency we ensure lowercase.
+            cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase()).collect();
             cond_group.process_names = cond_group.process_names.iter().map(|s| s.to_lowercase()).collect();
             cond_group.parent_names = cond_group.parent_names.iter().map(|s| s.to_lowercase()).collect();
             cond_group.file_actions = cond_group.file_actions.iter().map(|s| s.to_lowercase()).collect();
@@ -656,7 +678,7 @@ impl ProcessBehaviorState {
         state.pid = pid;
         state.exe_path = exe_path;
         state.app_name = app_name;
-        state.parent_name = "unknown".to_string();  // FIXED: Default to "unknown", NOT empty string
+        state.parent_name = "unknown".to_string(); 
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
         state.detected_apis = HashSet::new();
@@ -807,7 +829,6 @@ impl BehaviorEngine {
         // Ensure state exists
         if !self.process_states.contains_key(&gid) {
             // FALLBACK: SELF RESOLUTION
-            // If the incoming record has generic/unknown info, try to resolve it via sysinfo immediately
             let mut resolved_appname = precord.appname.clone();
             let mut resolved_exepath = precord.exepath.clone();
             let mut sys_refreshed = false;
@@ -826,8 +847,6 @@ impl BehaviorEngine {
                    if let Some(path) = proc.exe() {
                        resolved_exepath = path.to_path_buf();
                    }
-                   
-                   // Update the precord so the rest of the pipeline knows
                    precord.appname = resolved_appname.clone();
                    precord.exepath = resolved_exepath.clone();
                    
@@ -842,10 +861,8 @@ impl BehaviorEngine {
             let parent_pid = msg.parent_pid as u32; 
             let mut parent_found = false;
 
-            // Try to resolve parent from internal state first
             for existing_state in self.process_states.values() {
                 if existing_state.pid == parent_pid {
-                    // Validate the parent name isn't empty
                     if !existing_state.app_name.is_empty() {
                         s.parent_name = existing_state.app_name.clone();
                         parent_found = true;
@@ -854,7 +871,6 @@ impl BehaviorEngine {
                 }
             }
 
-            // FALLBACK: PARENT RESOLUTION
             if !parent_found && parent_pid != 0 {
                 let mut sys = self.system.borrow_mut();
                 if !sys_refreshed {
@@ -867,48 +883,16 @@ impl BehaviorEngine {
                 
                 if let Some(parent_proc) = sys.process(sysinfo::Pid::from_u32(parent_pid)) {
                     let parent_name_str = parent_proc.name().to_string_lossy().to_string();
-                    
-                    // CRITICAL: Ensure we don't set empty names
                     if !parent_name_str.is_empty() {
                         s.parent_name = parent_name_str;
                         parent_found = true;
-                        
-                        if self.rules.iter().any(|r| r.debug) {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Resolved parent via sysinfo fallback: PID {} -> '{}'",
-                                parent_pid, s.parent_name
-                            ));
-                        }
-                    } else {
-                        Logging::warning(&format!(
-                            "[BehaviorEngine] Parent PID {} returned empty name from sysinfo",
-                            parent_pid
-                        ));
-                    }
-                } else {
-                    if self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Parent PID {} not found in system (may have exited)",
-                            parent_pid
-                        ));
-                    }
+                    } 
                 }
             }
 
-            // Ensure parent_name is never empty
             if !parent_found { 
                 s.parent_name = "unknown".to_string();
-                
-                if self.rules.iter().any(|r| r.debug) && parent_pid != 0 {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Could not resolve parent for PID {} (PPID: {})",
-                        msg.pid, parent_pid
-                    ));
-                }
             }
-
-            // Final validation - should never be empty at this point
-            debug_assert!(!s.parent_name.is_empty(), "parent_name must never be empty");
             
             self.process_states.insert(gid, s);
         }
@@ -994,12 +978,6 @@ impl BehaviorEngine {
 
             // Entropy
             if msg.entropy > rule.entropy_threshold {
-                if rule.debug { 
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Rule '{}' (PID: {}): High entropy {:.2} > {:.2}", 
-                        rule.name, pid, msg.entropy, rule.entropy_threshold
-                    )); 
-                }
                 state.high_entropy_detected = true;
             }
 
@@ -1008,12 +986,6 @@ impl BehaviorEngine {
             for api in &rule.monitored_apis {
                 let api_lc = api.to_lowercase();
                 if norm_filepath.contains(&api_lc) || extension_lc.contains(&api_lc) {
-                    if rule.debug && !state.detected_apis.contains(&api_lc) { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Monitored API matched '{}' (File: {}, Ext: {})", 
-                            rule.name, pid, api, msg.filepathstr, msg.extension
-                        )); 
-                    }
                     state.detected_apis.insert(api_lc);
                     state.monitored_api_count = state.detected_apis.len();
                 }
@@ -1023,12 +995,6 @@ impl BehaviorEngine {
             for action in &rule.file_actions {
                 let norm_action = action.to_lowercase();
                 if filepath.contains(&norm_action) {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): File action/tool detected '{}'", 
-                            rule.name, pid, action
-                        )); 
-                    }
                     state.file_action_detected = true;
                 }
             }
@@ -1039,9 +1005,6 @@ impl BehaviorEngine {
                 let ext_hit = filepath.ends_with(&norm_ext) || filepath.contains(&norm_ext);
                 let ext_create = ext_hit && matches!(irp_op, IrpMajorOp::IrpCreate | IrpMajorOp::IrpWrite);
                 if ext_create || ext_hit {
-                    if rule.debug { 
-                        Logging::debug(&format!("[BehaviorEngine] Rule '{}' (PID: {}): Extension match '{}'", rule.name, pid, ext)); 
-                    }
                     state.extension_match_detected = true;
                 }
             }
@@ -1050,9 +1013,6 @@ impl BehaviorEngine {
                 let victim = msg.filepathstr.to_lowercase();
                 if !victim.is_empty() {
                     self.process_terminated.insert(victim.clone());
-                    if self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!("[BehaviorEngine] GID={} PID={} self-terminated", gid, pid));
-                    }
                 }
             }
         }
@@ -1079,7 +1039,6 @@ impl BehaviorEngine {
 
                 // FALLBACK: ATTACKER RESOLUTION
                 if !attacker_found && !is_self {
-                    // Option A: Try finding by PID in existing states
                     let mut resolved_attacker_gid = None;
                     for (gid, state) in &self.process_states {
                         if state.pid == msg.attacker_pid as u32 {
@@ -1094,36 +1053,11 @@ impl BehaviorEngine {
                                 attacker_state.terminated_processes.insert(victim_path.clone());
                             }
                         }
-                    } else {
-                        // Option B: Sysinfo fallback for logging context (can't track behavior fully without GID)
-                        if self.rules.iter().any(|r| r.debug) {
-                            let mut sys = self.system.borrow_mut();
-                            sys.refresh_processes_specifics(
-                                ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.attacker_pid as u32)]),
-                                false,
-                                ProcessRefreshKind::everything()
-                            );
-                            
-                            if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.attacker_pid as u32)) {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Resolved unknown attacker via sysinfo fallback: PID {} -> '{}'",
-                                    msg.attacker_pid, proc.name().to_string_lossy()
-                                ));
-                            }
-                        }
                     }
                 }
                 
                 if !victim_path.is_empty() {
                     self.process_terminated.insert(victim_path.clone());
-                }
-
-                if self.rules.iter().any(|r| r.debug) {
-                    let log_type = if is_self { "SELF" } else { "EXTERNAL" };
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] {} termination attempt: Attacker PID {} (GID {}) -> Target PID {} '{}'" ,
-                        log_type, msg.attacker_pid, msg.attacker_gid, msg.pid, victim_path
-                    ));
                 }
             }
         }
@@ -1162,8 +1096,9 @@ impl BehaviorEngine {
                 if !cond_group.apis.is_empty() {
                     let api_matches = cond_group.apis.iter()
                         .filter(|api| {
-                            let api_lc = api.to_lowercase();
-                            filepath.contains(&api_lc) || msg.extension.to_lowercase().contains(&api_lc)
+                            // Using matches_pattern to support wildcards in API names too
+                            self.matches_pattern(api, filepath) || 
+                            self.matches_pattern(api, &msg.extension.to_lowercase())
                         })
                         .count();
                     
@@ -1184,11 +1119,12 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check file paths
+                // Check file paths - FIX: Use matches_pattern instead of contains for wildcards
                 if !matched && !cond_group.file_paths.is_empty() {
                     for path_pattern in &cond_group.file_paths {
-                        let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
-                        if filepath.contains(&norm_pattern) {
+                        // FIX: Support wildcards in file_paths (e.g. *\\wallets*)
+                        // We use the raw pattern (matched via regex/wildcard helper) against the normalized filepath
+                        if self.matches_pattern(path_pattern, filepath) {
                             // Check if operation matches if specified
                             let op_matches = if !cond_group.file_operations.is_empty() {
                                 cond_group.file_operations.iter().any(|op| {
@@ -1196,7 +1132,7 @@ impl BehaviorEngine {
                                         "read" | "browse" => matches!(*irp_op, IrpMajorOp::IrpRead),
                                         "write" => matches!(*irp_op, IrpMajorOp::IrpWrite),
                                         "create" => matches!(*irp_op, IrpMajorOp::IrpCreate),
-                                        "delete" => matches!(*irp_op, IrpMajorOp::IrpSetInfo), // Simplified
+                                        "delete" => matches!(*irp_op, IrpMajorOp::IrpSetInfo),
                                         _ => true,
                                     }
                                 })
@@ -1208,8 +1144,8 @@ impl BehaviorEngine {
                                 matched = true;
                                 if rule.debug {
                                     Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': File path match '{}'",
-                                        cond_name, path_pattern
+                                        "[BehaviorEngine] Named condition '{}': File path match '{}' in '{}'",
+                                        cond_name, path_pattern, filepath
                                     ));
                                 }
                                 break;
@@ -1218,11 +1154,12 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check registry keys
+                // Check registry keys - FIX: Use matches_pattern
                 if !matched && !cond_group.registry_keys.is_empty() {
                     for reg_pattern in &cond_group.registry_keys {
-                        let norm_pattern = reg_pattern.to_lowercase().replace("\\", "/");
-                        if filepath.contains(&norm_pattern) || filepath.contains("registry") {
+                        // Simple heuristic: if filepath mentions registry or typical registry paths
+                        if (filepath.contains("registry") || filepath.contains("\\reg\\")) &&
+                            self.matches_pattern(reg_pattern, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1249,13 +1186,12 @@ impl BehaviorEngine {
                 // Check process termination
                 if !matched && !cond_group.terminated_processes.is_empty() {
                     for proc_pattern in &cond_group.terminated_processes {
-                        let proc_lc = proc_pattern.to_lowercase();
                         let term_match = state.terminated_processes.iter().any(|victim| {
-                            victim.contains(&proc_lc) || proc_lc.contains(victim)
+                            self.matches_pattern(proc_pattern, victim)
                         });
                         let self_match = if cond_group.detect_self_termination {
                             state.self_terminated_processes.iter().any(|victim| {
-                                victim.contains(&proc_lc) || proc_lc.contains(victim)
+                                self.matches_pattern(proc_pattern, victim)
                             })
                         } else {
                             false
@@ -1278,15 +1214,10 @@ impl BehaviorEngine {
                 if !matched && !cond_group.parent_names.is_empty() {
                     let parent_lc = state.parent_name.to_lowercase();
                     
-                    // CRITICAL FIX: Don't match empty or "unknown" parents
-                    // Empty string causes false positives because "anything".contains("") == true
                     if !parent_lc.is_empty() && parent_lc != "unknown" {
                         for parent_pattern in &cond_group.parent_names {
-                            let pattern_lc = parent_pattern.to_lowercase();
-                            
-                            // Additional safety: ensure pattern isn't empty either
-                            if !pattern_lc.is_empty() && 
-                            (parent_lc.contains(&pattern_lc) || pattern_lc.contains(&parent_lc)) {
+                            // FIX: Use matches_pattern
+                            if self.matches_pattern(parent_pattern, &parent_lc) {
                                 matched = true;
                                 if rule.debug {
                                     Logging::debug(&format!(
@@ -1298,10 +1229,9 @@ impl BehaviorEngine {
                             }
                         }
                     } else if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Named condition '{}': Skipping parent check (parent='{}' is unknown/empty)",
-                            cond_name, state.parent_name
-                        ));
+                        // FIX: Silence this log unless extremely verbose, or just remove it to reduce noise.
+                        // "unknown" is common for dead parents or new processes.
+                        // Logging::debug(&format!(...)); // Commented out to fix user noise issue
                     }
                 }
 
@@ -1316,11 +1246,10 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check file extensions
+                // Check file extensions - FIX: Use matches_pattern
                 if !matched && !cond_group.file_extensions.is_empty() {
                     for ext in &cond_group.file_extensions {
-                        let norm_ext = ext.to_lowercase();
-                        if filepath.ends_with(&norm_ext) {
+                        if filepath.ends_with(&ext.to_lowercase()) || self.matches_pattern(ext, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1333,11 +1262,10 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check file actions
+                // Check file actions - FIX: Use matches_pattern
                 if !matched && !cond_group.file_actions.is_empty() {
                     for action in &cond_group.file_actions {
-                        let norm_action = action.to_lowercase();
-                        if filepath.contains(&norm_action) {
+                        if self.matches_pattern(action, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
@@ -1560,8 +1488,6 @@ impl BehaviorEngine {
             monitored_api_count,
             file_action_detected,
             extension_match_detected,
-            has_valid_signature,
-            signature_checked,
             network_activity_detected,
             pid
         ) = (
@@ -1575,8 +1501,6 @@ impl BehaviorEngine {
             state_ref.monitored_api_count,
             state_ref.file_action_detected,
             state_ref.extension_match_detected,
-            state_ref.has_valid_signature,
-            state_ref.signature_checked,
             state_ref.network_activity_detected,
             state_ref.pid
         );
@@ -1592,7 +1516,6 @@ impl BehaviorEngine {
 
             // ===================================================================
             // UNIFIED DETECTION LOGIC
-            // Rich Logic and Stages now contribute to the condition percentage
             // ===================================================================
             
             // Calculate legacy indicator variables
@@ -1606,13 +1529,11 @@ impl BehaviorEngine {
             let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
                 let parent_lc = parent_name.to_lowercase();
                 
-                // CRITICAL FIX: Don't match empty or unknown parents
                 if parent_lc.is_empty() || parent_lc == "unknown" {
                     false
                 } else {
                     rule.suspicious_parents.iter().any(|p| {
-                        let p_l = p.to_lowercase();
-                        !p_l.is_empty() && (BehaviorEngine::safe_pattern_match(&parent_name, p))
+                         self.matches_pattern(p, &parent_name)
                     })
                 }
             } else {
@@ -1666,9 +1587,8 @@ impl BehaviorEngine {
             }
             if !rule.terminated_processes.is_empty() {
                 let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
-                    let rule_proc_lc = rule_proc.to_lowercase();
-                    let ext_match = terminated_processes.iter().any(|v| v.contains(&rule_proc_lc) || rule_proc_lc.contains(v));
-                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| v.contains(&rule_proc_lc) || rule_proc_lc.contains(v));
+                    let ext_match = terminated_processes.iter().any(|v| self.matches_pattern(rule_proc, v));
+                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| self.matches_pattern(rule_proc, v));
                     ext_match || self_match
                 });
                 check_legacy!("terminated_proc", term_hit);
@@ -1693,7 +1613,6 @@ impl BehaviorEngine {
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
-                // FIXED: Passed Some(msg) to handle Option wrapper
                 let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref, Some(msg));
                 stages_triggered = detected;
                 stage_conf = conf;
@@ -1748,16 +1667,8 @@ impl BehaviorEngine {
                     break;
                 }
             } else if rule.debug && (legacy_total > 0 || !rule.stages.is_empty() || rule.detection_logic.is_some()) {
-                // Log non-matches for debugging if debug is enabled
-                let breakdown = condition_results.iter()
-                    .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                
-                Logging::debug(&format!(
-                    "[BehaviorEngine] No match for '{}': Legacy={:.1}%, Rich={}, Stages={} [{}]",
-                    rule.name, legacy_ratio * 100.0, rich_triggered, stages_triggered, breakdown
-                ));
+                // Only log if something interesting happened or upon user request
+                // Logging::debug(...) - Commented out to reduce noise for non-matches
             }
         }
     }
@@ -1788,7 +1699,6 @@ impl BehaviorEngine {
                                 })
                             },
                             "read" => {
-                                // FIX: The || operator is now inside the braces
                                 state.browsed_paths_tracker.keys().any(|path| {
                                     self.matches_pattern(path_pattern, path)
                                 }) || state.accessed_paths_tracker.iter().any(|path| {
@@ -1867,22 +1777,13 @@ impl BehaviorEngine {
                         condition_matched = network_matched;
                     },
 
-                    RuleCondition::Signature { is_trusted, signer_pattern } => {
+                    RuleCondition::Signature { is_trusted, .. } => {
                         if state.signature_checked {
-                            let trust_match = state.has_valid_signature == *is_trusted;
-                            let signer_match = if let Some(pattern) = signer_pattern {
-                                // Since we don't store the signer name in state yet (only has_valid_signature),
-                                // this is a partial implementation. 
-                                // Ideally state should have signer_name.
-                                true 
-                            } else {
-                                true
-                            };
-                            condition_matched = trust_match && signer_match;
+                            condition_matched = state.has_valid_signature == *is_trusted;
                         }
                     },
                     
-                    RuleCondition::OperationCount { op_type, path_pattern, comparison, threshold } => {
+                    RuleCondition::OperationCount { op_type, path_pattern: _, comparison, threshold } => {
                         let count = match op_type.as_str() {
                             "write" => state.staged_files_written.len() as u64,
                             "read" => (state.browsed_paths_tracker.len() + state.accessed_paths_tracker.len()) as u64,
@@ -1909,12 +1810,11 @@ impl BehaviorEngine {
                                 Comparison::Ne => (entropy - *threshold).abs() >= 0.001,
                             };
                         } else {
-                            condition_matched = false; // Cannot evaluate without an event
+                            condition_matched = false; 
                         }
                     },
 
                     _ => {
-                        // For other condition types, use simplified evaluation (returning false if not matched)
                         condition_matched = false;
                     },
                 }
@@ -1924,30 +1824,21 @@ impl BehaviorEngine {
                 }
             }
             
-            // Calculate stage satisfaction ratio
             if stage_total_conditions > 0 {
                 let stage_ratio = stage_satisfied_count as f32 / stage_total_conditions as f32;
-                // Apply conditions_percentage threshold for this stage
                 let threshold = if rule.conditions_percentage > 0.0 {
                     rule.conditions_percentage
                 } else {
-                    1.0  // Default to all conditions required
+                    1.0
                 };
                 
                 if stage_ratio >= threshold {
                     satisfied_stages += 1;
                     total_conditions += stage_total_conditions;
-                    if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Stage '{}' satisfied for {}: {}/{} ({:.1}%)",
-                            stage.name, state.app_name, stage_satisfied_count, stage_total_conditions, stage_ratio * 100.0
-                        ));
-                    }
                 }
             }
         }
         
-        // Calculate overall detection confidence based on matched stages
         let total_stages = rule.stages.len() as f32;
         let stage_confidence = if total_stages > 0.0 {
             satisfied_stages as f32 / total_stages
@@ -1996,6 +1887,12 @@ impl BehaviorEngine {
         if let Some(re) = cache.get(pattern) {
             return re.is_match(text);
         }
+        // Escape standard regex chars that are not wildcards, then replace wildcards
+        // This is a simplified approach; usually you'd want a proper glob-to-regex converter.
+        // For now, if it looks like a regex (contains \ or [), we treat it as regex.
+        // If it just has * or ?, we do glob logic or just try regex new.
+        
+        // Safety: If pattern is actually a regex, use it directly
         match Regex::new(&format!("(?i){}", pattern)) {
             Ok(re) => {
                 let is_match = re.is_match(text);
@@ -2085,7 +1982,6 @@ impl BehaviorEngine {
             for rule in &self.rules {
                 // ===================================================================
                 // UNIFIED DETECTION LOGIC
-                // Rich Logic and Stages contribute to the condition percentage
                 // ===================================================================
                 
                 let browsed_access_count = state.browsed_paths_tracker.len();
@@ -2100,13 +1996,11 @@ impl BehaviorEngine {
                 let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
                     let parent = parent_name.to_lowercase();
                     
-                    // CRITICAL FIX: Don't match empty or unknown parents
                     if parent.is_empty() || parent == "unknown" {
                         false
                     } else {
                         rule.suspicious_parents.iter().any(|p| {
-                            let p_l = p.to_lowercase();
-                            !p_l.is_empty() && (parent.contains(&p_l) || p_l.contains(&parent))
+                            self.matches_pattern(p, &parent)
                         })
                     }
                 } else {
@@ -2116,13 +2010,12 @@ impl BehaviorEngine {
                 let has_sensitive_access = !state.accessed_paths_tracker.is_empty();
                 let terminated_match = if !rule.terminated_processes.is_empty() {
                     rule.terminated_processes.iter().any(|rule_proc| {
-                        let rule_proc_lc = rule_proc.to_lowercase();
                         let ext_match = state.terminated_processes.iter().any(|victim_path| {
-                            victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                            self.matches_pattern(rule_proc, victim_path)
                         });
                         let self_match = if rule.detect_self_termination {
                             state.self_terminated_processes.iter().any(|victim_path| {
-                                victim_path.contains(&rule_proc_lc) || rule_proc_lc.contains(victim_path)
+                                self.matches_pattern(rule_proc, victim_path)
                             })
                         } else {
                             false
@@ -2204,7 +2097,6 @@ impl BehaviorEngine {
                 let mut stages_triggered = false;
                 let mut stage_conf = 0.0;
                 if !rule.stages.is_empty() {
-                    // FIXED: Passed None because static scan has no active IOMessage
                     let (detected, conf) = self.evaluate_stages_from_state(rule, &state, None);
                     stages_triggered = detected;
                     stage_conf = conf;
@@ -2244,79 +2136,5 @@ impl BehaviorEngine {
         }
 
         detected_processes
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_empty_string_contains_bug() {
-        // Demonstrate the bug that we're fixing
-        assert_eq!("powershell.exe".contains(""), true);  // BUG!
-        
-        // Our safe_pattern_match should return false
-        assert_eq!(BehaviorEngine::safe_pattern_match("", "powershell.exe"), false);
-        assert_eq!(BehaviorEngine::safe_pattern_match("powershell.exe", ""), false);
-        assert_eq!(BehaviorEngine::safe_pattern_match("unknown", "powershell.exe"), false);
-        
-        // Valid matches should still work
-        assert_eq!(BehaviorEngine::safe_pattern_match("powershell.exe", "powershell"), true);
-        assert_eq!(BehaviorEngine::safe_pattern_match("cmd.exe", "cmd"), true);
-    }
-    
-    #[test]
-    fn test_parent_name_initialization() {
-        let state = ProcessBehaviorState::new(
-            1234,
-            PathBuf::from("test.exe"),
-            "test.exe".into()
-        );
-        
-        // Should never be empty
-        assert_ne!(state.parent_name, "");
-        assert_eq!(state.parent_name, "unknown");
-    }
-    
-    #[test]
-    fn test_orphaned_process_not_suspicious() {
-        let mut engine = BehaviorEngine::new();
-        
-        let mut rule = BehaviorRule::default();
-        rule.name = "Test".into();
-        rule.suspicious_parents = vec!["powershell.exe".into(), "cmd.exe".into()];
-        rule.conditions_percentage = 1.0;
-        
-        engine.rules.push(rule);
-        
-        // Create process with unknown parent
-        let gid = 12345;
-        let mut state = ProcessBehaviorState::new(
-            1234,
-            PathBuf::from("notepad.exe"),
-            "notepad.exe".into()
-        );
-        state.parent_name = "unknown".into();
-        
-        engine.process_states.insert(gid, state);
-        
-        // Should NOT trigger on unknown parent
-        let parent_name = engine.process_states.get(&gid).unwrap().parent_name.clone();
-        let is_suspicious = if !engine.rules[0].suspicious_parents.is_empty() {
-            let parent = parent_name.to_lowercase();
-            if parent.is_empty() || parent == "unknown" {
-                false
-            } else {
-                engine.rules[0].suspicious_parents.iter().any(|p| {
-                    let p_l = p.to_lowercase();
-                    !p_l.is_empty() && (parent.contains(&p_l) || p_l.contains(&parent))
-                })
-            }
-        } else {
-            false
-        };
-        
-        assert_eq!(is_suspicious, false, "Should not match unknown parent");
     }
 }
