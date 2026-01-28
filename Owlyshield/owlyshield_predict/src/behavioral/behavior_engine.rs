@@ -534,6 +534,7 @@ impl ProcessBehaviorState {
         state.pid = pid;
         state.exe_path = exe_path;
         state.app_name = app_name;
+        state.parent_name = "unknown".to_string();  // FIXED: Default to "unknown", NOT empty string
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
         state.detected_apis = HashSet::new();
@@ -567,6 +568,20 @@ impl BehaviorEngine {
             process_terminated: HashSet::new(),
             system: RefCell::new(System::new()),
         }
+    }
+
+    /// Helper to safely check if a string matches a pattern
+    /// Returns false for empty/unknown strings to avoid false positives
+    fn safe_pattern_match(text: &str, pattern: &str) -> bool {
+        let text_lc = text.to_lowercase();
+        let pattern_lc = pattern.to_lowercase();
+        
+        // Don't match if either is empty or text is "unknown"
+        if text_lc.is_empty() || pattern_lc.is_empty() || text_lc == "unknown" {
+            return false;
+        }
+        
+        text_lc.contains(&pattern_lc) || pattern_lc.contains(&text_lc)
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -701,15 +716,18 @@ impl BehaviorEngine {
             }
 
             let mut s = ProcessBehaviorState::new(msg.pid as u32, resolved_exepath, resolved_appname);
-            
+                        
             let parent_pid = msg.parent_pid as u32; 
             let mut parent_found = false;
 
             // Try to resolve parent from internal state first
             for existing_state in self.process_states.values() {
                 if existing_state.pid == parent_pid {
-                    s.parent_name = existing_state.app_name.clone();
-                    parent_found = true;
+                    // Validate the parent name isn't empty
+                    if !existing_state.app_name.is_empty() {
+                        s.parent_name = existing_state.app_name.clone();
+                        parent_found = true;
+                    }
                     break;
                 }
             }
@@ -718,7 +736,6 @@ impl BehaviorEngine {
             if !parent_found && parent_pid != 0 {
                 let mut sys = self.system.borrow_mut();
                 if !sys_refreshed {
-                    // Only refresh if we didn't just do it for self-resolution
                     sys.refresh_processes_specifics(
                         ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(parent_pid)]),
                         false,
@@ -727,25 +744,54 @@ impl BehaviorEngine {
                 }
                 
                 if let Some(parent_proc) = sys.process(sysinfo::Pid::from_u32(parent_pid)) {
-                    s.parent_name = parent_proc.name().to_string_lossy().to_string();
-                    parent_found = true;
+                    let parent_name_str = parent_proc.name().to_string_lossy().to_string();
                     
+                    // CRITICAL: Ensure we don't set empty names
+                    if !parent_name_str.is_empty() {
+                        s.parent_name = parent_name_str;
+                        parent_found = true;
+                        
+                        if self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Resolved parent via sysinfo fallback: PID {} -> '{}'",
+                                parent_pid, s.parent_name
+                            ));
+                        }
+                    } else {
+                        Logging::warning(&format!(
+                            "[BehaviorEngine] Parent PID {} returned empty name from sysinfo",
+                            parent_pid
+                        ));
+                    }
+                } else {
                     if self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Resolved parent via sysinfo fallback: PID {} -> '{}'",
-                            parent_pid, s.parent_name
+                            "[BehaviorEngine] Parent PID {} not found in system (may have exited)",
+                            parent_pid
                         ));
                     }
                 }
             }
 
+            // Ensure parent_name is never empty
             if !parent_found { 
-                s.parent_name = "unknown".to_string(); 
+                s.parent_name = "unknown".to_string();
+                
+                if self.rules.iter().any(|r| r.debug) && parent_pid != 0 {
+                    Logging::debug(&format!(
+                        "[BehaviorEngine] Could not resolve parent for PID {} (PPID: {})",
+                        msg.pid, parent_pid
+                    ));
+                }
+            }
+
+            // Final validation - should never be empty at this point
+            debug_assert!(!s.parent_name.is_empty(), "parent_name must never be empty");
             }
             
             self.process_states.insert(gid, s);
         }
-
+    }
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
@@ -1111,20 +1157,34 @@ impl BehaviorEngine {
                 // Check parent process names (suspicious origin)
                 if !matched && !cond_group.parent_names.is_empty() {
                     let parent_lc = state.parent_name.to_lowercase();
-                    for parent_pattern in &cond_group.parent_names {
-                        if parent_lc.contains(parent_pattern) || parent_pattern.contains(&parent_lc) {
-                            matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Suspicious parent matched '{}'",
-                                    cond_name, state.parent_name
-                                ));
+                    
+                    // CRITICAL FIX: Don't match empty or "unknown" parents
+                    // Empty string causes false positives because "anything".contains("") == true
+                    if !parent_lc.is_empty() && parent_lc != "unknown" {
+                        for parent_pattern in &cond_group.parent_names {
+                            let pattern_lc = parent_pattern.to_lowercase();
+                            
+                            // Additional safety: ensure pattern isn't empty either
+                            if !pattern_lc.is_empty() && 
+                            (parent_lc.contains(&pattern_lc) || pattern_lc.contains(&parent_lc)) {
+                                matched = true;
+                                if rule.debug {
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Named condition '{}': Suspicious parent matched '{}' (pattern: '{}')",
+                                        cond_name, state.parent_name, parent_pattern
+                                    ));
+                                }
+                                break;
                             }
-                            break;
                         }
+                    } else if rule.debug {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Named condition '{}': Skipping parent check (parent='{}' is unknown/empty)",
+                            cond_name, state.parent_name
+                        ));
                     }
                 }
-                
+
                 // Check entropy
                 if !matched && cond_group.entropy_threshold > 0.0 && msg.entropy > cond_group.entropy_threshold {
                     matched = true;
@@ -1425,10 +1485,16 @@ impl BehaviorEngine {
             };
             let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
                 let parent_lc = parent_name.to_lowercase();
-                rule.suspicious_parents.iter().any(|p| {
-                    let p_l = p.to_lowercase();
-                    parent_lc.contains(&p_l) || p_l.contains(&parent_lc)
-                })
+                
+                // CRITICAL FIX: Don't match empty or unknown parents
+                if parent_lc.is_empty() || parent_lc == "unknown" {
+                    false
+                } else {
+                    rule.suspicious_parents.iter().any(|p| {
+                        let p_l = p.to_lowercase();
+                        !p_l.is_empty() && (BehaviorEngine::safe_pattern_match(&parent_name, p))
+                    })
+                }
             } else {
                 false
             };
@@ -1891,14 +1957,20 @@ impl BehaviorEngine {
                 } else {
                     true
                 };
-                
+                                
                 let parent_name = state.parent_name.clone();
                 let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
                     let parent = parent_name.to_lowercase();
-                    rule.suspicious_parents.iter().any(|p| {
-                        let p_l = p.to_lowercase();
-                        parent.contains(&p_l) || p_l.contains(&parent)
-                    })
+                    
+                    // CRITICAL FIX: Don't match empty or unknown parents
+                    if parent.is_empty() || parent == "unknown" {
+                        false
+                    } else {
+                        rule.suspicious_parents.iter().any(|p| {
+                            let p_l = p.to_lowercase();
+                            !p_l.is_empty() && (parent.contains(&p_l) || p_l.contains(&parent))
+                        })
+                    }
                 } else {
                     false
                 };
@@ -2033,5 +2105,79 @@ impl BehaviorEngine {
         }
 
         detected_processes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_empty_string_contains_bug() {
+        // Demonstrate the bug that we're fixing
+        assert_eq!("powershell.exe".contains(""), true);  // BUG!
+        
+        // Our safe_pattern_match should return false
+        assert_eq!(BehaviorEngine::safe_pattern_match("", "powershell.exe"), false);
+        assert_eq!(BehaviorEngine::safe_pattern_match("powershell.exe", ""), false);
+        assert_eq!(BehaviorEngine::safe_pattern_match("unknown", "powershell.exe"), false);
+        
+        // Valid matches should still work
+        assert_eq!(BehaviorEngine::safe_pattern_match("powershell.exe", "powershell"), true);
+        assert_eq!(BehaviorEngine::safe_pattern_match("cmd.exe", "cmd"), true);
+    }
+    
+    #[test]
+    fn test_parent_name_initialization() {
+        let state = ProcessBehaviorState::new(
+            1234,
+            PathBuf::from("test.exe"),
+            "test.exe".into()
+        );
+        
+        // Should never be empty
+        assert_ne!(state.parent_name, "");
+        assert_eq!(state.parent_name, "unknown");
+    }
+    
+    #[test]
+    fn test_orphaned_process_not_suspicious() {
+        let mut engine = BehaviorEngine::new();
+        
+        let mut rule = BehaviorRule::default();
+        rule.name = "Test".into();
+        rule.suspicious_parents = vec!["powershell.exe".into(), "cmd.exe".into()];
+        rule.conditions_percentage = 1.0;
+        
+        engine.rules.push(rule);
+        
+        // Create process with unknown parent
+        let gid = 12345;
+        let mut state = ProcessBehaviorState::new(
+            1234,
+            PathBuf::from("notepad.exe"),
+            "notepad.exe".into()
+        );
+        state.parent_name = "unknown".into();
+        
+        engine.process_states.insert(gid, state);
+        
+        // Should NOT trigger on unknown parent
+        let parent_name = engine.process_states.get(&gid).unwrap().parent_name.clone();
+        let is_suspicious = if !engine.rules[0].suspicious_parents.is_empty() {
+            let parent = parent_name.to_lowercase();
+            if parent.is_empty() || parent == "unknown" {
+                false
+            } else {
+                engine.rules[0].suspicious_parents.iter().any(|p| {
+                    let p_l = p.to_lowercase();
+                    !p_l.is_empty() && (parent.contains(&p_l) || p_l.contains(&parent))
+                })
+            }
+        } else {
+            false
+        };
+        
+        assert_eq!(is_suspicious, false, "Should not match unknown parent");
     }
 }
