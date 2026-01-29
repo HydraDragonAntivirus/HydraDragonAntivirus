@@ -1967,31 +1967,54 @@ impl BehaviorEngine {
         })
     }
     
-    // Static helper function to avoid borrowing &self entirely, solving E0502
     fn matches_pattern_internal(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
-        if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') && !pattern.contains('\\') {
+        // 1. FAST PATH: Literal substring match (No wildcards/special regex chars)
+        // Note: Added '.' to the exclusion list as it's a regex special char
+        if !pattern.contains(['*', '?', '[', '\\', '.', '^', '$']) {
             return text.to_lowercase().contains(&pattern.to_lowercase());
         }
+
+        // 2. CACHE LOOKUP: Try to borrow for reading first (less contention)
+        {
+            if let Ok(cache_map) = cache.try_borrow() {
+                if let Some(re) = cache_map.get(pattern) {
+                    return re.is_match(text);
+                }
+            }
+        }
+
+        // 3. SLOW PATH: Compile and Cache
         let mut cache_map = cache.borrow_mut();
+        
+        // Final check in case another thread/caller filled the cache while we were waiting
         if let Some(re) = cache_map.get(pattern) {
             return re.is_match(text);
         }
-        
-        // Escape standard regex chars that are not wildcards, then replace wildcards
-        // This is a simplified approach; usually you'd want a proper glob-to-regex converter.
-        // For now, if it looks like a regex (contains \ or [), we treat it as regex.
-        // If it just has * or ?, we do glob logic or just try regex new.
-        
-        match Regex::new(&format!("(?i){}", pattern)) {
+
+        // Convert Glob-style patterns to proper Regex
+        // Example: "*.exe" -> "^.*\.exe$"
+        let regex_str = if pattern.contains('*') || pattern.contains('?') {
+            let escaped = regex::escape(pattern)
+                .replace("\\*", ".*")
+                .replace("\\?", ".");
+            format!("(?i)^{}$", escaped)
+        } else {
+            format!("(?i){}", pattern)
+        };
+
+        match Regex::new(&regex_str) {
             Ok(re) => {
                 let is_match = re.is_match(text);
                 cache_map.insert(pattern.to_string(), re);
                 is_match
             }
-            Err(_) => text.to_lowercase().contains(&pattern.to_lowercase())
+            Err(_) => {
+                // Last ditch effort: basic case-insensitive substring match
+                text.to_lowercase().contains(&pattern.to_lowercase())
+            }
         }
     }
-    
+
     fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
         Self::matches_pattern_internal(&self.regex_cache, pattern, text)
     }
