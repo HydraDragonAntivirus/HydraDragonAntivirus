@@ -1479,10 +1479,10 @@ impl BehaviorEngine {
             
             DetectionCondition::AllOfPattern { all_of_pattern } => {
                 let matching_conditions: Vec<_> = state.satisfied_named_conditions.iter()
-                    .filter(|cond_name| Self::matches_pattern_internal(all_of_pattern, cond_name))
+                    .filter(|cond_name| Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name))
                     .collect();
                 let total_matching = rule.named_conditions.keys()
-                    .filter(|cond_name| Self::matches_pattern_internal(all_of_pattern, cond_name))
+                    .filter(|cond_name| Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name))
                     .count();
                 let result = !matching_conditions.is_empty() && matching_conditions.len() == total_matching;
                 if rule.debug {
@@ -1497,7 +1497,7 @@ impl BehaviorEngine {
             
             DetectionCondition::AnyOfPattern { any_of_pattern } => {
                 let result = state.satisfied_named_conditions.iter()
-                    .any(|cond_name| Self::matches_pattern_internal(any_of_pattern, cond_name));
+                    .any(|cond_name| Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name));
                 if rule.debug {
                     Logging::debug(&format!(
                         "[BehaviorEngine] ANY_OF_PATTERN '{}': {}",
@@ -1623,7 +1623,7 @@ impl BehaviorEngine {
                     false
                 } else {
                     rule.suspicious_parents.iter().any(|p| {
-                         Self::matches_pattern_internal(p, &parent_name)
+                         Self::matches_pattern_internal(&self.regex_cache, p, &parent_name)
                     })
                 }
             } else {
@@ -1677,8 +1677,8 @@ impl BehaviorEngine {
             }
             if !rule.terminated_processes.is_empty() {
                 let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
-                    let ext_match = terminated_processes.iter().any(|v| Self::matches_pattern_internal(rule_proc, v));
-                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| Self::matches_pattern_internal(rule_proc, v));
+                    let ext_match = terminated_processes.iter().any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
+                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
                     ext_match || self_match
                 });
                 check_legacy!("terminated_proc", term_hit);
@@ -1784,19 +1784,19 @@ impl BehaviorEngine {
                         let has_match = match op.as_str() {
                             "write" | "create" => {
                                 state.staged_files_written.keys().any(|path| {
-                                    Self::matches_pattern_internal(path_pattern, &path.to_string_lossy())
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, &path.to_string_lossy())
                                 })
                             },
                             "read" => {
                                 state.browsed_paths_tracker.keys().any(|path| {
-                                    Self::matches_pattern_internal(path_pattern, path)
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
                                 }) || state.accessed_paths_tracker.iter().any(|path| {
-                                    Self::matches_pattern_internal(path_pattern, path)
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
                                 })
                             },
                             "delete" | "rename" => {
                                 state.staged_files_written.keys().any(|path| {
-                                    Self::matches_pattern_internal(path_pattern, &path.to_string_lossy())
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, &path.to_string_lossy())
                                 })
                             },
                             _ => false,
@@ -1818,9 +1818,9 @@ impl BehaviorEngine {
                         });
                         
                         let key_accessed = state.browsed_paths_tracker.keys().any(|path| {
-                            Self::matches_pattern_internal(key_pattern, path)
+                            Self::matches_pattern_internal(&self.regex_cache, key_pattern, path)
                         }) || state.accessed_paths_tracker.iter().any(|path| {
-                            Self::matches_pattern_internal(key_pattern, path)
+                            Self::matches_pattern_internal(&self.regex_cache, key_pattern, path)
                         });
                         
                         condition_matched = has_registry_op || key_accessed;
@@ -1830,25 +1830,25 @@ impl BehaviorEngine {
                         let has_match = match op.as_str() {
                             "terminate" => {
                                 state.terminated_processes.iter().any(|victim| {
-                                    Self::matches_pattern_internal(pattern, victim)
+                                    Self::matches_pattern_internal(&self.regex_cache, pattern, victim)
                                 }) || (rule.detect_self_termination && 
                                     state.self_terminated_processes.iter().any(|victim| {
-                                        Self::matches_pattern_internal(pattern, victim)
+                                        Self::matches_pattern_internal(&self.regex_cache, pattern, victim)
                                     }))
                             },
                             "create" => {
                                 state.detected_apis.iter().any(|api| {
                                     api.contains("createprocess") || api.contains("ntcreateuserprocess")
-                                }) && Self::matches_pattern_internal(pattern, &state.app_name)
+                                }) && Self::matches_pattern_internal(&self.regex_cache, pattern, &state.app_name)
                             },
-                            _ => Self::matches_pattern_internal(pattern, &state.app_name),
+                            _ => Self::matches_pattern_internal(&self.regex_cache, pattern, &state.app_name),
                         };
                         condition_matched = has_match;
                     },
                     
                     RuleCondition::Api { name_pattern, .. } => {
                         condition_matched = state.detected_apis.iter().any(|api| {
-                            Self::matches_pattern_internal(name_pattern, api)
+                            Self::matches_pattern_internal(&self.regex_cache, name_pattern, api)
                         });
                     },
 
@@ -1858,7 +1858,7 @@ impl BehaviorEngine {
                         if network_matched {
                             if let Some(dest) = dest_pattern {
                                 let has_dest = state.detected_apis.iter().any(|api| {
-                                    Self::matches_pattern_internal(dest, api)
+                                    Self::matches_pattern_internal(&self.regex_cache, dest, api)
                                 });
                                 network_matched = has_dest;
                             }
@@ -1958,7 +1958,7 @@ impl BehaviorEngine {
                         if *must_be_signed && !info.is_trusted { return false; }
                         if !signers.is_empty() {
                             if let Some(signer) = &info.signer_name {
-                                signers.iter().any(|s_pattern| Self::matches_pattern_internal(s_pattern, signer))
+                                signers.iter().any(|s_pattern| Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer))
                             } else { false }
                         } else { true }
                     } else { false }
@@ -2112,7 +2112,7 @@ impl BehaviorEngine {
                         false
                     } else {
                         rule.suspicious_parents.iter().any(|p| {
-                            Self::matches_pattern_internal(p, &parent)
+                            Self::matches_pattern_internal(&self.regex_cache, p, &parent)
                         })
                     }
                 } else {
@@ -2123,11 +2123,11 @@ impl BehaviorEngine {
                 let terminated_match = if !rule.terminated_processes.is_empty() {
                     rule.terminated_processes.iter().any(|rule_proc| {
                         let ext_match = state.terminated_processes.iter().any(|victim_path| {
-                            Self::matches_pattern_internal(rule_proc, victim_path)
+                            Self::matches_pattern_internal(&self.regex_cache, rule_proc, victim_path)
                         });
                         let self_match = if rule.detect_self_termination {
                             state.self_terminated_processes.iter().any(|victim_path| {
-                                Self::matches_pattern_internal(rule_proc, victim_path)
+                                Self::matches_pattern_internal(&self.regex_cache, rule_proc, victim_path)
                             })
                         } else {
                             false
