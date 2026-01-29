@@ -857,6 +857,30 @@ pub mod worker_instance {
                 .hash(&mut hasher);
             hasher.finish()
         }
+        
+        /// Find GID by PID - needed because kernel GIDs and discovery GIDs may not match
+        /// Returns the GID if we're already tracking this PID
+        fn find_gid_by_pid(&self, pid: u32) -> Option<u64> {
+            // Check behavior engine first (most likely location)
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                for (gid, state) in &self.behavior_engine.process_states {
+                    if state.pid == pid {
+                        return Some(*gid);
+                    }
+                }
+            }
+            
+            // Fallback: check process_records (in case behavior_engine not enabled)
+            for (gid, precord) in &self.process_records.process_records {
+                // Check if this precord contains the PID
+                if precord.pids.contains(&pid) {
+                    return Some(*gid);
+                }
+            }
+            
+            None
+        }
 
         pub fn whitelist(mut self, whitelist: &'a WhiteList) -> Worker<'a> {
             self.whitelist = Some(whitelist);
@@ -898,6 +922,64 @@ pub mod worker_instance {
 
         pub fn build(self) -> Worker<'a> {
             self
+        }
+        
+        /// Validate all tracked processes and remove any with dead PIDs
+        /// This is a safety net to catch processes tracked with mismatched GIDs
+        pub fn validate_tracked_processes(&mut self) {
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                use windows::Win32::System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+                use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+                
+                let mut dead_gids = Vec::new();
+                let mut total_checked = 0;
+                
+                // Check all tracked processes in behavior engine
+                for (gid, state) in &self.behavior_engine.process_states {
+                    total_checked += 1;
+                    let pid = state.pid;
+                    let mut is_dead = false;
+                    
+                    unsafe {
+                        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                            Ok(handle) => {
+                                let mut exit_code: u32 = 0;
+                                if GetExitCodeProcess(handle, &mut exit_code).as_bool() {
+                                    if exit_code != STILL_ACTIVE.0 as u32 {
+                                        is_dead = true;
+                                    }
+                                }
+                                let _ = CloseHandle(handle);
+                            }
+                            Err(_) => {
+                                // Process handle invalid - definitely dead
+                                is_dead = true;
+                            }
+                        }
+                    }
+                    
+                    if is_dead {
+                        dead_gids.push(*gid);
+                    }
+                }
+                
+                if !dead_gids.is_empty() {
+                    Logging::info(&format!(
+                        "[VALIDATION] Cleaning {} dead processes (checked {} total)",
+                        dead_gids.len(), total_checked
+                    ));
+                    
+                    for gid in dead_gids {
+                        self.cleanup_process(gid, "Dead (validation)");
+                    }
+                } else if total_checked > 0 {
+                    Logging::debug(&format!(
+                        "[VALIDATION] All {} tracked processes are alive",
+                        total_checked
+                    ));
+                }
+            }
         }
 
         /// Centralized cleanup function for removing process from all tracking structures
@@ -994,13 +1076,17 @@ pub mod worker_instance {
                         continue;
                     }
                     
-                    let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
-                    let already_tracked_in_behavior = self.behavior_engine.process_states.contains_key(&gid);
-                    let already_tracked_in_records = self.process_records.get_precord_by_gid(gid).is_some();
-                    
-                    if already_tracked_in_behavior || already_tracked_in_records {
+                    // FIX: Check if we're ALREADY tracking this PID
+                    // This prevents duplicate entries when GID generation is non-deterministic
+                    if let Some(existing_gid) = self.find_gid_by_pid(pid_u32) {
+                        // Already tracking this PID - skip to avoid duplicates
                         continue;
                     }
+                    
+                    // Generate a new GID for this discovered process
+                    // NOTE: This may not match the kernel's GID, but we use PID lookup
+                    // to prevent duplicates regardless
+                    let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
                     
                     Logging::debug(&format!(
                         "[BEHAVIOR SCAN] Discovered new process during scan: {} (PID: {}, GID: {}, Path: {})",

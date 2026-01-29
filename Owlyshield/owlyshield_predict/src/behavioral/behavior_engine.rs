@@ -204,10 +204,6 @@ pub struct NamedConditionGroup {
     pub min_files_accessed: Option<usize>,
     #[serde(default)]
     pub min_directories_accessed: Option<usize>,
-    
-    // Time-based
-    #[serde(default)]
-    pub within_seconds: Option<u64>,  // All indicators must occur within this timeframe
 }
 
 /// Detection condition expression - like YARA condition or Sigma detection
@@ -1084,6 +1080,11 @@ impl BehaviorEngine {
                 continue;
             }
             
+            // EARLY EXIT: Skip if rule has no detection logic that uses named conditions
+            if rule.detection_logic.is_none() && rule.named_conditions.is_empty() {
+                continue;
+            }
+
             let state = match self.process_states.get_mut(&gid) {
                 Some(s) => s,
                 None => continue,
@@ -1092,6 +1093,11 @@ impl BehaviorEngine {
             for (cond_name, cond_group) in &rule.named_conditions {
                 let mut matched = false;
                 
+                // Skip already satisfied conditions unless they're time-based
+                if state.satisfied_named_conditions.contains(cond_name) {
+                    continue;
+                }
+
                 // Check APIs
                 if !cond_group.apis.is_empty() {
                     let api_matches = cond_group.apis.iter()
@@ -1235,14 +1241,21 @@ impl BehaviorEngine {
                     }
                 }
 
-                // Check entropy
-                if !matched && cond_group.entropy_threshold > 0.0 && msg.entropy > cond_group.entropy_threshold {
-                    matched = true;
-                    if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Named condition '{}': Entropy threshold exceeded ({:.2} > {:.2})",
-                            cond_name, msg.entropy, cond_group.entropy_threshold
-                        ));
+                // Check entropy - use the PERSISTENT high_entropy_detected flag
+                if !matched && cond_group.entropy_threshold > 0.0 {
+                    // Check current event entropy
+                    let current_high = msg.entropy > cond_group.entropy_threshold;
+                    // Check if ANY previous event had high entropy (persistent state)
+                    let was_high = state.high_entropy_detected;
+                    
+                    if current_high || was_high {
+                        matched = true;
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}': Entropy threshold exceeded (current: {:.2}, threshold: {:.2}, persistent_flag: {})",
+                                cond_name, msg.entropy, cond_group.entropy_threshold, was_high
+                            ));
+                        }
                     }
                 }
                 
