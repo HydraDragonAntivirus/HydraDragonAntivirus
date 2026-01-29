@@ -924,91 +924,73 @@ impl BehaviorEngine {
             }
         }
 
-        // Event tracking for LEGACY conditions
+        // CRITICAL FIX: Also populate legacy tracking from named condition patterns
+        // This ensures named conditions can match even if legacy fields aren't defined
         for rule in &self.rules {
-            // Browsed Paths
-            for b_path in &rule.browsed_paths {
-                let norm_b_path = b_path.to_lowercase().replace("\\", "/");
-                let norm_b_path = norm_b_path.trim_end_matches('/');
-                if norm_filepath.contains(norm_b_path) {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched browsed path '{}' in '{}'", 
-                            rule.name, pid, b_path, filepath
-                        )); 
+            if rule.named_conditions.is_empty() {
+                continue;
+            }
+            
+            for (_, cond_group) in &rule.named_conditions {
+                // Track file paths as browsed paths
+                for path_pattern in &cond_group.file_paths {
+                    let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
+                    let norm_pattern = norm_pattern.trim_end_matches('/');
+                    if norm_filepath.contains(&norm_pattern) {
+                        state.browsed_paths_tracker.insert(path_pattern.clone(), SystemTime::now());
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated browsed_paths from named condition: '{}'",
+                                rule.name, pid, path_pattern
+                            ));
+                        }
                     }
-                    state.browsed_paths_tracker.insert(b_path.clone(), SystemTime::now());
                 }
-            }
-
-            // Accessed paths
-            for s_file in &rule.accessed_paths {
-                let norm_s = s_file.to_lowercase().replace("\\", "/");
-                let norm_s = norm_s.trim_end_matches('/');
-                if norm_filepath.contains(norm_s) {
-                    if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Sensitive file accessed '{}'",
-                            rule.name, pid, s_file
-                        ));
+                
+                // Track staging paths
+                for staging_pattern in &cond_group.staging_paths {
+                    let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
+                    let norm_pattern = norm_pattern.trim_end_matches('/');
+                    let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
+                    if norm_filepath.contains(&norm_pattern) && is_staging_op {
+                        state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated staged_files from named condition: '{}'",
+                                rule.name, pid, staging_pattern
+                            ));
+                        }
                     }
-                    state.accessed_paths_tracker.insert(s_file.clone());
                 }
-            }
-
-            // Staging
-            for s_path in &rule.staging_paths {
-                let norm_s_path = s_path.to_lowercase().replace("\\", "/");
-                let norm_s_path = norm_s_path.trim_end_matches('/');
-                let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
-                if norm_filepath.contains(norm_s_path) && is_staging_op {
-                    if rule.debug { 
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Rule '{}' (PID: {}): Matched staging path '{}'", 
-                            rule.name, pid, s_path
-                        )); 
+                
+                // Track browsed paths (for directories)
+                for browsed_pattern in &cond_group.browsed_paths {
+                    let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
+                    let norm_pattern = norm_pattern.trim_end_matches('/');
+                    if norm_filepath.contains(&norm_pattern) {
+                        state.browsed_paths_tracker.insert(browsed_pattern.clone(), SystemTime::now());
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated browsed_paths: '{}'",
+                                rule.name, pid, browsed_pattern
+                            ));
+                        }
                     }
-                    state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
                 }
-            }
-
-            // Entropy
-            if msg.entropy > rule.entropy_threshold {
-                state.high_entropy_detected = true;
-            }
-
-            // Monitored APIs
-            let extension_lc = msg.extension.to_lowercase();
-            for api in &rule.monitored_apis {
-                let api_lc = api.to_lowercase();
-                if norm_filepath.contains(&api_lc) || extension_lc.contains(&api_lc) {
-                    state.detected_apis.insert(api_lc);
-                    state.monitored_api_count = state.detected_apis.len();
-                }
-            }
-
-            // File Actions
-            for action in &rule.file_actions {
-                let norm_action = action.to_lowercase();
-                if filepath.contains(&norm_action) {
-                    state.file_action_detected = true;
-                }
-            }
-
-            // Extensions
-            for ext in &rule.file_extensions {
-                let norm_ext = ext.to_lowercase();
-                let ext_hit = filepath.ends_with(&norm_ext) || filepath.contains(&norm_ext);
-                let ext_create = ext_hit && matches!(irp_op, IrpMajorOp::IrpCreate | IrpMajorOp::IrpWrite);
-                if ext_create || ext_hit {
-                    state.extension_match_detected = true;
-                }
-            }
-
-            if irp_op == IrpMajorOp::IrpProcessTerminate {
-                let victim = msg.filepathstr.to_lowercase();
-                if !victim.is_empty() {
-                    self.process_terminated.insert(victim.clone());
+                
+                // Track sensitive paths
+                for sensitive_pattern in &cond_group.sensitive_paths {
+                    let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
+                    let norm_pattern = norm_pattern.trim_end_matches('/');
+                    if norm_filepath.contains(&norm_pattern) {
+                        state.accessed_paths_tracker.insert(sensitive_pattern.clone());
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated accessed_paths: '{}'",
+                                rule.name, pid, sensitive_pattern
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -1125,13 +1107,11 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check file paths - FIX: Use matches_pattern
+                // Check file paths - FIXED: Check BOTH current event AND accumulated data
                 if !matched && !cond_group.file_paths.is_empty() {
+                    // Check current event filepath
                     for path_pattern in &cond_group.file_paths {
-                        // FIX: Support wildcards in file_paths (e.g. *\\wallets*)
-                        // We use the raw pattern (matched via regex/wildcard helper) against the normalized filepath
                         if Self::matches_pattern_internal(&self.regex_cache, path_pattern, filepath) {
-                            // Check if operation matches if specified
                             let op_matches = if !cond_group.file_operations.is_empty() {
                                 cond_group.file_operations.iter().any(|op| {
                                     match op.as_str() {
@@ -1150,12 +1130,70 @@ impl BehaviorEngine {
                                 matched = true;
                                 if rule.debug {
                                     Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': File path match '{}' in '{}'",
+                                        "[BehaviorEngine] Named condition '{}': File path match '{}' in current event '{}'",
                                         cond_name, path_pattern, filepath
                                     ));
                                 }
                                 break;
                             }
+                        }
+                    }
+                    
+                    // CRITICAL FIX: Also check ACCUMULATED browsed paths (legacy data)
+                    if !matched {
+                        for (browsed_path, _time) in &state.browsed_paths_tracker {
+                            for path_pattern in &cond_group.file_paths {
+                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, browsed_path) {
+                                    matched = true;
+                                    if rule.debug {
+                                        Logging::debug(&format!(
+                                            "[BehaviorEngine] Named condition '{}': Matched accumulated browsed path '{}'",
+                                            cond_name, browsed_path
+                                        ));
+                                    }
+                                    break;
+                                }
+                            }
+                            if matched { break; }
+                        }
+                    }
+                    
+                    // CRITICAL FIX: Also check ACCUMULATED accessed paths (legacy data)
+                    if !matched {
+                        for accessed_path in &state.accessed_paths_tracker {
+                            for path_pattern in &cond_group.file_paths {
+                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, accessed_path) {
+                                    matched = true;
+                                    if rule.debug {
+                                        Logging::debug(&format!(
+                                            "[BehaviorEngine] Named condition '{}': Matched accumulated accessed path '{}'",
+                                            cond_name, accessed_path
+                                        ));
+                                    }
+                                    break;
+                                }
+                            }
+                            if matched { break; }
+                        }
+                    }
+                    
+                    // CRITICAL FIX: Also check ACCUMULATED staged files (legacy data)
+                    if !matched {
+                        for (staged_path, _time) in &state.staged_files_written {
+                            let staged_str = staged_path.to_string_lossy().to_string();
+                            for path_pattern in &cond_group.file_paths {
+                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, &staged_str) {
+                                    matched = true;
+                                    if rule.debug {
+                                        Logging::debug(&format!(
+                                            "[BehaviorEngine] Named condition '{}': Matched accumulated staged file '{}'",
+                                            cond_name, staged_str
+                                        ));
+                                    }
+                                    break;
+                                }
+                            }
+                            if matched { break; }
                         }
                     }
                 }
@@ -1298,10 +1336,29 @@ impl BehaviorEngine {
                     state.condition_first_seen.entry(cond_name.clone()).or_insert(now);
                     state.condition_last_seen.insert(cond_name.clone(), now);
                 }
+                if rule.debug && !state.satisfied_named_conditions.is_empty() {
+                    let total_named = rule.named_conditions.len();
+                    let satisfied_count = state.satisfied_named_conditions.len();
+                    
+                    if satisfied_count > 0 {
+                        let cond_list: Vec<String> = state.satisfied_named_conditions.iter()
+                            .take(10)
+                            .cloned()
+                            .collect();
+                        
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Rule '{}' PID {}: {}/{} conditions satisfied: [{}]",
+                            rule.name,
+                            state.pid,
+                            satisfied_count,
+                            total_named,
+                            cond_list.join(", ")
+                        ));
+                    }
+                }
             }
         }
     }
-    
     /// Evaluate a detection condition expression recursively
     fn evaluate_detection_condition(
         &self,

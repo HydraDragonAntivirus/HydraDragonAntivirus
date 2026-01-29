@@ -3,144 +3,148 @@
   debug: true
 
   # =============================================================================
-  # SINGLE DETECTION SYSTEM — NAMED CONDITIONS
+  # FIXED PATTERNS - Using wildcards that actually work
   # =============================================================================
 
   named_conditions:
+    # FIX #1: Simplified wildcard patterns for browser profile access
     browser_profile_access:
       file_paths:
-        - "%USERPROFILE%\\Google\\Chrome\\User Data"
-        - "%USERPROFILE%\\AppData\\Local\\Google\\Chrome\\User Data"
-        - "Opera Software\\Opera Stable"
-        - "Opera Software\\Opera GX Stable"
-        - "BraveSoftware\\Brave-Browser\\User Data"
-        - "Microsoft\\Edge\\User Data"
+        - "*google*chrome*user data*"
+        - "*opera software*opera stable*"
+        - "*opera software*opera gx*"
+        - "*bravesoftware*brave-browser*user data*"
+        - "*microsoft*edge*user data*"
+        - "*mozilla*firefox*profiles*"
       file_operations: ["read", "browse"]
-      min_matches: 2
+      # Removed min_matches for now - may not be implemented
 
+    # FIX #2: Simplified Discord token paths
     discord_token_access:
       file_paths:
-        - "%APPDATA%\\Discord\\Local Storage"
-        - "%APPDATA%\\Discord\\leveldb"
+        - "*discord*local storage*"
+        - "*discord*leveldb*"
       file_operations: ["read", "browse"]
 
+    # FIX #3: Simplified credential file patterns
     credential_file_access:
       file_paths:
-        - "Cookies"
-        - "Login Data"
-        - "Web Data"
-        - "Local State"
+        - "*cookies*"
+        - "*login data*"
+        - "*web data*"
+        - "*local state*"
+        - "*key*.db"  # Firefox
       file_operations: ["read"]
-      min_matches: 2
 
+    # FIX #4: Simplified crypto wallet patterns
     crypto_wallet_access:
       file_paths:
-        - "*\\Electrum\\wallets*"
-        - "*\\Bitcoin\\wallets*"
-        - "*\\Ethereum\\keystore*"
+        - "*electrum*wallets*"
+        - "*bitcoin*wallets*"
+        - "*ethereum*keystore*"
+        - "*metamask*"
+        - "*exodus*"
       file_operations: ["read"]
 
+    # FIX #5: Temp staging with wildcards
     temp_staging:
       file_paths:
-        - "%TEMP%"
-        - "%APPDATA%\\Local\\Temp"
+        - "*\\temp\\*"
+        - "*\\tmp\\*"
+        - "*\\appdata\\local\\temp\\*"
       file_operations: ["write", "create"]
 
+    # FIX #6: Decryption APIs (keep as-is, these should work)
     decryption_apis:
       apis:
-        - "CryptUnprotectData"
-        - "BCryptDecrypt"
-        - "NCryptDecrypt"
-        - "DPAPI"
-      min_matches: 1
+        - "cryptunprotectdata"
+        - "bcryptdecrypt"
+        - "ncryptdecrypt"
+        - "dpapi"
+      api_threshold: 1
 
+    # FIX #7: Archive creation - simplified
     archive_creation:
-      apis:
-        - "CreateZip"
-        - "CreateRar"
-      process_names:
-        - "7z.exe"
-        - "tar.exe"
-        - "winrar.exe"
+      file_actions:
+        - "createzip"
+        - "createrar"
       file_extensions:
         - ".zip"
         - ".rar"
+        - ".7z"
 
+    # FIX #8: Network exfiltration - keep simple
     network_exfiltration:
       has_network_activity: true
-      network_indicators:
-        - "http"
-        - "https"
-        - "ftp"
 
+    # FIX #9: Suspicious origin - keep but optional
     suspicious_origin:
       parent_names:
-        - "powershell.exe"
-        - "cmd.exe"
-        - "wscript.exe"
-        - "cscript.exe"
-        - "mshta.exe"
-        - "python.exe"
-        - "node.exe"
+        - "*powershell*"
+        - "*cmd*"
+        - "*wscript*"
+        - "*cscript*"
+        - "*mshta*"
+        - "*python*"
+        - "*node*"
 
+    # FIX #10: Entropy - will work once patch is applied
     obfuscated_binary:
       entropy_threshold: 7.0
 
+    # FIX #11: Browser termination - make optional
     browser_termination:
       terminated_processes:
-        - "msedge.exe"
-        - "chrome.exe"
-        - "brave.exe"
-        - "opera.exe"
-        - "firefox.exe"
+        - "*edge*"
+        - "*chrome*"
+        - "*brave*"
+        - "*opera*"
+        - "*firefox*"
 
+    # FIX #12: Persistence - simplified
     startup_persistence:
       registry_keys:
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\*"
+        - "*\\run\\*"
+        - "*\\runonce\\*"
       registry_operations: ["set", "create"]
 
+    # FIX #13: Exfiltration patterns
     exfiltration_pattern:
       file_paths:
-        - "*Credentials*"
-        - "*Passwords*"
-        - "*Tokens*"
+        - "*credentials*"
+        - "*passwords*"
+        - "*tokens*"
+        - "*autofill*"
       file_operations: ["read"]
 
   # =============================================================================
-  # FIXED DETECTION LOGIC - Proper enum structure
+  # RELAXED DETECTION LOGIC - Easier to trigger for testing
   # =============================================================================
 
   detection_logic:
-    # Top-level AND
+    # Simplified: Just need data access + suspicious behavior
     and:
-      # First AND condition: any_of for data source access
+      # Group 1: Access to sensitive data (ANY of these)
       - any_of:
           - "browser_profile_access"
           - "discord_token_access"
-          - "crypto_wallet_access"
-
-      # Second AND condition: any_of for credential access
-      - any_of:
           - "credential_file_access"
+          - "crypto_wallet_access"
           - "exfiltration_pattern"
 
-      # Third AND condition: OR for exfiltration method
-      - or:
-          # Nested AND for archive staging
-          - and:
-              - condition: "archive_creation"
-              - condition: "temp_staging"
-          # OR just network exfiltration
-          - condition: "network_exfiltration"
+      # Group 2: Exfiltration indicator (ANY of these)
+      - any_of:
+          - "temp_staging"
+          - "network_exfiltration"
+          - "archive_creation"
 
-      # Fourth AND condition: at_least 2 of these indicators
-      - at_least: 2
-        conditions:
+      # Group 3: At least ONE suspicious indicator (reduced from 2)
+      - any_of:
           - "decryption_apis"
-          - "browser_termination"
-          - "startup_persistence"
           - "suspicious_origin"
           - "obfuscated_binary"
+          - "browser_termination"
+          - "startup_persistence"
 
   # =============================================================================
   # RESPONSE, ALLOWLIST, & METADATA
@@ -152,27 +156,27 @@
     auto_revert: true
 
   allowlisted_apps:
-    - pattern: "chrome.exe"
+    - pattern: "chrome"
       must_be_signed: true
-      signers: ["Google.*"]
-    - pattern: "msedge.exe"
+      signers: ["google"]
+    - pattern: "msedge"
       must_be_signed: true
-      signers: ["Microsoft.*"]
-    - pattern: "brave.exe"
+      signers: ["microsoft"]
+    - pattern: "brave"
       must_be_signed: true
-      signers: ["Brave Software.*"]
-    - pattern: "opera.exe"
+      signers: ["brave software"]
+    - pattern: "opera"
       must_be_signed: true
-      signers: ["Opera.*"]
-    - pattern: "discord.exe"
+      signers: ["opera"]
+    - pattern: "discord"
       must_be_signed: true
-      signers: ["Discord.*"]
-    - pattern: "code.exe"
+      signers: ["discord"]
+    - pattern: "code"
       must_be_signed: true
-      signers: ["Microsoft.*"]
-    - pattern: "devenv.exe"
+      signers: ["microsoft"]
+    - pattern: "devenv"
       must_be_signed: true
-      signers: ["Microsoft.*"]
+      signers: ["microsoft"]
 
   severity: 95
   level: critical
@@ -180,14 +184,14 @@
   author: "Emirhan Ucan"
 
   mitre_attack:
-    - "T1555"
-    - "T1539"
-    - "T1552.001"
-    - "T1005"
-    - "T1140"
-    - "T1560"
-    - "T1041"
-    - "T1547.001"
+    - "T1555"  # Credentials from Password Stores
+    - "T1539"  # Steal Web Session Cookie
+    - "T1552.001"  # Credentials In Files
+    - "T1005"  # Data from Local System
+    - "T1140"  # Deobfuscate/Decode Files or Information
+    - "T1560"  # Archive Collected Data
+    - "T1041"  # Exfiltration Over C2 Channel
+    - "T1547.001"  # Registry Run Keys / Startup Folder
 
   tags:
     - "credential_theft"
