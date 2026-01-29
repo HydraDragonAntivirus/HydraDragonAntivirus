@@ -898,6 +898,11 @@ impl BehaviorEngine {
         let norm_filepath = filepath.trim_end_matches('/');
         let pid = state.pid;
         
+        // Populate detected APIs regardless of "network keywords" to track general API usage
+        if !filepath.is_empty() {
+            state.detected_apis.insert(filepath.clone());
+        }
+
         // Signature check
         if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
             if precord.exepath.exists() {
@@ -1080,13 +1085,15 @@ impl BehaviorEngine {
                     continue;
                 }
 
-                // Check APIs
+                // Check APIs - FIXED: Check both current event AND accumulated history
                 if !cond_group.apis.is_empty() {
+                    // Check accumulated detected APIs
                     let api_matches = cond_group.apis.iter()
                         .filter(|api| {
-                            // Using matches_pattern_internal to avoid multiple borrows of self
-                            Self::matches_pattern_internal(&self.regex_cache, api, filepath) || 
-                            Self::matches_pattern_internal(&self.regex_cache, api, &msg.extension.to_lowercase())
+                            state.detected_apis.iter().any(|detected| {
+                                Self::matches_pattern_internal(&self.regex_cache, api, detected)
+                            }) ||
+                            Self::matches_pattern_internal(&self.regex_cache, api, filepath) // Check current too
                         })
                         .count();
                     
@@ -1198,17 +1205,16 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check registry keys - FIX: Use matches_pattern
+                // Check registry keys - FIXED: Removed "registry" keyword check, allowing any path pattern
                 if !matched && !cond_group.registry_keys.is_empty() {
                     for reg_pattern in &cond_group.registry_keys {
-                        // Simple heuristic: if filepath mentions registry or typical registry paths
-                        if (filepath.contains("registry") || filepath.contains("\\reg\\")) &&
-                            Self::matches_pattern_internal(&self.regex_cache, reg_pattern, filepath) {
+                        // Check against the current path (regex or string)
+                        if Self::matches_pattern_internal(&self.regex_cache, reg_pattern, filepath) {
                             matched = true;
                             if rule.debug {
                                 Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Registry key match",
-                                    cond_name
+                                    "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
+                                    cond_name, filepath
                                 ));
                             }
                             break;
@@ -1216,14 +1222,31 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Check network
-                if !matched && cond_group.has_network_activity && state.network_activity_detected {
-                    matched = true;
-                    if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Named condition '{}': Network activity detected",
-                            cond_name
-                        ));
+                // Check network - FIXED: Added check for specific network indicators
+                if !matched {
+                    let general_activity = cond_group.has_network_activity && state.network_activity_detected;
+                    
+                    let specific_indicator_match = if !cond_group.network_indicators.is_empty() {
+                        cond_group.network_indicators.iter().any(|indicator| {
+                            // Check current event
+                            Self::matches_pattern_internal(&self.regex_cache, indicator, filepath) ||
+                            // Check accumulated API history
+                            state.detected_apis.iter().any(|api| {
+                                Self::matches_pattern_internal(&self.regex_cache, indicator, api)
+                            })
+                        })
+                    } else {
+                        false
+                    };
+
+                    if general_activity || specific_indicator_match {
+                        matched = true;
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}': Network activity detected (General: {}, Specific: {})",
+                                cond_name, general_activity, specific_indicator_match
+                            ));
+                        }
                     }
                 }
                 
@@ -1272,10 +1295,6 @@ impl BehaviorEngine {
                                 break;
                             }
                         }
-                    } else if rule.debug {
-                        // FIX: Silence this log unless extremely verbose, or just remove it to reduce noise.
-                        // "unknown" is common for dead parents or new processes.
-                        // Logging::debug(&format!(...)); // Commented out to fix user noise issue
                     }
                 }
 
@@ -1356,9 +1375,10 @@ impl BehaviorEngine {
                         ));
                     }
                 }
-            }
-        }
-    }
+            } // End cond_group loop
+        } // End rule loop
+    } // Closes update_named_conditions_state - FIXED MISSING BRACE
+
     /// Evaluate a detection condition expression recursively
     fn evaluate_detection_condition(
         &self,
