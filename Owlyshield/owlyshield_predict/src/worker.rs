@@ -900,6 +900,42 @@ pub mod worker_instance {
             self
         }
 
+        /// Centralized cleanup function for removing process from all tracking structures
+        fn cleanup_process(&mut self, gid: u64, reason: &str) {
+            // Get process info before removal for logging
+            let process_info = self.process_records.get_precord_by_gid(gid)
+                .map(|p| (p.appname.clone(), p.exepath.clone()));
+            
+            // Remove from process_records
+            let precord_opt = self.process_records.process_records.pop(&gid);
+            
+            // Remove from behavior engine
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            {
+                self.behavior_engine.process_states.remove(&gid);
+            }
+            
+            // Handle learning engine cleanup
+            #[cfg(feature = "realtime_learning")]
+            {
+                if let Some(tracker) = self.api_trackers.remove(&gid) {
+                    if let Some(precord) = precord_opt {
+                        self.learning_engine.process_terminated(gid, &tracker, &precord);
+                    }
+                }
+            }
+            
+            // Log cleanup
+            if let Some((appname, exepath)) = process_info {
+                Logging::info(&format!(
+                    "[CLEANUP] {} removed: {} (GID: {}, Path: {})",
+                    reason, appname, gid, exepath.display()
+                ));
+            } else {
+                Logging::debug(&format!("[CLEANUP] {} removed GID: {}", reason, gid));
+            }
+        }
+
         /// Scan all tracked processes for behavioral detections
         pub fn scan_processes(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -937,13 +973,11 @@ pub mod worker_instance {
                     }
                 }
 
+                // FIX: Use centralized cleanup function
                 if !dead_gids.is_empty() {
                     Logging::info(&format!("[BEHAVIOR SCAN] Pruning {} dead processes", dead_gids.len()));
                     for gid in dead_gids {
-                        self.behavior_engine.process_states.remove(&gid);
-                        self.process_records.process_records.pop(&gid);
-                        #[cfg(feature = "realtime_learning")]
-                        self.api_trackers.remove(&gid);
+                        self.cleanup_process(gid, "Dead process");
                     }
                 }
 
@@ -976,6 +1010,14 @@ pub mod worker_instance {
                     self.behavior_engine.register_process(gid, pid_u32, exepath.clone(), appname.clone());
                     let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(gid, precord);
+                    
+                    // Register in learning engine
+                    #[cfg(feature = "realtime_learning")]
+                    {
+                        self.learning_engine.track_process(gid, appname.clone());
+                        self.api_trackers.insert(gid, ApiTracker::new(gid, appname.clone()));
+                    }
+                    
                     discovered_new += 1;
                 }
                 
@@ -1019,10 +1061,12 @@ pub mod worker_instance {
                         record.quarantine_requested = det.quarantine_requested;
                         Logging::warning(&format!("[DETECTION] Process {} (GID: {}) marked malicious", record.appname, det.gid));
                         
-                        // If termination is requested, execute via threat_handler
+                        // If termination is requested, execute via threat_handler and cleanup
                         if det.termination_requested {
                             if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
                                 threat_handler.kill(det.gid);
+                                // FIX: Cleanup killed process immediately
+                                self.cleanup_process(det.gid, "Killed (malicious)");
                             }
                         }
                     } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
@@ -1035,6 +1079,8 @@ pub mod worker_instance {
                         
                         if det.termination_requested {
                             threat_handler.kill(det.gid);
+                            // FIX: Cleanup killed process immediately
+                            self.cleanup_process(det.gid, "Killed (malicious)");
                         }
                     }
                 }
@@ -1073,6 +1119,7 @@ pub mod worker_instance {
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
+            let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
             
             // Register or update process record based on kernel event
             self.register_precord(iomsg);
@@ -1135,7 +1182,7 @@ pub mod worker_instance {
                 }
 
                 // Handle process termination
-                if irp_op == IrpMajorOp::IrpProcessTerminate {
+                if is_process_terminate {
                     precord.process_state = ProcessState::Terminated;
                     Logging::info(&format!("[KERNEL] Process Terminated: {} (GID: {}, PID: {})", 
                         precord.appname, precord.gid, iomsg.pid));
@@ -1147,38 +1194,25 @@ pub mod worker_instance {
                 }
             }
 
-            // Cleanup on termination
-            if irp_op == IrpMajorOp::IrpProcessTerminate {
-                #[cfg(feature = "realtime_learning")]
-                {
-                    if let Some(precord) = self.process_records.process_records.pop(&tracking_key) {
-                        if let Some(tracker) = self.api_trackers.remove(&tracking_key) {
-                            self.learning_engine.process_terminated(tracking_key, &tracker, &precord);
-                        }
-                    }
-                }
+            // FIX: Cleanup on termination - works regardless of feature flags
+            if is_process_terminate {
+                self.cleanup_process(tracking_key, "Process terminated");
             }
         }
 
         pub fn process_suspended_records(&mut self, config: &Config, threat_handler: Box<dyn ThreatHandler>) {
             self.process_records.process_suspended_procs(config, threat_handler);
 
-            #[cfg(feature = "realtime_learning")]
-            {
-                let mut terminated_gids = Vec::new();
-                for (gid, proc) in self.process_records.process_records.iter() {
-                    if proc.process_state == ProcessState::Terminated {
-                        terminated_gids.push(*gid);
-                    }
+            // FIX: Cleanup terminated processes regardless of feature flags
+            let mut terminated_gids = Vec::new();
+            for (gid, proc) in self.process_records.process_records.iter() {
+                if proc.process_state == ProcessState::Terminated {
+                    terminated_gids.push(*gid);
                 }
+            }
 
-                for gid in terminated_gids {
-                    if let Some(precord) = self.process_records.process_records.pop(&gid) {
-                        if let Some(tracker) = self.api_trackers.remove(&gid) {
-                             self.learning_engine.process_terminated(gid, &tracker, &precord);
-                        }
-                    }
-                }
+            for gid in terminated_gids {
+                self.cleanup_process(gid, "Suspended terminated");
             }
         }
 
