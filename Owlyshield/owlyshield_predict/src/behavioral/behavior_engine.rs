@@ -52,10 +52,67 @@ impl Default for MatchMode {
     fn default() -> Self { MatchMode::Any }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum StringModifier {
     Nocase, Contains, Startswith, Endswith, Re, Base64, Not,
+}
+
+
+/// Pattern with optional modifiers for rich matching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PatternSpec {
+    Simple(String),
+    Complex {
+        pattern: String,
+        #[serde(default)]
+        modifiers: Vec<StringModifier>,
+    },
+}
+
+impl PatternSpec {
+    pub fn pattern(&self) -> &str {
+        match self {
+            PatternSpec::Simple(p) => p,
+            PatternSpec::Complex { pattern, .. } => pattern,
+        }
+    }
+    
+    pub fn modifiers(&self) -> &[StringModifier] {
+        match self {
+            PatternSpec::Simple(_) => &[],
+            PatternSpec::Complex { modifiers, .. } => modifiers,
+        }
+    }
+    
+    pub fn has_modifier(&self, modifier: &StringModifier) -> bool {
+        self.modifiers().iter().any(|m| std::mem::discriminant(m) == std::mem::discriminant(modifier))
+    }
+    
+    pub fn is_case_insensitive(&self) -> bool {
+        self.has_modifier(&StringModifier::Nocase)
+    }
+    
+    pub fn is_regex(&self) -> bool {
+        self.has_modifier(&StringModifier::Re)
+    }
+    
+    pub fn is_contains(&self) -> bool {
+        self.has_modifier(&StringModifier::Contains)
+    }
+    
+    pub fn is_startswith(&self) -> bool {
+        self.has_modifier(&StringModifier::Startswith)
+    }
+    
+    pub fn is_endswith(&self) -> bool {
+        self.has_modifier(&StringModifier::Endswith)
+    }
+    
+    pub fn is_negated(&self) -> bool {
+        self.has_modifier(&StringModifier::Not)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +152,20 @@ pub struct LogSource {
 
 fn default_severity() -> u8 { 50 }
 fn default_zero() -> usize { 0 }
+
+// Helper functions for path normalization and case sensitivity
+fn normalize_path_separators(path: &str) -> String {
+    path.replace("\\", "/").trim_end_matches('/').to_string()
+}
+
+fn apply_case_sensitivity(text: &str, case_sensitive: bool) -> String {
+    if case_sensitive {
+        text.to_string()
+    } else {
+        text.to_lowercase()
+    }
+}
+
 
 // =============================================================================
 // RICH CONDITION SYSTEM (YARA/Sigma-style)
