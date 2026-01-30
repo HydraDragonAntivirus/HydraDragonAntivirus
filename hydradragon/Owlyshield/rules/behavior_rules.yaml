@@ -1,9 +1,10 @@
 - name: "HEUR:Win64.PSW.Stealer.BehavesLike.Exela.gen"
   description: "Detects info stealer behavior targeting browser data and credentials"
   debug: true
+  case_sensitive: false
 
   # =============================================================================
-  # SINGLE DETECTION SYSTEM — NAMED CONDITIONS
+  # SINGLE DETECTION SYSTEM - NAMED CONDITIONS
   # =============================================================================
 
   named_conditions:
