@@ -1357,13 +1357,13 @@ impl BehaviorEngine {
                                           !cond_group.file_extensions.is_empty();
 
                 if !matched && has_path_conditions {
-                    let path_iter = cond_group.file_paths.iter()
+                    let mut path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
                         .chain(cond_group.browsed_paths.iter())
                         .chain(cond_group.sensitive_paths.iter())
                         .chain(cond_group.persistence_locations.iter());
 
-                    let mut path_matched = path_iter.any(|p| {
+                    let path_matched = path_iter.any(|p| {
                          // FIX: Normalize pattern to forward slashes for current event matching
                          let p_norm = p.replace("\\", "/");
                          Self::matches_pattern_internal(&self.regex_cache, &p_norm, filepath)
