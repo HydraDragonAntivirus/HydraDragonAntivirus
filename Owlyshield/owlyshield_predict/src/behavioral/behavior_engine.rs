@@ -15,6 +15,7 @@ use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
+use crate::realtime_learning::ApiTracker;
 
 // --- Windows Specific Imports ---
 use windows::Win32::NetworkManagement::IpHelper::{
@@ -164,6 +165,87 @@ fn apply_case_sensitivity(text: &str, case_sensitive: bool) -> String {
     } else {
         text.to_lowercase()
     }
+}
+
+// =============================================================================
+// INTERNET/NETWORK API KEYWORDS FOR DETECTION
+// =============================================================================
+
+/// Hardcoded internet/network API keywords for network activity detection
+pub const INTERNET_API_KEYWORDS: &[&str] = &[
+    // WinINet APIs
+    "internetopen",
+    "internetconnect",
+    "httpopen",
+    "httpsend",
+    "httpsendrequesta",
+    "httpsendrequestw",
+    "httpopenrequesta",
+    "httpopenrequestw",
+    "internetopenurla",
+    "internetopenurlw",
+    "internetreadfile",
+    "internetwritefile",
+    "internetclosehandle",
+    // URL Download APIs
+    "urldownload",
+    "urldownloadtofile",
+    "urldownloadtofilea",
+    "urldownloadtofilew",
+    "urldownloadtocachefile",
+    // Socket APIs
+    "socket",
+    "connect",
+    "send",
+    "recv",
+    "bind",
+    "listen",
+    "accept",
+    "closesocket",
+    "shutdown",
+    "gethostbyname",
+    "getaddrinfo",
+    // WSA APIs
+    "wsasend",
+    "wsarecv",
+    "wsasocket",
+    "wsaconnect",
+    "wsastartup",
+    "wsacleanup",
+    "wsaasyncgethost",
+    // WinHTTP APIs
+    "winhttp",
+    "winhttpopen",
+    "winhttpconnect",
+    "winhttpopenrequest",
+    "winhttpsendrequest",
+    "winhttpreceiveresponse",
+    "winhttpreaddata",
+    "winhttpwritedata",
+    "winhttpclosehandle",
+    // DNS APIs
+    "dnsquery",
+    "dnsquery_a",
+    "dnsquery_w",
+    "dnsqueryfree",
+    "getaddrinfow",
+    "getnameinfo",
+    // FTP APIs
+    "ftpopen",
+    "ftpconnect",
+    "ftpgetfile",
+    "ftpputfile",
+    "ftpfindfirstfile",
+    // Additional Network APIs
+    "internetsetcookie",
+    "internetgetcookie",
+    "internetsetstatuscallback",
+];
+
+/// Check if a string contains an internet/network API keyword
+pub fn is_internet_api(name: &str) -> bool {
+    let name_lower = name.to_lowercase();
+    INTERNET_API_KEYWORDS.iter().any(|keyword| name_lower.contains(keyword))
 }
 
 
@@ -889,7 +971,7 @@ impl BehaviorEngine {
     // PROCESS EVENT HANDLING
     // ==========================================================================
     
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler, api_tracker: Option<&ApiTracker>) {
         let gid = msg.gid;
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
@@ -970,9 +1052,10 @@ impl BehaviorEngine {
         let pid = state.pid;
         
         // Populate detected APIs regardless of "network keywords" to track general API usage
-        if !filepath.is_empty() {
-            state.detected_apis.insert(filepath.clone());
-        }
+        // This is now handled by ApiTracker, so we can remove this direct population.
+        // if !filepath.is_empty() {
+        //     state.detected_apis.insert(filepath.clone());
+        // }
 
         // Signature check
         if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
@@ -986,19 +1069,8 @@ impl BehaviorEngine {
             }
         }
 
-        // Network detection
-        let network_keywords = [
-            "internetopen", "internetconnect", "httpopen", "httpsend", 
-            "urldownload", "socket", "connect", "wsasend", "wsarecv",
-            "winhttp", "dnsquery"
-        ];
-        
-        if network_keywords.iter().any(|k| norm_filepath.contains(k)) {
-            state.network_activity_detected = true;
-            if self.rules.iter().any(|r| r.debug) {
-                Logging::debug(&format!("[BehaviorEngine] Network Activity Detected via API: {} (PID: {})", msg.filepathstr, pid));
-            }
-        }
+        // Network detection - now handled by ApiTracker
+        // The network_activity_detected flag will be set based on ApiTracker data in update_named_conditions_state
 
         // CRITICAL FIX: Also populate legacy tracking from named condition patterns
         // This ensures named conditions can match even if legacy fields aren't defined
@@ -1119,10 +1191,10 @@ impl BehaviorEngine {
         // =======================================================================
         // UPDATE RICH NAMED CONDITIONS STATE
         // =======================================================================
-        self.update_named_conditions_state(gid, msg, &irp_op, &filepath);
+        self.update_named_conditions_state(gid, msg, &irp_op, &filepath, api_tracker);
 
         // Evaluate rules
-        self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
+        self.check_rules(precord, gid, msg, irp_op, config, &mut actions, api_tracker);
     }
 
     // ==========================================================================
@@ -1130,9 +1202,39 @@ impl BehaviorEngine {
     // ==========================================================================
     
     /// Update the state of named conditions based on the current event
-    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
+    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str, api_tracker: Option<&ApiTracker>) {
         let now = SystemTime::now();
         
+        // 1. GATHER CONTEXT
+        // Create a unified set of available APIs from both ApiTracker and local inference
+        let mut available_apis = HashSet::new();
+        
+        // Add APIs from tracker if available
+        if let Some(tracker) = api_tracker {
+            for api in &tracker.internet_apis {
+                available_apis.insert(api.to_lowercase());
+            }
+        }
+        
+        // Add locally inferred APIs from DLL loads (for immediate detection without waiting for tracker)
+        let path_lower = filepath.to_lowercase();
+        if path_lower.ends_with(".dll") {
+             if path_lower.contains("ws2_32.dll") || path_lower.contains("wsock32.dll") {
+                 available_apis.insert("socket".to_string());
+                 available_apis.insert("connect".to_string());
+             } else if path_lower.contains("wininet.dll") {
+                 available_apis.insert("internetopen".to_string());
+                 available_apis.insert("internetconnect".to_string());
+             } else if path_lower.contains("winhttp.dll") {
+                 available_apis.insert("winhttpopen".to_string());
+                 available_apis.insert("winhttpconnect".to_string());
+             } else if path_lower.contains("dnsapi.dll") {
+                 available_apis.insert("dnsquery".to_string());
+             } else if path_lower.contains("urlmon.dll") {
+                 available_apis.insert("urldownload".to_string());
+             }
+        }
+
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
                 continue;
@@ -1149,271 +1251,204 @@ impl BehaviorEngine {
             };
             
             for (cond_name, cond_group) in &rule.named_conditions {
-                let mut matched = false;
-                
-                // Skip already satisfied conditions unless they're time-based
+                // Skip if already satisfied
                 if state.satisfied_named_conditions.contains(cond_name) {
                     continue;
                 }
 
-                // Check APIs - FIXED: Check both current event AND accumulated history
+                let mut matched = false;
+
+                // CHECK 1: API Usage (Unified Check)
                 if !cond_group.apis.is_empty() {
-                    // Check accumulated detected APIs
-                    let api_matches = cond_group.apis.iter()
-                        .filter(|api| {
-                            state.detected_apis.iter().any(|detected| {
-                                Self::matches_pattern_internal(&self.regex_cache, api, detected)
-                            }) ||
-                            Self::matches_pattern_internal(&self.regex_cache, api, filepath) // Check current too
+                    // Check against our unified available_apis set
+                    let api_matches = cond_group.apis.iter().filter(|required_api| {
+                        available_apis.iter().any(|available| {
+                            Self::matches_pattern_internal(&self.regex_cache, required_api, available)
                         })
-                        .count();
+                    }).count();
                     
-                    let threshold = if cond_group.api_threshold > 0 {
-                        cond_group.api_threshold
-                    } else {
-                        1
-                    };
-                    
-                    if api_matches >= threshold {
+                    if api_matches >= std::cmp::max(1, cond_group.api_threshold) {
                         matched = true;
                         if rule.debug {
                             Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': {} API matches (threshold: {})",
-                                cond_name, api_matches, threshold
+                                "[BehaviorEngine] Named condition '{}': API match (found {} APIs)",
+                                cond_name, api_matches
                             ));
                         }
                     }
                 }
-                
-                // Check file paths - FIXED: Check BOTH current event AND accumulated data
-                if !matched && !cond_group.file_paths.is_empty() {
-                    // Check current event filepath
-                    for path_pattern in &cond_group.file_paths {
-                        if Self::matches_pattern_internal(&self.regex_cache, path_pattern, filepath) {
-                            let op_matches = if !cond_group.file_operations.is_empty() {
-                                cond_group.file_operations.iter().any(|op| {
-                                    match op.as_str() {
-                                        "read" | "browse" => matches!(*irp_op, IrpMajorOp::IrpRead),
-                                        "write" => matches!(*irp_op, IrpMajorOp::IrpWrite),
-                                        "create" => matches!(*irp_op, IrpMajorOp::IrpCreate),
-                                        "delete" => matches!(*irp_op, IrpMajorOp::IrpSetInfo),
-                                        _ => true,
-                                    }
-                                })
-                            } else {
-                                true
-                            };
-                            
-                            if op_matches {
-                                matched = true;
-                                if rule.debug {
-                                    Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': File path match '{}' in current event '{}'",
-                                        cond_name, path_pattern, filepath
-                                    ));
+                if matched {
+                   // If matched by API, we can skip other checks for this condition
+                   // But we continue logic flow to be consistent
+                } else {
+
+                    // CHECK 2: Network Activity
+                    let mut net_matched = false;
+                    
+                    // Check generic network activity requirement
+                    if cond_group.has_network_activity {
+                         // Check ApiTracker connections
+                         if let Some(tracker) = api_tracker {
+                             if tracker.network_operations.connections_established > 0 {
+                                 net_matched = true;
+                             }
+                         }
+                         // Fallback: Check inferred network capability from DLLs
+                         if !net_matched && !available_apis.is_empty() {
+                             // If we have ANY network APIs inferred, we assume network capability
+                             if available_apis.contains("socket") || available_apis.contains("internetopen") {
+                                 net_matched = true;
+                             }
+                         }
+                    }
+                    
+                    // Check specific indicators (hostnames, IPs) if we have tracker data
+                    if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty()) {
+                        if let Some(tracker) = api_tracker {
+                            // Only check if we have data
+                            if !tracker.internet_apis.is_empty() {
+                                // We are reusing internet_apis for domains/indicators in current implementation
+                                let has_indicator = cond_group.network_indicators.iter().chain(cond_group.network_domains.iter())
+                                    .any(|indicator| {
+                                        tracker.internet_apis.iter().any(|api| {
+                                            Self::matches_pattern_internal(&self.regex_cache, indicator, api)
+                                        })
+                                    });
+                                if has_indicator {
+                                    net_matched = true;
                                 }
-                                break;
                             }
                         }
                     }
                     
-                    // CRITICAL FIX: Also check ACCUMULATED browsed paths (legacy data)
-                    if !matched {
-                        for (browsed_path, _time) in &state.browsed_paths_tracker {
-                            for path_pattern in &cond_group.file_paths {
-                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, browsed_path) {
-                                    matched = true;
-                                    if rule.debug {
-                                        Logging::debug(&format!(
-                                            "[BehaviorEngine] Named condition '{}': Matched accumulated browsed path '{}'",
-                                            cond_name, browsed_path
-                                        ));
-                                    }
-                                    break;
-                                }
-                            }
-                            if matched { break; }
-                        }
-                    }
-                    
-                    // CRITICAL FIX: Also check ACCUMULATED accessed paths (legacy data)
-                    if !matched {
-                        for accessed_path in &state.accessed_paths_tracker {
-                            for path_pattern in &cond_group.file_paths {
-                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, accessed_path) {
-                                    matched = true;
-                                    if rule.debug {
-                                        Logging::debug(&format!(
-                                            "[BehaviorEngine] Named condition '{}': Matched accumulated accessed path '{}'",
-                                            cond_name, accessed_path
-                                        ));
-                                    }
-                                    break;
-                                }
-                            }
-                            if matched { break; }
-                        }
-                    }
-                    
-                    // CRITICAL FIX: Also check ACCUMULATED staged files (legacy data)
-                    if !matched {
-                        for (staged_path, _time) in &state.staged_files_written {
-                            let staged_str = staged_path.to_string_lossy().to_string();
-                            for path_pattern in &cond_group.file_paths {
-                                if Self::matches_pattern_internal(&self.regex_cache, path_pattern, &staged_str) {
-                                    matched = true;
-                                    if rule.debug {
-                                        Logging::debug(&format!(
-                                            "[BehaviorEngine] Named condition '{}': Matched accumulated staged file '{}'",
-                                            cond_name, staged_str
-                                        ));
-                                    }
-                                    break;
-                                }
-                            }
-                            if matched { break; }
+                    if net_matched {
+                        matched = true;
+                         if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}': Network match",
+                                cond_name
+                            ));
                         }
                     }
                 }
+
+                // CHECK 3: File Operations
+                if !matched && (!cond_group.file_paths.is_empty() || !cond_group.file_extensions.is_empty()) {
+                    let path_matched = cond_group.file_paths.iter().any(|p| {
+                         Self::matches_pattern_internal(&self.regex_cache, p, filepath)
+                    });
+                    
+                    let ext_matched = if !cond_group.file_extensions.is_empty() {
+                         let ext = Path::new(filepath).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                         if !ext.is_empty() {
+                             cond_group.file_extensions.iter().any(|e| {
+                                 let e_clean = e.trim_start_matches('.');
+                                 ext == e_clean
+                             })
+                         } else { false }
+                    } else { false };
+
+                    if path_matched || (ext_matched && !cond_group.file_extensions.is_empty()) {
+                         // Check operation type if specified
+                         if !cond_group.file_operations.is_empty() {
+                             let op_str = match irp_op {
+                                 IrpMajorOp::IrpRead => "read",
+                                 IrpMajorOp::IrpWrite => "write",
+                                 IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo => "create", // Treat setinfo/create as creation/modification
+                                 _ => "other"
+                             };
+                             
+                             if cond_group.file_operations.contains(&op_str.to_string()) {
+                                 matched = true;
+                             } else if (op_str == "create" || op_str == "write") && 
+                                       (cond_group.file_operations.contains(&"delete".to_string()) || 
+                                        cond_group.file_operations.contains(&"rename".to_string())) {
+                                  // Approximating delete/rename via write/create ops is weak but sometimes necessary
+                                  // Ideally we need explicit delete IRPs logic
+                             }
+                         } else {
+                             // No specific op required, just path/ext match
+                             matched = true;
+                         }
+                         
+                         if matched && rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}': File match '{}'",
+                                cond_name, filepath
+                            ));
+                         }
+                    }
+                }
                 
-                // Check registry keys - FIXED: Removed "registry" keyword check, allowing any path pattern
-                if !matched && !cond_group.registry_keys.is_empty() {
-                    for reg_pattern in &cond_group.registry_keys {
-                        // Check against the current path (regex or string)
-                        if Self::matches_pattern_internal(&self.regex_cache, reg_pattern, filepath) {
-                            matched = true;
-                            if rule.debug {
+                // CHECK 4: Registry Operations
+                if !matched && (!cond_group.registry_keys.is_empty()) {
+                    // Primitive check: if filepath looks like registry key (e.g. starts with \REGISTRY)
+                    // In current IOMessage, filepath is usually file path. Registry ops might come differently?
+                    // Assuming filepath might contain registry key for Registry IRPs if we successfully capture them.
+                    // For now checking against filepath string
+                     let reg_matched = cond_group.registry_keys.iter().any(|k| {
+                         Self::matches_pattern_internal(&self.regex_cache, k, filepath)
+                    });
+                    
+                    if reg_matched {
+                        matched = true; 
+                        if rule.debug {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}': Registry match '{}'",
+                                cond_name, filepath
+                            ));
+                         }
+                    }
+                }
+
+                // CHECK 5: Parent Process
+                if !matched && !cond_group.parent_names.is_empty() {
+                     let parent_lc = state.parent_name.to_lowercase();
+                     if !parent_lc.is_empty() && parent_lc != "unknown" {
+                          if cond_group.parent_names.iter().any(|p| {
+                               Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
+                          }) {
+                              matched = true;
+                              if rule.debug {
                                 Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
+                                    "[BehaviorEngine] Named condition '{}': Parent match '{}'",
+                                    cond_name, parent_lc
+                                ));
+                             }
+                          }
+                     }
+                }
+
+                // CHECK 6: Termination
+                if !matched && !cond_group.terminated_processes.is_empty() {
+                     if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
+                          // Check if the VICTIM (filepathstr) matches the condition
+                          if cond_group.terminated_processes.iter().any(|victim_pattern| {
+                               Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
+                          }) {
+                              matched = true;
+                              if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': Termination match '{}'",
                                     cond_name, filepath
                                 ));
-                            }
-                            break;
-                        }
-                    }
+                             }
+                          }
+                     }
                 }
                 
-                // Check network - FIXED: Added check for specific network indicators
-                if !matched {
-                    let general_activity = cond_group.has_network_activity && state.network_activity_detected;
-                    
-                    let specific_indicator_match = if !cond_group.network_indicators.is_empty() {
-                        cond_group.network_indicators.iter().any(|indicator| {
-                            // Check current event
-                            Self::matches_pattern_internal(&self.regex_cache, indicator, filepath) ||
-                            // Check accumulated API history
-                            state.detected_apis.iter().any(|api| {
-                                Self::matches_pattern_internal(&self.regex_cache, indicator, api)
-                            })
-                        })
-                    } else {
-                        false
-                    };
-
-                    if general_activity || specific_indicator_match {
-                        matched = true;
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': Network activity detected (General: {}, Specific: {})",
-                                cond_name, general_activity, specific_indicator_match
-                            ));
-                        }
-                    }
-                }
-                
-                // Check process termination
-                if !matched && !cond_group.terminated_processes.is_empty() {
-                    for proc_pattern in &cond_group.terminated_processes {
-                        let term_match = state.terminated_processes.iter().any(|victim| {
-                            Self::matches_pattern_internal(&self.regex_cache, proc_pattern, victim)
-                        });
-                        let self_match = if cond_group.detect_self_termination {
-                            state.self_terminated_processes.iter().any(|victim| {
-                                Self::matches_pattern_internal(&self.regex_cache, proc_pattern, victim)
-                            })
-                        } else {
-                            false
-                        };
-                        
-                        if term_match || self_match {
-                            matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Process termination match",
-                                    cond_name
-                                ));
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Check parent process names (suspicious origin)
-                if !matched && !cond_group.parent_names.is_empty() {
-                    let parent_lc = state.parent_name.to_lowercase();
-                    
-                    if !parent_lc.is_empty() && parent_lc != "unknown" {
-                        for parent_pattern in &cond_group.parent_names {
-                            // FIX: Use matches_pattern
-                            if Self::matches_pattern_internal(&self.regex_cache, parent_pattern, &parent_lc) {
-                                matched = true;
-                                if rule.debug {
-                                    Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': Suspicious parent matched '{}' (pattern: '{}')",
-                                        cond_name, state.parent_name, parent_pattern
-                                    ));
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Check entropy - use the PERSISTENT high_entropy_detected flag
-                if !matched && cond_group.entropy_threshold > 0.0 {
-                    // Check current event entropy
-                    let current_high = msg.entropy > cond_group.entropy_threshold;
-                    // Check if ANY previous event had high entropy (persistent state)
-                    let was_high = state.high_entropy_detected;
-                    
-                    if current_high || was_high {
-                        matched = true;
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': Entropy threshold exceeded (current: {:.2}, threshold: {:.2}, persistent_flag: {})",
-                                cond_name, msg.entropy, cond_group.entropy_threshold, was_high
-                            ));
-                        }
-                    }
-                }
-                
-                // Check file extensions - FIX: Use matches_pattern
-                if !matched && !cond_group.file_extensions.is_empty() {
-                    for ext in &cond_group.file_extensions {
-                        if filepath.ends_with(&ext.to_lowercase()) || Self::matches_pattern_internal(&self.regex_cache, ext, filepath) {
-                            matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Extension match '{}'",
-                                    cond_name, ext
-                                ));
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Check file actions - FIX: Use matches_pattern
+                // CHECK 7: File Actions (Entropy, etc)
                 if !matched && !cond_group.file_actions.is_empty() {
                     for action in &cond_group.file_actions {
-                        if Self::matches_pattern_internal(&self.regex_cache, action, filepath) {
+                        if (action == "high_entropy" && state.high_entropy_detected) ||
+                           (action == "delete" && *irp_op == IrpMajorOp::IrpSetInfo) { // Approximation
                             matched = true;
-                            if rule.debug {
+                             if rule.debug {
                                 Logging::debug(&format!(
                                     "[BehaviorEngine] Named condition '{}': File action match '{}'",
                                     cond_name, action
                                 ));
-                            }
+                             }
                             break;
                         }
                     }
@@ -1529,7 +1564,7 @@ impl BehaviorEngine {
                         n_of, conditions.len(), satisfied_count, conditions.len(), 
                         if result { "✔" } else { "✘" }
                     ));
-                }
+                    }
                 result
             },
             
@@ -1634,7 +1669,8 @@ impl BehaviorEngine {
         msg: &IOMessage,
         _irp_op: IrpMajorOp,
         config: &Config,
-        actions: &mut ActionsOnKill
+        actions: &mut ActionsOnKill,
+        api_tracker: Option<&ApiTracker>
     ) {
         let state_ref = self.process_states.get(&gid).unwrap();
 
@@ -1646,10 +1682,10 @@ impl BehaviorEngine {
             self_terminated_processes,
             parent_name,
             high_entropy_detected,
-            monitored_api_count,
+            monitored_api_count, // This will be unused now
             file_action_detected,
             extension_match_detected,
-            network_activity_detected,
+            network_activity_detected, // This will be unused now
             pid
         ) = (
             state_ref.browsed_paths_tracker.clone(),
@@ -1683,7 +1719,12 @@ impl BehaviorEngine {
             let browsed_access_count = browsed_paths_tracker.len();
             let has_staged_data = !staged_files_written.is_empty();
             let is_online = if rule.require_internet {
-                self.has_active_connections(pid) || network_activity_detected
+                if let Some(tracker) = api_tracker {
+                    tracker.network_operations.connections_established > 0
+                } else {
+                    // Fallback to legacy if ApiTracker not available
+                    self.has_active_connections(pid) || network_activity_detected
+                }
             } else {
                 true
             };
@@ -1737,8 +1778,18 @@ impl BehaviorEngine {
                 check_legacy!("entropy", high_entropy_detected);
             }
             if !rule.monitored_apis.is_empty() {
+                let api_match_count = if let Some(tracker) = api_tracker {
+                    rule.monitored_apis.iter().filter(|monitored_api| {
+                        tracker.internet_apis.iter().any(|tracked_api| {
+                            Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
+                        })
+                    }).count()
+                } else {
+                    // Fallback to legacy if ApiTracker not available
+                    monitored_api_count // This is the old, potentially incorrect count
+                };
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                check_legacy!("apis", monitored_api_count >= threshold);
+                check_legacy!("apis", api_match_count >= threshold);
             }
             if !rule.file_actions.is_empty() {
                 check_legacy!("file_actions", file_action_detected);
@@ -1774,7 +1825,7 @@ impl BehaviorEngine {
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
-                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref, Some(msg));
+                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref, Some(msg), api_tracker);
                 stages_triggered = detected;
                 stage_conf = conf;
             }
@@ -1838,7 +1889,8 @@ impl BehaviorEngine {
         &self,
         rule: &BehaviorRule,
         state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>, 
+        msg: Option<&IOMessage>,
+        api_tracker: Option<&ApiTracker>
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
         
@@ -1924,12 +1976,15 @@ impl BehaviorEngine {
                     },
 
                     RuleCondition::Network { dest_pattern, .. } => {
-                        let mut network_matched = state.network_activity_detected;
-                        
-                        if network_matched {
-                            if let Some(dest) = dest_pattern {
-                                let has_dest = state.detected_apis.iter().any(|api| {
-                                    Self::matches_pattern_internal(&self.regex_cache, dest, api)
+                        let mut network_matched = false;
+                        if let Some(tracker) = api_tracker {
+                            if tracker.network_operations.connections_established > 0 {
+                                network_matched = true;
+                            }
+                            if network_matched && dest_pattern.is_some() {
+                                let dest = dest_pattern.as_ref().unwrap();
+                                let has_dest = tracker.internet_apis.iter().any(|api_name| {
+                                    Self::matches_pattern_internal(&self.regex_cache, dest, api_name)
                                 });
                                 network_matched = has_dest;
                             }
@@ -2170,7 +2225,8 @@ impl BehaviorEngine {
                 let browsed_access_count = state.browsed_paths_tracker.len();
                 let has_staged_data = !state.staged_files_written.is_empty();
                 let is_online = if rule.require_internet {
-                    self.has_active_connections(state.pid) || state.network_activity_detected
+                    // Fallback to active connections check since api_tracker not available in scan
+                    self.has_active_connections(pid)
                 } else {
                     true
                 };
@@ -2280,7 +2336,7 @@ impl BehaviorEngine {
                 let mut stages_triggered = false;
                 let mut stage_conf = 0.0;
                 if !rule.stages.is_empty() {
-                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state, None);
+                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state, None, None);
                     stages_triggered = detected;
                     stage_conf = conf;
                 }

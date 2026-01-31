@@ -1250,7 +1250,12 @@ pub mod worker_instance {
                 // Process behavioral event
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if let Some(ref th) = self.threat_handler {
-                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
+                    #[cfg(feature = "realtime_learning")]
+                    let api_tracker_ref = self.api_trackers.get(&tracking_key);
+                    #[cfg(not(feature = "realtime_learning"))]
+                    let api_tracker_ref = None; // If realtime_learning is not enabled, pass None
+
+                    self.behavior_engine.process_event(precord, iomsg, config, &**th, api_tracker_ref);
                 }
                 
                 // Update learning engine
