@@ -1233,6 +1233,7 @@ impl BehaviorEngine {
              } else if path_lower.contains("urlmon.dll") {
                  available_apis.insert("urldownload".to_string());
              }
+             // REMOVED CRYPTO DLL MAPPINGS
         }
 
         for rule in &self.rules {
@@ -1258,10 +1259,21 @@ impl BehaviorEngine {
 
                 let mut matched = false;
 
-                // CHECK 1: API Usage (Unified Check)
-                if !cond_group.apis.is_empty() {
+                // CHECK 1: API Usage (Unified Check including aliases)
+                // Combine: apis + scheduled_task_apis + anti_debug_apis + anti_vm_apis
+                let has_api_conditions = !cond_group.apis.is_empty() || 
+                                         !cond_group.scheduled_task_apis.is_empty() || 
+                                         !cond_group.anti_debug_apis.is_empty() || 
+                                         !cond_group.anti_vm_apis.is_empty();
+
+                if has_api_conditions {
                     // Check against our unified available_apis set
-                    let api_matches = cond_group.apis.iter().filter(|required_api| {
+                    let api_iter = cond_group.apis.iter()
+                        .chain(cond_group.scheduled_task_apis.iter())
+                        .chain(cond_group.anti_debug_apis.iter())
+                        .chain(cond_group.anti_vm_apis.iter());
+
+                    let api_matches = api_iter.filter(|required_api| {
                         available_apis.iter().any(|available| {
                             Self::matches_pattern_internal(&self.regex_cache, required_api, available)
                         })
@@ -1277,6 +1289,7 @@ impl BehaviorEngine {
                         }
                     }
                 }
+                
                 if matched {
                    // If matched by API, we can skip other checks for this condition
                    // But we continue logic flow to be consistent
@@ -1303,12 +1316,14 @@ impl BehaviorEngine {
                     }
                     
                     // Check specific indicators (hostnames, IPs) if we have tracker data
-                    if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty()) {
+                    if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty() || !cond_group.network_ips.is_empty()) {
                         if let Some(tracker) = api_tracker {
                             // Only check if we have data
                             if !tracker.internet_apis.is_empty() {
                                 // We are reusing internet_apis for domains/indicators in current implementation
-                                let has_indicator = cond_group.network_indicators.iter().chain(cond_group.network_domains.iter())
+                                let has_indicator = cond_group.network_indicators.iter()
+                                    .chain(cond_group.network_domains.iter())
+                                    .chain(cond_group.network_ips.iter())
                                     .any(|indicator| {
                                         tracker.internet_apis.iter().any(|api| {
                                             Self::matches_pattern_internal(&self.regex_cache, indicator, api)
@@ -1332,10 +1347,26 @@ impl BehaviorEngine {
                     }
                 }
 
-                // CHECK 3: File Operations
-                if !matched && (!cond_group.file_paths.is_empty() || !cond_group.file_extensions.is_empty()) {
-                    let path_matched = cond_group.file_paths.iter().any(|p| {
-                         Self::matches_pattern_internal(&self.regex_cache, p, filepath)
+                // CHECK 3: File Operations (Unified Check including aliases)
+                // Combine: file_paths + staging_paths + browsed_paths + sensitive_paths + persistence_locations
+                let has_path_conditions = !cond_group.file_paths.is_empty() || 
+                                          !cond_group.staging_paths.is_empty() ||
+                                          !cond_group.browsed_paths.is_empty() ||
+                                          !cond_group.sensitive_paths.is_empty() ||
+                                          !cond_group.persistence_locations.is_empty() ||
+                                          !cond_group.file_extensions.is_empty();
+
+                if !matched && has_path_conditions {
+                    let path_iter = cond_group.file_paths.iter()
+                        .chain(cond_group.staging_paths.iter())
+                        .chain(cond_group.browsed_paths.iter())
+                        .chain(cond_group.sensitive_paths.iter())
+                        .chain(cond_group.persistence_locations.iter());
+
+                    let path_matched = path_iter.any(|p| {
+                         // FIX: Normalize pattern to forward slashes for current event matching
+                         let p_norm = p.replace("\\", "/");
+                         Self::matches_pattern_internal(&self.regex_cache, &p_norm, filepath)
                     });
                     
                     let ext_matched = if !cond_group.file_extensions.is_empty() {
@@ -1380,24 +1411,28 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // CHECK 4: Registry Operations
-                if !matched && (!cond_group.registry_keys.is_empty()) {
-                    // Primitive check: if filepath looks like registry key (e.g. starts with \REGISTRY)
-                    // In current IOMessage, filepath is usually file path. Registry ops might come differently?
-                    // Assuming filepath might contain registry key for Registry IRPs if we successfully capture them.
-                    // For now checking against filepath string
-                     let reg_matched = cond_group.registry_keys.iter().any(|k| {
-                         Self::matches_pattern_internal(&self.regex_cache, k, filepath)
-                    });
-                    
-                    if reg_matched {
-                        matched = true; 
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': Registry match '{}'",
-                                cond_name, filepath
-                            ));
-                         }
+                // CHECK 4: Registry Operations (Unified including aliases)
+                // Combine: registry_keys + autorun_keys
+                let has_reg_conditions = !cond_group.registry_keys.is_empty() || 
+                                         !cond_group.autorun_keys.is_empty();
+
+                if !matched && has_reg_conditions {
+                     let reg_iter = cond_group.registry_keys.iter()
+                        .chain(cond_group.autorun_keys.iter());
+
+                    for reg_pattern in reg_iter {
+                        // FIX: Normalize pattern for registry check
+                        let p_norm = reg_pattern.replace("\\", "/");
+                        if Self::matches_pattern_internal(&self.regex_cache, &p_norm, filepath) {
+                            matched = true;
+                            if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
+                                    cond_name, filepath
+                                ));
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -1437,8 +1472,13 @@ impl BehaviorEngine {
                      }
                 }
                 
-                // CHECK 7: File Actions (Entropy, etc)
-                if !matched && !cond_group.file_actions.is_empty() {
+                // CHECK 7: File Actions (Entropy, etc) + Obfuscation
+                // Combine: file_actions + obfuscation_indicators
+                let has_action_conditions = !cond_group.file_actions.is_empty() || 
+                                            !cond_group.obfuscation_indicators.is_empty(); // treated as special action check
+
+                if !matched && has_action_conditions {
+                    // Check standard file actions
                     for action in &cond_group.file_actions {
                         if (action == "high_entropy" && state.high_entropy_detected) ||
                            (action == "delete" && *irp_op == IrpMajorOp::IrpSetInfo) { // Approximation
@@ -1450,6 +1490,31 @@ impl BehaviorEngine {
                                 ));
                              }
                             break;
+                        }
+                    }
+                    // Check obfuscation indicators (entropy) if not null
+                    if !matched && !cond_group.obfuscation_indicators.is_empty() {
+                         // If any obfuscation indicator is present, checking entropy is a good default heuristic
+                         if state.high_entropy_detected {
+                             matched = true;
+                         }
+                    }
+                }
+
+                // CHECK 8: Process Name (e.g. for archive tools like 7z.exe)
+                if !matched && !cond_group.process_names.is_empty() {
+                    let app_lc = state.app_name.to_lowercase();
+                    if !app_lc.is_empty() {
+                        if cond_group.process_names.iter().any(|p| {
+                             Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
+                        }) {
+                            matched = true;
+                            if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': Process name match '{}'",
+                                    cond_name, app_lc
+                                ));
+                            }
                         }
                     }
                 }
@@ -1879,7 +1944,7 @@ impl BehaviorEngine {
                     break;
                 }
             } else if rule.debug && (legacy_total > 0 || !rule.stages.is_empty() || rule.detection_logic.is_some()) {
-                // Only log if something interesting happened or upon user request
+                // Only log if something interesting happened
                 // Logging::debug(...) - Commented out to reduce noise for non-matches
             }
         }
