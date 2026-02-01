@@ -242,15 +242,10 @@ impl ApiTracker {
             self.file_operations.executable_files_accessed.insert(msg.filepathstr.clone());
         }
 
-        // Infer DLL loads from file operations on .dll files
+        // Track DLL loads, but do not infer network activity from them.
         if msg.extension.to_lowercase() == "dll" {
             self.dlls_loaded.insert(msg.filepathstr.clone());
-            // Track network-related DLL loads
-            self.track_network_dll(&msg.filepathstr);
         }
-
-        // Detect internet APIs from file path (for DLL imports, API hooks, etc.)
-        self.detect_internet_api(&msg.filepathstr, Some(msg.filepathstr.clone()));
     }
 
     /// Track a specific API call (for future integration with API hooking)
@@ -425,49 +420,6 @@ impl ApiTracker {
         }
         if api_name.contains("http") || api_name.contains("winhttp") || api_name.contains("urldownload") {
             self.network_operations.http_requests += 1;
-        }
-    }
-
-    /// Track network-related DLL loads that indicate internet activity
-    pub fn track_network_dll(&mut self, dll_path: &str) {
-        let dll_lower = dll_path.to_lowercase();
-        
-        // Map DLLs to representative APIs/Capabilities
-        if dll_lower.contains("ws2_32.dll") || dll_lower.contains("wsock32.dll") {
-            self.internet_apis.insert("socket".to_string());
-            self.internet_apis.insert("connect".to_string());
-            self.network_operations.connections_established += 1; // Assume capability implies usage potential
-        } else if dll_lower.contains("wininet.dll") {
-            self.internet_apis.insert("internetopen".to_string());
-            self.internet_apis.insert("internetconnect".to_string());
-            self.network_operations.http_requests += 1;
-        } else if dll_lower.contains("winhttp.dll") {
-            self.internet_apis.insert("winhttpopen".to_string());
-            self.internet_apis.insert("winhttpconnect".to_string());
-            self.network_operations.http_requests += 1;
-        } else if dll_lower.contains("dnsapi.dll") {
-            self.internet_apis.insert("dnsquery".to_string());
-            self.network_operations.dns_queries += 1;
-        } else if dll_lower.contains("urlmon.dll") {
-            self.internet_apis.insert("urldownload".to_string());
-        }
-
-        let network_dlls = [
-            "wininet.dll",
-            "winhttp.dll",
-            "ws2_32.dll",
-            "wsock32.dll",
-            "urlmon.dll",
-            "dnsapi.dll",
-            "mswsock.dll",
-            "iphlpapi.dll",
-        ];
-        
-        for network_dll in &network_dlls {
-            if dll_lower.contains(network_dll) {
-                self.dlls_loaded.insert(dll_path.to_string());
-                break;
-            }
         }
     }
 

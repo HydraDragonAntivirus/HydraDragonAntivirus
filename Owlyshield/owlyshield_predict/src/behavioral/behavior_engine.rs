@@ -16,6 +16,7 @@ use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 use crate::realtime_learning::ApiTracker;
+use crate::realtime_learning::api_tracker::OperationType;
 
 // --- Windows Specific Imports ---
 use windows::Win32::NetworkManagement::IpHelper::{
@@ -158,6 +159,50 @@ fn default_zero() -> usize { 0 }
 // Helper functions for path normalization and case sensitivity
 fn normalize_path_separators(path: &str) -> String {
     path.replace("\\", "/").trim_end_matches('/').to_string()
+}
+
+fn normalize_device_prefix(path: &str) -> String {
+    let mut p = path.to_string();
+    let p_lc = p.to_lowercase();
+    if p_lc.starts_with("\\\\?\\") {
+        p = p[4..].to_string();
+    } else if p_lc.starts_with("\\??\\") {
+        p = p[4..].to_string();
+    }
+
+    let p_lc = p.to_lowercase();
+    if p_lc.starts_with("\\device\\harddiskvolume") {
+        if let Some(idx) = p.find('\\') {
+            let rest = &p[idx + 1..];
+            if let Some(next) = rest.find('\\') {
+                let remainder = &rest[next + 1..];
+                return remainder.to_string();
+            }
+        }
+    }
+
+    p
+}
+
+fn strip_drive_prefix(path: &str) -> String {
+    if path.len() >= 3 && path.as_bytes()[1] == b':' && (path.as_bytes()[2] == b'\\' || path.as_bytes()[2] == b'/') {
+        return path[2..].trim_start_matches(['\\', '/']).to_string();
+    }
+    path.to_string()
+}
+
+fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
+    let mut variants = HashSet::new();
+    if !norm_path.is_empty() {
+        variants.insert(norm_path.to_string());
+        variants.insert(strip_drive_prefix(norm_path));
+    }
+    if !raw_path.is_empty() {
+        let raw_norm = raw_path.to_lowercase().replace("\\", "/");
+        variants.insert(raw_norm.clone());
+        variants.insert(strip_drive_prefix(&raw_norm));
+    }
+    variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
 
 fn apply_case_sensitivity(text: &str, case_sensitive: bool) -> String {
@@ -818,6 +863,7 @@ pub struct ProcessBehaviorState {
     // NEW: Rich condition state tracking
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
+    pub condition_match_values: HashMap<String, HashSet<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
 }
@@ -834,6 +880,7 @@ impl ProcessBehaviorState {
         state.detected_apis = HashSet::new();
         state.satisfied_named_conditions = HashSet::new();
         state.condition_match_counts = HashMap::new();
+        state.condition_match_values = HashMap::new();
         state.condition_first_seen = HashMap::new();
         state.condition_last_seen = HashMap::new();
         state
@@ -891,9 +938,19 @@ impl BehaviorEngine {
             if f.contains("/registry/user/") {
                 return f.contains(remainder);
             }
+        } else if p.starts_with("hku/") || p.starts_with("hkey_users/") {
+            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            if f.contains("/registry/user/") {
+                return f.contains(remainder);
+            }
         } else if p.starts_with("hklm/") || p.starts_with("hkey_local_machine/") {
             let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
             if f.contains("/registry/machine/") {
+                return f.contains(remainder);
+            }
+        } else if p.starts_with("hkcc/") || p.starts_with("hkey_current_config/") {
+            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            if f.contains("/registry/machine/system/currentcontrolset/hardware profiles/current") {
                 return f.contains(remainder);
             }
         } else if p.starts_with("hkcr/") || p.starts_with("hkey_classes_root/") {
@@ -920,7 +977,9 @@ impl BehaviorEngine {
             Some(FileChangeInfo::RegSetValue) => "set",
             Some(FileChangeInfo::RegDeleteValue) => "delete",
             Some(FileChangeInfo::RegRenameKey) => "rename",
-            _ => "query",
+            _ => {
+                return true; // Unknown registry op: allow match to avoid false negatives
+            }
         };
         cond_group.registry_operations.iter().any(|v| v == op)
     }
@@ -1095,9 +1154,23 @@ impl BehaviorEngine {
         }
         let state = self.process_states.get_mut(&gid).unwrap();
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
-        let filepath = msg.filepathstr.to_lowercase().replace("\\", "/");
+        let dev_norm = normalize_device_prefix(&msg.filepathstr);
+        let filepath = dev_norm.to_lowercase().replace("\\", "/");
         let norm_filepath = filepath.trim_end_matches('/');
         let pid = state.pid;
+
+        if self.rules.iter().any(|r| r.debug) {
+            Logging::debug(&format!(
+                "[BehaviorEngine] IO event: pid={} gid={} irp={:?} path={} norm_path={} ext={} change={}",
+                pid,
+                gid,
+                irp_op,
+                if msg.filepathstr.is_empty() { "<empty>" } else { &msg.filepathstr },
+                if filepath.is_empty() { "<empty>" } else { &filepath },
+                if msg.extension.is_empty() { "<none>" } else { &msg.extension },
+                msg.file_change
+            ));
+        }
         
         // Populate detected APIs regardless of "network keywords" to track general API usage
         // This is now handled by ApiTracker, so we can remove this direct population.
@@ -1192,7 +1265,18 @@ impl BehaviorEngine {
         }
 
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
-            let victim_path = msg.filepathstr.to_lowercase();
+            let mut victim_path = msg.filepathstr.to_lowercase();
+            if victim_path.is_empty() {
+                let mut sys = self.system.borrow_mut();
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(msg.pid as u32)]),
+                    false,
+                    ProcessRefreshKind::everything()
+                );
+                if let Some(proc) = sys.process(sysinfo::Pid::from_u32(msg.pid as u32)) {
+                    victim_path = proc.name().to_string_lossy().to_string().to_lowercase();
+                }
+            }
             
             if msg.attacker_pid != 0 {
                 let is_self = msg.attacker_pid == msg.pid;
@@ -1264,25 +1348,7 @@ impl BehaviorEngine {
             }
         }
         
-        // Add locally inferred APIs from DLL loads (for immediate detection without waiting for tracker)
-        let path_lower = filepath.to_lowercase();
-        if path_lower.ends_with(".dll") {
-             if path_lower.contains("ws2_32.dll") || path_lower.contains("wsock32.dll") {
-                 available_apis.insert("socket".to_string());
-                 available_apis.insert("connect".to_string());
-             } else if path_lower.contains("wininet.dll") {
-                 available_apis.insert("internetopen".to_string());
-                 available_apis.insert("internetconnect".to_string());
-             } else if path_lower.contains("winhttp.dll") {
-                 available_apis.insert("winhttpopen".to_string());
-                 available_apis.insert("winhttpconnect".to_string());
-             } else if path_lower.contains("dnsapi.dll") {
-                 available_apis.insert("dnsquery".to_string());
-             } else if path_lower.contains("urlmon.dll") {
-                 available_apis.insert("urldownload".to_string());
-             }
-             // REMOVED CRYPTO DLL MAPPINGS
-        }
+        // NOTE: DLL-based inference removed. Only real API names from ApiTracker are used.
 
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
@@ -1343,10 +1409,10 @@ impl BehaviorEngine {
                    // But we continue logic flow to be consistent
                 } else {
 
-                    // CHECK 2: Network Activity
-                    let mut net_matched = false;
+                // CHECK 2: Network Activity
+                let mut net_matched = false;
                     
-                    // Check generic network activity requirement
+                    // Check generic network activity requirement (connections or API usage)
                     if cond_group.has_network_activity {
                          // Check ApiTracker connections
                          if let Some(tracker) = api_tracker {
@@ -1354,32 +1420,44 @@ impl BehaviorEngine {
                                  net_matched = true;
                              }
                          }
-                         // Fallback: Check inferred network capability from DLLs
+                         // Fallback: API name usage (from tracker)
                          if !net_matched && !available_apis.is_empty() {
-                             // If we have ANY network APIs inferred, we assume network capability
-                             if available_apis.contains("socket") || available_apis.contains("internetopen") {
-                                 net_matched = true;
-                             }
+                             net_matched = true;
                          }
                     }
                     
                     // Check specific indicators (hostnames, IPs) if we have tracker data
                     if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty() || !cond_group.network_ips.is_empty()) {
                         if let Some(tracker) = api_tracker {
-                            // Only check if we have data
-                            if !tracker.internet_apis.is_empty() {
-                                // We are reusing internet_apis for domains/indicators in current implementation
-                                let has_indicator = cond_group.network_indicators.iter()
-                                    .chain(cond_group.network_domains.iter())
-                                    .chain(cond_group.network_ips.iter())
-                                    .any(|indicator| {
-                                        tracker.internet_apis.iter().any(|api| {
-                                            Self::matches_pattern_internal(&self.regex_cache, indicator, api)
-                                        })
-                                    });
-                                if has_indicator {
-                                    net_matched = true;
+                            let indicators = cond_group.network_indicators.iter()
+                                .chain(cond_group.network_domains.iter())
+                                .chain(cond_group.network_ips.iter());
+
+                            let has_indicator = indicators.any(|indicator| {
+                                let indicator_lc = indicator.to_lowercase();
+                                if indicator_lc == "http" || indicator_lc == "https" || indicator_lc == "ftp" {
+                                    return tracker.network_operations.http_requests > 0;
                                 }
+
+                                // Check API call names (real API telemetry)
+                                if tracker.api_sequence.iter().any(|api| {
+                                    Self::matches_pattern_internal(&self.regex_cache, indicator, &api.name)
+                                }) {
+                                    return true;
+                                }
+
+                                // Check network connect sequence if present
+                                tracker.operation_sequence.iter().any(|op| {
+                                    match op {
+                                        OperationType::NetworkConnect(dest) =>
+                                            Self::matches_pattern_internal(&self.regex_cache, indicator, dest),
+                                        _ => false
+                                    }
+                                })
+                            });
+
+                            if has_indicator {
+                                net_matched = true;
                             }
                         }
                     }
@@ -1405,6 +1483,7 @@ impl BehaviorEngine {
                                           !cond_group.file_extensions.is_empty();
 
                 if !matched && has_path_conditions {
+                    let path_variants = build_path_variants(filepath, &msg.filepathstr);
                     let mut path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
                         .chain(cond_group.browsed_paths.iter())
@@ -1414,7 +1493,9 @@ impl BehaviorEngine {
                     let path_matched = path_iter.any(|p| {
                          // FIX: Normalize pattern to forward slashes for current event matching
                          let p_norm = p.replace("\\", "/");
-                         Self::matches_pattern_internal(&self.regex_cache, &p_norm, filepath)
+                         path_variants.iter().any(|v| {
+                             Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
+                         })
                     });
                     
                     let ext_matched = if !cond_group.file_extensions.is_empty() {
@@ -1429,24 +1510,29 @@ impl BehaviorEngine {
 
                     if path_matched || (ext_matched && !cond_group.file_extensions.is_empty()) {
                          // Check operation type if specified
-                         if !cond_group.file_operations.is_empty() {
-                             let op_matches = |op: &str| cond_group.file_operations.iter().any(|v| v == op);
-                             let mut op_ok = false;
-                             match irp_op {
-                                 IrpMajorOp::IrpRead => {
-                                     op_ok = op_matches("read");
-                                 }
-                                 IrpMajorOp::IrpWrite => {
-                                     op_ok = op_matches("write");
-                                 }
-                                 IrpMajorOp::IrpCreate => {
-                                     // Many Windows "read" opens are reported as IRP_CREATE.
-                                     op_ok = op_matches("create") || op_matches("read") || op_matches("open");
-                                 }
-                                 IrpMajorOp::IrpSetInfo => {
-                                     // Treat metadata updates as create/write-esque operations.
-                                     op_ok = op_matches("create") || op_matches("write");
-                                 }
+                        if !cond_group.file_operations.is_empty() {
+                            let op_matches = |op: &str| cond_group.file_operations.iter().any(|v| v == op);
+                            let mut op_ok = false;
+                            match irp_op {
+                                IrpMajorOp::IrpRead => {
+                                    op_ok = op_matches("read");
+                                }
+                                IrpMajorOp::IrpWrite => {
+                                    op_ok = op_matches("write");
+                                }
+                                IrpMajorOp::IrpCreate => {
+                                    let change = FromPrimitive::from_u8(msg.file_change);
+                                    if matches!(change, Some(FileChangeInfo::OpenDirectory)) {
+                                        op_ok = false;
+                                    } else {
+                                    // Many Windows "read" opens are reported as IRP_CREATE.
+                                    op_ok = op_matches("create") || op_matches("read") || op_matches("open");
+                                    }
+                                }
+                                IrpMajorOp::IrpSetInfo => {
+                                    // Treat metadata updates as create/write-esque operations.
+                                    op_ok = op_matches("create") || op_matches("write");
+                                }
                                  _ => {}
                              }
 
@@ -1474,7 +1560,8 @@ impl BehaviorEngine {
                 // CHECK 4: Registry Operations (Unified including aliases)
                 // Combine: registry_keys + autorun_keys
                 let has_reg_conditions = !cond_group.registry_keys.is_empty() || 
-                                         !cond_group.autorun_keys.is_empty();
+                                         !cond_group.autorun_keys.is_empty() ||
+                                         !cond_group.registry_values.is_empty();
 
                 if !matched && has_reg_conditions {
                      if *irp_op != IrpMajorOp::IrpRegistry {
@@ -1495,6 +1582,20 @@ impl BehaviorEngine {
                                     ));
                                 }
                                 break;
+                            }
+                        }
+
+                        if !matched && !cond_group.registry_values.is_empty() {
+                            if cond_group.registry_values.iter().any(|v| {
+                                Self::matches_pattern_internal(&self.regex_cache, v, filepath)
+                            }) {
+                                matched = true;
+                                if rule.debug {
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Named condition '{}': Registry value match on '{}'",
+                                        cond_name, filepath
+                                    ));
+                                }
                             }
                         }
                      }
@@ -1593,13 +1694,55 @@ impl BehaviorEngine {
                         }
                     }
                 }
+
+                // CHECK 9: Created Process (on process creation events)
+                if !matched && !cond_group.created_processes.is_empty() {
+                    if *irp_op == IrpMajorOp::IrpProcessCreate {
+                        let proc_path = filepath.to_lowercase();
+                        if cond_group.created_processes.iter().any(|p| {
+                            Self::matches_pattern_internal(&self.regex_cache, p, &proc_path)
+                        }) {
+                            matched = true;
+                            if rule.debug {
+                                Logging::debug(&format!(
+                                    "[BehaviorEngine] Named condition '{}': Created process match '{}'",
+                                    cond_name, proc_path
+                                ));
+                            }
+                        }
+                    }
+                }
                 
-                // If matched, update state
+                // If matched, update state and enforce min_matches across distinct values
                 if matched {
-                    state.satisfied_named_conditions.insert(cond_name.clone());
-                    *state.condition_match_counts.entry(cond_name.clone()).or_insert(0) += 1;
+                    let match_key = if !filepath.is_empty() {
+                        filepath.to_string()
+                    } else if !msg.filepathstr.is_empty() {
+                        msg.filepathstr.to_lowercase().replace("\\", "/")
+                    } else {
+                        cond_name.clone()
+                    };
+                    let values = state.condition_match_values.entry(cond_name.clone()).or_insert_with(HashSet::new);
+                    if values.len() > 256 {
+                        values.clear(); // prevent unbounded growth for long-lived processes
+                    }
+                    let is_new = values.insert(match_key);
+                    let count = state.condition_match_counts.entry(cond_name.clone()).or_insert(0);
+                    if is_new {
+                        *count += 1;
+                    }
                     state.condition_first_seen.entry(cond_name.clone()).or_insert(now);
                     state.condition_last_seen.insert(cond_name.clone(), now);
+
+                    let required = if cond_group.min_matches > 0 { cond_group.min_matches } else { 1 };
+                    if *count >= required {
+                        state.satisfied_named_conditions.insert(cond_name.clone());
+                    } else if rule.debug {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Named condition '{}': {} / {} matches (waiting for min_matches)",
+                            cond_name, count, required
+                        ));
+                    }
                 }
                 if rule.debug && !state.satisfied_named_conditions.is_empty() {
                     let total_named = rule.named_conditions.len();
