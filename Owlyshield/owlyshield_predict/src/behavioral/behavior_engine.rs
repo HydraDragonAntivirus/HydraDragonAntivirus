@@ -18,16 +18,134 @@ use crate::signature_verification::verify_signature;
 use crate::realtime_learning::ApiTracker;
 use crate::realtime_learning::api_tracker::OperationType;
 
-// --- Windows Specific Imports ---
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, GetExtendedUdpTable, 
     TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 
-// --- Sysinfo Imports for Fallback ---
 use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
+
+// =============================================================================
+// PART 1: IRP OPERATION TRACKING STRUCTURES
+// =============================================================================
+
+/// Records every IRP operation with full context
+#[derive(Debug, Clone)]
+pub struct IrpOperationRecord {
+    pub timestamp: SystemTime,
+    pub irp_type: u8,
+    pub file_path: String,
+    pub file_change: u8,
+    pub extension: String,
+    pub entropy: f64,
+    pub bytes_transferred: u64,
+}
+
+/// Maintains comprehensive operation statistics
+#[derive(Debug, Clone, Default)]
+pub struct IrpStatistics {
+    // File operations by type
+    pub read_count: u64,
+    pub write_count: u64,
+    pub create_count: u64,
+    pub delete_count: u64,
+    pub rename_count: u64,
+    pub setinfo_count: u64,
+    
+    // Registry operations
+    pub registry_read_count: u64,
+    pub registry_write_count: u64,
+    pub registry_delete_count: u64,
+    pub registry_create_count: u64,
+    
+    // Process operations
+    pub process_create_count: u64,
+    pub process_terminate_count: u64,
+    
+    // Network operations
+    pub network_connect_count: u64,
+    pub network_send_count: u64,
+    pub network_receive_count: u64,
+    
+    // Bytes transferred
+    pub total_bytes_read: u64,
+    pub total_bytes_written: u64,
+    
+    // File type statistics
+    pub files_by_extension: HashMap<String, u64>,
+    pub directories_accessed: HashSet<String>,
+    pub unique_paths_accessed: HashSet<String>,
+    
+    // High-entropy file tracking
+    pub high_entropy_files: HashSet<String>,
+    pub average_entropy: f64,
+    pub entropy_samples: Vec<f64>,
+}
+
+impl IrpStatistics {
+    pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
+        if let Some(irp_op) = IrpMajorOp::from_byte(rec.irp_type) {
+            match irp_op {
+                IrpMajorOp::IrpRead => self.read_count += 1,
+                IrpMajorOp::IrpWrite => self.write_count += 1,
+                IrpMajorOp::IrpCreate => self.create_count += 1,
+                IrpMajorOp::IrpSetInfo => self.setinfo_count += 1,
+                IrpMajorOp::IrpRegistry => {
+                    match rec.file_change {
+                        _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
+                        _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => self.registry_write_count += 1,
+                        _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8 => self.registry_delete_count += 1,
+                        _ => self.registry_read_count += 1,
+                    }
+                },
+                IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
+                IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_count += 1,
+                _ => {},
+            }
+        }
+        
+        self.total_bytes_read += rec.bytes_transferred;
+        self.total_bytes_written += rec.bytes_transferred;
+        
+        if !rec.extension.is_empty() {
+            *self.files_by_extension.entry(rec.extension.clone()).or_insert(0) += 1;
+        }
+        
+        self.unique_paths_accessed.insert(rec.file_path.clone());
+        
+        if rec.entropy > 0.7 {
+            self.high_entropy_files.insert(rec.file_path.clone());
+        }
+        
+        if self.entropy_samples.len() < 1000 {
+            self.entropy_samples.push(rec.entropy);
+            self.average_entropy = self.entropy_samples.iter().sum::<f64>() / self.entropy_samples.len() as f64;
+        }
+    }
+    
+    pub fn get_operation_count(&self, op_type: &str) -> u64 {
+        match op_type {
+            "read" => self.read_count,
+            "write" => self.write_count,
+            "create" => self.create_count,
+            "delete" => self.delete_count,
+            "rename" => self.rename_count,
+            "setinfo" => self.setinfo_count,
+            "registry_read" => self.registry_read_count,
+            "registry_write" => self.registry_write_count,
+            "registry_delete" => self.registry_delete_count,
+            "registry_create" => self.registry_create_count,
+            "process_create" => self.process_create_count,
+            "process_terminate" => self.process_terminate_count,
+            "network_connect" => self.network_connect_count,
+            "network_send" => self.network_send_count,
+            "network_receive" => self.network_receive_count,
+            _ => 0,
+        }
+    }
+}
 
 // =============================================================================
 // ENUMS AND BASIC TYPES
@@ -61,8 +179,6 @@ pub enum StringModifier {
     Nocase, Contains, Startswith, Endswith, Re, Base64, Not,
 }
 
-
-/// Pattern with optional modifiers for rich matching
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PatternSpec {
@@ -156,7 +272,6 @@ pub struct LogSource {
 fn default_severity() -> u8 { 50 }
 fn default_zero() -> usize { 0 }
 
-// Helper functions for path normalization and case sensitivity
 fn normalize_path_separators(path: &str) -> String {
     path.replace("\\", "/").trim_end_matches('/').to_string()
 }
@@ -205,124 +320,58 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
 
-fn apply_case_sensitivity(text: &str, case_sensitive: bool) -> String {
-    if case_sensitive {
-        text.to_string()
-    } else {
-        text.to_lowercase()
-    }
-}
-
 // =============================================================================
-// INTERNET/NETWORK API KEYWORDS FOR DETECTION
+// INTERNET API KEYWORDS
 // =============================================================================
 
-/// Hardcoded internet/network API keywords for network activity detection
 pub const INTERNET_API_KEYWORDS: &[&str] = &[
-    // WinINet APIs
-    "internetopen",
-    "internetconnect",
-    "httpopen",
-    "httpsend",
-    "httpsendrequesta",
-    "httpsendrequestw",
-    "httpopenrequesta",
-    "httpopenrequestw",
-    "internetopenurla",
-    "internetopenurlw",
-    "internetreadfile",
-    "internetwritefile",
-    "internetclosehandle",
-    // URL Download APIs
-    "urldownload",
-    "urldownloadtofile",
-    "urldownloadtofilea",
-    "urldownloadtofilew",
-    "urldownloadtocachefile",
-    // Socket APIs
-    "socket",
-    "connect",
-    "send",
-    "recv",
-    "bind",
-    "listen",
-    "accept",
-    "closesocket",
-    "shutdown",
-    "gethostbyname",
-    "getaddrinfo",
-    // WSA APIs
-    "wsasend",
-    "wsarecv",
-    "wsasocket",
-    "wsaconnect",
-    "wsastartup",
-    "wsacleanup",
-    "wsaasyncgethost",
-    // WinHTTP APIs
-    "winhttp",
-    "winhttpopen",
-    "winhttpconnect",
-    "winhttpopenrequest",
-    "winhttpsendrequest",
-    "winhttpreceiveresponse",
-    "winhttpreaddata",
-    "winhttpwritedata",
-    "winhttpclosehandle",
-    // DNS APIs
-    "dnsquery",
-    "dnsquery_a",
-    "dnsquery_w",
-    "dnsqueryfree",
-    "getaddrinfow",
-    "getnameinfo",
-    // FTP APIs
-    "ftpopen",
-    "ftpconnect",
-    "ftpgetfile",
-    "ftpputfile",
-    "ftpfindfirstfile",
-    // Additional Network APIs
-    "internetsetcookie",
-    "internetgetcookie",
-    "internetsetstatuscallback",
+    "internetopen", "internetconnect", "httpopen", "httpsend",
+    "httpsendrequesta", "httpsendrequestw", "httpopenrequesta",
+    "httpopenrequestw", "internetopenurla", "internetopenurlw",
+    "internetreadfile", "internetwritefile", "internetclosehandle",
+    "urldownload", "urldownloadtofile", "urldownloadtofilea",
+    "urldownloadtofilew", "urldownloadtocachefile",
+    "socket", "connect", "send", "recv", "bind", "listen",
+    "accept", "closesocket", "shutdown", "gethostbyname",
+    "getaddrinfo", "wsasend", "wsarecv", "wsasocket",
+    "wsaconnect", "wsastartup", "wsacleanup", "wsaasyncgethost",
+    "winhttp", "winhttpopen", "winhttpconnect", "winhttpopenrequest",
+    "winhttpsendrequest", "winhttpreceiveresponse", "winhttpreaddata",
+    "winhttpwritedata", "winhttpclosehandle",
+    "dnsquery", "dnsquery_a", "dnsquery_w", "dnsqueryfree",
+    "getaddrinfow", "getnameinfo", "ftpopen", "ftpconnect",
+    "ftpgetfile", "ftpputfile", "ftpfindfirstfile",
+    "internetsetcookie", "internetgetcookie", "internetsetstatuscallback",
 ];
 
-/// Check if a string contains an internet/network API keyword
 pub fn is_internet_api(name: &str) -> bool {
     let name_lower = name.to_lowercase();
     INTERNET_API_KEYWORDS.iter().any(|keyword| name_lower.contains(keyword))
 }
 
-
 // =============================================================================
-// RICH CONDITION SYSTEM (YARA/Sigma-style)
+// RICH CONDITION SYSTEM
 // =============================================================================
 
-/// Named condition group - like YARA strings or Sigma detection items
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NamedConditionGroup {
-    // API-related
     #[serde(default)]
     pub apis: Vec<String>,
     #[serde(default = "default_zero")]
-    pub api_threshold: usize,  // How many APIs must match (default: 1)
+    pub api_threshold: usize,
     
-    // File paths and operations
     #[serde(default)]
     pub file_paths: Vec<String>,
     #[serde(default)]
-    pub file_operations: Vec<String>, // read, write, create, delete, rename, browse
+    pub file_operations: Vec<String>,
     
-    // Registry-related
     #[serde(default)]
     pub registry_keys: Vec<String>,
     #[serde(default)]
     pub registry_values: Vec<String>,
     #[serde(default)]
-    pub registry_operations: Vec<String>, // set, create, delete, query
+    pub registry_operations: Vec<String>,
     
-    // Network-related
     #[serde(default)]
     pub network_indicators: Vec<String>,
     #[serde(default)]
@@ -332,7 +381,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub has_network_activity: bool,
     
-    // Process-related
     #[serde(default)]
     pub process_names: Vec<String>,
     #[serde(default)]
@@ -344,7 +392,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub detect_self_termination: bool,
     
-    // File characteristics
     #[serde(default)]
     pub file_extensions: Vec<String>,
     #[serde(default)]
@@ -356,13 +403,11 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub file_size_max: Option<u64>,
     
-    // Command line
     #[serde(default)]
     pub cmdline_patterns: Vec<CommandLinePattern>,
     #[serde(default)]
     pub cmdline_keywords: Vec<String>,
     
-    // Behavioral paths
     #[serde(default)]
     pub staging_paths: Vec<String>,
     #[serde(default)]
@@ -372,7 +417,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub temp_writes: bool,
 
-    // Persistence mechanisms
     #[serde(default)]
     pub persistence_locations: Vec<String>,
     #[serde(default)]
@@ -380,7 +424,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub scheduled_task_apis: Vec<String>,
     
-    // Evasion techniques
     #[serde(default)]
     pub obfuscation_indicators: Vec<String>,
     #[serde(default)]
@@ -388,7 +431,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub anti_vm_apis: Vec<String>,
     
-    // Signature/Trust
     #[serde(default)]
     pub requires_signed: Option<bool>,
     #[serde(default)]
@@ -396,79 +438,30 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
     
-    // Thresholds and counts
     #[serde(default = "default_zero")]
-    pub min_matches: usize,  // Minimum number of sub-indicators that must match
+    pub min_matches: usize,
     #[serde(default)]
     pub min_files_accessed: Option<usize>,
     #[serde(default)]
     pub min_directories_accessed: Option<usize>,
 }
 
-/// Detection condition expression - like YARA condition or Sigma detection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DetectionCondition {
-    // Boolean operators
-    And { 
-        and: Vec<DetectionCondition> 
-    },
-    Or { 
-        or: Vec<DetectionCondition> 
-    },
-    Not { 
-        not: Box<DetectionCondition> 
-    },
-    
-    // Direct condition reference
-    Named { 
-        condition: String 
-    },
-    
-    // Quantifiers (YARA-style)
-    AllOf { 
-        all_of: Vec<String>  // All listed conditions must be true
-    },
-    AnyOf { 
-        any_of: Vec<String>  // At least one condition must be true
-    },
-    NOf {
-        n_of: usize,
-        conditions: Vec<String>,  // Exactly N conditions must be true
-    },
-    AtLeast {
-        at_least: usize,
-        conditions: Vec<String>,  // At least N conditions must be true
-    },
-    
-    // Pattern-based quantifiers (with wildcards)
-    AllOfPattern {
-        all_of_pattern: String,  // e.g., "api_*" matches all conditions starting with "api_"
-    },
-    AnyOfPattern {
-        any_of_pattern: String,  // e.g., "*_evasion" matches all evasion conditions
-    },
-    
-    // Count-based
-    Count { 
-        count: Vec<String>,
-        #[serde(default)]
-        comparison: Comparison,
-        threshold: usize,
-    },
-    
-    // Percentage-based
-    Percentage {
-        percentage: Vec<String>,
-        #[serde(default)]
-        comparison: Comparison,
-        threshold: f32,  // 0.0 to 1.0
-    },
+    And { and: Vec<DetectionCondition> },
+    Or { or: Vec<DetectionCondition> },
+    Not { not: Box<DetectionCondition> },
+    Named { condition: String },
+    AllOf { all_of: Vec<String> },
+    AnyOf { any_of: Vec<String> },
+    NOf { n_of: usize, conditions: Vec<String> },
+    AtLeast { at_least: usize, conditions: Vec<String> },
+    AllOfPattern { all_of_pattern: String },
+    AnyOfPattern { any_of_pattern: String },
+    Count { count: Vec<String>, #[serde(default)] comparison: Comparison, threshold: usize },
+    Percentage { percentage: Vec<String>, #[serde(default)] comparison: Comparison, threshold: f32 },
 }
-
-// =============================================================================
-// STAGE-BASED DETECTION (Advanced multi-phase attack detection)
-// =============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -517,7 +510,7 @@ pub enum RuleMapping {
 }
 
 // =============================================================================
-// BEHAVIOR RULE (Main Rule Structure)
+// BEHAVIOR RULE
 // =============================================================================
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -526,9 +519,6 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub description: String,
     
-    // =========================================================================
-    // LEGACY SIMPLE CONDITIONS (Backward Compatibility)
-    // =========================================================================
     #[serde(default)]
     pub browsed_paths: Vec<String>,
     #[serde(default)]
@@ -548,7 +538,7 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub suspicious_parents: Vec<String>,
     #[serde(default)]
-    pub terminated_processes: Vec<String>, 
+    pub terminated_processes: Vec<String>,
     #[serde(default)]
     pub detect_self_termination: bool,
     #[serde(default)]
@@ -556,17 +546,11 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub conditions_percentage: f32,
     
-    // =========================================================================
-    // NEW RICH CONDITION SYSTEM
-    // =========================================================================
     #[serde(default)]
     pub named_conditions: HashMap<String, NamedConditionGroup>,
     #[serde(default)]
     pub detection_logic: Option<DetectionCondition>,
     
-    // =========================================================================
-    // STAGE-BASED DETECTION
-    // =========================================================================
     #[serde(default)]
     pub stages: Vec<AttackStage>,
     #[serde(default)]
@@ -574,9 +558,6 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub min_stages_satisfied: usize,
     
-    // =========================================================================
-    // METADATA
-    // =========================================================================
     #[serde(default)]
     pub conditions: Option<YamlValue>,
     #[serde(default)]
@@ -604,23 +585,14 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub logsource: Option<LogSource>,
     
-    // =========================================================================
-    // RESPONSE ACTIONS
-    // =========================================================================
     #[serde(default)]
     pub response: ResponseAction,
     #[serde(default)]
     pub is_private: bool,
     
-    // =========================================================================
-    // ALLOWLIST
-    // =========================================================================
     #[serde(default)]
     pub allowlisted_apps: Vec<AllowlistEntry>,
     
-    // =========================================================================
-    // ADVANCED OPTIONS
-    // =========================================================================
     #[serde(default)]
     pub proximity_log_threshold: f32,
     #[serde(default)]
@@ -643,35 +615,15 @@ fn expand_environment_variables(text: &str) -> String {
     };
     re.replace_all(text, |caps: &regex::Captures| {
         let var_name = &caps[1].to_uppercase();
-        // Fallback for System/User mismatch: if we are running as System, 
-        // %USERPROFILE% might be wrong. If env fails or looks suspicious, use wildcard pattern.
         match std::env::var(var_name) {
-            Ok(val) => {
-                let val_lc = val.to_lowercase();
-                if (var_name == "USERPROFILE" || var_name == "APPDATA") && 
-                   (val_lc.contains("system32") || val_lc.contains("config\\systemprofile")) {
-                    // We are likely running as service/system, but rule wants user paths.
-                    // Return a regex-friendly pattern for C:\Users\*
-                    if var_name == "USERPROFILE" {
-                        return r"C:\Users\[^\\]+".to_string();
-                    } else if var_name == "APPDATA" {
-                        return r"C:\Users\[^\\]+\AppData\Roaming".to_string();
-                    }
-                }
-                val
-            },
-            Err(_) => {
-                // Keep original if not found, to allow downstream regex or literal match attempts
-                caps[0].to_string() 
-            }
+            Ok(val) => val,
+            Err(_) => caps[0].to_string()
         }
     }).to_string()
 }
 
-
 impl BehaviorRule {
     pub fn finalize_rich_fields(&mut self) {
-        // --- Start of environment variable expansion ---
         let expand_vec = |vec: &mut Vec<String>| {
             for item in vec.iter_mut() {
                 *item = expand_environment_variables(item);
@@ -688,7 +640,6 @@ impl BehaviorRule {
             }
         };
 
-        // Legacy fields
         expand_vec(&mut self.browsed_paths);
         expand_vec(&mut self.accessed_paths);
         expand_vec(&mut self.staging_paths);
@@ -699,7 +650,6 @@ impl BehaviorRule {
         expand_vec(&mut self.terminated_processes);
         expand_vec(&mut self.false_positives);
 
-        // Allowlist
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
@@ -710,7 +660,6 @@ impl BehaviorRule {
             }
         }
 
-        // Named Conditions
         for (_, cond_group) in &mut self.named_conditions {
             expand_vec(&mut cond_group.apis);
             expand_vec(&mut cond_group.file_paths);
@@ -740,7 +689,6 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.untrusted_signers);
         }
 
-        // Stages
         for stage in &mut self.stages {
             for condition in &mut stage.conditions {
                 match condition {
@@ -766,7 +714,7 @@ impl BehaviorRule {
                     RuleCondition::ArchiveCreation { extensions, .. } => expand_vec(extensions),
                     RuleCondition::DataExfiltrationPattern { source_patterns, .. } => expand_vec(source_patterns),
                     RuleCondition::MemoryScan { patterns, .. } => expand_vec(patterns),
-                    _ => {} // Other conditions don't have string patterns
+                    _ => {}
                 }
             }
         }
@@ -774,9 +722,7 @@ impl BehaviorRule {
         if let Some(msc) = &mut self.memory_scan_config {
             expand_vec(&mut msc.target_processes);
         }
-        // --- End of expansion logic ---
 
-        // Normalize allowlist entries
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = s.to_lowercase(),
@@ -784,12 +730,8 @@ impl BehaviorRule {
             }
         }
         
-        // Normalize named condition patterns (Paths stay raw for regex matching if needed, but lowercase helpful for string match)
-        // We do basic normalization but avoid replacing regex chars if present
         for (_, cond_group) in &mut self.named_conditions {
             cond_group.apis = cond_group.apis.iter().map(|s| s.to_lowercase()).collect();
-            // We do NOT aggressively replace all backslashes here because it might break regex logic if users use \\
-            // But for consistency we ensure lowercase.
             cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase()).collect();
             cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase()).collect();
             cond_group.process_names = cond_group.process_names.iter().map(|s| s.to_lowercase()).collect();
@@ -835,7 +777,7 @@ pub struct ResponseAction {
 }
 
 // =============================================================================
-// PROCESS STATE TRACKING
+// PART 2: ENHANCED PROCESS STATE WITH IRP TRACKING
 // =============================================================================
 
 #[derive(Default, Clone)]
@@ -851,7 +793,7 @@ pub struct ProcessBehaviorState {
     pub high_entropy_detected: bool,
     pub file_action_detected: bool,
     pub extension_match_detected: bool,
-    pub network_activity_detected: bool, 
+    pub network_activity_detected: bool,
     pub parent_name: String,
     
     pub pid: u32,
@@ -860,12 +802,17 @@ pub struct ProcessBehaviorState {
     pub signature_checked: bool,
     pub has_valid_signature: bool,
     
-    // NEW: Rich condition state tracking
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
     pub condition_match_values: HashMap<String, HashSet<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
+    
+    // NEW: Comprehensive IRP tracking
+    pub irp_operations: Vec<IrpOperationRecord>,
+    pub irp_stats: IrpStatistics,
+    pub network_apis_called: HashSet<String>,
+    pub all_apis_called: HashSet<String>,
 }
 
 impl ProcessBehaviorState {
@@ -874,7 +821,7 @@ impl ProcessBehaviorState {
         state.pid = pid;
         state.exe_path = exe_path;
         state.app_name = app_name;
-        state.parent_name = "unknown".to_string(); 
+        state.parent_name = "unknown".to_string();
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
         state.detected_apis = HashSet::new();
@@ -883,12 +830,46 @@ impl ProcessBehaviorState {
         state.condition_match_values = HashMap::new();
         state.condition_first_seen = HashMap::new();
         state.condition_last_seen = HashMap::new();
+        state.irp_operations = Vec::new();
+        state.irp_stats = IrpStatistics::default();
+        state.network_apis_called = HashSet::new();
+        state.all_apis_called = HashSet::new();
         state
+    }
+    
+    /// Record IRP operation with full context
+    pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
+        let rec = IrpOperationRecord {
+            timestamp: SystemTime::now(),
+            irp_type: irp_op,
+            file_path: msg.filepathstr.to_lowercase(),
+            file_change: msg.file_change,
+            extension: msg.extension.to_lowercase(),
+            entropy: msg.entropy,
+            bytes_transferred: msg.mem_sized_used,
+        };
+        
+        self.irp_stats.record_operation(&rec);
+        
+        if self.irp_operations.len() >= 10000 {
+            self.irp_operations.drain(0..5000);
+        }
+        
+        self.irp_operations.push(rec);
+    }
+    
+    /// Update from ApiTracker
+    pub fn update_from_api_tracker(&mut self, tracker: &ApiTracker) {
+        self.network_apis_called.clear();
+        for api in &tracker.internet_apis {
+            self.network_apis_called.insert(api.to_lowercase());
+            self.all_apis_called.insert(api.to_lowercase());
+        }
     }
 }
 
 // =============================================================================
-// BEHAVIOR ENGINE (Main Detection Engine)
+// BEHAVIOR ENGINE
 // =============================================================================
 
 pub struct BehaviorEngine {
@@ -896,7 +877,6 @@ pub struct BehaviorEngine {
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
-    // Persistent system instance for sysinfo fallbacks
     system: RefCell<System>,
 }
 
@@ -911,13 +891,10 @@ impl BehaviorEngine {
         }
     }
 
-    /// Helper to safely check if a string matches a pattern
-    /// Returns false for empty/unknown strings to avoid false positives
     fn safe_pattern_match(text: &str, pattern: &str) -> bool {
         let text_lc = text.to_lowercase();
         let pattern_lc = pattern.to_lowercase();
         
-        // Don't match if either is empty or text is "unknown"
         if text_lc.is_empty() || pattern_lc.is_empty() || text_lc == "unknown" {
             return false;
         }
@@ -978,7 +955,7 @@ impl BehaviorEngine {
             Some(FileChangeInfo::RegDeleteValue) => "delete",
             Some(FileChangeInfo::RegRenameKey) => "rename",
             _ => {
-                return true; // Unknown registry op: allow match to avoid false negatives
+                return true;
             }
         };
         cond_group.registry_operations.iter().any(|v| v == op)
@@ -1075,16 +1052,14 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
-    // PROCESS EVENT HANDLING
+    // COMPLETE EVENT PROCESSING PIPELINE
     // ==========================================================================
     
     pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler, api_tracker: Option<&ApiTracker>) {
         let gid = msg.gid;
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
-        // Ensure state exists
         if !self.process_states.contains_key(&gid) {
-            // FALLBACK: SELF RESOLUTION
             let mut resolved_appname = precord.appname.clone();
             let mut resolved_exepath = precord.exepath.clone();
             let mut sys_refreshed = false;
@@ -1114,7 +1089,7 @@ impl BehaviorEngine {
 
             let mut s = ProcessBehaviorState::new(msg.pid as u32, resolved_exepath, resolved_appname);
                         
-            let parent_pid = msg.parent_pid as u32; 
+            let parent_pid = msg.parent_pid as u32;
             let mut parent_found = false;
 
             for existing_state in self.process_states.values() {
@@ -1142,128 +1117,61 @@ impl BehaviorEngine {
                     if !parent_name_str.is_empty() {
                         s.parent_name = parent_name_str;
                         parent_found = true;
-                    } 
+                    }
                 }
             }
 
-            if !parent_found { 
+            if !parent_found {
                 s.parent_name = "unknown".to_string();
             }
             
             self.process_states.insert(gid, s);
         }
-        let state = self.process_states.get_mut(&gid).unwrap();
-        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        
+        // === STEP 1: RECORD IRP OPERATION ===
+        let irp_op_byte = msg.irp_op;
+        let irp_op = IrpMajorOp::from_byte(irp_op_byte);
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            state.record_irp_operation(msg, irp_op_byte);
+        }
+        
+        // === STEP 2: UPDATE API TRACKER DATA ===
+        if let Some(tracker) = api_tracker {
+            if let Some(state) = self.process_states.get_mut(&gid) {
+                state.update_from_api_tracker(tracker);
+            }
+        }
+        
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
         let filepath = dev_norm.to_lowercase().replace("\\", "/");
         let norm_filepath = filepath.trim_end_matches('/');
+        
+        let state = self.process_states.get_mut(&gid).unwrap();
         let pid = state.pid;
 
         if self.rules.iter().any(|r| r.debug) {
             Logging::debug(&format!(
-                "[BehaviorEngine] IO event: pid={} gid={} irp={:?} path={} norm_path={} ext={} change={}",
-                pid,
-                gid,
-                irp_op,
+                "[BehaviorEngine] IO event: pid={} gid={} irp={:?} path={} ext={} entropy={}",
+                pid, gid, irp_op,
                 if msg.filepathstr.is_empty() { "<empty>" } else { &msg.filepathstr },
-                if filepath.is_empty() { "<empty>" } else { &filepath },
                 if msg.extension.is_empty() { "<none>" } else { &msg.extension },
-                msg.file_change
+                msg.entropy
             ));
         }
         
-        // Populate detected APIs regardless of "network keywords" to track general API usage
-        // This is now handled by ApiTracker, so we can remove this direct population.
-        // if !filepath.is_empty() {
-        //     state.detected_apis.insert(filepath.clone());
-        // }
-
-        // Signature check
+        // === STEP 3: SIGNATURE CHECK ===
         if !state.signature_checked && !precord.exepath.as_os_str().is_empty() {
             if precord.exepath.exists() {
                 let info = verify_signature(&precord.exepath);
                 state.has_valid_signature = info.is_trusted;
                 state.signature_checked = true;
             } else {
-                state.has_valid_signature = false; 
+                state.has_valid_signature = false;
                 state.signature_checked = true;
             }
         }
 
-        // Network detection - now handled by ApiTracker
-        // The network_activity_detected flag will be set based on ApiTracker data in update_named_conditions_state
-
-        // CRITICAL FIX: Also populate legacy tracking from named condition patterns
-        // This ensures named conditions can match even if legacy fields aren't defined
-        for rule in &self.rules {
-            if rule.named_conditions.is_empty() {
-                continue;
-            }
-            
-            for (_, cond_group) in &rule.named_conditions {
-                // Track file paths as browsed paths
-                for path_pattern in &cond_group.file_paths {
-                    let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
-                    let norm_pattern = norm_pattern.trim_end_matches('/');
-                    if norm_filepath.contains(&norm_pattern) {
-                        state.browsed_paths_tracker.insert(path_pattern.clone(), SystemTime::now());
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated browsed_paths from named condition: '{}'",
-                                rule.name, pid, path_pattern
-                            ));
-                        }
-                    }
-                }
-                
-                // Track staging paths
-                for staging_pattern in &cond_group.staging_paths {
-                    let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
-                    let norm_pattern = norm_pattern.trim_end_matches('/');
-                    let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
-                    if norm_filepath.contains(&norm_pattern) && is_staging_op {
-                        state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated staged_files from named condition: '{}'",
-                                rule.name, pid, staging_pattern
-                            ));
-                        }
-                    }
-                }
-                
-                // Track browsed paths (for directories)
-                for browsed_pattern in &cond_group.browsed_paths {
-                    let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
-                    let norm_pattern = norm_pattern.trim_end_matches('/');
-                    if norm_filepath.contains(&norm_pattern) {
-                        state.browsed_paths_tracker.insert(browsed_pattern.clone(), SystemTime::now());
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated browsed_paths: '{}'",
-                                rule.name, pid, browsed_pattern
-                            ));
-                        }
-                    }
-                }
-                
-                // Track sensitive paths
-                for sensitive_pattern in &cond_group.sensitive_paths {
-                    let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
-                    let norm_pattern = norm_pattern.trim_end_matches('/');
-                    if norm_filepath.contains(&norm_pattern) {
-                        state.accessed_paths_tracker.insert(sensitive_pattern.clone());
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Rule '{}' (PID: {}): Populated accessed_paths: '{}'",
-                                rule.name, pid, sensitive_pattern
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
+        // === STEP 4: HANDLE PROCESS TERMINATION ===
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
             let mut victim_path = msg.filepathstr.to_lowercase();
             if victim_path.is_empty() {
@@ -1295,7 +1203,6 @@ impl BehaviorEngine {
                     }
                 }
 
-                // FALLBACK: ATTACKER RESOLUTION
                 if !attacker_found && !is_self {
                     let mut resolved_attacker_gid = None;
                     for (gid, state) in &self.process_states {
@@ -1320,43 +1227,69 @@ impl BehaviorEngine {
             }
         }
 
-        // =======================================================================
-        // UPDATE RICH NAMED CONDITIONS STATE
-        // =======================================================================
+        // === STEP 5: UPDATE NAMED CONDITIONS STATE ===
         self.update_named_conditions_state(gid, msg, &irp_op, &filepath, api_tracker);
 
-        // Evaluate rules
-        self.check_rules(precord, gid, msg, irp_op, config, &mut actions, api_tracker);
-    }
-
-    // ==========================================================================
-    // RICH CONDITION EVALUATION
-    // ==========================================================================
-    
-    /// Update the state of named conditions based on the current event
-    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str, api_tracker: Option<&ApiTracker>) {
-        let now = SystemTime::now();
-        
-        // 1. GATHER CONTEXT
-        // Create a unified set of available APIs from both ApiTracker and local inference
-        let mut available_apis = HashSet::new();
-        
-        // Add APIs from tracker if available
-        if let Some(tracker) = api_tracker {
-            for api in &tracker.internet_apis {
-                available_apis.insert(api.to_lowercase());
-            }
-        }
-        
-        // NOTE: DLL-based inference removed. Only real API names from ApiTracker are used.
-
+        // === STEP 6: UPDATE LEGACY TRACKING ===
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
                 continue;
             }
             
-            // EARLY EXIT: Skip if rule has no detection logic that uses named conditions
-            if rule.detection_logic.is_none() && rule.named_conditions.is_empty() {
+            for (_, cond_group) in &rule.named_conditions {
+                if let Some(state) = self.process_states.get_mut(&gid) {
+                    for path_pattern in &cond_group.file_paths {
+                        let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
+                        let norm_pattern = norm_pattern.trim_end_matches('/');
+                        if norm_filepath.contains(&norm_pattern) {
+                            state.browsed_paths_tracker.insert(path_pattern.clone(), SystemTime::now());
+                        }
+                    }
+                    
+                    for staging_pattern in &cond_group.staging_paths {
+                        let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
+                        let norm_pattern = norm_pattern.trim_end_matches('/');
+                        let is_staging_op = matches!(irp_op, IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo);
+                        if norm_filepath.contains(&norm_pattern) && is_staging_op {
+                            state.staged_files_written.insert(PathBuf::from(&filepath), SystemTime::now());
+                        }
+                    }
+                    
+                    for browsed_pattern in &cond_group.browsed_paths {
+                        let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
+                        let norm_pattern = norm_pattern.trim_end_matches('/');
+                        if norm_filepath.contains(&norm_pattern) {
+                            state.browsed_paths_tracker.insert(browsed_pattern.clone(), SystemTime::now());
+                        }
+                    }
+                    
+                    for sensitive_pattern in &cond_group.sensitive_paths {
+                        let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
+                        let norm_pattern = norm_pattern.trim_end_matches('/');
+                        if norm_filepath.contains(&norm_pattern) {
+                            state.accessed_paths_tracker.insert(sensitive_pattern.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // === STEP 7: EVALUATE RULES ===
+        self.check_rules(precord, gid, msg, irp_op, config, &mut actions, api_tracker);
+    }
+
+    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str, api_tracker: Option<&ApiTracker>) {
+        let now = SystemTime::now();
+        let mut available_apis = HashSet::new();
+        
+        if let Some(tracker) = api_tracker {
+            for api in &tracker.internet_apis {
+                available_apis.insert(api.to_lowercase());
+            }
+        }
+
+        for rule in &self.rules {
+            if rule.named_conditions.is_empty() {
                 continue;
             }
 
@@ -1366,22 +1299,18 @@ impl BehaviorEngine {
             };
             
             for (cond_name, cond_group) in &rule.named_conditions {
-                // Skip if already satisfied
                 if state.satisfied_named_conditions.contains(cond_name) {
                     continue;
                 }
 
                 let mut matched = false;
 
-                // CHECK 1: API Usage (Unified Check including aliases)
-                // Combine: apis + scheduled_task_apis + anti_debug_apis + anti_vm_apis
                 let has_api_conditions = !cond_group.apis.is_empty() || 
                                          !cond_group.scheduled_task_apis.is_empty() || 
                                          !cond_group.anti_debug_apis.is_empty() || 
                                          !cond_group.anti_vm_apis.is_empty();
 
                 if has_api_conditions {
-                    // Check against our unified available_apis set
                     let api_iter = cond_group.apis.iter()
                         .chain(cond_group.scheduled_task_apis.iter())
                         .chain(cond_group.anti_debug_apis.iter())
@@ -1395,86 +1324,17 @@ impl BehaviorEngine {
                     
                     if api_matches >= std::cmp::max(1, cond_group.api_threshold) {
                         matched = true;
-                        if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': API match (found {} APIs)",
-                                cond_name, api_matches
-                            ));
-                        }
                     }
                 }
-                
-                if matched {
-                   // If matched by API, we can skip other checks for this condition
-                   // But we continue logic flow to be consistent
-                } else {
 
-                // CHECK 2: Network Activity
-                let mut net_matched = false;
-                    
-                    // Check generic network activity requirement (connections or API usage)
-                    if cond_group.has_network_activity {
-                         // Check ApiTracker connections
-                         if let Some(tracker) = api_tracker {
-                             if tracker.network_operations.connections_established > 0 {
-                                 net_matched = true;
-                             }
-                         }
-                         // Fallback: API name usage (from tracker)
-                         if !net_matched && !available_apis.is_empty() {
-                             net_matched = true;
-                         }
-                    }
-                    
-                    // Check specific indicators (hostnames, IPs) if we have tracker data
-                    if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty() || !cond_group.network_ips.is_empty()) {
-                        if let Some(tracker) = api_tracker {
-                            let mut indicators = cond_group.network_indicators.iter()
-                                .chain(cond_group.network_domains.iter())
-                                .chain(cond_group.network_ips.iter());
-
-                            let has_indicator = indicators.any(|indicator| {
-                                let indicator_lc = indicator.to_lowercase();
-                                if indicator_lc == "http" || indicator_lc == "https" || indicator_lc == "ftp" {
-                                    return tracker.network_operations.http_requests > 0;
-                                }
-
-                                // Check API call names (real API telemetry)
-                                if tracker.api_sequence.iter().any(|api| {
-                                    Self::matches_pattern_internal(&self.regex_cache, indicator, &api.name)
-                                }) {
-                                    return true;
-                                }
-
-                                // Check network connect sequence if present
-                                tracker.operation_sequence.iter().any(|op| {
-                                    match op {
-                                        OperationType::NetworkConnect(dest) =>
-                                            Self::matches_pattern_internal(&self.regex_cache, indicator, dest),
-                                        _ => false
-                                    }
-                                })
-                            });
-
-                            if has_indicator {
-                                net_matched = true;
-                            }
-                        }
-                    }
-                    
-                    if net_matched {
-                        matched = true;
-                         if rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': Network match",
-                                cond_name
-                            ));
+                if !matched && cond_group.has_network_activity {
+                    if let Some(tracker) = api_tracker {
+                        if tracker.network_operations.connections_established > 0 {
+                            matched = true;
                         }
                     }
                 }
 
-                // CHECK 3: File Operations (Unified Check including aliases)
-                // Combine: file_paths + staging_paths + browsed_paths + sensitive_paths + persistence_locations
                 let has_path_conditions = !cond_group.file_paths.is_empty() || 
                                           !cond_group.staging_paths.is_empty() ||
                                           !cond_group.browsed_paths.is_empty() ||
@@ -1491,229 +1351,78 @@ impl BehaviorEngine {
                         .chain(cond_group.persistence_locations.iter());
 
                     let path_matched = path_iter.any(|p| {
-                         // FIX: Normalize pattern to forward slashes for current event matching
-                         let p_norm = p.replace("\\", "/");
-                         path_variants.iter().any(|v| {
-                             Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
-                         })
+                        let p_norm = p.replace("\\", "/");
+                        path_variants.iter().any(|v| {
+                            Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
+                        })
                     });
                     
-                    let ext_matched = if !cond_group.file_extensions.is_empty() {
-                         let ext = Path::new(filepath).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                         if !ext.is_empty() {
-                             cond_group.file_extensions.iter().any(|e| {
-                                 let e_clean = e.trim_start_matches('.');
-                                 ext == e_clean
-                             })
-                         } else { false }
-                    } else { false };
-
-                    if path_matched || (ext_matched && !cond_group.file_extensions.is_empty()) {
-                         // Check operation type if specified
-                        if !cond_group.file_operations.is_empty() {
-                            let op_matches = |op: &str| cond_group.file_operations.iter().any(|v| v == op);
-                            let mut op_ok = false;
-                            match irp_op {
-                                IrpMajorOp::IrpRead => {
-                                    op_ok = op_matches("read");
-                                }
-                                IrpMajorOp::IrpWrite => {
-                                    op_ok = op_matches("write");
-                                }
-                                IrpMajorOp::IrpCreate => {
-                                    let change = FromPrimitive::from_u8(msg.file_change);
-                                    if matches!(change, Some(FileChangeInfo::OpenDirectory)) {
-                                        op_ok = false;
-                                    } else {
-                                    // Many Windows "read" opens are reported as IRP_CREATE.
-                                    op_ok = op_matches("create") || op_matches("read") || op_matches("open");
-                                    }
-                                }
-                                IrpMajorOp::IrpSetInfo => {
-                                    // Treat metadata updates as create/write-esque operations.
-                                    op_ok = op_matches("create") || op_matches("write");
-                                }
-                                 _ => {}
-                             }
-
-                             if op_ok {
-                                 matched = true;
-                             } else if (matches!(irp_op, IrpMajorOp::IrpCreate | IrpMajorOp::IrpWrite | IrpMajorOp::IrpSetInfo)) &&
-                                       (op_matches("delete") || op_matches("rename")) {
-                                  // Approximating delete/rename via write/create ops is weak but sometimes necessary
-                                  // Ideally we need explicit delete IRPs logic
-                             }
-                         } else {
-                             // No specific op required, just path/ext match
-                             matched = true;
-                         }
-                         
-                         if matched && rule.debug {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Named condition '{}': File match '{}'",
-                                cond_name, filepath
-                            ));
-                         }
+                    if path_matched {
+                        matched = true;
                     }
                 }
-                
-                // CHECK 4: Registry Operations (Unified including aliases)
-                // Combine: registry_keys + autorun_keys
+
                 let has_reg_conditions = !cond_group.registry_keys.is_empty() || 
                                          !cond_group.autorun_keys.is_empty() ||
                                          !cond_group.registry_values.is_empty();
 
-                if !matched && has_reg_conditions {
-                     if *irp_op != IrpMajorOp::IrpRegistry {
-                         // Only evaluate registry conditions on registry events
-                     } else if !Self::registry_op_matches(cond_group, msg, irp_op) {
-                         // Registry op doesn't match condition requirements
-                     } else {
-                     let reg_iter = cond_group.registry_keys.iter()
-                        .chain(cond_group.autorun_keys.iter());
+                if !matched && has_reg_conditions && *irp_op == IrpMajorOp::IrpRegistry {
+                    if Self::registry_op_matches(cond_group, msg, irp_op) {
+                        let reg_iter = cond_group.registry_keys.iter()
+                            .chain(cond_group.autorun_keys.iter());
 
                         for reg_pattern in reg_iter {
                             if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath) {
                                 matched = true;
-                                if rule.debug {
-                                    Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
-                                        cond_name, filepath
-                                    ));
-                                }
                                 break;
                             }
                         }
-
-                        if !matched && !cond_group.registry_values.is_empty() {
-                            if cond_group.registry_values.iter().any(|v| {
-                                Self::matches_pattern_internal(&self.regex_cache, v, filepath)
-                            }) {
-                                matched = true;
-                                if rule.debug {
-                                    Logging::debug(&format!(
-                                        "[BehaviorEngine] Named condition '{}': Registry value match on '{}'",
-                                        cond_name, filepath
-                                    ));
-                                }
-                            }
-                        }
-                     }
+                    }
                 }
 
-                // CHECK 5: Parent Process
                 if !matched && !cond_group.parent_names.is_empty() {
-                     let parent_lc = state.parent_name.to_lowercase();
-                     if !parent_lc.is_empty() && parent_lc != "unknown" {
-                          if cond_group.parent_names.iter().any(|p| {
-                               Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
-                          }) {
-                              matched = true;
-                              if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Parent match '{}'",
-                                    cond_name, parent_lc
-                                ));
-                             }
-                          }
-                     }
-                }
-
-                // CHECK 6: Termination
-                if !matched && !cond_group.terminated_processes.is_empty() {
-                     let mut term_match = false;
-                     if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
-                          // Check if the VICTIM (filepathstr) matches the condition
-                          if cond_group.terminated_processes.iter().any(|victim_pattern| {
-                               Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
-                          }) {
-                              term_match = true;
-                          }
-                     }
-                     if !term_match {
-                         term_match = cond_group.terminated_processes.iter().any(|victim_pattern| {
-                             state.terminated_processes.iter().any(|victim| {
-                                 Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
-                             })
-                         });
-                     }
-                     if term_match {
-                         matched = true;
-                         if rule.debug {
-                           Logging::debug(&format!(
-                               "[BehaviorEngine] Named condition '{}': Termination match '{}'",
-                               cond_name, filepath
-                           ));
-                        }
-                     }
-                }
-                
-                // CHECK 7: File Actions (Entropy, etc) + Obfuscation
-                // Combine: file_actions + obfuscation_indicators
-                let has_action_conditions = !cond_group.file_actions.is_empty() || 
-                                            !cond_group.obfuscation_indicators.is_empty(); // treated as special action check
-
-                if !matched && has_action_conditions {
-                    // Check standard file actions
-                    for action in &cond_group.file_actions {
-                        if (action == "high_entropy" && state.high_entropy_detected) ||
-                           (action == "delete" && *irp_op == IrpMajorOp::IrpSetInfo) { // Approximation
+                    let parent_lc = state.parent_name.to_lowercase();
+                    if !parent_lc.is_empty() && parent_lc != "unknown" {
+                        if cond_group.parent_names.iter().any(|p| {
+                            Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
+                        }) {
                             matched = true;
-                             if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': File action match '{}'",
-                                    cond_name, action
-                                ));
-                             }
-                            break;
                         }
-                    }
-                    // Check obfuscation indicators (entropy) if not null
-                    if !matched && !cond_group.obfuscation_indicators.is_empty() {
-                         // If any obfuscation indicator is present, checking entropy is a good default heuristic
-                         if state.high_entropy_detected {
-                             matched = true;
-                         }
                     }
                 }
 
-                // CHECK 8: Process Name (e.g. for archive tools like 7z.exe)
+                if !matched && !cond_group.terminated_processes.is_empty() {
+                    let mut term_match = false;
+                    if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
+                        if cond_group.terminated_processes.iter().any(|victim_pattern| {
+                            Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
+                        }) {
+                            term_match = true;
+                        }
+                    }
+                    if !term_match {
+                        term_match = cond_group.terminated_processes.iter().any(|victim_pattern| {
+                            state.terminated_processes.iter().any(|victim| {
+                                Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
+                            })
+                        });
+                    }
+                    if term_match {
+                        matched = true;
+                    }
+                }
+
                 if !matched && !cond_group.process_names.is_empty() {
                     let app_lc = state.app_name.to_lowercase();
                     if !app_lc.is_empty() {
                         if cond_group.process_names.iter().any(|p| {
-                             Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
+                            Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
                         }) {
                             matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Process name match '{}'",
-                                    cond_name, app_lc
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                // CHECK 9: Created Process (on process creation events)
-                if !matched && !cond_group.created_processes.is_empty() {
-                    if *irp_op == IrpMajorOp::IrpProcessCreate {
-                        let proc_path = filepath.to_lowercase();
-                        if cond_group.created_processes.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &proc_path)
-                        }) {
-                            matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Created process match '{}'",
-                                    cond_name, proc_path
-                                ));
-                            }
                         }
                     }
                 }
                 
-                // If matched, update state and enforce min_matches across distinct values
                 if matched {
                     let match_key = if !filepath.is_empty() {
                         filepath.to_string()
@@ -1724,7 +1433,7 @@ impl BehaviorEngine {
                     };
                     let values = state.condition_match_values.entry(cond_name.clone()).or_insert_with(HashSet::new);
                     if values.len() > 256 {
-                        values.clear(); // prevent unbounded growth for long-lived processes
+                        values.clear();
                     }
                     let is_new = values.insert(match_key);
                     let count = state.condition_match_counts.entry(cond_name.clone()).or_insert(0);
@@ -1737,214 +1446,101 @@ impl BehaviorEngine {
                     let required = if cond_group.min_matches > 0 { cond_group.min_matches } else { 1 };
                     if *count >= required {
                         state.satisfied_named_conditions.insert(cond_name.clone());
-                    } else if rule.debug {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Named condition '{}': {} / {} matches (waiting for min_matches)",
-                            cond_name, count, required
-                        ));
                     }
                 }
-                if rule.debug && !state.satisfied_named_conditions.is_empty() {
-                    let total_named = rule.named_conditions.len();
-                    let satisfied_count = state.satisfied_named_conditions.len();
-                    
-                    if satisfied_count > 0 {
-                        let cond_list: Vec<String> = state.satisfied_named_conditions.iter()
-                            .take(10)
-                            .cloned()
-                            .collect();
-                        
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Rule '{}' PID {}: {}/{} conditions satisfied: [{}]",
-                            rule.name,
-                            state.pid,
-                            satisfied_count,
-                            total_named,
-                            cond_list.join(", ")
-                        ));
-                    }
-                }
-            } // End cond_group loop
-        } // End rule loop
-    } // Closes update_named_conditions_state - FIXED MISSING BRACE
+            }
+        }
+    }
 
-    /// Evaluate a detection condition expression recursively
     fn evaluate_detection_condition(
         &self,
         condition: &DetectionCondition,
         state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
+        _rule: &BehaviorRule,
     ) -> bool {
         match condition {
             DetectionCondition::Named { condition: cond_name } => {
-                let satisfied = state.satisfied_named_conditions.contains(cond_name);
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] Evaluate named condition '{}': {}",
-                        cond_name,
-                        if satisfied { "✔" } else { "✘" }
-                    ));
-                }
-                satisfied
+                state.satisfied_named_conditions.contains(cond_name)
             },
             
             DetectionCondition::And { and } => {
-                let result = and.iter().all(|c| self.evaluate_detection_condition(c, state, rule));
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] AND evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                and.iter().all(|c| self.evaluate_detection_condition(c, state, _rule))
             },
             
             DetectionCondition::Or { or } => {
-                let result = or.iter().any(|c| self.evaluate_detection_condition(c, state, rule));
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] OR evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                or.iter().any(|c| self.evaluate_detection_condition(c, state, _rule))
             },
             
             DetectionCondition::Not { not } => {
-                let result = !self.evaluate_detection_condition(not, state, rule);
-                if rule.debug {
-                    Logging::debug(&format!("[BehaviorEngine] NOT evaluation: {}", if result { "✔" } else { "✘" }));
-                }
-                result
+                !self.evaluate_detection_condition(not, state, _rule)
             },
             
             DetectionCondition::AllOf { all_of } => {
-                let result = all_of.iter().all(|cond_name| state.satisfied_named_conditions.contains(cond_name));
-                if rule.debug {
-                    let satisfied = all_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ALL_OF evaluation: {}/{} ({})",
-                        satisfied, all_of.len(), if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                all_of.iter().all(|cond_name| state.satisfied_named_conditions.contains(cond_name))
             },
             
             DetectionCondition::AnyOf { any_of } => {
-                let result = any_of.iter().any(|cond_name| state.satisfied_named_conditions.contains(cond_name));
-                if rule.debug {
-                    let satisfied = any_of.iter().filter(|c| state.satisfied_named_conditions.contains(*c)).count();
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ANY_OF evaluation: {}/{} ({})",
-                        satisfied, any_of.len(), if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                any_of.iter().any(|cond_name| state.satisfied_named_conditions.contains(cond_name))
             },
             
             DetectionCondition::NOf { n_of, conditions } => {
                 let satisfied_count = conditions.iter()
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
-                let result = satisfied_count == *n_of;
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] N_OF evaluation: {} of {} ({}/{}  {})",
-                        n_of, conditions.len(), satisfied_count, conditions.len(), 
-                        if result { "✔" } else { "✘" }
-                    ));
-                    }
-                result
+                satisfied_count == *n_of
             },
             
             DetectionCondition::AtLeast { at_least, conditions } => {
                 let satisfied_count = conditions.iter()
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
-                let result = satisfied_count >= *at_least;
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] AT_LEAST evaluation: at_least {} ({}/{} {})",
-                        at_least, satisfied_count, conditions.len(), 
-                        if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                satisfied_count >= *at_least
             },
             
             DetectionCondition::AllOfPattern { all_of_pattern } => {
                 let matching_conditions: Vec<_> = state.satisfied_named_conditions.iter()
                     .filter(|cond_name| Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name))
                     .collect();
-                let total_matching = rule.named_conditions.keys()
-                    .filter(|cond_name| Self::matches_pattern_internal(&self.regex_cache, all_of_pattern, cond_name))
-                    .count();
-                let result = !matching_conditions.is_empty() && matching_conditions.len() == total_matching;
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ALL_OF_PATTERN '{}': {}/{} ({})",
-                        all_of_pattern, matching_conditions.len(), total_matching,
-                        if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                !matching_conditions.is_empty()
             },
             
             DetectionCondition::AnyOfPattern { any_of_pattern } => {
-                let result = state.satisfied_named_conditions.iter()
-                    .any(|cond_name| Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name));
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] ANY_OF_PATTERN '{}': {}",
-                        any_of_pattern, if result { "✔" } else { "✘" }
-                    ));
-                }
-                result
+                state.satisfied_named_conditions.iter()
+                    .any(|cond_name| Self::matches_pattern_internal(&self.regex_cache, any_of_pattern, cond_name))
             },
             
             DetectionCondition::Count { count, comparison, threshold } => {
                 let satisfied_count = count.iter()
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
-                let result = match comparison {
+                match comparison {
                     Comparison::Gt => satisfied_count > *threshold,
                     Comparison::Gte => satisfied_count >= *threshold,
                     Comparison::Lt => satisfied_count < *threshold,
                     Comparison::Lte => satisfied_count <= *threshold,
                     Comparison::Eq => satisfied_count == *threshold,
                     Comparison::Ne => satisfied_count != *threshold,
-                };
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] COUNT evaluation: {} {:?} {} ({})",
-                        satisfied_count, comparison, threshold, if result { "✔" } else { "✘" }
-                    ));
                 }
-                result
             },
             
             DetectionCondition::Percentage { percentage, comparison, threshold } => {
+                if percentage.is_empty() { return false; }
                 let satisfied_count = percentage.iter()
                     .filter(|cond_name| state.satisfied_named_conditions.contains(*cond_name))
                     .count();
                 let ratio = satisfied_count as f32 / percentage.len() as f32;
-                let result = match comparison {
+                match comparison {
                     Comparison::Gt => ratio > *threshold,
                     Comparison::Gte => ratio >= *threshold,
                     Comparison::Lt => ratio < *threshold,
                     Comparison::Lte => ratio <= *threshold,
                     Comparison::Eq => (ratio - threshold).abs() < 0.001,
                     Comparison::Ne => (ratio - threshold).abs() >= 0.001,
-                };
-                if rule.debug {
-                    Logging::debug(&format!(
-                        "[BehaviorEngine] PERCENTAGE evaluation: {:.1}% {:?} {:.1}% ({})",
-                        ratio * 100.0, comparison, threshold * 100.0, if result { "✔" } else { "✘" }
-                    ));
                 }
-                result
             },
         }
     }
 
-    // ==========================================================================
-    // RULE CHECKING (Main Detection Logic)
-    // ==========================================================================
-    
     fn check_rules(
         &mut self,
         precord: &mut ProcessRecord,
@@ -1955,35 +1551,10 @@ impl BehaviorEngine {
         actions: &mut ActionsOnKill,
         api_tracker: Option<&ApiTracker>
     ) {
-        let state_ref = self.process_states.get(&gid).unwrap();
-
-        let (
-            browsed_paths_tracker,
-            staged_files_written,
-            accessed_paths_tracker,
-            terminated_processes,
-            self_terminated_processes,
-            parent_name,
-            high_entropy_detected,
-            monitored_api_count, // This will be unused now
-            file_action_detected,
-            extension_match_detected,
-            network_activity_detected, // This will be unused now
-            pid
-        ) = (
-            state_ref.browsed_paths_tracker.clone(),
-            state_ref.staged_files_written.clone(),
-            state_ref.accessed_paths_tracker.clone(),
-            state_ref.terminated_processes.clone(),
-            state_ref.self_terminated_processes.clone(),
-            state_ref.parent_name.clone(),
-            state_ref.high_entropy_detected,
-            state_ref.monitored_api_count,
-            state_ref.file_action_detected,
-            state_ref.extension_match_detected,
-            state_ref.network_activity_detected,
-            state_ref.pid
-        );
+        let state_ref = match self.process_states.get(&gid) {
+            Some(s) => s.clone(),
+            None => return,
+        };
 
         for rule in &self.rules {
             if precord.is_malicious && precord.time_killed.is_some() {
@@ -1994,73 +1565,73 @@ impl BehaviorEngine {
                 continue;
             }
 
-            // ===================================================================
-            // UNIFIED DETECTION LOGIC
-            // ===================================================================
-            
-            // Calculate legacy indicator variables
-            let browsed_access_count = browsed_paths_tracker.len();
-            let has_staged_data = !staged_files_written.is_empty();
+            let browsed_access_count = state_ref.browsed_paths_tracker.len();
+            let has_staged_data = !state_ref.staged_files_written.is_empty();
             let is_online = if rule.require_internet {
                 if let Some(tracker) = api_tracker {
                     tracker.network_operations.connections_established > 0
                 } else {
-                    // Fallback to legacy if ApiTracker not available
-                    self.has_active_connections(pid) || network_activity_detected
+                    self.has_active_connections(state_ref.pid) || state_ref.network_activity_detected
                 }
             } else {
                 true
             };
+            let parent_name = state_ref.parent_name.clone();
             let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
                 let parent_lc = parent_name.to_lowercase();
-                
                 if parent_lc.is_empty() || parent_lc == "unknown" {
                     false
                 } else {
                     rule.suspicious_parents.iter().any(|p| {
-                         Self::matches_pattern_internal(&self.regex_cache, p, &parent_name)
+                        Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
                     })
                 }
             } else {
                 false
             };
-            let has_sensitive_access = !accessed_paths_tracker.is_empty();
+            let has_sensitive_access = !state_ref.accessed_paths_tracker.is_empty();
             
-            // ===================================================================
-            // 1. EVALUATE LEGACY INDICATORS RATIO
-            // ===================================================================
             let mut legacy_satisfied = 0;
             let mut legacy_total = 0;
-            let mut condition_results: Vec<(&str, bool)> = Vec::new();
-
-            macro_rules! check_legacy {
-                ($name:expr, $cond:expr) => {{
-                    legacy_total += 1;
-                    let hit = $cond;
-                    if hit { legacy_satisfied += 1; }
-                    condition_results.push(($name, hit));
-                }};
-            }
 
             if !rule.browsed_paths.is_empty() {
-                check_legacy!("browsed_paths", browsed_access_count >= rule.multi_access_threshold);
+                legacy_total += 1;
+                if browsed_access_count >= rule.multi_access_threshold {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.staging_paths.is_empty() {
-                check_legacy!("staging", has_staged_data);
+                legacy_total += 1;
+                if has_staged_data {
+                    legacy_satisfied += 1;
+                }
             }
             if rule.require_internet {
-                check_legacy!("internet", is_online);
+                legacy_total += 1;
+                if is_online {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.suspicious_parents.is_empty() {
-                check_legacy!("parent", is_suspicious_parent);
+                legacy_total += 1;
+                if is_suspicious_parent {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.accessed_paths.is_empty() {
-                check_legacy!("accessed_paths", has_sensitive_access);
+                legacy_total += 1;
+                if has_sensitive_access {
+                    legacy_satisfied += 1;
+                }
             }
             if rule.entropy_threshold > 0.01 {
-                check_legacy!("entropy", high_entropy_detected);
+                legacy_total += 1;
+                if state_ref.high_entropy_detected {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.monitored_apis.is_empty() {
+                legacy_total += 1;
                 let api_match_count = if let Some(tracker) = api_tracker {
                     rule.monitored_apis.iter().filter(|monitored_api| {
                         tracker.internet_apis.iter().any(|tracked_api| {
@@ -2068,54 +1639,66 @@ impl BehaviorEngine {
                         })
                     }).count()
                 } else {
-                    // Fallback to legacy if ApiTracker not available
-                    monitored_api_count // This is the old, potentially incorrect count
+                    state_ref.monitored_api_count
                 };
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                check_legacy!("apis", api_match_count >= threshold);
+                if api_match_count >= threshold {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.file_actions.is_empty() {
-                check_legacy!("file_actions", file_action_detected);
+                legacy_total += 1;
+                if state_ref.file_action_detected {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.file_extensions.is_empty() {
-                check_legacy!("extensions", extension_match_detected);
+                legacy_total += 1;
+                if state_ref.extension_match_detected {
+                    legacy_satisfied += 1;
+                }
             }
             if !rule.terminated_processes.is_empty() {
+                legacy_total += 1;
                 let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
-                    let ext_match = terminated_processes.iter().any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
-                    let self_match = rule.detect_self_termination && self_terminated_processes.iter().any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
+                    let ext_match = state_ref.terminated_processes.iter().any(|v| 
+                        Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
+                    );
+                    let self_match = rule.detect_self_termination && state_ref.self_terminated_processes.iter().any(|v|
+                        Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
+                    );
                     ext_match || self_match
                 });
-                check_legacy!("terminated_proc", term_hit);
+                if term_hit {
+                    legacy_satisfied += 1;
+                }
             }
 
-            let legacy_ratio = if legacy_total > 0 { legacy_satisfied as f32 / legacy_total as f32 } else { 0.0 };
-            let legacy_threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
+            let legacy_ratio = if legacy_total > 0 { 
+                legacy_satisfied as f32 / legacy_total as f32 
+            } else { 
+                0.0 
+            };
+            let legacy_threshold = if rule.conditions_percentage > 0.0 { 
+                rule.conditions_percentage 
+            } else { 
+                1.0 
+            };
             let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
 
-            // ===================================================================
-            // 2. EVALUATE RICH LOGIC (Independent Trigger)
-            // ===================================================================
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
-                let state = self.process_states.get(&gid).unwrap();
-                rich_triggered = self.evaluate_detection_condition(logic, state, rule);
+                rich_triggered = self.evaluate_detection_condition(logic, &state_ref, rule);
             }
 
-            // ===================================================================
-            // 3. EVALUATE ATTACK STAGES (Independent Trigger)
-            // ===================================================================
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
-                let (detected, conf) = self.evaluate_stages_from_state(rule, state_ref, Some(msg), api_tracker);
+                let (detected, conf) = self.evaluate_stages_from_state(rule, &state_ref, Some(msg), api_tracker);
                 stages_triggered = detected;
                 stage_conf = conf;
             }
 
-            // ===================================================================
-            // 4. FINAL DETECTION DECISION
-            // ===================================================================
             if legacy_triggered || rich_triggered || stages_triggered {
                 let trigger_type = if stages_triggered { "Stage-based" } 
                                   else if rich_triggered { "Rich-logic" } 
@@ -2127,17 +1710,8 @@ impl BehaviorEngine {
 
                 Logging::warning(&format!(
                     "[BehaviorEngine] DETECTION ({}) : {} (PID: {}) matched '{}' ({:.1}%)",
-                    trigger_type, precord.appname, pid, rule.name, indicator_ratio * 100.0
+                    trigger_type, precord.appname, state_ref.pid, rule.name, indicator_ratio * 100.0
                 ));
-
-                if rule.debug {
-                    let breakdown = condition_results.iter()
-                        .map(|(n, h)| format!("{}={}", n, if *h { "✔" } else { "✘" }))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    Logging::debug(&format!("[BehaviorEngine] Breakdown for '{}': L_Ratio={:.2} (Thr={:.2}), Rich={}, Stages={}, [{}]", 
-                        rule.name, legacy_ratio, legacy_threshold, rich_triggered, stages_triggered, breakdown));
-                }
 
                 precord.is_malicious = true;
                 let threat_info = ThreatInfo {
@@ -2161,9 +1735,6 @@ impl BehaviorEngine {
                 if rule.response.terminate_process {
                     break;
                 }
-            } else if rule.debug && (legacy_total > 0 || !rule.stages.is_empty() || rule.detection_logic.is_some()) {
-                // Only log if something interesting happened
-                // Logging::debug(...) - Commented out to reduce noise for non-matches
             }
         }
     }
@@ -2173,7 +1744,7 @@ impl BehaviorEngine {
         rule: &BehaviorRule,
         state: &ProcessBehaviorState,
         msg: Option<&IOMessage>,
-        api_tracker: Option<&ApiTracker>
+        _api_tracker: Option<&ApiTracker>
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
         
@@ -2186,107 +1757,8 @@ impl BehaviorEngine {
                 let mut condition_matched = false;
                 
                 match condition {
-                    RuleCondition::File { op, path_pattern } => {
-                        let has_match = match op.as_str() {
-                            "write" | "create" => {
-                                state.staged_files_written.keys().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, &path.to_string_lossy())
-                                })
-                            },
-                            "read" => {
-                                state.browsed_paths_tracker.keys().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
-                                }) || state.accessed_paths_tracker.iter().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
-                                })
-                            },
-                            "delete" | "rename" => {
-                                state.staged_files_written.keys().any(|path| {
-                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, &path.to_string_lossy())
-                                })
-                            },
-                            _ => false,
-                        };
-                        condition_matched = has_match;
-                    },
-                    
-                    RuleCondition::Registry { op, key_pattern, .. } => {
-                        let registry_keywords = match op.as_str() {
-                            "set" => vec!["regsetvalue", "regsetvalueex", "regsetkeysecurity"],
-                            "create" => vec!["regcreatekey", "regcreatekeyex"],
-                            "delete" => vec!["regdeletevalue", "regdeletekey"],
-                            "rename" => vec!["regrenamekey"],
-                            _ => vec![],
-                        };
-                        
-                        let has_registry_op = registry_keywords.iter().any(|keyword| {
-                            state.detected_apis.iter().any(|api| api.contains(keyword))
-                        });
-                        
-                        let key_accessed = state.browsed_paths_tracker.keys().any(|path| {
-                            Self::matches_pattern_internal(&self.regex_cache, key_pattern, path)
-                        }) || state.accessed_paths_tracker.iter().any(|path| {
-                            Self::matches_pattern_internal(&self.regex_cache, key_pattern, path)
-                        });
-                        
-                        condition_matched = has_registry_op || key_accessed;
-                    },
-                    
-                    RuleCondition::Process { op, pattern } => {
-                        let has_match = match op.as_str() {
-                            "terminate" => {
-                                state.terminated_processes.iter().any(|victim| {
-                                    Self::matches_pattern_internal(&self.regex_cache, pattern, victim)
-                                }) || (rule.detect_self_termination && 
-                                    state.self_terminated_processes.iter().any(|victim| {
-                                        Self::matches_pattern_internal(&self.regex_cache, pattern, victim)
-                                    }))
-                            },
-                            "create" => {
-                                state.detected_apis.iter().any(|api| {
-                                    api.contains("createprocess") || api.contains("ntcreateuserprocess")
-                                }) && Self::matches_pattern_internal(&self.regex_cache, pattern, &state.app_name)
-                            },
-                            _ => Self::matches_pattern_internal(&self.regex_cache, pattern, &state.app_name),
-                        };
-                        condition_matched = has_match;
-                    },
-                    
-                    RuleCondition::Api { name_pattern, .. } => {
-                        condition_matched = state.detected_apis.iter().any(|api| {
-                            Self::matches_pattern_internal(&self.regex_cache, name_pattern, api)
-                        });
-                    },
-
-                    RuleCondition::Network { dest_pattern, .. } => {
-                        let mut network_matched = false;
-                        if let Some(tracker) = api_tracker {
-                            if tracker.network_operations.connections_established > 0 {
-                                network_matched = true;
-                            }
-                            if network_matched && dest_pattern.is_some() {
-                                let dest = dest_pattern.as_ref().unwrap();
-                                let has_dest = tracker.internet_apis.iter().any(|api_name| {
-                                    Self::matches_pattern_internal(&self.regex_cache, dest, api_name)
-                                });
-                                network_matched = has_dest;
-                            }
-                        }
-                        condition_matched = network_matched;
-                    },
-
-                    RuleCondition::Signature { is_trusted, .. } => {
-                        if state.signature_checked {
-                            condition_matched = state.has_valid_signature == *is_trusted;
-                        }
-                    },
-                    
-                    RuleCondition::OperationCount { op_type, path_pattern: _, comparison, threshold } => {
-                        let count = match op_type.as_str() {
-                            "write" => state.staged_files_written.len() as u64,
-                            "read" => (state.browsed_paths_tracker.len() + state.accessed_paths_tracker.len()) as u64,
-                            _ => 0,
-                        };
+                    RuleCondition::OperationCount { op_type, comparison, threshold, .. } => {
+                        let count = state.irp_stats.get_operation_count(op_type);
                         condition_matched = match comparison {
                             Comparison::Gt => count > *threshold,
                             Comparison::Gte => count >= *threshold,
@@ -2296,25 +1768,55 @@ impl BehaviorEngine {
                             Comparison::Ne => count != *threshold,
                         };
                     },
-                    RuleCondition::EntropyThreshold { metric: _, comparison, threshold } => {
-                        if let Some(m) = msg { 
+                    
+                    RuleCondition::ByteThreshold { direction, comparison, threshold } => {
+                        let bytes = match direction.as_str() {
+                            "read" => state.irp_stats.total_bytes_read,
+                            "write" => state.irp_stats.total_bytes_written,
+                            _ => 0,
+                        };
+                        condition_matched = match comparison {
+                            Comparison::Gt => bytes > *threshold,
+                            Comparison::Gte => bytes >= *threshold,
+                            Comparison::Lt => bytes < *threshold,
+                            Comparison::Lte => bytes <= *threshold,
+                            Comparison::Eq => bytes == *threshold,
+                            Comparison::Ne => bytes != *threshold,
+                        };
+                    },
+                    
+                    RuleCondition::File { op, path_pattern } => {
+                        let has_match = match op.as_str() {
+                            "write" | "create" => {
+                                state.irp_stats.unique_paths_accessed.iter().any(|path| {
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
+                                })
+                            },
+                            "read" => {
+                                state.irp_stats.unique_paths_accessed.iter().any(|path| {
+                                    Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
+                                })
+                            },
+                            _ => false,
+                        };
+                        condition_matched = has_match;
+                    },
+                    
+                    RuleCondition::EntropyThreshold { comparison, threshold, .. } => {
+                        if let Some(m) = msg {
                             let entropy = m.entropy;
                             condition_matched = match comparison {
                                 Comparison::Gt => entropy > *threshold,
                                 Comparison::Gte => entropy >= *threshold,
                                 Comparison::Lt => entropy < *threshold,
                                 Comparison::Lte => entropy <= *threshold,
-                                Comparison::Eq => (entropy - *threshold).abs() < 0.001,
-                                Comparison::Ne => (entropy - *threshold).abs() >= 0.001,
+                                Comparison::Eq => (entropy - threshold).abs() < 0.001,
+                                Comparison::Ne => (entropy - threshold).abs() >= 0.001,
                             };
-                        } else {
-                            condition_matched = false; 
                         }
                     },
-
-                    _ => {
-                        condition_matched = false;
-                    },
+                    
+                    _ => condition_matched = false,
                 }
                 
                 if condition_matched {
@@ -2359,31 +1861,44 @@ impl BehaviorEngine {
             match entry {
                 AllowlistEntry::Simple(pattern) => proc_lc.contains(&pattern.to_lowercase()),
                 AllowlistEntry::Complex { pattern, signers, must_be_signed } => {
-                    if !proc_lc.contains(&pattern.to_lowercase()) { return false; }
-                    if !must_be_signed && signers.is_empty() { return true; }
+                    if !proc_lc.contains(&pattern.to_lowercase()) { 
+                        return false; 
+                    }
+                    if !must_be_signed && signers.is_empty() { 
+                        return true; 
+                    }
                     if let Some(path) = process_path {
-                        if !path.exists() { return false; }
+                        if !path.exists() { 
+                            return false; 
+                        }
                         let info = verify_signature(path);
-                        if *must_be_signed && !info.is_trusted { return false; }
+                        if *must_be_signed && !info.is_trusted { 
+                            return false; 
+                        }
                         if !signers.is_empty() {
                             if let Some(signer) = &info.signer_name {
-                                signers.iter().any(|s_pattern| Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer))
-                            } else { false }
-                        } else { true }
-                    } else { false }
+                                signers.iter().any(|s_pattern| 
+                                    Self::matches_pattern_internal(&self.regex_cache, s_pattern, signer)
+                                )
+                            } else { 
+                                false 
+                            }
+                        } else { 
+                            true 
+                        }
+                    } else { 
+                        false 
+                    }
                 }
             }
         })
     }
     
     fn matches_pattern_internal(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, text: &str) -> bool {
-        // 1. FAST PATH: Literal substring match (No wildcards/special regex chars)
-        // Note: Added '.' to the exclusion list as it's a regex special char
         if !pattern.contains(['*', '?', '[', '\\', '.', '^', '$']) {
             return text.to_lowercase().contains(&pattern.to_lowercase());
         }
 
-        // 2. CACHE LOOKUP: Try to borrow for reading first (less contention)
         {
             if let Ok(cache_map) = cache.try_borrow() {
                 if let Some(re) = cache_map.get(pattern) {
@@ -2392,16 +1907,12 @@ impl BehaviorEngine {
             }
         }
 
-        // 3. SLOW PATH: Compile and Cache
         let mut cache_map = cache.borrow_mut();
         
-        // Final check in case another thread/caller filled the cache while we were waiting
         if let Some(re) = cache_map.get(pattern) {
             return re.is_match(text);
         }
 
-        // Convert Glob-style patterns to proper Regex
-        // Example: "*.exe" -> "^.*\.exe$"
         let regex_str = if pattern.contains('*') || pattern.contains('?') {
             let escaped = regex::escape(pattern)
                 .replace("\\*", ".*")
@@ -2418,76 +1929,88 @@ impl BehaviorEngine {
                 is_match
             }
             Err(_) => {
-                // Last ditch effort: basic case-insensitive substring match
                 text.to_lowercase().contains(&pattern.to_lowercase())
             }
         }
     }
     
     fn has_active_connections(&self, pid: u32) -> bool {
-        if pid == 0 { return false; }
+        if pid == 0 { 
+            return false; 
+        }
+        
         let check_tcp = |family: u16| -> bool {
             let mut dw_size = 0;
             unsafe {
                 let _ = GetExtendedTcpTable(None, &mut dw_size, false, family as u32, TCP_TABLE_OWNER_PID_ALL, 0);
-                if dw_size == 0 { return false; }
+                if dw_size == 0 { 
+                    return false; 
+                }
                 let mut buffer = vec![0u8; dw_size as usize];
                 if GetExtendedTcpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, family as u32, TCP_TABLE_OWNER_PID_ALL, 0) == 0 {
-                    if buffer.len() < 4 { return false; }
+                    if buffer.len() < 4 { 
+                        return false; 
+                    }
                     let num_entries = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
                     let (stride, pid_offset) = if family == AF_INET.0 { (24, 20) } else { (56, 52) };
                     let start_offset = 4;
                     for i in 0..num_entries {
                         let offset = start_offset + (i as usize * stride);
-                        if offset + stride > buffer.len() { break; }
+                        if offset + stride > buffer.len() { 
+                            break; 
+                        }
                         let entry_pid_offset = offset + pid_offset;
                         if entry_pid_offset + 4 <= buffer.len() {
                             let entry_pid = u32::from_ne_bytes(buffer[entry_pid_offset..entry_pid_offset+4].try_into().unwrap());
-                            if entry_pid == pid { return true; }
+                            if entry_pid == pid { 
+                                return true; 
+                            }
                         }
                     }
                 }
             }
             false
         };
+        
         let check_udp = |family: u16| -> bool {
             let mut dw_size = 0;
             unsafe {
                 let _ = GetExtendedUdpTable(None, &mut dw_size, false, family as u32, UDP_TABLE_OWNER_PID, 0);
-                if dw_size == 0 { return false; }
+                if dw_size == 0 { 
+                    return false; 
+                }
                 let mut buffer = vec![0u8; dw_size as usize];
                 if GetExtendedUdpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, family as u32, UDP_TABLE_OWNER_PID, 0) == 0 {
-                    if buffer.len() < 4 { return false; }
+                    if buffer.len() < 4 { 
+                        return false; 
+                    }
                     let num_entries = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
                     let (stride, pid_offset) = if family == AF_INET.0 { (12, 8) } else { (28, 24) };
                     let start_offset = 4;
                     for i in 0..num_entries {
                         let offset = start_offset + (i as usize * stride);
-                        if offset + stride > buffer.len() { break; }
+                        if offset + stride > buffer.len() { 
+                            break; 
+                        }
                         let entry_pid_offset = offset + pid_offset;
                         if entry_pid_offset + 4 <= buffer.len() {
                             let entry_pid = u32::from_ne_bytes(buffer[entry_pid_offset..entry_pid_offset+4].try_into().unwrap());
-                            if entry_pid == pid { return true; }
+                            if entry_pid == pid { 
+                                return true; 
+                            }
                         }
                     }
                 }
             }
             false
         };
-        if check_tcp(AF_INET.0) { return true; }
-        if check_tcp(AF_INET6.0) { return true; }
-        if check_udp(AF_INET.0) { return true; }
-        if check_udp(AF_INET6.0) { return true; }
-        false
+        
+        check_tcp(AF_INET.0) || check_tcp(AF_INET6.0) || check_udp(AF_INET.0) || check_udp(AF_INET6.0)
     }
         
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
         let mut detected_processes = Vec::new();
         let gids: Vec<u64> = self.process_states.keys().cloned().collect();
-
-        if self.rules.iter().any(|r| r.debug) {
-            Logging::debug(&format!("[BehaviorEngine] Static Scan: Evaluating {} tracked processes", gids.len()));
-        }
 
         for gid in gids {
             let state = match self.process_states.get(&gid) {
@@ -2501,148 +2024,30 @@ impl BehaviorEngine {
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
             for rule in &self.rules {
-                // ===================================================================
-                // UNIFIED DETECTION LOGIC
-                // ===================================================================
-                
-                let browsed_access_count = state.browsed_paths_tracker.len();
-                let has_staged_data = !state.staged_files_written.is_empty();
-                let is_online = if rule.require_internet {
-                    // Fallback to active connections check since api_tracker not available in scan
-                    self.has_active_connections(pid)
-                } else {
-                    true
-                };
-                                
-                let parent_name = state.parent_name.clone();
-                let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
-                    let parent = parent_name.to_lowercase();
-                    
-                    if parent.is_empty() || parent == "unknown" {
-                        false
-                    } else {
-                        rule.suspicious_parents.iter().any(|p| {
-                            Self::matches_pattern_internal(&self.regex_cache, p, &parent)
-                        })
-                    }
-                } else {
-                    false
-                };
-                
-                let has_sensitive_access = !state.accessed_paths_tracker.is_empty();
-                let terminated_match = if !rule.terminated_processes.is_empty() {
-                    rule.terminated_processes.iter().any(|rule_proc| {
-                        let ext_match = state.terminated_processes.iter().any(|victim_path| {
-                            Self::matches_pattern_internal(&self.regex_cache, rule_proc, victim_path)
-                        });
-                        let self_match = if rule.detect_self_termination {
-                            state.self_terminated_processes.iter().any(|victim_path| {
-                                Self::matches_pattern_internal(&self.regex_cache, rule_proc, victim_path)
-                            })
-                        } else {
-                            false
-                        };
-                        ext_match || self_match
-                    })
-                } else {
-                    true
-                };
-                
-                let high_entropy_detected = state.high_entropy_detected;
-                let monitored_api_count = state.monitored_api_count;
-                let file_action_detected = state.file_action_detected;
-                let extension_match_detected = state.extension_match_detected;
-                
-                // ===================================================================
-                // 1. EVALUATE LEGACY INDICATORS RATIO
-                // ===================================================================
-                let mut legacy_satisfied = 0;
-                let mut legacy_total = 0;
-
-                if !rule.browsed_paths.is_empty() {
-                    legacy_total += 1;
-                    if browsed_access_count >= rule.multi_access_threshold { legacy_satisfied += 1; }
-                }
-                if !rule.staging_paths.is_empty() {
-                    legacy_total += 1;
-                    if has_staged_data { legacy_satisfied += 1; }
-                }
-                if rule.require_internet {
-                    legacy_total += 1;
-                    if is_online { legacy_satisfied += 1; }
-                }
-                if !rule.suspicious_parents.is_empty() {
-                    legacy_total += 1;
-                    if is_suspicious_parent { legacy_satisfied += 1; }
-                }
-                if !rule.accessed_paths.is_empty() {
-                    legacy_total += 1;
-                    if has_sensitive_access { legacy_satisfied += 1; }
-                }
-                if rule.entropy_threshold > 0.01 {
-                    legacy_total += 1;
-                    if high_entropy_detected { legacy_satisfied += 1; }
-                }
-                if !rule.monitored_apis.is_empty() {
-                    legacy_total += 1;
-                    let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                    if monitored_api_count >= threshold { legacy_satisfied += 1; }
-                }
-                if !rule.file_actions.is_empty() {
-                    legacy_total += 1;
-                    if file_action_detected { legacy_satisfied += 1; }
-                }
-                if !rule.file_extensions.is_empty() {
-                    legacy_total += 1;
-                    if extension_match_detected { legacy_satisfied += 1; }
-                }
-                if !rule.terminated_processes.is_empty() {
-                    legacy_total += 1;
-                    if terminated_match { legacy_satisfied += 1; }
-                }
-
-                let legacy_ratio = if legacy_total > 0 { legacy_satisfied as f32 / legacy_total as f32 } else { 0.0 };
-                let legacy_threshold = if rule.conditions_percentage > 0.0 { rule.conditions_percentage } else { 1.0 };
-                let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
-
-                // ===================================================================
-                // 2. EVALUATE RICH LOGIC (Independent Trigger)
-                // ===================================================================
+                let mut legacy_triggered = false;
                 let mut rich_triggered = false;
+                let mut stages_triggered = false;
+
+                if !rule.browsed_paths.is_empty() && state.browsed_paths_tracker.len() >= rule.multi_access_threshold {
+                    legacy_triggered = true;
+                }
+                if !rule.staging_paths.is_empty() && !state.staged_files_written.is_empty() {
+                    legacy_triggered = true;
+                }
+                if rule.require_internet && self.has_active_connections(pid) {
+                    legacy_triggered = true;
+                }
+
                 if let Some(logic) = &rule.detection_logic {
                     rich_triggered = self.evaluate_detection_condition(logic, &state, rule);
                 }
 
-                // ===================================================================
-                // 3. EVALUATE ATTACK STAGES (Independent Trigger)
-                // ===================================================================
-                let mut stages_triggered = false;
-                let mut stage_conf = 0.0;
                 if !rule.stages.is_empty() {
-                    let (detected, conf) = self.evaluate_stages_from_state(rule, &state, None, None);
+                    let (detected, _) = self.evaluate_stages_from_state(rule, &state, None, None);
                     stages_triggered = detected;
-                    stage_conf = conf;
                 }
 
-                // ===================================================================
-                // 4. FINAL DETECTION DECISION
-                // ===================================================================
                 if legacy_triggered || rich_triggered || stages_triggered {
-                    let indicator_ratio = if stages_triggered { stage_conf } 
-                                         else if rich_triggered { 1.0 } 
-                                         else { legacy_ratio };
-
-                    let trigger_type = if stages_triggered { "Stage-based" } 
-                                      else if rich_triggered { "Rich-logic" } 
-                                      else { "Legacy" };
-
-                    if rule.debug {
-                        Logging::warning(&format!(
-                            "[BehaviorEngine] DETECTION (scan - {}): {} (PID: {}) matched '{}' ({:.1}%)",
-                            trigger_type, app_name, pid, rule.name, indicator_ratio * 100.0
-                        ));
-                    }
-
                     let mut p = ProcessRecord::new(
                         gid,
                         app_name.clone(),
