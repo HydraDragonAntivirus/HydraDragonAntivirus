@@ -1382,18 +1382,30 @@ impl BehaviorEngine {
                     if path_matched || (ext_matched && !cond_group.file_extensions.is_empty()) {
                          // Check operation type if specified
                          if !cond_group.file_operations.is_empty() {
-                             let op_str = match irp_op {
-                                 IrpMajorOp::IrpRead => "read",
-                                 IrpMajorOp::IrpWrite => "write",
-                                 IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo => "create", // Treat setinfo/create as creation/modification
-                                 _ => "other"
-                             };
-                             
-                             if cond_group.file_operations.contains(&op_str.to_string()) {
+                             let op_matches = |op: &str| cond_group.file_operations.iter().any(|v| v == op);
+                             let mut op_ok = false;
+                             match irp_op {
+                                 IrpMajorOp::IrpRead => {
+                                     op_ok = op_matches("read");
+                                 }
+                                 IrpMajorOp::IrpWrite => {
+                                     op_ok = op_matches("write");
+                                 }
+                                 IrpMajorOp::IrpCreate => {
+                                     // Many Windows "read" opens are reported as IRP_CREATE.
+                                     op_ok = op_matches("create") || op_matches("read") || op_matches("open");
+                                 }
+                                 IrpMajorOp::IrpSetInfo => {
+                                     // Treat metadata updates as create/write-esque operations.
+                                     op_ok = op_matches("create") || op_matches("write");
+                                 }
+                                 _ => {}
+                             }
+
+                             if op_ok {
                                  matched = true;
-                             } else if (op_str == "create" || op_str == "write") && 
-                                       (cond_group.file_operations.contains(&"delete".to_string()) || 
-                                        cond_group.file_operations.contains(&"rename".to_string())) {
+                             } else if (matches!(irp_op, IrpMajorOp::IrpCreate | IrpMajorOp::IrpWrite | IrpMajorOp::IrpSetInfo)) &&
+                                       (op_matches("delete") || op_matches("rename")) {
                                   // Approximating delete/rename via write/create ops is weak but sometimes necessary
                                   // Ideally we need explicit delete IRPs logic
                              }
