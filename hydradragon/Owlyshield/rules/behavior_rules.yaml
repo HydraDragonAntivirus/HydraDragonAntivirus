@@ -16,14 +16,14 @@
         - "Opera Software\\Opera GX Stable"
         - "BraveSoftware\\Brave-Browser\\User Data"
         - "Microsoft\\Edge\\User Data"
-      file_operations: ["read", "browse"]
+      file_operations: ["read"]
       min_matches: 2
 
     discord_token_access:
       file_paths:
         - "%APPDATA%\\Discord\\Local Storage"
         - "%APPDATA%\\Discord\\leveldb"
-      file_operations: ["read", "browse"]
+      file_operations: ["read"]
 
     credential_file_access:
       file_paths:
