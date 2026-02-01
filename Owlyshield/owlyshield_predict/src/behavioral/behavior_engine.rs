@@ -7,7 +7,7 @@ use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
 
-use crate::shared_def::{IOMessage, IrpMajorOp};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
@@ -26,6 +26,7 @@ use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 
 // --- Sysinfo Imports for Fallback ---
 use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
+use num::FromPrimitive;
 
 // =============================================================================
 // ENUMS AND BASIC TYPES
@@ -877,6 +878,53 @@ impl BehaviorEngine {
         text_lc.contains(&pattern_lc) || pattern_lc.contains(&text_lc)
     }
 
+    fn normalize_registry_text(text: &str) -> String {
+        normalize_path_separators(&text.to_lowercase())
+    }
+
+    fn registry_pattern_matches(&self, pattern: &str, filepath: &str) -> bool {
+        let p = Self::normalize_registry_text(pattern);
+        let f = Self::normalize_registry_text(filepath);
+
+        if p.starts_with("hkcu/") || p.starts_with("hkey_current_user/") {
+            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            if f.contains("/registry/user/") {
+                return f.contains(remainder);
+            }
+        } else if p.starts_with("hklm/") || p.starts_with("hkey_local_machine/") {
+            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            if f.contains("/registry/machine/") {
+                return f.contains(remainder);
+            }
+        } else if p.starts_with("hkcr/") || p.starts_with("hkey_classes_root/") {
+            let remainder = p.splitn(2, '/').nth(1).unwrap_or("");
+            if f.contains("/registry/machine/software/classes/") || f.contains("/registry/user/") {
+                return f.contains(remainder);
+            }
+        }
+
+        Self::matches_pattern_internal(&self.regex_cache, &p, &f)
+    }
+
+    fn registry_op_matches(&self, cond_group: &NamedConditionGroup, msg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
+        if cond_group.registry_operations.is_empty() {
+            return true;
+        }
+        if *irp_op != IrpMajorOp::IrpRegistry {
+            return false;
+        }
+
+        let change = FromPrimitive::from_u8(msg.file_change);
+        let op = match change {
+            Some(FileChangeInfo::RegCreateKey) => "create",
+            Some(FileChangeInfo::RegSetValue) => "set",
+            Some(FileChangeInfo::RegDeleteValue) => "delete",
+            Some(FileChangeInfo::RegRenameKey) => "rename",
+            _ => "query",
+        };
+        cond_group.registry_operations.iter().any(|v| v == op)
+    }
+
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
@@ -1429,23 +1477,27 @@ impl BehaviorEngine {
                                          !cond_group.autorun_keys.is_empty();
 
                 if !matched && has_reg_conditions {
+                     if *irp_op != IrpMajorOp::IrpRegistry {
+                         // Only evaluate registry conditions on registry events
+                     } else if !self.registry_op_matches(cond_group, msg, irp_op) {
+                         // Registry op doesn't match condition requirements
+                     } else {
                      let reg_iter = cond_group.registry_keys.iter()
                         .chain(cond_group.autorun_keys.iter());
 
-                    for reg_pattern in reg_iter {
-                        // FIX: Normalize pattern for registry check
-                        let p_norm = reg_pattern.replace("\\", "/");
-                        if Self::matches_pattern_internal(&self.regex_cache, &p_norm, filepath) {
-                            matched = true;
-                            if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
-                                    cond_name, filepath
-                                ));
+                        for reg_pattern in reg_iter {
+                            if self.registry_pattern_matches(reg_pattern, filepath) {
+                                matched = true;
+                                if rule.debug {
+                                    Logging::debug(&format!(
+                                        "[BehaviorEngine] Named condition '{}': Registry key match on '{}'",
+                                        cond_name, filepath
+                                    ));
+                                }
+                                break;
                             }
-                            break;
                         }
-                    }
+                     }
                 }
 
                 // CHECK 5: Parent Process
@@ -1468,19 +1520,30 @@ impl BehaviorEngine {
 
                 // CHECK 6: Termination
                 if !matched && !cond_group.terminated_processes.is_empty() {
+                     let mut term_match = false;
                      if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
                           // Check if the VICTIM (filepathstr) matches the condition
                           if cond_group.terminated_processes.iter().any(|victim_pattern| {
                                Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
                           }) {
-                              matched = true;
-                              if rule.debug {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}': Termination match '{}'",
-                                    cond_name, filepath
-                                ));
-                             }
+                              term_match = true;
                           }
+                     }
+                     if !term_match {
+                         term_match = cond_group.terminated_processes.iter().any(|victim_pattern| {
+                             state.terminated_processes.iter().any(|victim| {
+                                 Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
+                             })
+                         });
+                     }
+                     if term_match {
+                         matched = true;
+                         if rule.debug {
+                           Logging::debug(&format!(
+                               "[BehaviorEngine] Named condition '{}': Termination match '{}'",
+                               cond_name, filepath
+                           ));
+                        }
                      }
                 }
                 
