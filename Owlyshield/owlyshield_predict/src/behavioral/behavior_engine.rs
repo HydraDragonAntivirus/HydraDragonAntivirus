@@ -1429,7 +1429,7 @@ impl BehaviorEngine {
                     // Check specific indicators (hostnames, IPs) if we have tracker data
                     if !net_matched && (!cond_group.network_indicators.is_empty() || !cond_group.network_domains.is_empty() || !cond_group.network_ips.is_empty()) {
                         if let Some(tracker) = api_tracker {
-                            let indicators = cond_group.network_indicators.iter()
+                            let mut indicators = cond_group.network_indicators.iter()
                                 .chain(cond_group.network_domains.iter())
                                 .chain(cond_group.network_ips.iter());
 
