@@ -882,7 +882,7 @@ impl BehaviorEngine {
         normalize_path_separators(&text.to_lowercase())
     }
 
-    fn registry_pattern_matches(&self, pattern: &str, filepath: &str) -> bool {
+    fn registry_pattern_matches(cache: &RefCell<HashMap<String, Regex>>, pattern: &str, filepath: &str) -> bool {
         let p = Self::normalize_registry_text(pattern);
         let f = Self::normalize_registry_text(filepath);
 
@@ -903,10 +903,10 @@ impl BehaviorEngine {
             }
         }
 
-        Self::matches_pattern_internal(&self.regex_cache, &p, &f)
+        Self::matches_pattern_internal(cache, &p, &f)
     }
 
-    fn registry_op_matches(&self, cond_group: &NamedConditionGroup, msg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
+    fn registry_op_matches(cond_group: &NamedConditionGroup, msg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
         if cond_group.registry_operations.is_empty() {
             return true;
         }
@@ -1479,14 +1479,14 @@ impl BehaviorEngine {
                 if !matched && has_reg_conditions {
                      if *irp_op != IrpMajorOp::IrpRegistry {
                          // Only evaluate registry conditions on registry events
-                     } else if !self.registry_op_matches(cond_group, msg, irp_op) {
+                     } else if !Self::registry_op_matches(cond_group, msg, irp_op) {
                          // Registry op doesn't match condition requirements
                      } else {
                      let reg_iter = cond_group.registry_keys.iter()
                         .chain(cond_group.autorun_keys.iter());
 
                         for reg_pattern in reg_iter {
-                            if self.registry_pattern_matches(reg_pattern, filepath) {
+                            if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath) {
                                 matched = true;
                                 if rule.debug {
                                     Logging::debug(&format!(
