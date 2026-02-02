@@ -8615,7 +8615,8 @@ async def scan_and_warn(file_path,
                   nsis_flag=False,
                   flag_confuserex=False,
                   flag_vmprotect=False,
-                  main_file_path=None):
+                  main_file_path=None,
+                  owlyshield_signature_status=None):
     """
     Scans a file for potential issues with comprehensive threading for performance.
 
@@ -8632,8 +8633,29 @@ async def scan_and_warn(file_path,
         pe_file = False
         signature_check = {
             "is_valid": False,
-            "signature_status_issues": False
+            "signature_status_issues": False,
+            "no_signature": True,
         }
+
+        # If Owlyshield already verified the signature, trust that result and skip local verification.
+        # Expected shape: {"is_trusted": bool, "is_signed": bool, "signer_name": Optional[str]}
+        if isinstance(owlyshield_signature_status, dict):
+            is_signed = bool(owlyshield_signature_status.get("is_signed", False))
+            is_trusted = bool(owlyshield_signature_status.get("is_trusted", False))
+            signer_name = owlyshield_signature_status.get("signer_name", None)
+
+            signature_check = {
+                "from_owlyshield": True,
+                "is_valid": is_trusted,
+                "no_signature": not is_signed,
+                "signature_status_issues": (not is_trusted) and is_signed,
+                "status": (
+                    "Valid"
+                    if is_trusted
+                    else ("No signature" if not is_signed else "Invalid signature (from Owlyshield)")
+                ),
+                "signer_name": signer_name,
+            }
         die_output = ""
         plain_text_flag = False
 
@@ -8778,8 +8800,9 @@ async def scan_and_warn(file_path,
         # Now we can safely use threading since no more early returns
 
         # Shared data for tasks
+        precomputed_sig = signature_check if signature_check.get("from_owlyshield") else None
         thread_results = {
-            'signature_check': None,
+            'signature_check': precomputed_sig,
             'file_lines': [],
             'dotnet_result': None
         }
@@ -8817,7 +8840,10 @@ async def scan_and_warn(file_path,
                 logger.error(f"Failed to read text lines from {norm_path}: {e}")
 
         # Start background tasks for I/O operations
-        signature_task = asyncio.create_task(signature_check_thread())
+        if precomputed_sig is not None:
+            signature_task = asyncio.create_task(asyncio.sleep(0))
+        else:
+            signature_task = asyncio.create_task(signature_check_thread())
         file_read_task = asyncio.create_task(file_reading_thread())
 
         # Path analysis - direct execution (fast)

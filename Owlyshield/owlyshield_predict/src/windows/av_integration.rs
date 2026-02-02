@@ -1,5 +1,6 @@
 #![cfg(feature = "hydradragon")]
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
@@ -12,7 +13,7 @@ use windows::Win32::Foundation::{
     CloseHandle, GetLastError, HANDLE, ERROR_PIPE_CONNECTED, BOOL,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, FlushFileBuffers, ReadFile, WriteFile, FILE_ATTRIBUTE_NORMAL, 
+    CreateFileA, FlushFileBuffers, WriteFile, FILE_ATTRIBUTE_NORMAL, 
     FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows::Win32::System::Pipes::{
@@ -28,6 +29,7 @@ use crate::config::Config;
 use crate::worker::predictor::PredictorMalware;
 use chrono::Utc;
 use crate::shared_def::IOMessage;
+use crate::signature_verification::verify_signature;
 
 // --- Pipe names (single source of truth) ---
 #[allow(dead_code)] // Silencing warning, this pipe may be used by the external AV client
@@ -78,6 +80,15 @@ pub struct AVThreatEvent {
     pub gid: Option<u64>,
 }
 
+/// EDR-provided Authenticode signature status for a file.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FileSignatureStatus {
+    pub is_trusted: bool,
+    pub is_signed: bool,
+    #[serde(default)]
+    pub signer_name: Option<String>,
+}
+
 /// EDR -> AV request
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EDRScanRequest {
@@ -88,6 +99,9 @@ pub struct EDRScanRequest {
     pub pid: Option<u32>,
     #[serde(default)]
     pub additional_context: Option<String>,
+    /// Optional signature status (so HydraDragon doesn't need to re-verify the same executable).
+    #[serde(default)]
+    pub signature_status: Option<FileSignatureStatus>,
 }
 
 /// AV scan response (sent to EDR as a threat event)
@@ -103,26 +117,25 @@ pub struct AVScanResponse {
 pub struct AVIntegration<'a> {
     config: &'a Config, // <-- MODIFIED: Now a borrow
     predictor_malware: PredictorMalware<'a>,
-    scan_request_rx: Receiver<EDRScanRequest>,
     internal_scan_tx: Sender<EDRScanRequest>,
+    signature_cache: HashMap<String, FileSignatureStatus>,
     _scan_request_handle: thread::JoinHandle<()>,
 }
 
 impl<'a> AVIntegration<'a> {
     /// Create new AVIntegration instance
     pub fn new(config: &'a Config, predictor_malware: PredictorMalware<'a>) -> Self { // <-- MODIFIED: Takes a borrow
-        let (internal_scan_tx, scan_request_rx) = channel::<EDRScanRequest>();
-        let tx_clone = internal_scan_tx.clone();
+        let (internal_scan_tx, internal_scan_rx) = channel::<EDRScanRequest>();
         
         let scan_request_handle = thread::spawn(move || {
-            scan_request_server_loop(tx_clone);
+            scan_request_server_loop(internal_scan_rx);
         });
 
         AVIntegration {
             config, // <-- MODIFIED: Assigns the borrow
             predictor_malware,
-            scan_request_rx,
             internal_scan_tx,
+            signature_cache: HashMap::new(),
             _scan_request_handle: scan_request_handle,
         }
     }
@@ -199,24 +212,48 @@ impl<'a> AVIntegration<'a> {
         }
     }
 
-    /// Try to receive scan requests from AV
-    pub fn try_receive_scan_request(&self) -> Option<EDRScanRequest> {
-        self.scan_request_rx.try_recv().ok()
-    }
-
     /// Called by kernel/event handling to queue internal requests (no external client)
     pub fn queue_file_event(&mut self, iomsg: &IOMessage, precord: &ProcessRecord) {
+        let file_path = precord.exepath.to_string_lossy().to_string();
+        let signature_status = self.get_or_compute_signature_status(&file_path, &precord.exepath);
+
         let request = EDRScanRequest {
             event_type: "NEW_IO_EVENT".to_string(),
-            file_path: precord.exepath.to_string_lossy().to_string(),
+            file_path,
             timestamp: Utc::now().to_rfc3339(),
             pid: Some(iomsg.pid),
             additional_context: Some(format!("Event triggered by GID: {}", precord.gid)),
+            signature_status,
         };
 
         if let Err(e) = self.internal_scan_tx.send(request) {
             Logging::error(&format!("Failed to send internal scan request: {}", e));
         }
+    }
+
+    fn get_or_compute_signature_status(
+        &mut self,
+        cache_key: &str,
+        path: &std::path::Path,
+    ) -> Option<FileSignatureStatus> {
+        if let Some(existing) = self.signature_cache.get(cache_key) {
+            return Some(existing.clone());
+        }
+
+        if !path.exists() {
+            return None;
+        }
+
+        let info = verify_signature(path);
+        let status = FileSignatureStatus {
+            is_trusted: info.is_trusted,
+            is_signed: info.is_signed,
+            signer_name: info.signer_name,
+        };
+
+        self.signature_cache
+            .insert(cache_key.to_string(), status.clone());
+        Some(status)
     }
 }
 
@@ -306,70 +343,38 @@ fn send_threat_to_edr(event: AVThreatEvent) -> Result<(), String> {
     }
 }
 
-/// Read & parse a single request from a connected pipe handle
-fn read_scan_request(pipe_handle: HANDLE) -> Option<EDRScanRequest> {
-    unsafe {
-        let mut buffer = vec![0u8; BUFFER_SIZE as usize];
-        let mut bytes_read: u32 = 0;
+fn write_scan_request(pipe_handle: HANDLE, request: &EDRScanRequest) -> Result<u32, String> {
+    let message = serde_json::to_string(request).map_err(|e| {
+        Logging::error(&format!("serialize error: {}", e));
+        format!("serialize error: {}", e)
+    })?;
+    let message_bytes: &[u8] = message.as_bytes();
 
-        let result: BOOL = ReadFile(
+    unsafe {
+        let mut bytes_written: u32 = 0;
+        let ok: BOOL = WriteFile(
             pipe_handle,
-            Some(buffer.as_mut_ptr() as *mut _),
-            buffer.len() as u32,
-            Some(&mut bytes_read as *mut u32),
+            Some(message_bytes),
+            Some(&mut bytes_written as *mut u32),
             None,
         );
 
-        if !result.as_bool() {
-            let err = GetLastError();
-            Logging::error(&format!("ReadFile failed: {:?}", err));
-            return None;
+        let _ = FlushFileBuffers(pipe_handle);
+
+        if !ok.as_bool() {
+            return Err("Failed to write to HydraDragon pipe".to_string());
         }
 
-        if bytes_read == 0 {
-            Logging::warning("ReadFile returned 0 bytes");
-            return None;
-        }
-
-        Logging::info(&format!("Read {} bytes from pipe", bytes_read));
-
-        let preview_len = std::cmp::min(bytes_read as usize, 100);
-        Logging::debug(&format!(
-            "Raw bytes preview: {:?}", 
-            &buffer[..preview_len]
-        ));
-
-        let data = match std::str::from_utf8(&buffer[..bytes_read as usize]) {
-            Ok(s) => s,
-            Err(e) => {
-                Logging::error(&format!("Invalid UTF-8 in scan request: {}", e));
-                Logging::error(&format!("Bytes: {:?}", &buffer[..bytes_read as usize]));
-                return None;
-            }
-        };
-
-        Logging::info(&format!("Received data: {}", data));
-
-        match serde_json::from_str::<EDRScanRequest>(data) {
-            Ok(request) => {
-                Logging::info(&format!(
-                    "Successfully parsed scan request for: {}", 
-                    request.file_path
-                ));
-                Some(request)
-            }
-            Err(e) => {
-                Logging::error(&format!("Failed to parse scan request JSON: {}", e));
-                Logging::error(&format!("Data received: {}", data));
-                None
-            }
-        }
+        Ok(bytes_written)
     }
 }
 
-/// AV server: persistent listener for EDR -> AV requests
-fn scan_request_server_loop(tx: Sender<EDRScanRequest>) {
-    Logging::info(&format!("Starting pipe server: {}", PIPE_EDR_TO_AV));
+/// EDR server: persistent sender for EDR -> AV scan requests.
+///
+/// Sends one JSON message per connection; the HydraDragon client is expected to reconnect
+/// for subsequent messages.
+fn scan_request_server_loop(rx: Receiver<EDRScanRequest>) {
+    Logging::info(&format!("Starting pipe server (EDR->AV): {}", PIPE_EDR_TO_AV));
 
     unsafe {
         let pipe_name_c = match CString::new(PIPE_EDR_TO_AV) {
@@ -406,26 +411,26 @@ fn scan_request_server_loop(tx: Sender<EDRScanRequest>) {
                 continue;
             }
 
-            Logging::info("Waiting for EDR client to connect...");
+            Logging::debug("Waiting for HydraDragon client to connect...");
 
             let connect_ok: BOOL = ConnectNamedPipe(pipe_handle, None);
             let err = GetLastError();
 
-            Logging::debug(&format!(
-                "ConnectNamedPipe result: ok={}, error={:?}", 
-                connect_ok.as_bool(), 
-                err
-            ));
-
             if connect_ok.as_bool() || err == ERROR_PIPE_CONNECTED {
-                Logging::info("EDR client connected!");
-
-                if let Some(request) = read_scan_request(pipe_handle) {
-                    if let Err(e) = tx.send(request) {
-                        Logging::error(&format!("Failed to forward scan request: {}", e));
+                let request = match rx.recv() {
+                    Ok(r) => r,
+                    Err(_) => {
+                        let _ = CloseHandle(pipe_handle);
+                        return;
                     }
-                } else {
-                    Logging::warning("Failed to read scan request from connected client");
+                };
+
+                match write_scan_request(pipe_handle, &request) {
+                    Ok(bytes_written) => Logging::debug(&format!(
+                        "Sent scan request: {} ({} bytes)",
+                        request.file_path, bytes_written
+                    )),
+                    Err(e) => Logging::error(&format!("Failed to send scan request: {}", e)),
                 }
 
                 let _ = DisconnectNamedPipe(pipe_handle);
