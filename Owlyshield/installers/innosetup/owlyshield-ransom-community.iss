@@ -51,20 +51,20 @@ en.Phone=Phone number:
 en.InvalidEmail=Invalid email address
 en.DownloadSuccessTo=Successfully downloaded file to: %s
 en.AbortedByUser=Aborted by user.
-fr.FullInstall=Installation complète
+fr.FullInstall=Installation complï¿½te
 fr.CompactInstall=Installation compacte
-fr.CustomInstall=Installation personnalisée
+fr.CustomInstall=Installation personnalisï¿½e
 fr.Service=Service Owlyshield
-fr.TelemetryHelp=Télémétrie et Assistance
+fr.TelemetryHelp=Tï¿½lï¿½mï¿½trie et Assistance
 fr.UserInfo=Informations sur l'Utilisateur
 fr.EnterInfo=Veuillez saisir les informations qui vous concernent.
 fr.Username=Adresse email :
-fr.Company=Société :
+fr.Company=Sociï¿½tï¿½ :
 fr.Country=Pays :
-fr.Phone=Numéro de téléphone :
+fr.Phone=Numï¿½ro de tï¿½lï¿½phone :
 fr.InvalidEmail=Email invalide
-fr.DownloadSuccessTo=Téléchargement réussi vers : %s
-fr.AbortedByUser=Annulé par l'utilisateur
+fr.DownloadSuccessTo=Tï¿½lï¿½chargement rï¿½ussi vers : %s
+fr.AbortedByUser=Annulï¿½ par l'utilisateur
 
 [Types]
 Name: "full"; Description: "{cm:FullInstall}"
