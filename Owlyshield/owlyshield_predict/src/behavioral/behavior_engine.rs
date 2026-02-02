@@ -1361,6 +1361,7 @@ impl BehaviorEngine {
             if precord.exepath.exists() {
                 let info = verify_signature(&precord.exepath);
                 state.has_valid_signature = info.is_trusted;
+                state.is_signed = info.is_signed;
                 state.signature_checked = true;
             } else {
                 state.has_valid_signature = false;

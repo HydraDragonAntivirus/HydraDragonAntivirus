@@ -17,11 +17,13 @@ use windows::Win32::Security::Cryptography::{
 
 pub struct SignatureInfo {
     pub is_trusted: bool,
+    pub is_signed: bool,  // True if file has any signature (even if not trusted)
     pub signer_name: Option<String>,
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
     let is_trusted;
+    let mut is_signed = false;
     let mut signer_name = None;
 
     unsafe {
@@ -67,24 +69,24 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
 
         is_trusted = result == ERROR_SUCCESS.0 as i32;
 
-
         win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
-         let _ = WinVerifyTrust(
+        let _ = WinVerifyTrust(
             windows::Win32::Foundation::HWND(0), 
             &mut action_guid, 
             &mut win_trust_data as *mut _ as *mut std::ffi::c_void
         );
 
-        // --- 2. Extract Signer Name (CryptQueryObject) ---
-        if is_trusted {
-             if let Ok(name) = get_signer_name_from_file(&path_wide) {
-                 signer_name = Some(name);
-             }
+        // --- 2. Check if file has ANY signature (even if not trusted) ---
+        // Try to extract certificate/signer info regardless of trust status
+        if let Ok(name) = get_signer_name_from_file(&path_wide) {
+            is_signed = true;
+            signer_name = Some(name);
         }
     }
 
     SignatureInfo {
         is_trusted,
+        is_signed,
         signer_name,
     }
 }
@@ -95,7 +97,6 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     let mut store_handle: HCERTSTORE = HCERTSTORE::default();
     let mut context_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
-    // Retrieve Certificate Store from file
     // Retrieve Certificate Store from file
     let query_res = CryptQueryObject(
         CERT_QUERY_OBJECT_FILE,
@@ -175,6 +176,7 @@ mod tests {
                 let info = verify_signature(path);
                 if info.is_trusted {
                     found_signed = true;
+                    assert!(info.is_signed, "Trusted file should also be marked as signed");
                     assert!(info.signer_name.is_some(), "Should extract signer name from signed file {}", p);
                     if let Some(name) = info.signer_name {
                          assert!(name.contains("Microsoft"), "Signer of {} should be Microsoft, got {}", p, name);
@@ -191,7 +193,8 @@ mod tests {
         // This test file itself (the source code) is definitely not signed
         let path = Path::new(file!()); 
         let info = verify_signature(path);
-        // We assert it is NOT trusted
+        // We assert it is NOT trusted and NOT signed
         assert!(!info.is_trusted, "Source code file should NOT be trusted!");
+        assert!(!info.is_signed, "Source code file should NOT be signed!");
     }
 }
