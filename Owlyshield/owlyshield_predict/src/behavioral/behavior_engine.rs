@@ -15,8 +15,6 @@ use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
-use crate::realtime_learning::ApiTracker;
-use crate::realtime_learning::api_tracker::OperationType;
 
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, GetExtendedUdpTable, 
@@ -859,12 +857,23 @@ impl ProcessBehaviorState {
         self.irp_operations.push(rec);
     }
     
-    /// Update from ApiTracker
-    pub fn update_from_api_tracker(&mut self, tracker: &ApiTracker) {
-        self.network_apis_called.clear();
-        for api in &tracker.internet_apis {
-            self.network_apis_called.insert(api.to_lowercase());
-            self.all_apis_called.insert(api.to_lowercase());
+    /// Detect network APIs directly from DLL loading and operation patterns
+    pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
+        // Detect internet DLLs being loaded (WinINet, WinHTTP, etc.)
+        let path_lower = msg.filepathstr.to_lowercase();
+        let ext_lower = msg.extension.to_lowercase();
+        
+        // Check for network/internet DLLs
+        let internet_dlls = [
+            "wininet", "winhttp", "ws2_32", "mswsock", "urlmon", "ole32",
+            "oleaut32", "shell32", "shlwapi", "advapi32", "kernel32"
+        ];
+        
+        for dll in &internet_dlls {
+            if path_lower.contains(dll) && ext_lower == "dll" {
+                self.network_apis_called.insert(dll.to_string());
+                self.all_apis_called.insert(dll.to_string());
+            }
         }
     }
 }
@@ -1056,12 +1065,9 @@ impl BehaviorEngine {
     // API DETECTION FROM KERNEL IO EVENTS
     // ==========================================================================
     
-    /// Get actual detected APIs from kernel hooks
-    /// The ApiTracker already contains real API calls detected by kernel hooks
-    /// Just use those instead of guessing from DLL names
+    /// Get actual detected APIs from kernel hooks (DLL loads, etc)
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
-        // Return the actual API calls already detected by kernel hooks
-        // These come from ApiTracker (realtime_learning module)
+        // Return the actual API calls detected from kernel-monitored DLL loads
         state.all_apis_called.clone()
     }
 
@@ -1069,7 +1075,7 @@ impl BehaviorEngine {
     // COMPLETE EVENT PROCESSING PIPELINE
     // ==========================================================================
     
-    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler, api_tracker: Option<&ApiTracker>) {
+    pub fn process_event(&mut self, precord: &mut ProcessRecord, msg: &IOMessage, config: &Config, threat_handler: &dyn ThreatHandler) {
         let gid = msg.gid;
         let mut actions = ActionsOnKill::with_handler(threat_handler.clone_box());
         
@@ -1149,16 +1155,10 @@ impl BehaviorEngine {
             state.record_irp_operation(msg, irp_op_byte);
         }
         
-        // === STEP 2: UPDATE API TRACKER DATA ===
-        if let Some(tracker) = api_tracker {
-            if let Some(state) = self.process_states.get_mut(&gid) {
-                state.update_from_api_tracker(tracker);
-            }
+        // === STEP 2: DETECT NETWORK APIs FROM KERNEL DATA ===
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            state.detect_network_apis_from_io(msg);
         }
-        
-        // NO STEP 2B: Don't guess APIs - use the real kernel-detected ones from ApiTracker
-        // The ApiTracker already contains actual hooked API calls from the driver
-        // They're now in state.all_apis_called and state.network_apis_called
         
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
         let filepath = dev_norm.to_lowercase().replace("\\", "/");
@@ -1246,7 +1246,7 @@ impl BehaviorEngine {
         }
 
         // === STEP 5: UPDATE NAMED CONDITIONS STATE ===
-        self.update_named_conditions_state(gid, msg, &irp_op, &filepath, api_tracker);
+        self.update_named_conditions_state(gid, msg, &irp_op, &filepath);
 
         // === STEP 6: UPDATE LEGACY TRACKING ===
         for rule in &self.rules {
@@ -1293,47 +1293,30 @@ impl BehaviorEngine {
         }
 
         // === STEP 7: EVALUATE RULES ===
-        self.check_rules(precord, gid, msg, irp_op, config, &mut actions, api_tracker);
+        self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
     }
 
-    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str, api_tracker: Option<&ApiTracker>) {
+    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
         let now = SystemTime::now();
         let mut available_apis = HashSet::new();
         
-        // Get the REAL kernel-detected APIs from the process state
-        // These come from ApiTracker hooks (from the driver/kernel), not guesses
+        // Get detected APIs from the process state (from kernel-detected DLL loads)
         let state_detected_apis = if let Some(state) = self.process_states.get(&gid) {
-            // Use all_apis_called which is populated by ApiTracker.internet_apis
-            // These are ACTUAL API calls detected by kernel hooks, not guesses
             state.all_apis_called.clone()
         } else {
             HashSet::new()
         };
         
-        // Use the real detected APIs (from kernel hooks)
+        // Add state APIs to available APIs
         for api in &state_detected_apis {
             available_apis.insert(api.to_lowercase());
         }
         
-        // Also merge in external ApiTracker if provided (for completeness)
-        if let Some(tracker) = api_tracker {
-            for api in &tracker.internet_apis {
-                available_apis.insert(api.to_lowercase());
-            }
-            if !available_apis.is_empty() && !state_detected_apis.is_empty() {
-                Logging::info(&format!(
-                    "[BehaviorEngine] REAL kernel-detected APIs for PID {}: {} - {}",
-                    msg.pid, state_detected_apis.len(), state_detected_apis.iter().collect::<Vec<_>>().join(", ")
-                ));
-            }
-        } else if !state_detected_apis.is_empty() {
-            // Log real APIs detected by kernel hooks (no external tracker needed)
+        if !state_detected_apis.is_empty() {
             Logging::info(&format!(
-                "[BehaviorEngine] REAL kernel-detected APIs for PID {}: {} - {}",
+                "[BehaviorEngine] Detected APIs for PID {}: {} - {}",
                 msg.pid, state_detected_apis.len(), state_detected_apis.iter().collect::<Vec<_>>().join(", ")
             ));
-        } else {
-            Logging::debug("[BehaviorEngine] No APIs detected by kernel hooks for PID {}", msg.pid);
         }
 
         for rule in &self.rules {
@@ -1390,14 +1373,12 @@ impl BehaviorEngine {
                 }
 
                 if !matched && cond_group.has_network_activity {
-                    if let Some(tracker) = api_tracker {
-                        if tracker.network_operations.connections_established > 0 {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Network activity match for PID {}: {} connections",
-                                cond_name, state.pid, tracker.network_operations.connections_established
-                            ));
-                        }
+                    if !state.network_apis_called.is_empty() {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Network activity detected for PID {}: {} APIs",
+                            cond_name, state.pid, state.network_apis_called.len()
+                        ));
                     }
                 }
 
@@ -1652,8 +1633,7 @@ impl BehaviorEngine {
         msg: &IOMessage,
         _irp_op: IrpMajorOp,
         config: &Config,
-        actions: &mut ActionsOnKill,
-        api_tracker: Option<&ApiTracker>
+        actions: &mut ActionsOnKill
     ) {
         let state_ref = match self.process_states.get(&gid) {
             Some(s) => s.clone(),
@@ -1677,11 +1657,7 @@ impl BehaviorEngine {
             let browsed_access_count = state_ref.browsed_paths_tracker.len();
             let has_staged_data = !state_ref.staged_files_written.is_empty();
             let is_online = if rule.require_internet {
-                if let Some(tracker) = api_tracker {
-                    tracker.network_operations.connections_established > 0
-                } else {
-                    self.has_active_connections(state_ref.pid) || state_ref.network_activity_detected
-                }
+                !state_ref.network_apis_called.is_empty() || self.has_active_connections(state_ref.pid) || state_ref.network_activity_detected
             } else {
                 true
             };
@@ -1777,15 +1753,11 @@ impl BehaviorEngine {
             }
             if !rule.monitored_apis.is_empty() {
                 legacy_total += 1;
-                let api_match_count = if let Some(tracker) = api_tracker {
-                    rule.monitored_apis.iter().filter(|monitored_api| {
-                        tracker.internet_apis.iter().any(|tracked_api| {
-                            Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
-                        })
-                    }).count()
-                } else {
-                    state_ref.monitored_api_count
-                };
+                let api_match_count = rule.monitored_apis.iter().filter(|monitored_api| {
+                    state_ref.all_apis_called.iter().any(|tracked_api| {
+                        Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
+                    })
+                }).count();
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
                 if api_match_count >= threshold {
                     legacy_satisfied += 1;
@@ -1871,7 +1843,7 @@ impl BehaviorEngine {
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
-                let (detected, conf) = self.evaluate_stages_from_state(rule, &state_ref, Some(msg), api_tracker);
+                let (detected, conf) = self.evaluate_stages_from_state(rule, &state_ref, Some(msg));
                 stages_triggered = detected;
                 stage_conf = conf;
             }
@@ -1920,8 +1892,7 @@ impl BehaviorEngine {
         &self,
         rule: &BehaviorRule,
         state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>,
-        _api_tracker: Option<&ApiTracker>
+        msg: Option<&IOMessage>
     ) -> (bool, f32) {
         let mut satisfied_stages = 0;
         
