@@ -86,24 +86,23 @@ pub struct IrpStatistics {
 
 impl IrpStatistics {
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
-        if let Some(irp_op) = IrpMajorOp::from_byte(rec.irp_type) {
-            match irp_op {
-                IrpMajorOp::IrpRead => self.read_count += 1,
-                IrpMajorOp::IrpWrite => self.write_count += 1,
-                IrpMajorOp::IrpCreate => self.create_count += 1,
-                IrpMajorOp::IrpSetInfo => self.setinfo_count += 1,
-                IrpMajorOp::IrpRegistry => {
-                    match rec.file_change {
-                        _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
-                        _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => self.registry_write_count += 1,
-                        _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8 => self.registry_delete_count += 1,
-                        _ => self.registry_read_count += 1,
-                    }
-                },
-                IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
-                IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_count += 1,
-                _ => {},
-            }
+        let irp_op = IrpMajorOp::from_byte(rec.irp_type);
+        match irp_op {
+            IrpMajorOp::IrpRead => self.read_count += 1,
+            IrpMajorOp::IrpWrite => self.write_count += 1,
+            IrpMajorOp::IrpCreate => self.create_count += 1,
+            IrpMajorOp::IrpSetInfo => self.setinfo_count += 1,
+            IrpMajorOp::IrpRegistry => {
+                match rec.file_change {
+                    _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
+                    _ if rec.file_change == FileChangeInfo::RegSetValue as u8 => self.registry_write_count += 1,
+                    _ if rec.file_change == FileChangeInfo::RegDeleteValue as u8 => self.registry_delete_count += 1,
+                    _ => self.registry_read_count += 1,
+                }
+            },
+            IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
+            IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_count += 1,
+            _ => {},
         }
         
         self.total_bytes_read += rec.bytes_transferred;
