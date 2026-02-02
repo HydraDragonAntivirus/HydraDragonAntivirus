@@ -1361,12 +1361,9 @@ impl BehaviorEngine {
             if precord.exepath.exists() {
                 let info = verify_signature(&precord.exepath);
                 state.has_valid_signature = info.is_trusted;
-                // NEW: Also track if file is simply signed (has any signature, valid or not)
-                state.is_signed = info.is_signed;
                 state.signature_checked = true;
             } else {
                 state.has_valid_signature = false;
-                state.is_signed = false;
                 state.signature_checked = true;
             }
         }
@@ -1377,7 +1374,7 @@ impl BehaviorEngine {
         let is_protected_path = self.rules.iter().any(|rule| {
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&filepath)) ||
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&msg.filepathstr)) ||
-            (!rule.protected_paths.registry_paths.is_empty() && *irp_op == IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
+            (!rule.protected_paths.registry_paths.is_empty() && irp_op == &IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
         });
 
         if is_protected_path {
@@ -1516,7 +1513,7 @@ impl BehaviorEngine {
         if !state_detected_apis.is_empty() {
             Logging::info(&format!(
                 "[BehaviorEngine] Detected APIs for PID {}: {} - {}",
-                msg.pid, state_detected_apis.len(), state_detected_apis.iter().collect::<Vec<_>>().join(", ")
+                msg.pid, state_detected_apis.len(), state_detected_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
             ));
         }
 
@@ -1734,7 +1731,7 @@ impl BehaviorEngine {
                 }
                 
                 // NEW: Kernel event tracking conditions
-                if !matched && cond_group.detect_kernel_write_memory && state.kernel_write_memory_events >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_write_memory && state.kernel_write_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel memory write detected for PID {}: {} events",
@@ -1742,7 +1739,7 @@ impl BehaviorEngine {
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_thread_creation && state.kernel_create_thread_events >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_thread_creation && state.kernel_create_thread_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel thread creation detected for PID {}: {} events",
@@ -1750,7 +1747,7 @@ impl BehaviorEngine {
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_apc_injection && state.kernel_queue_apc_events >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_apc_injection && state.kernel_queue_apc_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel APC injection detected for PID {}: {} events",
@@ -1758,7 +1755,7 @@ impl BehaviorEngine {
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_section_mapping && (state.kernel_create_section_events + state.kernel_map_section_events) >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_section_mapping && (state.kernel_create_section_events + state.kernel_map_section_events) >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel section operation detected for PID {}: {} events",
@@ -1766,7 +1763,7 @@ impl BehaviorEngine {
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_memory_protection && state.kernel_protect_memory_events >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_memory_protection && state.kernel_protect_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel memory protection change detected for PID {}: {} events",
@@ -1774,7 +1771,7 @@ impl BehaviorEngine {
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_process_access && state.kernel_open_process_events >= cond_group.kernel_event_threshold.max(1) {
+                if !matched && cond_group.detect_kernel_process_access && state.kernel_open_process_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
                         "[BehaviorEngine] Condition '{}' - Kernel process access detected for PID {}: {} events",
@@ -2478,7 +2475,7 @@ impl BehaviorEngine {
                 }
 
                 if !rule.stages.is_empty() {
-                    let (detected, _) = self.evaluate_stages_from_state(rule, &state, None, None);
+                    let (detected, _) = self.evaluate_stages_from_state(rule, &state, None);
                     stages_triggered = detected;
                 }
 

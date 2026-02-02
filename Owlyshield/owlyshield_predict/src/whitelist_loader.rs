@@ -50,7 +50,8 @@ impl ExtensionWhitelist {
     /// Check if an extension is whitelisted
     pub fn is_whitelisted(&self, extension: &str) -> bool {
         let exts = self.extensions.read().unwrap();
-        exts.contains(&extension.to_lowercase().trim_start_matches('.'))
+        let normalized = extension.to_lowercase().trim_start_matches('.').to_string();
+        exts.contains(normalized.as_str())
     }
     
     /// Get all whitelisted extensions
