@@ -1363,7 +1363,7 @@ impl BehaviorEngine {
 
                 if !matched && has_path_conditions {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                    let path_iter = cond_group.file_paths.iter()
+                    let mut path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
                         .chain(cond_group.browsed_paths.iter())
                         .chain(cond_group.sensitive_paths.iter())
