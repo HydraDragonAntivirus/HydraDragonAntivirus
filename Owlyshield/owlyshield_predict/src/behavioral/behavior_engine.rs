@@ -1053,6 +1053,19 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
+    // API DETECTION FROM KERNEL IO EVENTS
+    // ==========================================================================
+    
+    /// Get actual detected APIs from kernel hooks
+    /// The ApiTracker already contains real API calls detected by kernel hooks
+    /// Just use those instead of guessing from DLL names
+    fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
+        // Return the actual API calls already detected by kernel hooks
+        // These come from ApiTracker (realtime_learning module)
+        state.all_apis_called.clone()
+    }
+
+    // ==========================================================================
     // COMPLETE EVENT PROCESSING PIPELINE
     // ==========================================================================
     
@@ -1142,6 +1155,10 @@ impl BehaviorEngine {
                 state.update_from_api_tracker(tracker);
             }
         }
+        
+        // NO STEP 2B: Don't guess APIs - use the real kernel-detected ones from ApiTracker
+        // The ApiTracker already contains actual hooked API calls from the driver
+        // They're now in state.all_apis_called and state.network_apis_called
         
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
         let filepath = dev_norm.to_lowercase().replace("\\", "/");
@@ -1283,10 +1300,40 @@ impl BehaviorEngine {
         let now = SystemTime::now();
         let mut available_apis = HashSet::new();
         
+        // Get the REAL kernel-detected APIs from the process state
+        // These come from ApiTracker hooks (from the driver/kernel), not guesses
+        let state_detected_apis = if let Some(state) = self.process_states.get(&gid) {
+            // Use all_apis_called which is populated by ApiTracker.internet_apis
+            // These are ACTUAL API calls detected by kernel hooks, not guesses
+            state.all_apis_called.clone()
+        } else {
+            HashSet::new()
+        };
+        
+        // Use the real detected APIs (from kernel hooks)
+        for api in &state_detected_apis {
+            available_apis.insert(api.to_lowercase());
+        }
+        
+        // Also merge in external ApiTracker if provided (for completeness)
         if let Some(tracker) = api_tracker {
             for api in &tracker.internet_apis {
                 available_apis.insert(api.to_lowercase());
             }
+            if !available_apis.is_empty() && !state_detected_apis.is_empty() {
+                Logging::info(&format!(
+                    "[BehaviorEngine] REAL kernel-detected APIs for PID {}: {} - {}",
+                    msg.pid, state_detected_apis.len(), state_detected_apis.iter().collect::<Vec<_>>().join(", ")
+                ));
+            }
+        } else if !state_detected_apis.is_empty() {
+            // Log real APIs detected by kernel hooks (no external tracker needed)
+            Logging::info(&format!(
+                "[BehaviorEngine] REAL kernel-detected APIs for PID {}: {} - {}",
+                msg.pid, state_detected_apis.len(), state_detected_apis.iter().collect::<Vec<_>>().join(", ")
+            ));
+        } else {
+            Logging::debug("[BehaviorEngine] No APIs detected by kernel hooks for PID {}", msg.pid);
         }
 
         for rule in &self.rules {
