@@ -3,7 +3,7 @@
 
 #define AppId "8C19967B-1D27-4E6A-85CD-5059912C2788"
 #define AppName "Owlyshield Ransom Community"
-#define AppVersion "1.0.1"
+#define AppVersion "1.1.1"
 #define AppPublisher "SitInCloud"
 #define AppURL "https://www.owlyshield.com/"
 #define AgentName "Owlyshield Service"
