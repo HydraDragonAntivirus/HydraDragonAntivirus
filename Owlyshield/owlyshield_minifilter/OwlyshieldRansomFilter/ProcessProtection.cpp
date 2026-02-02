@@ -43,6 +43,9 @@ Environment:
 // Declare PsGetProcessImageFileName (not exported in all headers)
 extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
 
+// Forward declaration for helper function
+static BOOLEAN IsExecutableProtection(ULONG Protect);
+
 //
 // --- Globals for ObRegisterCallbacks ---
 //
