@@ -24,6 +24,7 @@ pub mod threat_handler;
 pub mod utils;
 pub mod watchlist;
 pub mod whitelist;
+pub mod whitelist_loader;
 pub mod worker;
 
 #[cfg(feature = "realtime_learning")]
