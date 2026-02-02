@@ -1326,14 +1326,19 @@ impl BehaviorEngine {
                         .chain(cond_group.anti_debug_apis.iter())
                         .chain(cond_group.anti_vm_apis.iter());
 
-                    let api_matches = api_iter.filter(|required_api| {
+                    let matched_apis: Vec<&String> = api_iter.filter(|required_api| {
                         available_apis.iter().any(|available| {
                             Self::matches_pattern_internal(&self.regex_cache, required_api, available)
                         })
-                    }).count();
+                    }).collect();
                     
-                    if api_matches >= std::cmp::max(1, cond_group.api_threshold) {
+                    if matched_apis.len() >= std::cmp::max(1, cond_group.api_threshold) {
                         matched = true;
+                        let api_names = matched_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - API match for PID {}: {} APIs detected: {}",
+                            cond_name, state.pid, matched_apis.len(), api_names
+                        ));
                     }
                 }
 
@@ -1341,6 +1346,10 @@ impl BehaviorEngine {
                     if let Some(tracker) = api_tracker {
                         if tracker.network_operations.connections_established > 0 {
                             matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Network activity match for PID {}: {} connections",
+                                cond_name, state.pid, tracker.network_operations.connections_established
+                            ));
                         }
                     }
                 }
@@ -1354,21 +1363,25 @@ impl BehaviorEngine {
 
                 if !matched && has_path_conditions {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                    let mut path_iter = cond_group.file_paths.iter()
+                    let path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
                         .chain(cond_group.browsed_paths.iter())
                         .chain(cond_group.sensitive_paths.iter())
                         .chain(cond_group.persistence_locations.iter());
 
-                    let path_matched = path_iter.any(|p| {
+                    let matched_path: Option<String> = path_iter.find(|p| {
                         let p_norm = p.replace("\\", "/");
                         path_variants.iter().any(|v| {
                             Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
                         })
-                    });
+                    }).map(|s| s.to_string());
                     
-                    if path_matched {
+                    if matched_path.is_some() {
                         matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Path match for PID {}: {}",
+                            cond_name, state.pid, matched_path.unwrap_or_default()
+                        ));
                     }
                 }
 
@@ -1384,6 +1397,10 @@ impl BehaviorEngine {
                         for reg_pattern in reg_iter {
                             if Self::registry_pattern_matches(&self.regex_cache, reg_pattern, filepath) {
                                 matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Registry match for PID {}: {}",
+                                    cond_name, state.pid, reg_pattern
+                                ));
                                 break;
                             }
                         }
@@ -1397,28 +1414,41 @@ impl BehaviorEngine {
                             Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc)
                         }) {
                             matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Parent process match for PID {}: {}",
+                                cond_name, state.pid, parent_lc
+                            ));
                         }
                     }
                 }
 
                 if !matched && !cond_group.terminated_processes.is_empty() {
                     let mut term_match = false;
+                    let mut matched_victim = String::new();
                     if *irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
-                        if cond_group.terminated_processes.iter().any(|victim_pattern| {
+                        if let Some(victim) = cond_group.terminated_processes.iter().find(|victim_pattern| {
                             Self::matches_pattern_internal(&self.regex_cache, victim_pattern, filepath)
                         }) {
                             term_match = true;
+                            matched_victim = victim.to_string();
                         }
                     }
                     if !term_match {
-                        term_match = cond_group.terminated_processes.iter().any(|victim_pattern| {
-                            state.terminated_processes.iter().any(|victim| {
+                        if let Some(victim) = state.terminated_processes.iter().find(|victim| {
+                            cond_group.terminated_processes.iter().any(|victim_pattern| {
                                 Self::matches_pattern_internal(&self.regex_cache, victim_pattern, victim)
                             })
-                        });
+                        }) {
+                            term_match = true;
+                            matched_victim = victim.to_string();
+                        }
                     }
                     if term_match {
                         matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Process termination match for PID {}: {}",
+                            cond_name, state.pid, matched_victim
+                        ));
                     }
                 }
 
@@ -1429,6 +1459,10 @@ impl BehaviorEngine {
                             Self::matches_pattern_internal(&self.regex_cache, p, &app_lc)
                         }) {
                             matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Process name match for PID {}: {}",
+                                cond_name, state.pid, app_lc
+                            ));
                         }
                     }
                 }
