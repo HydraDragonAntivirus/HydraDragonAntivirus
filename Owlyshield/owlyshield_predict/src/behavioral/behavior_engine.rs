@@ -145,6 +145,58 @@ impl IrpStatistics {
 }
 
 // =============================================================================
+// GLOBAL PROTECTED/EXCLUDED PATHS (Kernel-Protected Resources)
+// =============================================================================
+
+/// Paths protected by kernel that should be excluded from monitoring
+/// 
+/// Configure in behavior rules YAML under each rule:
+/// ```yaml
+/// rules:
+///   - name: "malware_detection"
+///     protected_paths:
+///       file_paths:
+///         - "\\??\\C:\\Program Files\\HydraDragonAntivirus\\"
+///         - "\\Desktop\\Sanctum\\"
+///         - "\\AppData\\Roaming\\Sanctum\\"
+///       registry_paths:
+///         - "SOFTWARE\\OwlyShield"
+///         - "Services\\owlyshield_ransom"
+/// ```
+/// 
+/// Paths must be explicitly configured after setup completion - no hardcoded defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProtectedPaths {
+    /// File system paths to exclude (protected by kernel)
+    #[serde(default)]
+    pub file_paths: Vec<String>,
+    
+    /// Registry paths to exclude (protected by kernel)
+    #[serde(default)]
+    pub registry_paths: Vec<String>,
+}
+
+impl ProtectedPaths {
+    /// Check if a file path is protected
+    pub fn is_file_path_protected(&self, path: &str) -> bool {
+        let path_lower = path.to_lowercase();
+        self.file_paths.iter().any(|p| {
+            let p_lower = p.to_lowercase();
+            path_lower.contains(&p_lower)
+        })
+    }
+    
+    /// Check if a registry path is protected
+    pub fn is_registry_path_protected(&self, path: &str) -> bool {
+        let path_lower = path.to_lowercase();
+        self.registry_paths.iter().any(|p| {
+            let p_lower = p.to_lowercase();
+            path_lower.contains(&p_lower)
+        })
+    }
+}
+
+// =============================================================================
 // ENUMS AND BASIC TYPES
 // =============================================================================
 
@@ -318,8 +370,17 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
 }
 
 // =============================================================================
-// INTERNET API KEYWORDS
+// INTERNET API KEYWORDS (DEPRECATED: Use Kernel-Based Network Detection)
 // =============================================================================
+// NOTE: Legacy API pattern matching for network operations has been consolidated
+// into kernel-level hooks. New detection uses:
+// - IrpKernelOpenProcess for process interrogation (replacing GetAddrInfo patterns)
+// - Filesystem monitoring for URL cache patterns (replacing InternetReadFile patterns)
+// - System event tracking for bind/connect operations (replacing WSA* patterns)
+//
+// Kept for backward compatibility with realtime_learning module but should be
+// replaced with kernel event counters (from ProcessBehaviorState) in ML features.
+// See ProcessBehaviorState::write_memory_count, create_thread_count, etc.
 
 pub const INTERNET_API_KEYWORDS: &[&str] = &[
     "internetopen", "internetconnect", "httpopen", "httpsend",
@@ -431,9 +492,43 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub requires_signed: Option<bool>,
     #[serde(default)]
+    pub is_signed: Option<bool>,        // NEW: Check if file is simply signed (not unsigned)
+    #[serde(default)]
+    pub is_valid_signed: Option<bool>,  // NEW: Check if signature is valid/trusted
+    #[serde(default)]
     pub trusted_signers: Vec<String>,
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
+    
+    // NEW: Kernel-level API hook event tracking
+    #[serde(default)]
+    pub kernel_write_memory_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_thread_creation_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_apc_injection_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_section_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_memory_protection_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_process_access_apis: Vec<String>,
+    #[serde(default)]
+    pub kernel_driver_loading_apis: Vec<String>,
+    #[serde(default)]
+    pub detect_kernel_write_memory: bool,
+    #[serde(default)]
+    pub detect_kernel_thread_creation: bool,
+    #[serde(default)]
+    pub detect_kernel_apc_injection: bool,
+    #[serde(default)]
+    pub detect_kernel_section_mapping: bool,
+    #[serde(default)]
+    pub detect_kernel_memory_protection: bool,
+    #[serde(default)]
+    pub detect_kernel_process_access: bool,
+    #[serde(default)]
+    pub kernel_event_threshold: usize,
     
     #[serde(default = "default_zero")]
     pub min_matches: usize,
@@ -475,7 +570,14 @@ pub enum RuleCondition {
     ByteThreshold { direction: String, #[serde(default)] comparison: Comparison, threshold: u64 },
     EntropyThreshold { metric: String, #[serde(default)] comparison: Comparison, threshold: f64 },
     FileCount { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
-    Signature { is_trusted: bool, #[serde(default)] signer_pattern: Option<String> },
+    Signature { 
+        #[serde(default)]
+        is_trusted: Option<bool>,  // Check if signature is valid/trusted
+        #[serde(default)]
+        is_signed: Option<bool>,   // Check if file is signed at all (not unsigned)
+        #[serde(default)]
+        signer_pattern: Option<String> 
+    },
     DirectorySpread { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
     DriveActivity { drive_type: String, op_type: String, #[serde(default)] comparison: Comparison, threshold: u32 },
     ProcessAncestry { ancestor_pattern: String, #[serde(default)] max_depth: Option<u32> },
@@ -600,6 +702,10 @@ pub struct BehaviorRule {
     pub memory_scan_config: Option<MemoryScanConfig>,
     #[serde(default)]
     pub min_indicator_count: Option<usize>,
+    
+    // NEW: Global protected/excluded paths from kernel
+    #[serde(default)]
+    pub protected_paths: ProtectedPaths,
 }
 
 fn expand_environment_variables(text: &str) -> String {
@@ -684,6 +790,15 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.anti_vm_apis);
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
+            
+            // NEW: Expand kernel event tracking fields
+            expand_vec(&mut cond_group.kernel_write_memory_apis);
+            expand_vec(&mut cond_group.kernel_thread_creation_apis);
+            expand_vec(&mut cond_group.kernel_apc_injection_apis);
+            expand_vec(&mut cond_group.kernel_section_apis);
+            expand_vec(&mut cond_group.kernel_memory_protection_apis);
+            expand_vec(&mut cond_group.kernel_process_access_apis);
+            expand_vec(&mut cond_group.kernel_driver_loading_apis);
         }
 
         for stage in &mut self.stages {
@@ -798,6 +913,7 @@ pub struct ProcessBehaviorState {
     pub app_name: String,
     pub signature_checked: bool,
     pub has_valid_signature: bool,
+    pub is_signed: bool,  // NEW: Track if file is simply signed (not necessarily valid)
     
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -810,6 +926,20 @@ pub struct ProcessBehaviorState {
     pub irp_stats: IrpStatistics,
     pub network_apis_called: HashSet<String>,
     pub all_apis_called: HashSet<String>,
+    
+    // NEW: Kernel-level API hooking event tracking
+    pub kernel_write_memory_events: u32,
+    pub kernel_allocate_memory_events: u32,
+    pub kernel_protect_memory_events: u32,
+    pub kernel_create_thread_events: u32,
+    pub kernel_queue_apc_events: u32,
+    pub kernel_set_context_events: u32,
+    pub kernel_create_section_events: u32,
+    pub kernel_map_section_events: u32,
+    pub kernel_delete_file_events: u32,
+    pub kernel_load_driver_events: u32,
+    pub kernel_open_process_events: u32,
+    pub kernel_events_total: u32,
 }
 
 impl ProcessBehaviorState {
@@ -831,10 +961,25 @@ impl ProcessBehaviorState {
         state.irp_stats = IrpStatistics::default();
         state.network_apis_called = HashSet::new();
         state.all_apis_called = HashSet::new();
+        
+        // NEW: Initialize kernel event counters
+        state.kernel_write_memory_events = 0;
+        state.kernel_allocate_memory_events = 0;
+        state.kernel_protect_memory_events = 0;
+        state.kernel_create_thread_events = 0;
+        state.kernel_queue_apc_events = 0;
+        state.kernel_set_context_events = 0;
+        state.kernel_create_section_events = 0;
+        state.kernel_map_section_events = 0;
+        state.kernel_delete_file_events = 0;
+        state.kernel_load_driver_events = 0;
+        state.kernel_open_process_events = 0;
+        state.kernel_events_total = 0;
+        
         state
     }
     
-    /// Record IRP operation with full context
+    /// Record IRP operation with full context and track kernel events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
@@ -847,6 +992,27 @@ impl ProcessBehaviorState {
         };
         
         self.irp_stats.record_operation(&rec);
+        
+        // NEW: Track kernel API events
+        match irp_op {
+            12 => self.kernel_write_memory_events += 1,      // IRP_KERNEL_WRITE_MEMORY
+            13 => self.kernel_allocate_memory_events += 1,   // IRP_KERNEL_ALLOCATE_MEMORY
+            14 => self.kernel_protect_memory_events += 1,    // IRP_KERNEL_PROTECT_MEMORY
+            15 => self.kernel_create_thread_events += 1,     // IRP_KERNEL_CREATE_THREAD
+            16 => self.kernel_queue_apc_events += 1,         // IRP_KERNEL_QUEUE_APC
+            17 => self.kernel_set_context_events += 1,       // IRP_KERNEL_SET_CONTEXT
+            18 => self.kernel_create_section_events += 1,    // IRP_KERNEL_CREATE_SECTION
+            19 => self.kernel_map_section_events += 1,       // IRP_KERNEL_MAP_SECTION
+            20 => self.kernel_delete_file_events += 1,       // IRP_KERNEL_DELETE_FILE
+            21 => self.kernel_load_driver_events += 1,       // IRP_KERNEL_LOAD_DRIVER
+            22 => self.kernel_open_process_events += 1,      // IRP_KERNEL_OPEN_PROCESS
+            _ => {},
+        }
+        
+        // Increment total kernel events counter
+        if irp_op >= 12 && irp_op <= 22 {
+            self.kernel_events_total += 1;
+        }
         
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
         if self.irp_operations.len() >= 10000 {
@@ -863,7 +1029,15 @@ impl ProcessBehaviorState {
         let path_lower = msg.filepathstr.to_lowercase();
         let ext_lower = msg.extension.to_lowercase();
         
-        // Check for network/internet DLLs
+        // Check for network/internet DLLs (LEGACY: Consolidate with kernel hooks)
+        // NOTE: DLL loading detection is being consolidated with kernel-level monitoring:
+        // - Filesystem monitoring for DLL paths (via IrpMajorOp::IrpDllLoad)
+        // - System process open tracking (via IrpKernelOpenProcess)
+        // - Direct API hook tracking in ProcessBehaviorState kernel event counters
+        //
+        // This section retained for backward compatibility with realtime_learning module.
+        // Future: Replace with kernel event counters when ML features fully transition to
+        // ProcessBehaviorState metrics instead of legacy API pattern matching.
         let internet_dlls = [
             "wininet", "winhttp", "ws2_32", "mswsock", "urlmon", "ole32",
             "oleaut32", "shell32", "shlwapi", "advapi32", "kernel32"
@@ -1029,8 +1203,13 @@ impl BehaviorEngine {
 
     fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
         let mut final_rules = Vec::new();
+        
         for mut rule in raw_rules {
             rule.finalize_rich_fields();
+            
+            // Protected paths are now configured via YAML (protected_paths field in behavior rules)
+            // No hardcoded defaults - paths must be explicitly configured after setup completion
+            
             if let Some(yaml_private) = rule.private_rules.take() {
                 if let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
                     let mut processed_private = self.finalize_rules(private_rules);
@@ -1182,11 +1361,33 @@ impl BehaviorEngine {
             if precord.exepath.exists() {
                 let info = verify_signature(&precord.exepath);
                 state.has_valid_signature = info.is_trusted;
+                // NEW: Also track if file is simply signed (has any signature, valid or not)
+                state.is_signed = info.is_signed;
                 state.signature_checked = true;
             } else {
                 state.has_valid_signature = false;
+                state.is_signed = false;
                 state.signature_checked = true;
             }
+        }
+
+        // === STEP 3B: CHECK PROTECTED PATHS (Kernel-Protected Resources) ===
+        // Skip monitoring for kernel-protected paths configured in behavior rules
+        // Paths are configurable per-rule via YAML protected_paths field after setup completion
+        let is_protected_path = self.rules.iter().any(|rule| {
+            (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&filepath)) ||
+            (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&msg.filepathstr)) ||
+            (!rule.protected_paths.registry_paths.is_empty() && *irp_op == IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
+        });
+
+        if is_protected_path {
+            if self.rules.iter().any(|r| r.debug) {
+                Logging::debug(&format!(
+                    "[BehaviorEngine] Skipping rule-configured protected path: {} (IRP: {:?})",
+                    filepath, irp_op
+                ));
+            }
+            return;  // Skip processing for rule-configured protected paths
         }
 
         // === STEP 4: HANDLE PROCESS TERMINATION ===
@@ -1373,10 +1574,13 @@ impl BehaviorEngine {
                 }
 
                 if !matched && cond_group.has_network_activity {
+                    // LEGACY: Network API detection based on DLL loading
+                    // NEW: Use ProcessBehaviorState kernel event counters instead
+                    // Transition: Check IrpKernelOpenProcess, IrpKernelCreateThread (network manipulation)
                     if !state.network_apis_called.is_empty() {
                         matched = true;
                         Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Network activity detected for PID {}: {} APIs",
+                            "[BehaviorEngine] Condition '{}' - Network activity detected for PID {}: {} APIs (legacy DLL tracking)",
                             cond_name, state.pid, state.network_apis_called.len()
                         ));
                     }
@@ -1493,6 +1697,89 @@ impl BehaviorEngine {
                             ));
                         }
                     }
+                }
+                
+                // NEW: Signature checking conditions
+                if !matched && cond_group.is_signed.is_some() {
+                    let check_signed = cond_group.is_signed.unwrap();
+                    if state.is_signed == check_signed {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Signature state match for PID {}: is_signed={}",
+                            cond_name, state.pid, state.is_signed
+                        ));
+                    }
+                }
+                
+                if !matched && cond_group.is_valid_signed.is_some() {
+                    let check_valid = cond_group.is_valid_signed.unwrap();
+                    if state.has_valid_signature == check_valid {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Valid signature match for PID {}: has_valid_signature={}",
+                            cond_name, state.pid, state.has_valid_signature
+                        ));
+                    }
+                }
+                
+                if !matched && cond_group.requires_signed.is_some() {
+                    let must_be_signed = cond_group.requires_signed.unwrap();
+                    if state.is_signed == must_be_signed {
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Required signature match for PID {}: requires_signed={}",
+                            cond_name, state.pid, must_be_signed
+                        ));
+                    }
+                }
+                
+                // NEW: Kernel event tracking conditions
+                if !matched && cond_group.detect_kernel_write_memory && state.kernel_write_memory_events >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel memory write detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_write_memory_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_kernel_thread_creation && state.kernel_create_thread_events >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel thread creation detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_create_thread_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_kernel_apc_injection && state.kernel_queue_apc_events >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel APC injection detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_queue_apc_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_kernel_section_mapping && (state.kernel_create_section_events + state.kernel_map_section_events) >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel section operation detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_create_section_events + state.kernel_map_section_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_kernel_memory_protection && state.kernel_protect_memory_events >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel memory protection change detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_protect_memory_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_kernel_process_access && state.kernel_open_process_events >= cond_group.kernel_event_threshold.max(1) {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - Kernel process access detected for PID {}: {} events",
+                        cond_name, state.pid, state.kernel_open_process_events
+                    ));
                 }
                 
                 if matched {

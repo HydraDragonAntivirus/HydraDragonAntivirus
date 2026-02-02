@@ -77,12 +77,46 @@ pub enum IrpMajorOp {
     _IrpCleanUp, //not used (yet)
     /// Registry operation
     IrpRegistry,
+    
+    // Process-related operations (NEW: Extended event types)
     /// Process creation
     IrpProcessCreate,
     /// Process termination (normal exit)
     IrpProcessTerminate,
     /// External process attempting to terminate another (attacker -> target)
     IrpProcessTerminateAttempt,
+    /// Process exit/cleanup detected
+    IrpProcessExit,
+    /// Process handle opened for access (OB callback)
+    IrpProcessHandleOpen,
+    
+    // Kernel-level API hooks - Injection/Code manipulation (NEW)
+    /// NtWriteVirtualMemory - code injection attempt
+    IrpKernelWriteMemory,
+    /// NtAllocateVirtualMemory - memory allocation
+    IrpKernelAllocateMemory,
+    /// NtProtectVirtualMemory - DEP bypass attempt
+    IrpKernelProtectMemory,
+    /// NtCreateThreadEx - remote thread creation
+    IrpKernelCreateThread,
+    /// NtQueueApcThread - APC injection
+    IrpKernelQueueApc,
+    /// NtSetContextThread - thread context manipulation
+    IrpKernelSetContext,
+    
+    // Kernel-level API hooks - File/Section manipulation (NEW)
+    /// ZwCreateSection - section creation
+    IrpKernelCreateSection,
+    /// ZwMapViewOfSection - section mapping
+    IrpKernelMapSection,
+    /// NtDeleteFile - file deletion
+    IrpKernelDeleteFile,
+    
+    // Kernel-level API hooks - Driver/System operations (NEW)
+    /// NtLoadDriver - driver loading
+    IrpKernelLoadDriver,
+    /// NtOpenProcess - process access
+    IrpKernelOpenProcess,
 }
 
 impl IrpMajorOp {
@@ -98,6 +132,19 @@ impl IrpMajorOp {
             7 => IrpMajorOp::IrpProcessCreate,
             8 => IrpMajorOp::IrpProcessTerminate,
             9 => IrpMajorOp::IrpProcessTerminateAttempt,
+            10 => IrpMajorOp::IrpProcessExit,
+            11 => IrpMajorOp::IrpProcessHandleOpen,
+            12 => IrpMajorOp::IrpKernelWriteMemory,
+            13 => IrpMajorOp::IrpKernelAllocateMemory,
+            14 => IrpMajorOp::IrpKernelProtectMemory,
+            15 => IrpMajorOp::IrpKernelCreateThread,
+            16 => IrpMajorOp::IrpKernelQueueApc,
+            17 => IrpMajorOp::IrpKernelSetContext,
+            18 => IrpMajorOp::IrpKernelCreateSection,
+            19 => IrpMajorOp::IrpKernelMapSection,
+            20 => IrpMajorOp::IrpKernelDeleteFile,
+            21 => IrpMajorOp::IrpKernelLoadDriver,
+            22 => IrpMajorOp::IrpKernelOpenProcess,
             _ => IrpMajorOp::IrpNone,
         }
     }

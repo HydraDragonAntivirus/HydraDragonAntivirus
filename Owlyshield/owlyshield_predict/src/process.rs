@@ -177,6 +177,41 @@ pub struct ProcessRecord {
     pub on_removable_drive_read_count: u32,
     /// Count of Write operations [IrpMajorOp::IrpWrite] on a removable drive
     pub on_removable_drive_write_count: u32,
+    
+    // NEW: Kernel-level API hooking event tracking
+    /// Count of NtWriteVirtualMemory events
+    pub kernel_write_memory_count: u32,
+    /// Count of NtAllocateVirtualMemory events
+    pub kernel_allocate_memory_count: u32,
+    /// Count of NtProtectVirtualMemory events
+    pub kernel_protect_memory_count: u32,
+    /// Count of NtCreateThreadEx events
+    pub kernel_create_thread_count: u32,
+    /// Count of NtQueueApcThread events
+    pub kernel_queue_apc_count: u32,
+    /// Count of NtSetContextThread events
+    pub kernel_set_context_count: u32,
+    /// Count of ZwCreateSection events
+    pub kernel_create_section_count: u32,
+    /// Count of ZwMapViewOfSection events
+    pub kernel_map_section_count: u32,
+    /// Count of NtDeleteFile events
+    pub kernel_delete_file_count: u32,
+    /// Count of NtLoadDriver events
+    pub kernel_load_driver_count: u32,
+    /// Count of NtOpenProcess events
+    pub kernel_open_process_count: u32,
+    /// Total kernel events
+    pub kernel_events_total: u32,
+    /// Max individual kernel event count
+    pub kernel_events_max_individual: u32,
+    
+    // NEW: Signature tracking
+    /// Is process signed
+    pub is_signed: bool,
+    /// Has valid signature
+    pub has_valid_signature: bool,
+    
     /// Time of execution of the I/O operation
     pub time: SystemTime,
 }
@@ -246,6 +281,26 @@ impl ProcessRecord {
             on_shared_drive_write_count: 0,
             on_removable_drive_read_count: 0,
             on_removable_drive_write_count: 0,
+            
+            // NEW: Initialize kernel event counters
+            kernel_write_memory_count: 0,
+            kernel_allocate_memory_count: 0,
+            kernel_protect_memory_count: 0,
+            kernel_create_thread_count: 0,
+            kernel_queue_apc_count: 0,
+            kernel_set_context_count: 0,
+            kernel_create_section_count: 0,
+            kernel_map_section_count: 0,
+            kernel_delete_file_count: 0,
+            kernel_load_driver_count: 0,
+            kernel_open_process_count: 0,
+            kernel_events_total: 0,
+            kernel_events_max_individual: 0,
+            
+            // NEW: Initialize signature fields
+            is_signed: false,
+            has_valid_signature: false,
+            
             time: SystemTime::now(),
         }
     }
@@ -312,6 +367,26 @@ impl ProcessRecord {
             on_shared_drive_write_count: 0,
             on_removable_drive_read_count: 0,
             on_removable_drive_write_count: 0,
+            
+            // NEW: Initialize kernel event counters
+            kernel_write_memory_count: 0,
+            kernel_allocate_memory_count: 0,
+            kernel_protect_memory_count: 0,
+            kernel_create_thread_count: 0,
+            kernel_queue_apc_count: 0,
+            kernel_set_context_count: 0,
+            kernel_create_section_count: 0,
+            kernel_map_section_count: 0,
+            kernel_delete_file_count: 0,
+            kernel_load_driver_count: 0,
+            kernel_open_process_count: 0,
+            kernel_events_total: 0,
+            kernel_events_max_individual: 0,
+            
+            // NEW: Initialize signature fields
+            is_signed: false,
+            has_valid_signature: false,
+            
             time: iomsg.time,
         }
     }

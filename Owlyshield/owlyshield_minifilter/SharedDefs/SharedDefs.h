@@ -97,9 +97,30 @@ enum IRP_MAJOR_OP
     IRP_CREATE,
     IRP_CLEANUP,
     IRP_REGISTRY,
-    IRP_PROCESS_CREATE,
-    IRP_PROCESS_TERMINATE,
-    IRP_PROCESS_TERMINATE_ATTEMPT,  // External process attempting to terminate another
+    
+    // Process-related operations
+    IRP_PROCESS_CREATE,                 // Process creation
+    IRP_PROCESS_TERMINATE,              // Process termination
+    IRP_PROCESS_TERMINATE_ATTEMPT,      // External process attempting to terminate another
+    IRP_PROCESS_EXIT,                   // Process exit/cleanup
+    IRP_PROCESS_HANDLE_OPEN,            // Process handle opened for access
+    
+    // Kernel-level API hooks - Injection/Code manipulation
+    IRP_KERNEL_WRITE_MEMORY,            // NtWriteVirtualMemory - code injection attempt
+    IRP_KERNEL_ALLOCATE_MEMORY,         // NtAllocateVirtualMemory - memory allocation
+    IRP_KERNEL_PROTECT_MEMORY,          // NtProtectVirtualMemory - DEP bypass attempt
+    IRP_KERNEL_CREATE_THREAD,           // NtCreateThreadEx - remote thread creation
+    IRP_KERNEL_QUEUE_APC,               // NtQueueApcThread - APC injection
+    IRP_KERNEL_SET_CONTEXT,             // NtSetContextThread - thread context manipulation
+    
+    // Kernel-level API hooks - File/Section manipulation
+    IRP_KERNEL_CREATE_SECTION,          // ZwCreateSection - section creation
+    IRP_KERNEL_MAP_SECTION,             // ZwMapViewOfSection - section mapping
+    IRP_KERNEL_DELETE_FILE,             // NtDeleteFile - file deletion
+    
+    // Kernel-level API hooks - Driver/System operations
+    IRP_KERNEL_LOAD_DRIVER,             // NtLoadDriver - driver loading
+    IRP_KERNEL_OPEN_PROCESS,            // NtOpenProcess - process access
 };
 
 // NEW: Action types for threat response
@@ -108,6 +129,35 @@ enum THREAT_ACTION_TYPE
     THREAT_ACTION_KILL_AND_QUARANTINE = 0,
     THREAT_ACTION_KILL_ONLY = 1
 };
+
+// NEW: Kernel event details structure for capturing detailed kernel-level activity
+typedef struct _KERNEL_EVENT_INFO
+{
+    ULONG EventType;                    // IRP_MAJOR_OP type for this event
+    ULONGLONG Timestamp;                // Event timestamp
+    ULONG SourceProcessId;              // Process initiating the operation
+    ULONG TargetProcessId;              // Target process (if applicable)
+    
+    // Memory operation details
+    PVOID MemoryAddress;                // Address involved in operation
+    SIZE_T MemorySize;                  // Size of memory operation
+    ULONG MemoryProtection;             // Protection flags (for protect/allocate ops)
+    BOOLEAN IsExecutableMemory;         // Whether operation targets executable memory
+    
+    // Thread operation details
+    HANDLE ThreadHandle;                // Thread handle (for thread operations)
+    PVOID ThreadStartRoutine;           // Start routine (for thread creation)
+    
+    // File/Section operation details
+    WCHAR ObjectName[MAX_FILE_NAME_LENGTH]; // File/section name
+    
+    // Access control details
+    ACCESS_MASK AccessMask;             // Requested access rights
+    
+    // Operation result
+    NTSTATUS OperationStatus;           // Status of the operation
+    
+} KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
 
 // -64- bytes structure, fixed to -96- bytes, fixed to 104 bytes
 typedef struct _DRIVER_MESSAGE
@@ -140,6 +190,9 @@ typedef struct _DRIVER_MESSAGE
     // For IRP_PROCESS_TERMINATE_ATTEMPT: Info about the attacker process
     ULONG AttackerPID;      // 4 bytes - PID of process attempting termination (0 if not applicable)
     ULONGLONG AttackerGid;  // 8 bytes - GID of attacker process (0 if not tracked)
+    
+    // Kernel-level API hooking extended fields
+    KERNEL_EVENT_INFO KernelEventInfo;  // Detailed kernel event information
     
     PVOID
     next; // 8 bytes - next PDRIVER_MESSAGE, we use it to allow adding the fileName to the same buffer, this pointer

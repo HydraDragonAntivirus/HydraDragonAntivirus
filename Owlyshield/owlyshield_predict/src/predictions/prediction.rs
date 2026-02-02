@@ -1,5 +1,5 @@
 /// Our Input tensor has dimensions *(None, PREDMTRXCOLS)*
-pub static PREDMTRXCOLS: usize = 26;
+pub static PREDMTRXCOLS: usize = 42;  // Updated from 26 to 42 to include kernel event features
 /// We cap the dimension1 of our input tensor (that is the length of the prediction sequence). See
 /// [`input_tensors::VecvecCapped`] for details about how and why.
 pub static PREDMTRXROWS: usize = 500;
@@ -93,6 +93,41 @@ pub mod input_tensors {
         pub on_removable_drive_read_count: u32,
         /// Count of Write operations [crate::shared_def::IrpMajorOp::IrpWrite] on a removable drive
         pub on_removable_drive_write_count: u32,
+        
+        // NEW: Kernel-level API hooking event features
+        /// Count of NtWriteVirtualMemory events (code injection)
+        pub kernel_write_memory_count: u32,
+        /// Count of NtAllocateVirtualMemory events
+        pub kernel_allocate_memory_count: u32,
+        /// Count of NtProtectVirtualMemory events (DEP bypass)
+        pub kernel_protect_memory_count: u32,
+        /// Count of NtCreateThreadEx events (remote thread creation)
+        pub kernel_create_thread_count: u32,
+        /// Count of NtQueueApcThread events (APC injection)
+        pub kernel_queue_apc_count: u32,
+        /// Count of NtSetContextThread events (thread context manipulation)
+        pub kernel_set_context_count: u32,
+        /// Count of ZwCreateSection events (section creation)
+        pub kernel_create_section_count: u32,
+        /// Count of ZwMapViewOfSection events (section mapping)
+        pub kernel_map_section_count: u32,
+        /// Count of NtDeleteFile events (file deletion)
+        pub kernel_delete_file_count: u32,
+        /// Count of NtLoadDriver events (driver loading)
+        pub kernel_load_driver_count: u32,
+        /// Count of NtOpenProcess events (process access)
+        pub kernel_open_process_count: u32,
+        /// Total count of all kernel events
+        pub kernel_events_total: u32,
+        /// Maximum kernel event type seen (for feature engineering)
+        pub kernel_events_max_individual: u32,
+        
+        // NEW: Signature-related features
+        /// Is process signed (has any signature)
+        pub is_process_signed: bool,
+        /// Does process have valid signature
+        pub has_valid_process_signature: bool,
+        
         // pub is_web_credentials_read: bool, // TODO
         // pub is_windows_credentials_read: bool, // TODO
     }
@@ -147,6 +182,26 @@ pub mod input_tensors {
                 on_shared_drive_write_count: proc.on_shared_drive_write_count,
                 on_removable_drive_read_count: proc.on_removable_drive_read_count,
                 on_removable_drive_write_count: proc.on_removable_drive_write_count,
+                
+                // NEW: Initialize kernel event features from ProcessRecord
+                kernel_write_memory_count: proc.kernel_write_memory_count,
+                kernel_allocate_memory_count: proc.kernel_allocate_memory_count,
+                kernel_protect_memory_count: proc.kernel_protect_memory_count,
+                kernel_create_thread_count: proc.kernel_create_thread_count,
+                kernel_queue_apc_count: proc.kernel_queue_apc_count,
+                kernel_set_context_count: proc.kernel_set_context_count,
+                kernel_create_section_count: proc.kernel_create_section_count,
+                kernel_map_section_count: proc.kernel_map_section_count,
+                kernel_delete_file_count: proc.kernel_delete_file_count,
+                kernel_load_driver_count: proc.kernel_load_driver_count,
+                kernel_open_process_count: proc.kernel_open_process_count,
+                kernel_events_total: proc.kernel_events_total,
+                kernel_events_max_individual: proc.kernel_events_max_individual,
+                
+                // NEW: Initialize signature features from ProcessRecord
+                is_process_signed: proc.is_signed,
+                has_valid_process_signature: proc.has_valid_signature,
+                
                 // is_web_credentials_read, // TODO
                 // is_windows_credentials_read, // TODO
             }
@@ -180,6 +235,24 @@ pub mod input_tensors {
                 self.exe_exists as u8 as f32,
                 self.cluster_count as f32,
                 self.clusters_max_size as f32,
+                
+                // NEW: Kernel-level API hooking event features
+                self.kernel_write_memory_count as f32,
+                self.kernel_allocate_memory_count as f32,
+                self.kernel_protect_memory_count as f32,
+                self.kernel_create_thread_count as f32,
+                self.kernel_queue_apc_count as f32,
+                self.kernel_set_context_count as f32,
+                self.kernel_create_section_count as f32,
+                self.kernel_map_section_count as f32,
+                self.kernel_delete_file_count as f32,
+                self.kernel_load_driver_count as f32,
+                self.kernel_open_process_count as f32,
+                self.kernel_events_total as f32,
+                self.kernel_events_max_individual as f32,
+                self.is_process_signed as u8 as f32,
+                self.has_valid_process_signature as u8 as f32,
+                
                 // (self.alters_email_file as u32) as f32,
                 // self.password_vault_read_count as f32,
                 // (self.alters_event_log_file as u32) as f32,
