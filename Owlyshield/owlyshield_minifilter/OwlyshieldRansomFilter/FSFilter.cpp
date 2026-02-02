@@ -17,6 +17,8 @@ Environment:
 #include "FsFilter.h"
 #include "Regedit.h"
 #include "ProcessProtection.h"
+#include "KernelHookEngine.h"
+#include "KernelApiHooks.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -233,6 +235,36 @@ Return Value:
     RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
     driverData->SetQuarantinePath(&quarantinePathString);
 
+    // ====================================================================
+    // NEW: Initialize Kernel Hooking Engine
+    // This will install ALL 11 hooks (basic + advanced)
+    // ====================================================================
+
+    status = HookEngineInitialize();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: Failed to initialize hook engine: 0x%X\n", status);
+        // Continue anyway - hooking is optional enhancement
+    }
+    else
+    {
+        // Install all kernel API hooks (basic + advanced integrated)
+        status = InstallKernelApiHooks();
+        if (!NT_SUCCESS(status))
+        {
+            DbgPrint("!!! FSFilter: Failed to install kernel hooks: 0x%X\n", status);
+            HookEngineCleanup();
+            // Continue anyway - hooking is optional
+        }
+        else
+        {
+            DbgPrint("!!! FSFilter: All kernel API hooks installed successfully (11 hooks)\n");
+        }
+    }
+
+    // ====================================================================
+    // End of NEW code
+    // ====================================================================
     return STATUS_SUCCESS;
 }
 
@@ -355,6 +387,10 @@ Return Value:
     PAGED_CODE();
 
     DbgPrint("FSFilter: Unloading driver\n");
+
+    // Hook Cleanup
+    RemoveKernelApiHooks();
+    HookEngineCleanup();
 
     // Registry Cleanup
     RegeditUnloadDriver();
