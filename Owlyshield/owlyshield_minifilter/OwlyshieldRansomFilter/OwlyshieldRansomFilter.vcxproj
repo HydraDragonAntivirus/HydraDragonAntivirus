@@ -67,7 +67,9 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="KernelApiHooks.cpp" />
     <ClCompile Include="KernelCommon.cpp" />
+    <ClCompile Include="KernelHookEngine.cpp" />
     <ClCompile Include="KernelString.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
@@ -403,7 +405,9 @@
     <ClInclude Include="DriverData.h" />
     <ClInclude Include="FsFilter.h" />
     <ClInclude Include="HashTable.h" />
+    <ClInclude Include="KernelApiHooks.h" />
     <ClInclude Include="KernelCommon.h" />
+    <ClInclude Include="KernelHookEngine.h" />
     <ClInclude Include="KernelString.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />

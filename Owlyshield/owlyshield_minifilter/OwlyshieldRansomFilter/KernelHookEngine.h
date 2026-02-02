@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef KERNEL_HOOK_ENGINE_H
+#define KERNEL_HOOK_ENGINE_H
+
 /*++
 
 Module Name:
@@ -21,6 +24,7 @@ Environment:
 #include <ntifs.h>
 #include <ntddk.h>
 #include <ntstrsafe.h>
+#include "../SharedDefs/SharedDefs.h"
 
 //
 // Hook engine configuration

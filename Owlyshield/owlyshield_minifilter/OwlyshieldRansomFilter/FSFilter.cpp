@@ -1118,8 +1118,10 @@ Return Value:
 
         // DEBUG LOG ONLY IF NOT IN RECURSIVE CONTEXT
         // FIX: Ensure IS_DEBUG_IRP is defined in your header
-        if (IS_DEBUG_IRP && !KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
+        #ifdef IS_DEBUG_IRP
+        if (!KeIsExecutingDpc()) // prevent recursion in DPC or debug trap
             DbgPrint("FsFilter: IRP READ WITH CALLBACK! ****************** \n");
+        #endif
 
         // FIX: Removed early 'return FLT_PREOP_SUCCESS_WITH_CALLBACK' here 
         // so the code below can actually execute.

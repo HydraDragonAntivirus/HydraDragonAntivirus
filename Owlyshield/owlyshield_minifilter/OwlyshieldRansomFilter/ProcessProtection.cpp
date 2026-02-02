@@ -36,7 +36,9 @@ Environment:
 #define PROCESS_CREATE_THREAD 0x0002
 #define PROCESS_VM_WRITE 0x0020
 #define PROCESS_VM_READ 0x0010
+#ifndef PROCESS_ALL_ACCESS
 #define PROCESS_ALL_ACCESS 0x001FFFFF
+#endif
 
 // Declare PsGetProcessImageFileName (not exported in all headers)
 extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
@@ -177,9 +179,6 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
     if (currentProc == targetProc)
         return OB_PREOP_SUCCESS;
     */
-
-    HANDLE callerPid = PsGetProcessId(currentProc);
-    HANDLE targetPid = PsGetProcessId(targetProc);
 
     // 3. PID equality check (redundant but safe) - REMOVED
     /*
@@ -455,6 +454,8 @@ NTSTATUS OnKernelApiEvent(
     _In_opt_ PVOID EventData
 )
 {
+    UNREFERENCED_PARAMETER(EventData);
+    
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
 
@@ -716,7 +717,7 @@ NTSTATUS OnSectionOperation(
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
 
-    UCHAR irpOp = (OperationType == 1) ? IRP_KERNEL_CREATE_SECTION : IRP_KERNEL_MAP_SECTION;
+    UCHAR irpOp = (OperationType == 1) ? (UCHAR)IRP_KERNEL_CREATE_SECTION : (UCHAR)IRP_KERNEL_MAP_SECTION;
     newItem->IRP_OP = irpOp;
 
     newItem->KernelEventInfo.EventType = irpOp;
@@ -745,7 +746,7 @@ NTSTATUS OnSectionOperation(
 // --- Helper function for memory protection checking ---
 //
 
-BOOLEAN IsExecutableProtection(ULONG Protect)
+static BOOLEAN IsExecutableProtection(ULONG Protect)
 {
     return (Protect & PAGE_EXECUTE) ||
            (Protect & PAGE_EXECUTE_READ) ||

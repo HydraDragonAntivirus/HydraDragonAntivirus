@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef KERNEL_API_HOOKS_H
+#define KERNEL_API_HOOKS_H
+
 /*++
 
 Module Name:
@@ -20,7 +23,7 @@ Environment:
 #include <ntifs.h>
 #include <ntddk.h>
 #include "KernelHookEngine.h"
-#include "SharedDefs.h"
+#include "../SharedDefs/SharedDefs.h"
 
 //
 // Forward declarations of kernel APIs we'll hook

@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef PROCESS_PROTECTION_H
+#define PROCESS_PROTECTION_H
+
 /*++
 
 Module Name:

@@ -17,6 +17,7 @@ Environment:
 --*/
 
 #include "KernelHookEngine.h"
+#include <intrin.h>
 
 //
 // Global hook engine instance
@@ -569,4 +570,18 @@ VOID HookEnginePrintStatistics(VOID)
     }
     
     ExReleaseFastMutex(&g_HookEngine->EngineMutex);
+}
+
+//
+// Get x64 instruction length
+//
+
+ULONG HookEngineGetInstructionLength(
+    _In_ PVOID Address
+)
+{
+    if (Address == NULL)
+        return 0;
+    
+    return SimplifiedGetInstructionLength((PUCHAR)Address);
 }

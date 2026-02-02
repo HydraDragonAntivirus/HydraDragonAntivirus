@@ -20,6 +20,26 @@ Environment:
 #include "DriverData.h"
 #include <ntstrsafe.h>
 
+// Process access rights definitions for kernel mode
+#ifndef PROCESS_QUERY_INFORMATION
+#define PROCESS_QUERY_INFORMATION       0x0400
+#endif
+#ifndef PROCESS_VM_OPERATION
+#define PROCESS_VM_OPERATION            0x0008
+#endif
+#ifndef PROCESS_VM_READ
+#define PROCESS_VM_READ                 0x0010
+#endif
+#ifndef PROCESS_VM_WRITE
+#define PROCESS_VM_WRITE                0x0020
+#endif
+#ifndef PROCESS_CREATE_THREAD
+#define PROCESS_CREATE_THREAD           0x0002
+#endif
+#ifndef THREAD_QUERY_INFORMATION
+#define THREAD_QUERY_INFORMATION        0x0040
+#endif
+
 //
 // Trampoline function pointers
 //
