@@ -850,8 +850,10 @@ impl ProcessBehaviorState {
         
         self.irp_stats.record_operation(&rec);
         
+        // Use incremental drain to prevent blocking: remove 10% when hitting 10k
         if self.irp_operations.len() >= 10000 {
-            self.irp_operations.drain(0..5000);
+            let remove_count = (self.irp_operations.len() / 10).max(500);
+            let _ = self.irp_operations.drain(0..remove_count);
         }
         
         self.irp_operations.push(rec);
@@ -1297,7 +1299,16 @@ impl BehaviorEngine {
                 None => continue,
             };
             
-            for (cond_name, cond_group) in &rule.named_conditions {
+            // Skip rules that are already fully satisfied to reduce processing overhead
+            let remaining_conditions: Vec<_> = rule.named_conditions.iter()
+                .filter(|(name, _)| !state.satisfied_named_conditions.contains(name.as_str()))
+                .collect();
+            
+            if remaining_conditions.is_empty() {
+                continue;
+            }
+            
+            for (cond_name, cond_group) in remaining_conditions {
                 if state.satisfied_named_conditions.contains(cond_name) {
                     continue;
                 }
@@ -1434,7 +1445,7 @@ impl BehaviorEngine {
                     if values.len() > 256 {
                         values.clear();
                     }
-                    let is_new = values.insert(match_key);
+                    let is_new = values.insert(match_key.clone());
                     let count = state.condition_match_counts.entry(cond_name.clone()).or_insert(0);
                     if is_new {
                         *count += 1;
@@ -1445,6 +1456,19 @@ impl BehaviorEngine {
                     let required = if cond_group.min_matches > 0 { cond_group.min_matches } else { 1 };
                     if *count >= required {
                         state.satisfied_named_conditions.insert(cond_name.clone());
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
+                                cond_name, state.pid, *count, required, match_key
+                            ));
+                        }
+                    } else if is_new {
+                        if rule.debug || self.rules.iter().any(|r| r.debug) {
+                            Logging::debug(&format!(
+                                "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
+                                cond_name, *count, required, state.pid, match_key
+                            ));
+                        }
                     }
                 }
             }
@@ -1555,9 +1579,14 @@ impl BehaviorEngine {
             None => return,
         };
 
+        // Early exit if already detected and killed - prevents redundant checks on same PID
+        if precord.is_malicious && precord.time_killed.is_some() {
+            return;
+        }
+
         for rule in &self.rules {
             if precord.is_malicious && precord.time_killed.is_some() {
-                continue;
+                break;
             }
 
             if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
@@ -1597,36 +1626,72 @@ impl BehaviorEngine {
                 legacy_total += 1;
                 if browsed_access_count >= rule.multi_access_threshold {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'browsed_paths' matched for PID {}: {} paths >= {}",
+                            state_ref.pid, browsed_access_count, rule.multi_access_threshold
+                        ));
+                    }
                 }
             }
             if !rule.staging_paths.is_empty() {
                 legacy_total += 1;
                 if has_staged_data {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'staging_paths' matched for PID {}: {} files staged",
+                            state_ref.pid, state_ref.staged_files_written.len()
+                        ));
+                    }
                 }
             }
             if rule.require_internet {
                 legacy_total += 1;
                 if is_online {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has active connections",
+                            state_ref.pid
+                        ));
+                    }
                 }
             }
             if !rule.suspicious_parents.is_empty() {
                 legacy_total += 1;
                 if is_suspicious_parent {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'suspicious_parents' matched for PID {}: parent '{}'",
+                            state_ref.pid, parent_name
+                        ));
+                    }
                 }
             }
             if !rule.accessed_paths.is_empty() {
                 legacy_total += 1;
                 if has_sensitive_access {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'accessed_paths' matched for PID {}: {} sensitive paths",
+                            state_ref.pid, state_ref.accessed_paths_tracker.len()
+                        ));
+                    }
                 }
             }
             if rule.entropy_threshold > 0.01 {
                 legacy_total += 1;
                 if state_ref.high_entropy_detected {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'entropy_threshold' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
                 }
             }
             if !rule.monitored_apis.is_empty() {
@@ -1643,18 +1708,36 @@ impl BehaviorEngine {
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
                 if api_match_count >= threshold {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'monitored_apis' matched for PID {}: {} APIs",
+                            state_ref.pid, api_match_count
+                        ));
+                    }
                 }
             }
             if !rule.file_actions.is_empty() {
                 legacy_total += 1;
                 if state_ref.file_action_detected {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'file_actions' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
                 }
             }
             if !rule.file_extensions.is_empty() {
                 legacy_total += 1;
                 if state_ref.extension_match_detected {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'file_extensions' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
                 }
             }
             if !rule.terminated_processes.is_empty() {
@@ -1670,6 +1753,12 @@ impl BehaviorEngine {
                 });
                 if term_hit {
                     legacy_satisfied += 1;
+                    if rule.debug || self.rules.iter().any(|r| r.debug) {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition 'terminated_processes' matched for PID {}",
+                            state_ref.pid
+                        ));
+                    }
                 }
             }
 
@@ -1684,6 +1773,14 @@ impl BehaviorEngine {
                 1.0 
             };
             let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
+            
+            // Log partial matches for debugging
+            if legacy_total > 0 && legacy_ratio > 0.0 && legacy_ratio < legacy_threshold && (rule.debug || self.rules.iter().any(|r| r.debug)) {
+                Logging::debug(&format!(
+                    "[BehaviorEngine] Partial match on rule '{}' for PID {}: {}/{} conditions met ({:.1}% < {:.1}% required)",
+                    rule.name, state_ref.pid, legacy_satisfied, legacy_total, legacy_ratio * 100.0, legacy_threshold * 100.0
+                ));
+            }
 
             let mut rich_triggered = false;
             if let Some(logic) = &rule.detection_logic {
