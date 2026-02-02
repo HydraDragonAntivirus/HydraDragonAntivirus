@@ -1375,7 +1375,7 @@ impl BehaviorEngine {
         let is_protected_path = self.rules.iter().any(|rule| {
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&filepath)) ||
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&msg.filepathstr)) ||
-            (!rule.protected_paths.registry_paths.is_empty() && *irp_op == IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
+            (!rule.protected_paths.registry_paths.is_empty() && irp_op == IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
         });
 
         if is_protected_path {
