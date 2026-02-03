@@ -341,7 +341,6 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
       <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
