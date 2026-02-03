@@ -22,7 +22,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - This program assumes the PC is in a clean state and is not subject to post-infection.
 - This project doesn't replace your daily AV and this project not an AV.
 - It's very experimental program and you need to be careful.
-- I made very dumb choices in past. It damaged my project so when you look commit history or my history please don't laugh.
+- I made very dumb choices in past. It damaged my project but now I improving it.
 - You must uninstall it manually; the auto-uninstaller won't work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - Disable Secure Boot if the driver installation fails.
