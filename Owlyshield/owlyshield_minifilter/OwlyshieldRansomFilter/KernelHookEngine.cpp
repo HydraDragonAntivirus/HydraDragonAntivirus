@@ -30,19 +30,6 @@ Environment:
 PHOOK_ENGINE g_HookEngine = NULL;
 
 //
-// Multi-processor patch synchronization context
-//
-
-typedef struct _PATCH_CONTEXT {
-    volatile LONG BarrierCount;
-    volatile LONG PatchComplete;
-    PVOID TargetAddress;
-    PVOID PatchData;
-    ULONG PatchSize;
-    KIRQL SavedIrql;
-} PATCH_CONTEXT, *PPATCH_CONTEXT;
-
-//
 // Enhanced x64 instruction length detection
 // Still simplified - for production use Zydis or Capstone
 //
@@ -291,7 +278,7 @@ ULONG_PTR NTAPI HookEngineSyncCallback(ULONG_PTR Context)
     // Wait for patch to complete
     while (InterlockedCompareExchange(&patchCtx->PatchComplete, 0, 0) == 0) {
         _mm_pause();
-        KeYieldProcessor();
+        YieldProcessor();
     }
     
     // Memory barrier
