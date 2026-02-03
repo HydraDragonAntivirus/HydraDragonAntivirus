@@ -17,6 +17,7 @@ PnpLockdown = 1
 [DestinationDirs]
 DefaultDestDir          = 12
 MiniFilter.DriverFiles  = 12            ;%windir%\system32\drivers
+MiniFilter.DriverFiles.Del = 12         ;%windir%\system32\drivers
 
 ;;
 ;; Default install sections
@@ -35,7 +36,7 @@ AddService          = %ServiceName%,,MiniFilter.Service
 
 [DefaultUninstall.ntamd64]
 LegacyUninstall = 1
-DelFiles   = MiniFilter.DriverFiles
+DelFiles   = MiniFilter.DriverFiles.Del
 
 [DefaultUninstall.ntamd64.Services]
 DelService = %ServiceName%,0x200      ;Ensure service is stopped before deleting
@@ -71,6 +72,9 @@ HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
 ;
 
 [MiniFilter.DriverFiles]
+%DriverName%.sys
+
+[MiniFilter.DriverFiles.Del]
 %DriverName%.sys
 
 [SourceDisksFiles]

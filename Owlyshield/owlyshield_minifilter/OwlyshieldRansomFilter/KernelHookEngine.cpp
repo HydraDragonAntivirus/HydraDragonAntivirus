@@ -34,7 +34,7 @@ PHOOK_ENGINE g_HookEngine = NULL;
 // Still simplified - for production use Zydis or Capstone
 //
 
-ULONG SimplifiedGetInstructionLength(PUCHAR Code)
+ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
 {
     ULONG offset = 0;
     UCHAR byte = Code[offset];
@@ -176,7 +176,7 @@ ULONG SimplifiedGetInstructionLength(PUCHAR Code)
 // Allocate executable memory for trampoline
 //
 
-PVOID HookEngineAllocateExecutableMemory(SIZE_T Size, PMDL* OutMdl, PVOID* OutPhysical)
+PVOID HookEngineAllocateExecutableMemory(_In_ SIZE_T Size, _Out_ PMDL* OutMdl, _Out_ PVOID* OutPhysical)
 {
     PMDL mdl = NULL;
     PVOID mappedAddress = NULL;
@@ -249,7 +249,7 @@ PVOID HookEngineAllocateExecutableMemory(SIZE_T Size, PMDL* OutMdl, PVOID* OutPh
 // Free executable memory
 //
 
-VOID HookEngineFreeExecutableMemory(PVOID MappedAddress, PMDL Mdl, PVOID PhysicalAddress)
+VOID HookEngineFreeExecutableMemory(_In_ PVOID MappedAddress, _In_ PMDL Mdl, _In_ PVOID PhysicalAddress)
 {
     if (MappedAddress != NULL && Mdl != NULL) {
         MmUnmapLockedPages(MappedAddress, Mdl);
@@ -268,7 +268,7 @@ VOID HookEngineFreeExecutableMemory(PVOID MappedAddress, PMDL Mdl, PVOID Physica
 // Multi-processor synchronization callback
 //
 
-ULONG_PTR NTAPI HookEngineSyncCallback(ULONG_PTR Context)
+ULONG_PTR NTAPI HookEngineSyncCallback(_In_ ULONG_PTR Context)
 {
     PPATCH_CONTEXT patchCtx = (PPATCH_CONTEXT)Context;
     
@@ -291,7 +291,7 @@ ULONG_PTR NTAPI HookEngineSyncCallback(ULONG_PTR Context)
 // Atomic patch across all processors
 //
 
-VOID HookEngineAtomicPatch(PVOID Target, PVOID PatchData, ULONG Size)
+VOID HookEngineAtomicPatch(_In_ PVOID Target, _In_ PVOID PatchData, _In_ ULONG Size)
 {
     PATCH_CONTEXT patchCtx = {0};
     ULONG processorCount;
@@ -429,7 +429,7 @@ KIRQL HookEngineDisableWriteProtection(VOID)
 // Enable write protection (CR0.WP bit)
 //
 
-VOID HookEngineEnableWriteProtection(KIRQL OldIrql)
+VOID HookEngineEnableWriteProtection(_In_ KIRQL OldIrql)
 {
     UINT64 cr0;
     
@@ -453,7 +453,7 @@ VOID HookEngineEnableWriteProtection(KIRQL OldIrql)
 // Get minimum number of bytes needed for hook
 //
 
-ULONG HookEngineGetMinimumBytesForHook(PVOID Address, ULONG RequiredBytes)
+ULONG HookEngineGetMinimumBytesForHook(_In_ PVOID Address, _In_ ULONG RequiredBytes)
 {
     ULONG totalBytes = 0;
     PUCHAR code = (PUCHAR)Address;
@@ -483,7 +483,7 @@ ULONG HookEngineGetMinimumBytesForHook(PVOID Address, ULONG RequiredBytes)
 // Find hook entry by target function
 //
 
-PHOOK_ENTRY HookEngineFindHook(PVOID TargetFunction)
+PHOOK_ENTRY HookEngineFindHook(_In_ PVOID TargetFunction)
 {
     if (g_HookEngine == NULL || !g_HookEngine->IsInitialized)
         return NULL;
@@ -503,10 +503,10 @@ PHOOK_ENTRY HookEngineFindHook(PVOID TargetFunction)
 //
 
 NTSTATUS HookEngineInstallHook(
-    PVOID TargetFunction,
-    PVOID HookFunction,
-    LPCSTR FunctionName,
-    PVOID* TrampolineFunction
+    _In_ PVOID TargetFunction,
+    _In_ PVOID HookFunction,
+    _In_opt_ LPCSTR FunctionName,
+    _Out_ PVOID* TrampolineFunction
 )
 {
     PHOOK_ENTRY hookEntry = NULL;
@@ -514,8 +514,6 @@ NTSTATUS HookEngineInstallHook(
     PMDL trampolineMdl = NULL;
     PVOID trampolinePhysical = NULL;
     ULONG bytesToCopy;
-    NTSTATUS status;
-    
     if (g_HookEngine == NULL || !g_HookEngine->IsInitialized) {
         DbgPrint("!!! HookEngine: Not initialized\n");
         return STATUS_DEVICE_NOT_READY;
@@ -528,7 +526,7 @@ NTSTATUS HookEngineInstallHook(
     
     ExAcquireFastMutex(&g_HookEngine->EngineMutex);
     
-    // Check if already hooked
+    // Check if already hooked1
     if (HookEngineFindHook(TargetFunction) != NULL) {
         DbgPrint("!!! HookEngine: Function already hooked\n");
         ExReleaseFastMutex(&g_HookEngine->EngineMutex);
@@ -672,7 +670,7 @@ NTSTATUS HookEngineInstallHook(
 // Remove a hook
 //
 
-NTSTATUS HookEngineRemoveHook(PVOID TargetFunction)
+NTSTATUS HookEngineRemoveHook(_In_ PVOID TargetFunction)
 {
     PHOOK_ENTRY hookEntry;
     
@@ -752,7 +750,7 @@ NTSTATUS HookEngineRemoveAllHooks(VOID)
 // Enable a hook (if previously disabled)
 //
 
-NTSTATUS HookEngineEnableHook(PVOID TargetFunction)
+NTSTATUS HookEngineEnableHook(_In_ PVOID TargetFunction)
 {
     PHOOK_ENTRY hookEntry;
     
@@ -796,7 +794,7 @@ NTSTATUS HookEngineEnableHook(PVOID TargetFunction)
 // Disable a hook (without removing it)
 //
 
-NTSTATUS HookEngineDisableHook(PVOID TargetFunction)
+NTSTATUS HookEngineDisableHook(_In_ PVOID TargetFunction)
 {
     PHOOK_ENTRY hookEntry;
     

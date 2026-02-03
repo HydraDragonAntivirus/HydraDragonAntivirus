@@ -125,7 +125,7 @@ class DriverData {
     }
 
     BOOLEAN isFilterClosed() {
-        return !FilterRun;
+        return (FilterRun == FALSE);
     }
 
     PFLT_FILTER* getFilterAdd() {
