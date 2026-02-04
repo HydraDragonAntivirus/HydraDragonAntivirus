@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import sys
 import os
 
@@ -81,6 +83,60 @@ class BytecodeDecompiler:
             return f"    # Decompilation Error: {str(e)}\n    pass"
 
 # =============================================================================
+# ENHANCED SIGNATURE & DOCSTRING EXTRACTOR
+# =============================================================================
+
+class SignatureExtractor:
+    """Extracts function signatures and documentation safely"""
+    
+    @staticmethod
+    def get_signature(func):
+        """Extract function signature using inspect.signature()"""
+        try:
+            sig = inspect.signature(func)
+            return str(sig)
+        except (ValueError, TypeError):
+            # Fallback for built-in/compiled functions
+            try:
+                # Try to get parameter names from code object
+                if hasattr(func, '__code__'):
+                    code = func.__code__
+                    args = code.co_varnames[:code.co_argcount]
+                    return f"({', '.join(args)})"
+            except:
+                pass
+            return "(*args, **kwargs)"
+    
+    @staticmethod
+    def get_docstring(obj):
+        """Extract docstring safely"""
+        try:
+            doc = inspect.getdoc(obj)
+            if doc:
+                # Format as multiline docstring
+                lines = doc.split('\n')
+                if len(lines) == 1:
+                    return f'    """{doc}"""'
+                else:
+                    formatted = ['    """']
+                    formatted.extend([f"    {line}" for line in lines])
+                    formatted.append('    """')
+                    return '\n'.join(formatted)
+        except:
+            pass
+        return None
+    
+    @staticmethod
+    def get_source_info(obj):
+        """Try to get source file and line number"""
+        try:
+            file = inspect.getfile(obj)
+            lines = inspect.getsourcelines(obj)
+            return f"    # Source: {file}:{lines[1]}"
+        except:
+            return None
+
+# =============================================================================
 # MODULE RECONSTRUCTOR
 # =============================================================================
 
@@ -88,6 +144,7 @@ class ModuleReconstructor:
     def __init__(self, backup_dir):
         self.backup_dir = backup_dir
         self.decompiler = BytecodeDecompiler()
+        self.sig_extractor = SignatureExtractor()
 
     def process_module(self, name, mod):
         safe_name = name.replace('.', '_')
@@ -95,31 +152,130 @@ class ModuleReconstructor:
         
         content = [f'"""\nModule: {name}\nType: {type(mod)}\n"""\n']
         
+        # Add module docstring if exists
+        mod_doc = self.sig_extractor.get_docstring(mod)
+        if mod_doc:
+            content.append(mod_doc)
+            content.append("")
+        
+        # Try to capture module-level code (especially important for __main__)
+        try:
+            module_code = None
+            
+            # Method 1: Try __loader__.get_code()
+            if hasattr(mod, '__loader__') and hasattr(mod.__loader__, 'get_code'):
+                try:
+                    module_code = mod.__loader__.get_code(name)
+                except:
+                    pass
+            
+            # Method 2: Search for code object in module's compiled file
+            if not module_code and hasattr(mod, '__file__'):
+                try:
+                    import importlib.util
+                    spec = importlib.util.find_spec(name) if name != '__main__' else None
+                    if spec and hasattr(spec, 'loader'):
+                        module_code = spec.loader.get_code(name)
+                except:
+                    pass
+            
+            # If we got module-level code, decompile it
+            if module_code:
+                content.append("\n# ===== MODULE-LEVEL CODE =====")
+                content.append(self.decompiler.decompile_code(module_code))
+                content.append("# ===== END MODULE-LEVEL CODE =====\n")
+        except:
+            pass
+        
         # Hunt for every callable in the module
-        for attr_name in list(dir(mod)):
-            if attr_name.startswith('__') and attr_name != '__init__': continue
+        for attr_name in sorted(dir(mod)):
+            if attr_name.startswith('__') and attr_name != '__init__': 
+                continue
             try:
                 attr = getattr(mod, attr_name)
                 
                 # If it's a Class
                 if inspect.isclass(attr):
                     content.append(f"\nclass {attr_name}:")
-                    for m_name in list(dir(attr)):
-                        m_attr = getattr(attr, m_name)
-                        if hasattr(m_attr, '__code__'):
-                            content.append(f"  def {m_name}(self, *args, **kwargs):")
-                            content.append(self.decompiler.decompile_code(m_attr.__code__))
+                    
+                    # Add class docstring
+                    class_doc = self.sig_extractor.get_docstring(attr)
+                    if class_doc:
+                        content.append(class_doc)
+                    else:
+                        content.append('    """Class"""')
+                    
+                    # Add source info
+                    source_info = self.sig_extractor.get_source_info(attr)
+                    if source_info:
+                        content.append(source_info)
+                    
+                    content.append("")
+                    
+                    # Process class methods
+                    for m_name in sorted(dir(attr)):
+                        if m_name.startswith('__') and m_name not in ['__init__', '__call__']:
+                            continue
+                        try:
+                            m_attr = getattr(attr, m_name)
+                            if hasattr(m_attr, '__code__') or callable(m_attr):
+                                # Get signature
+                                sig = self.sig_extractor.get_signature(m_attr)
+                                content.append(f"    def {m_name}{sig}:")
+                                
+                                # Get docstring
+                                m_doc = self.sig_extractor.get_docstring(m_attr)
+                                if m_doc:
+                                    content.append(m_doc)
+                                
+                                # Add decompiled code
+                                if hasattr(m_attr, '__code__'):
+                                    decompiled = self.decompiler.decompile_code(m_attr.__code__)
+                                    if not m_doc or "pass" not in decompiled:
+                                        content.append(decompiled)
+                                else:
+                                    content.append("        pass  # Compiled/builtin method")
+                                content.append("")
+                        except:
+                            continue
                 
                 # If it's a Function
-                elif hasattr(attr, '__code__'):
-                    content.append(f"\ndef {attr_name}(*args, **kwargs):")
-                    content.append(self.decompiler.decompile_code(attr.__code__))
+                elif hasattr(attr, '__code__') or callable(attr):
+                    # Get signature
+                    sig = self.sig_extractor.get_signature(attr)
+                    content.append(f"\ndef {attr_name}{sig}:")
+                    
+                    # Add docstring
+                    func_doc = self.sig_extractor.get_docstring(attr)
+                    if func_doc:
+                        content.append(func_doc)
+                    
+                    # Add source info
+                    source_info = self.sig_extractor.get_source_info(attr)
+                    if source_info:
+                        content.append(source_info)
+                    
+                    # Add decompiled code
+                    if hasattr(attr, '__code__'):
+                        decompiled = self.decompiler.decompile_code(attr.__code__)
+                        content.append(decompiled)
+                    else:
+                        content.append("    pass  # Compiled/builtin function")
+                    content.append("")
                 
                 # If it's a variable/constant
                 elif not callable(attr):
-                    if isinstance(attr, (str, int, float, dict, list)):
+                    if isinstance(attr, (str, int, float, bool, type(None))):
                         content.append(f"{attr_name} = {repr(attr)}")
-            except:
+                    elif isinstance(attr, (dict, list, tuple, set)):
+                        # Truncate large collections
+                        repr_str = repr(attr)
+                        if len(repr_str) > 200:
+                            repr_str = repr_str[:200] + "... # Truncated"
+                        content.append(f"{attr_name} = {repr_str}")
+                    
+            except Exception as e:
+                content.append(f"# Error processing {attr_name}: {str(e)}")
                 continue
         
         output_path.write_text("\n".join(content), encoding='utf-8', errors='ignore')
@@ -131,21 +287,35 @@ class ModuleReconstructor:
         try:
             pyc_path = self.backup_dir / "RAW_BYTECODE" / f"{name.replace('.', '_')}.pyc"
             code = None
-            if hasattr(mod, '__code__'): code = mod.__code__
-            else:
-                # Try to find the module's main code object
+            
+            # Priority 1: Try to get module-level code from loader
+            if hasattr(mod, '__loader__') and hasattr(mod.__loader__, 'get_code'):
+                try:
+                    code = mod.__loader__.get_code(name)
+                except:
+                    pass
+            
+            # Priority 2: Check if module itself has __code__
+            if not code and hasattr(mod, '__code__'): 
+                code = mod.__code__
+            
+            # Priority 3: Find any code object in the module
+            if not code:
                 for n in list(dir(mod)):
                     a = getattr(mod, n, None)
                     if hasattr(a, '__code__'):
-                        code = a.__code__; break
+                        code = a.__code__
+                        break
             
             if code:
                 with open(pyc_path, 'wb') as f:
                     f.write(importlib.util.MAGIC_NUMBER)
                     f.write(struct.pack('<I', int(time.time())))
-                    if sys.version_info >= (3, 7): f.write(struct.pack('<I', 0))
+                    if sys.version_info >= (3, 7): 
+                        f.write(struct.pack('<I', 0))
                     f.write(marshal.dumps(code))
-        except: pass
+        except: 
+            pass
 
 # =============================================================================
 # HELPER: GET NEXT INCREMENTAL PATH
@@ -173,8 +343,8 @@ def run_decompiler():
     # Use incremental path instead of timestamp
     backup_dir = get_next_dump_path(r"C:\pythondumps")
     
-    # Debug log file
-    log_file = open(os.path.join(os.environ.get('TEMP', '/tmp'), "decompiler_debug.txt"), "w")
+    # Debug log file with UTF-8 encoding
+    log_file = open(os.path.join(os.environ.get('TEMP', '/tmp'), "decompiler_debug.txt"), "w", encoding='utf-8', errors='replace')
     log_file.write(f"Starting decompilation\n")
     log_file.write(f"Target Dir: {backup_dir}\n")
 
@@ -188,21 +358,32 @@ def run_decompiler():
     targets = list(sys.modules.items())
     log_file.write(f"Found {len(targets)} modules\n")
 
+    processed_count = 0
+    error_count = 0
+    
     for name, mod in targets:
-        if not mod or name in sys.builtin_module_names: continue
-        if name == '__hook__': continue 
+        if not mod or name in sys.builtin_module_names: 
+            continue
+        if name == '__hook__': 
+            continue 
         
         try:
             recon.process_module(name, mod)
-            log_file.write(f"Processed: {name}\n")
+            processed_count += 1
+            log_file.write(f"[OK] Processed: {name}\n")
             log_file.flush()
         except Exception as e:
-            log_file.write(f"Error processing {name}: {str(e)}\n")
+            error_count += 1
+            log_file.write(f"[ERR] Error processing {name}: {str(e)}\n")
 
+    log_file.write("\n" + "="*60 + "\n")
     log_file.write("--- FINISHED ---\n")
     log_file.write(f"Output location: {backup_dir}\n")
+    log_file.write(f"Processed: {processed_count} modules\n")
+    log_file.write(f"Errors: {error_count}\n")
     log_file.close()
     
     print(f"[SUCCESS] Decompilation complete: {backup_dir}")
+    print(f"[STATS] Processed: {processed_count} | Errors: {error_count}")
         
 run_decompiler()
