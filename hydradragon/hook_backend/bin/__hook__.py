@@ -12,27 +12,23 @@ print(f"[HOOK] Bootstrap complete. Path added: {current_dir}")
 
 import time
 import marshal
-import gc
-import types
-import threading
 import struct
 import importlib.util
 import inspect
 import dis
-from queue import Queue
 from pathlib import Path
 
 # =============================================================================
-# GOD MODE CONFIG
+# CONFIGURATION
 # =============================================================================
 sys.setrecursionlimit(15000)
 MAX_WORKER_THREADS = 64
 
 # =============================================================================
-# ENGINE: THE PSEUDO-DECOMPILER (Instruction-to-Source)
+# BYTECODE DECOMPILER
 # =============================================================================
 
-class GodModeDecompiler:
+class BytecodeDecompiler:
     """Reconstructs Python Source from Raw Bytecode Instructions"""
     
     @staticmethod
@@ -65,7 +61,6 @@ class GodModeDecompiler:
                     if stack:
                         func = stack.pop()
                         call_str = f"{func}({', '.join(args)})"
-                        # If the next op is POP_TOP, it's a statement
                         lines.append(f"    {call_str}")
                         stack.append(call_str)
                 elif op == 'STORE_FAST' or op == 'STORE_NAME':
@@ -79,28 +74,28 @@ class GodModeDecompiler:
                             lines.append(f"    return {val}")
             
             if not lines:
-                return "    # [Decompiler] Complex logic detected. See .pyc for raw analysis.\n    pass"
+                return "    # Complex logic detected. See .pyc for raw bytecode.\n    pass"
                 
             return "\n".join(lines)
         except Exception as e:
             return f"    # Decompilation Error: {str(e)}\n    pass"
 
 # =============================================================================
-# ENGINE: MODULE RECONSTRUCTOR
+# MODULE RECONSTRUCTOR
 # =============================================================================
 
 class ModuleReconstructor:
     def __init__(self, backup_dir):
         self.backup_dir = backup_dir
-        self.decompiler = GodModeDecompiler()
+        self.decompiler = BytecodeDecompiler()
 
     def process_module(self, name, mod):
         safe_name = name.replace('.', '_')
         output_path = self.backup_dir / "RECONSTRUCTED_SOURCE" / f"{safe_name}.py"
         
-        content = [f'"""\nGOD MODE RECONSTRUCTION: {name}\nType: {type(mod)}\n"""\n']
+        content = [f'"""\nModule: {name}\nType: {type(mod)}\n"""\n']
         
-        # 1. Hunt for every callable in the module
+        # Hunt for every callable in the module
         for attr_name in list(dir(mod)):
             if attr_name.startswith('__') and attr_name != '__init__': continue
             try:
@@ -129,7 +124,7 @@ class ModuleReconstructor:
         
         output_path.write_text("\n".join(content), encoding='utf-8', errors='ignore')
 
-        # 2. Also save the PYC (Standard Bytecode)
+        # Also save the PYC (Standard Bytecode)
         self.save_pyc(name, mod)
 
     def save_pyc(self, name, mod):
@@ -153,55 +148,61 @@ class ModuleReconstructor:
         except: pass
 
 # =============================================================================
+# HELPER: GET NEXT INCREMENTAL PATH
+# =============================================================================
+
+def get_next_dump_path(base_dir):
+    """Get next available dump path (dump_1, dump_2, etc.)"""
+    base_path = Path(base_dir)
+    
+    if not base_path.exists():
+        base_path.mkdir(parents=True, exist_ok=True)
+    
+    # Find the next available number
+    counter = 1
+    while True:
+        dump_path = base_path / f"dump_{counter}"
+        if not dump_path.exists():
+            return dump_path
+        counter += 1
+
+# =============================================================================
 # MAIN EXECUTION
 # =============================================================================
-def god_mode_run():
-    import ctypes
-    import datetime
-    import os
+def run_decompiler():
+    # Use incremental path instead of timestamp
+    backup_dir = get_next_dump_path(r"C:\pythondumps")
     
-    # --- DEBUG: POPUP TO PROVE IT STARTED ---
-    ctypes.windll.user32.MessageBoxW(0, "Python Hook actually started!", "Hydra God Mode", 0x40)
+    # Debug log file
+    log_file = open(os.path.join(os.environ.get('TEMP', '/tmp'), "decompiler_debug.txt"), "w")
+    log_file.write(f"Starting decompilation\n")
+    log_file.write(f"Target Dir: {backup_dir}\n")
+
+    # Create directories
+    for d in ["RECONSTRUCTED_SOURCE", "RAW_BYTECODE", "STRUCTURE"]:
+        p = backup_dir / d
+        p.mkdir(parents=True, exist_ok=True)
+        log_file.write(f"Created: {p}\n")
     
-    try:
-        ts = datetime.datetime.now().strftime("%H%M%S")
-        backup_dir = Path(r"C:\pythondumps") / f"GOD_MODE_{ts}"
+    recon = ModuleReconstructor(backup_dir)
+    targets = list(sys.modules.items())
+    log_file.write(f"Found {len(targets)} modules\n")
+
+    for name, mod in targets:
+        if not mod or name in sys.builtin_module_names: continue
+        if name == '__hook__': continue 
         
-        # --- DEBUG: LOG FILE ---
-        # We write to a file because we can't see 'print'
-        log_file = open(os.path.join(os.environ['TEMP'], "hydra_debug.txt"), "w")
-        log_file.write(f"Starting dump at {ts}\n")
-        log_file.write(f"Target Dir: {backup_dir}\n")
+        try:
+            recon.process_module(name, mod)
+            log_file.write(f"Processed: {name}\n")
+            log_file.flush()
+        except Exception as e:
+            log_file.write(f"Error processing {name}: {str(e)}\n")
 
-        # Create directories
-        for d in ["RECONSTRUCTED_SOURCE", "RAW_BYTECODE", "STRUCTURE"]:
-            p = backup_dir / d
-            p.mkdir(parents=True, exist_ok=True)
-            log_file.write(f"Created: {p}\n")
+    log_file.write("--- FINISHED ---\n")
+    log_file.write(f"Output location: {backup_dir}\n")
+    log_file.close()
+    
+    print(f"[SUCCESS] Decompilation complete: {backup_dir}")
         
-        recon = ModuleReconstructor(backup_dir)
-        targets = list(sys.modules.items())
-        log_file.write(f"Found {len(targets)} modules\n")
-
-        for name, mod in targets:
-            if not mod or name in sys.builtin_module_names: continue
-            if name == '__hook__': continue 
-            
-            try:
-                recon.process_module(name, mod)
-                # Periodically flush log so we see progress
-                log_file.write(f"Processed: {name}\n")
-                log_file.flush()
-            except Exception as e:
-                log_file.write(f"Error processing {name}: {str(e)}\n")
-
-        log_file.write("--- FINISHED ---\n")
-        log_file.close()
-        
-        ctypes.windll.user32.MessageBoxW(0, f"Dumping Finished!\nSaved to: {backup_dir}", "Hydra Success", 0x40)
-
-    except Exception as e:
-        # If the whole thing crashes, show us why!
-        ctypes.windll.user32.MessageBoxW(0, f"CRITICAL ERROR:\n{str(e)}", "Hydra Failure", 0x10)
-
-god_mode_run()
+run_decompiler()
