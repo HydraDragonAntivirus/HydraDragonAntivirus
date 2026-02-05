@@ -20,6 +20,22 @@ Environment:
 #include "FsFilter.h"
 #include <ntstrsafe.h>
 
+// Kernel API Hook IRP operation codes
+// These MUST match IrpMajorOp::from_byte() in shared_def.rs
+#ifndef IRP_KERNEL_WRITE_MEMORY
+#define IRP_KERNEL_WRITE_MEMORY 12
+#define IRP_KERNEL_ALLOCATE_MEMORY 13
+#define IRP_KERNEL_PROTECT_MEMORY 14
+#define IRP_KERNEL_CREATE_THREAD 15
+#define IRP_KERNEL_QUEUE_APC 16
+#define IRP_KERNEL_SET_CONTEXT 17
+#define IRP_KERNEL_CREATE_SECTION 18
+#define IRP_KERNEL_MAP_SECTION 19
+#define IRP_KERNEL_DELETE_FILE 20
+#define IRP_KERNEL_LOAD_DRIVER 21
+#define IRP_KERNEL_OPEN_PROCESS 22
+#endif
+
 // Process access rights definitions for kernel mode
 #ifndef PROCESS_QUERY_INFORMATION
 #define PROCESS_QUERY_INFORMATION 0x0400
@@ -87,13 +103,13 @@ BOOLEAN IsExecutableProtection(ULONG Protect)
 //
 
 VOID LogSuspiciousActivity(_In_ LPCSTR ActivityType, _In_ ULONG SourcePid, _In_ ULONG TargetPid,
-                           _In_opt_ LPCWSTR AdditionalInfo)
+                           _In_opt_ LPCWSTR AdditionalInfo, _In_ UCHAR IrpOp)
 {
     if (driverData == NULL || driverData->isFilterClosed())
         return;
 
-    DbgPrint("!!! KernelHook: Suspicious activity - %s: Source PID %lu -> Target PID %lu\n", ActivityType, SourcePid,
-             TargetPid);
+    DbgPrint("!!! KernelHook: Suspicious activity - %s: Source PID %lu -> Target PID %lu (IRP_OP=%u)\n", ActivityType,
+             SourcePid, TargetPid, (ULONG)IrpOp);
 
     // Create IRP entry to notify usermode
     PIRP_ENTRY newEntry = new IRP_ENTRY();
@@ -102,7 +118,7 @@ VOID LogSuspiciousActivity(_In_ LPCSTR ActivityType, _In_ ULONG SourcePid, _In_ 
         PDRIVER_MESSAGE newItem = &newEntry->data;
         newItem->PID = TargetPid;
         newItem->AttackerPID = SourcePid;
-        newItem->IRP_OP = IRP_PROCESS_TERMINATE_ATTEMPT;
+        newItem->IRP_OP = IrpOp;
 
         BOOLEAN found = FALSE;
         newItem->Gid = driverData->GetProcessGid(TargetPid, &found);
@@ -138,13 +154,13 @@ NTSTATUS NTAPI HookedNtTerminateProcess(_In_opt_ HANDLE ProcessHandle, _In_ NTST
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
 
-    // Get target process information
+    // NULL handle means current process - skip monitoring
     if (ProcessHandle == NULL)
     {
-        // NULL handle means current process - no need to check
         return g_OriginalNtTerminateProcess(ProcessHandle, ExitStatus);
     }
 
+    // Get target process information
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
 
@@ -159,7 +175,7 @@ NTSTATUS NTAPI HookedNtTerminateProcess(_In_opt_ HANDLE ProcessHandle, _In_ NTST
                      (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid);
 
             LogSuspiciousActivity("NtTerminateProcess", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                  L"Process termination attempt");
+                                  L"Process termination attempt", IRP_PROCESS_TERMINATE_ATTEMPT);
 
             ObDereferenceObject(targetProcess);
 
@@ -202,7 +218,8 @@ NTSTATUS NTAPI HookedNtOpenProcess(_Out_ PHANDLE ProcessHandle, _In_ ACCESS_MASK
                 WCHAR info[128];
                 RtlStringCbPrintfW(info, sizeof(info), L"Dangerous process access: 0x%X", DesiredAccess);
 
-                LogSuspiciousActivity("NtOpenProcess", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid, info);
+                LogSuspiciousActivity("NtOpenProcess", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid, info,
+                                      IRP_KERNEL_OPEN_PROCESS);
             }
         }
     }
@@ -221,6 +238,12 @@ NTSTATUS NTAPI HookedNtWriteVirtualMemory(_In_ HANDLE ProcessHandle, _In_ PVOID 
     PEPROCESS targetProcess = NULL;
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
+
+    if (ProcessHandle == NULL)
+    {
+        return g_OriginalNtWriteVirtualMemory(ProcessHandle, BaseAddress, Buffer, NumberOfBytesToWrite,
+                                              NumberOfBytesWritten);
+    }
 
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
@@ -242,7 +265,7 @@ NTSTATUS NTAPI HookedNtWriteVirtualMemory(_In_ HANDLE ProcessHandle, _In_ PVOID 
                                    BaseAddress);
 
                 LogSuspiciousActivity("NtWriteVirtualMemory", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                      info);
+                                      info, IRP_KERNEL_WRITE_MEMORY);
 
                 // Optionally block code injection attempts
                 // ObDereferenceObject(targetProcess);
@@ -265,12 +288,18 @@ NTSTATUS NTAPI HookedNtWriteVirtualMemory(_In_ HANDLE ProcessHandle, _In_ PVOID 
 NTSTATUS NTAPI HookedNtCreateThreadEx(_Out_ PHANDLE ThreadHandle, _In_ ACCESS_MASK DesiredAccess,
                                       _In_opt_ POBJECT_ATTRIBUTES ObjectAttributes, _In_ HANDLE ProcessHandle,
                                       _In_ PVOID StartRoutine, _In_opt_ PVOID Argument, _In_ ULONG CreateFlags,
-                                      _In_ SIZE_T ZeroBits, _In_ SIZE_T StackSize, _In_ SIZE_T MaximumStackSize,
-                                      _In_opt_ PVOID AttributeList)
+                                      _In_opt_ SIZE_T ZeroBits, _In_opt_ SIZE_T StackSize,
+                                      _In_opt_ SIZE_T MaximumStackSize, _In_opt_ PVOID AttributeList)
 {
     PEPROCESS targetProcess = NULL;
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
+
+    if (ProcessHandle == NULL)
+    {
+        return g_OriginalNtCreateThreadEx(ThreadHandle, DesiredAccess, ObjectAttributes, ProcessHandle, StartRoutine,
+                                          Argument, CreateFlags, ZeroBits, StackSize, MaximumStackSize, AttributeList);
+    }
 
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
@@ -291,7 +320,7 @@ NTSTATUS NTAPI HookedNtCreateThreadEx(_Out_ PHANDLE ThreadHandle, _In_ ACCESS_MA
                 RtlStringCbPrintfW(info, sizeof(info), L"Remote thread: start=0x%p", StartRoutine);
 
                 LogSuspiciousActivity("NtCreateThreadEx", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                      info);
+                                      info, IRP_KERNEL_CREATE_THREAD);
 
                 // Optionally block remote thread creation
                 // ObDereferenceObject(targetProcess);
@@ -352,6 +381,12 @@ NTSTATUS NTAPI HookedNtAllocateVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ 
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
 
+    if (ProcessHandle == NULL)
+    {
+        return g_OriginalNtAllocateVirtualMemory(ProcessHandle, BaseAddress, ZeroBits, RegionSize, AllocationType,
+                                                 Protect);
+    }
+
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
 
@@ -371,7 +406,7 @@ NTSTATUS NTAPI HookedNtAllocateVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ 
                 RtlStringCbPrintfW(info, sizeof(info), L"Executable memory allocation: Protection=0x%X", Protect);
 
                 LogSuspiciousActivity("NtAllocateVirtualMemory", (ULONG)(ULONG_PTR)currentPid,
-                                      (ULONG)(ULONG_PTR)targetPid, info);
+                                      (ULONG)(ULONG_PTR)targetPid, info, IRP_KERNEL_ALLOCATE_MEMORY);
 
                 // Optionally block executable allocations
                 // ObDereferenceObject(targetProcess);
@@ -396,6 +431,11 @@ NTSTATUS NTAPI HookedNtProtectVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ P
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
 
+    if (ProcessHandle == NULL)
+    {
+        return g_OriginalNtProtectVirtualMemory(ProcessHandle, BaseAddress, RegionSize, NewProtect, OldProtect);
+    }
+
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
 
@@ -416,7 +456,7 @@ NTSTATUS NTAPI HookedNtProtectVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ P
                                    BaseAddress ? *BaseAddress : NULL);
 
                 LogSuspiciousActivity("NtProtectVirtualMemory", (ULONG)(ULONG_PTR)currentPid,
-                                      (ULONG)(ULONG_PTR)targetPid, info);
+                                      (ULONG)(ULONG_PTR)targetPid, info, IRP_KERNEL_PROTECT_MEMORY);
 
                 // Optionally block DEP bypass attempts
                 // ObDereferenceObject(targetProcess);
@@ -442,6 +482,11 @@ NTSTATUS NTAPI HookedNtQueueApcThread(_In_ HANDLE ThreadHandle, _In_ PVOID ApcRo
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
 
+    if (ThreadHandle == NULL)
+    {
+        return g_OriginalNtQueueApcThread(ThreadHandle, ApcRoutine, ApcArgument1, ApcArgument2, ApcArgument3);
+    }
+
     NTSTATUS status = ObReferenceObjectByHandle(ThreadHandle, THREAD_QUERY_INFORMATION, *PsThreadType, KernelMode,
                                                 (PVOID *)&targetThread, NULL);
 
@@ -462,7 +507,7 @@ NTSTATUS NTAPI HookedNtQueueApcThread(_In_ HANDLE ThreadHandle, _In_ PVOID ApcRo
                 RtlStringCbPrintfW(info, sizeof(info), L"APC injection: Routine=0x%p", ApcRoutine);
 
                 LogSuspiciousActivity("NtQueueApcThread", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                      info);
+                                      info, IRP_KERNEL_QUEUE_APC);
 
                 // Optionally block APC injection
                 // ObDereferenceObject(targetThread);
@@ -486,6 +531,11 @@ NTSTATUS NTAPI HookedNtSetContextThread(_In_ HANDLE ThreadHandle, _In_ PCONTEXT 
     PEPROCESS targetProcess = NULL;
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
+
+    if (ThreadHandle == NULL)
+    {
+        return g_OriginalNtSetContextThread(ThreadHandle, ThreadContext);
+    }
 
     NTSTATUS status = ObReferenceObjectByHandle(ThreadHandle, THREAD_QUERY_INFORMATION, *PsThreadType, KernelMode,
                                                 (PVOID *)&targetThread, NULL);
@@ -514,7 +564,7 @@ NTSTATUS NTAPI HookedNtSetContextThread(_In_ HANDLE ThreadHandle, _In_ PCONTEXT 
 #endif
 
                 LogSuspiciousActivity("NtSetContextThread", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                      info);
+                                      info, IRP_KERNEL_SET_CONTEXT);
 
                 // Optionally block thread hijacking
                 // ObDereferenceObject(targetThread);
@@ -550,7 +600,7 @@ NTSTATUS NTAPI HookedNtLoadDriver(_In_ PUNICODE_STRING DriverServiceName)
         RtlStringCbCopyW(info, sizeof(info), L"Driver load: (null)");
     }
 
-    LogSuspiciousActivity("NtLoadDriver", (ULONG)(ULONG_PTR)currentPid, 0, info);
+    LogSuspiciousActivity("NtLoadDriver", (ULONG)(ULONG_PTR)currentPid, 0, info, IRP_KERNEL_LOAD_DRIVER);
 
     // Optionally block unauthorized driver loading
     // return STATUS_ACCESS_DENIED;
@@ -578,7 +628,7 @@ NTSTATUS NTAPI HookedZwCreateSection(_Out_ PHANDLE SectionHandle, _In_ ACCESS_MA
         WCHAR info[128];
         RtlStringCbPrintfW(info, sizeof(info), L"Executable section creation: Protection=0x%X", SectionPageProtection);
 
-        LogSuspiciousActivity("ZwCreateSection", (ULONG)(ULONG_PTR)currentPid, 0, info);
+        LogSuspiciousActivity("ZwCreateSection", (ULONG)(ULONG_PTR)currentPid, 0, info, IRP_KERNEL_CREATE_SECTION);
     }
 
     return g_OriginalZwCreateSection(SectionHandle, DesiredAccess, ObjectAttributes, MaximumSize, SectionPageProtection,
@@ -599,6 +649,12 @@ NTSTATUS NTAPI HookedZwMapViewOfSection(_In_ HANDLE SectionHandle, _In_ HANDLE P
     HANDLE currentPid = PsGetCurrentProcessId();
     HANDLE targetPid = NULL;
 
+    if (ProcessHandle == NULL)
+    {
+        return g_OriginalZwMapViewOfSection(SectionHandle, ProcessHandle, BaseAddress, ZeroBits, CommitSize,
+                                            SectionOffset, ViewSize, InheritDisposition, AllocationType, Win32Protect);
+    }
+
     NTSTATUS status = ObReferenceObjectByHandle(ProcessHandle, PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode,
                                                 (PVOID *)&targetProcess, NULL);
 
@@ -618,7 +674,7 @@ NTSTATUS NTAPI HookedZwMapViewOfSection(_In_ HANDLE SectionHandle, _In_ HANDLE P
                 RtlStringCbPrintfW(info, sizeof(info), L"Section mapping: Protection=0x%X", Win32Protect);
 
                 LogSuspiciousActivity("ZwMapViewOfSection", (ULONG)(ULONG_PTR)currentPid, (ULONG)(ULONG_PTR)targetPid,
-                                      info);
+                                      info, IRP_KERNEL_MAP_SECTION);
 
                 // Optionally block dangerous section mappings
                 // ObDereferenceObject(targetProcess);
