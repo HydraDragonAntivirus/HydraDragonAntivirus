@@ -8,7 +8,7 @@ tauri-build = { version = "2.0.0-rc-13", features = [] }
 embed-resource = "3.0.6"
 
 [dependencies]
-tauri = { version = "2.0.0-rc-13", features = ["tray-icon"] }
+tauri = { version = "2.10.2", features = ["tray-icon"] }
 windivert = { path = "../windivert-rust-master/windivert", features = ["vendored"] }
 
 csv = "1.3"
