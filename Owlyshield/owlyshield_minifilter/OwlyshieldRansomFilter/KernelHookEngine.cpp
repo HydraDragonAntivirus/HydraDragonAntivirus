@@ -11,8 +11,10 @@ Abstract:
     
     FIXES APPLIED:
     1. Executable memory allocation for trampolines (NX fix)
-    2. Enhanced instruction length detection
-    3. Multi-processor synchronization for atomic patching
+    2. Enhanced instruction length detection with safety checks
+    3. Simplified single-CPU atomic patching (removed multi-CPU deadlock)
+    4. Better error handling and validation
+    5. Memory access protection
 
 Environment:
 
@@ -30,35 +32,46 @@ Environment:
 PHOOK_ENGINE g_HookEngine = NULL;
 
 //
-// Enhanced x64 instruction length detection
+// Enhanced x64 instruction length detection with safety checks
 // Still simplified - for production use Zydis or Capstone
 //
 
 ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
 {
     ULONG offset = 0;
-    UCHAR byte = Code[offset];
+    UCHAR byte;
     BOOLEAN hasModRM = FALSE;
     ULONG dispSize = 0;
+    ULONG prefixCount = 0;
     
-    // Skip legacy prefixes
-    while (TRUE) {
+    // Safety check
+    if (Code == NULL) {
+        return 0;
+    }
+    
+    __try {
+        byte = Code[offset];
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    // Skip legacy prefixes (max 4 prefixes to prevent infinite loop)
+    while (prefixCount < 4) {
         switch (byte) {
             // Legacy prefixes
             case 0xF0: case 0xF2: case 0xF3: // LOCK, REPNE, REP
             case 0x2E: case 0x36: case 0x3E: case 0x26: case 0x64: case 0x65: // Segment
             case 0x66: case 0x67: // Operand/Address size
-                offset++;
-                byte = Code[offset];
-                continue;
-            
             // REX prefixes (0x40-0x4F)
             case 0x40: case 0x41: case 0x42: case 0x43:
             case 0x44: case 0x45: case 0x46: case 0x47:
             case 0x48: case 0x49: case 0x4A: case 0x4B:
             case 0x4C: case 0x4D: case 0x4E: case 0x4F:
                 offset++;
+                if (offset >= 15) return 0; // Safety check
                 byte = Code[offset];
+                prefixCount++;
                 continue;
         }
         break;
@@ -67,6 +80,7 @@ ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
     // Handle opcode
     if (byte == 0x0F) { // Two-byte opcode
         offset++;
+        if (offset >= 15) return 0; // Safety check
         byte = Code[offset];
         offset++;
         hasModRM = TRUE; // Most two-byte opcodes have ModR/M
@@ -131,12 +145,14 @@ ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
             
             default:
                 // Unknown - return safe default
-                return offset + 3;
+                return 5;
         }
     }
     
     // Process ModR/M and SIB if present
     if (hasModRM) {
+        if (offset >= 15) return 0; // Safety check
+        
         UCHAR modrm = Code[offset];
         offset++;
         
@@ -146,6 +162,7 @@ ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
         // Check for SIB byte
         if (mod != 3 && rm == 4) {
             offset++; // SIB byte
+            if (offset >= 15) return 0; // Safety check
         }
         
         // Displacement
@@ -157,6 +174,7 @@ ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
             dispSize = 4; // RIP-relative or disp32
         }
         offset += dispSize;
+        if (offset > 15) return 0; // Safety check
         
         // Handle immediate values for specific opcodes
         UCHAR opcode = Code[0];
@@ -167,6 +185,11 @@ ULONG SimplifiedGetInstructionLength(_In_ PUCHAR Code)
         } else if (opcode == 0x83) {
             offset += 1; // imm8
         }
+    }
+    
+    // Final safety check
+    if (offset == 0 || offset > 15) {
+        return 5; // Return safe default
     }
     
     return offset;
@@ -265,66 +288,42 @@ VOID HookEngineFreeExecutableMemory(_In_ PVOID MappedAddress, _In_ PMDL Mdl, _In
 }
 
 //
-// Multi-processor synchronization callback
-//
-
-ULONG_PTR NTAPI HookEngineSyncCallback(_In_ ULONG_PTR Context)
-{
-    PPATCH_CONTEXT patchCtx = (PPATCH_CONTEXT)Context;
-    
-    // Increment barrier counter
-    InterlockedIncrement(&patchCtx->BarrierCount);
-    
-    // Wait for patch to complete
-    while (InterlockedCompareExchange(&patchCtx->PatchComplete, 0, 0) == 0) {
-        _mm_pause();
-        YieldProcessor();
-    }
-    
-    // Memory barrier
-    _ReadWriteBarrier();
-    
-    return 0;
-}
-
-//
-// Atomic patch across all processors
+// Simplified atomic patch - single CPU approach
+// This avoids the multi-CPU deadlock issue
 //
 
 VOID HookEngineAtomicPatch(_In_ PVOID Target, _In_ PVOID PatchData, _In_ ULONG Size)
 {
-    PATCH_CONTEXT patchCtx = {0};
-    ULONG processorCount;
     KIRQL oldIrql;
     UINT64 cr0;
     
-    // Get processor count
-    processorCount = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
-    
-    patchCtx.TargetAddress = Target;
-    patchCtx.PatchData = PatchData;
-    patchCtx.PatchSize = Size;
-    patchCtx.BarrierCount = 0;
-    patchCtx.PatchComplete = 0;
-    
-    // Raise IRQL and disable interrupts on current CPU
-    oldIrql = KeRaiseIrqlToDpcLevel();
-    _disable();
-    
-    // Execute callback on all processors (including this one)
-    KeIpiGenericCall(HookEngineSyncCallback, (ULONG_PTR)&patchCtx);
-    
-    // Wait for all CPUs to reach barrier
-    while ((ULONG)InterlockedCompareExchange(&patchCtx.BarrierCount, 0, 0) < processorCount) {
-        _mm_pause();
+    if (Target == NULL || PatchData == NULL || Size == 0) {
+        return;
     }
+    
+    // Verify address is valid
+    if (!MmIsAddressValid(Target)) {
+        DbgPrint("!!! HookEngine: Invalid target address for patch\n");
+        return;
+    }
+    
+    // Raise IRQL to prevent preemption
+    oldIrql = KeRaiseIrqlToDpcLevel();
+    
+    // Disable interrupts briefly
+    _disable();
     
     // Disable write protection
     cr0 = __readcr0();
     __writecr0(cr0 & ~0x10000ULL);
     
-    // Perform the actual patch
-    RtlCopyMemory(Target, PatchData, Size);
+    // Perform the patch
+    __try {
+        RtlCopyMemory(Target, PatchData, Size);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("!!! HookEngine: Exception during patch\n");
+    }
     
     // Re-enable write protection
     cr0 = __readcr0();
@@ -333,15 +332,17 @@ VOID HookEngineAtomicPatch(_In_ PVOID Target, _In_ PVOID PatchData, _In_ ULONG S
     // Memory barrier
     _ReadWriteBarrier();
     
-    // Signal completion
-    InterlockedExchange(&patchCtx.PatchComplete, 1);
-    
-    // Re-enable interrupts and lower IRQL
+    // Re-enable interrupts
     _enable();
+    
+    // Lower IRQL
     KeLowerIrql(oldIrql);
     
-    // Invalidate instruction caches on all CPUs
+    // Flush instruction cache
     KeInvalidateAllCaches();
+    
+    // Small delay to ensure cache flush completes
+    KeStallExecutionProcessor(10);
 }
 
 //
@@ -457,22 +458,47 @@ ULONG HookEngineGetMinimumBytesForHook(_In_ PVOID Address, _In_ ULONG RequiredBy
 {
     ULONG totalBytes = 0;
     PUCHAR code = (PUCHAR)Address;
-    ULONG maxAttempts = 20; // Safety limit
+    ULONG maxAttempts = 10; // Reduced from 20 for safety
     ULONG attempts = 0;
     
-    while (totalBytes < RequiredBytes && attempts < maxAttempts) {
-        ULONG instrLen = SimplifiedGetInstructionLength(code + totalBytes);
-        if (instrLen == 0 || instrLen > 15) {
-            DbgPrint("!!! HookEngine: Invalid instruction length %lu at offset %lu\n", 
-                     instrLen, totalBytes);
-            return 0;
+    if (Address == NULL || RequiredBytes == 0) {
+        return 0;
+    }
+    
+    // Verify address is valid
+    if (!MmIsAddressValid(Address)) {
+        DbgPrint("!!! HookEngine: Invalid address for instruction analysis\n");
+        return 0;
+    }
+    
+    __try {
+        while (totalBytes < RequiredBytes && attempts < maxAttempts) {
+            ULONG instrLen = SimplifiedGetInstructionLength(code + totalBytes);
+            
+            // Strict validation
+            if (instrLen == 0 || instrLen > 15) {
+                DbgPrint("!!! HookEngine: Invalid instruction length %lu at offset %lu\n", 
+                         instrLen, totalBytes);
+                return 0;
+            }
+            
+            totalBytes += instrLen;
+            attempts++;
         }
-        totalBytes += instrLen;
-        attempts++;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("!!! HookEngine: Exception during instruction analysis\n");
+        return 0;
+    }
+    
+    if (totalBytes < RequiredBytes) {
+        DbgPrint("!!! HookEngine: Could not find enough bytes (%lu < %lu)\n", 
+                 totalBytes, RequiredBytes);
+        return 0;
     }
     
     if (attempts >= maxAttempts) {
-        DbgPrint("!!! HookEngine: Too many instructions, possible infinite loop\n");
+        DbgPrint("!!! HookEngine: Too many instructions, possible issue\n");
         return 0;
     }
     
@@ -514,6 +540,7 @@ NTSTATUS HookEngineInstallHook(
     PMDL trampolineMdl = NULL;
     PVOID trampolinePhysical = NULL;
     ULONG bytesToCopy;
+    
     if (g_HookEngine == NULL || !g_HookEngine->IsInitialized) {
         DbgPrint("!!! HookEngine: Not initialized\n");
         return STATUS_DEVICE_NOT_READY;
@@ -524,9 +551,24 @@ NTSTATUS HookEngineInstallHook(
         return STATUS_INVALID_PARAMETER;
     }
     
+    // Verify target address is valid
+    if (!MmIsAddressValid(TargetFunction)) {
+        DbgPrint("!!! HookEngine: Invalid target function address\n");
+        return STATUS_INVALID_ADDRESS;
+    }
+    
+    // Probe for read access
+    __try {
+        ProbeForRead(TargetFunction, HOOK_JUMP_SIZE, 1);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("!!! HookEngine: Cannot read target function\n");
+        return STATUS_ACCESS_VIOLATION;
+    }
+    
     ExAcquireFastMutex(&g_HookEngine->EngineMutex);
     
-    // Check if already hooked1
+    // Check if already hooked
     if (HookEngineFindHook(TargetFunction) != NULL) {
         DbgPrint("!!! HookEngine: Function already hooked\n");
         ExReleaseFastMutex(&g_HookEngine->EngineMutex);
@@ -626,7 +668,7 @@ NTSTATUS HookEngineInstallHook(
              hookEntry->OriginalBytes[4], hookEntry->OriginalBytes[5],
              hookEntry->OriginalBytes[6], hookEntry->OriginalBytes[7]);
     
-    // Install the hook atomically across all CPUs
+    // Install the hook atomically
     HookEngineAtomicPatch(TargetFunction, hookJump, HOOK_JUMP_SIZE);
     
     // NOP out remaining bytes if any

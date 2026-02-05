@@ -17,8 +17,9 @@ Abstract:
     
     UPDATED WITH FIXES:
     - Executable memory allocation for trampolines (NX/DEP fix)
-    - Multi-processor synchronization for atomic patching
-    - Enhanced instruction length detection
+    - Simplified single-CPU atomic patching (removed multi-CPU deadlock)
+    - Enhanced instruction length detection with safety checks
+    - Better error handling and validation
 
 Environment:
 
@@ -29,7 +30,6 @@ Environment:
 #include <ntifs.h>
 #include <ntddk.h>
 #include <ntstrsafe.h>
-#include "../SharedDefs/SharedDefs.h"
 
 //
 // Hook engine configuration
@@ -57,8 +57,8 @@ typedef struct _HOOK_ENTRY {
     PVOID TargetFunction;           // Original function address
     PVOID HookFunction;             // Our hook function address
     PVOID TrampolineFunction;       // Allocated trampoline to call original
-    PMDL TrampolineMdl;             // MDL for trampoline memory (NEW)
-    PVOID TrampolinePhysical;       // Physical memory backing trampoline (NEW)
+    PMDL TrampolineMdl;             // MDL for trampoline memory
+    PVOID TrampolinePhysical;       // Physical memory backing trampoline
     UCHAR OriginalBytes[32];        // Saved original function bytes
     ULONG OriginalBytesLength;      // How many bytes we backed up
     BOOLEAN IsActive;               // Is this hook currently active
@@ -76,19 +76,6 @@ typedef struct _HOOK_ENGINE {
     BOOLEAN IsInitialized;
     ULONG ActiveHookCount;
 } HOOK_ENGINE, *PHOOK_ENGINE;
-
-//
-// Multi-processor patch synchronization context
-//
-
-typedef struct _PATCH_CONTEXT {
-    volatile LONG BarrierCount;
-    volatile LONG PatchComplete;
-    PVOID TargetAddress;
-    PVOID PatchData;
-    ULONG PatchSize;
-    KIRQL SavedIrql;
-} PATCH_CONTEXT, *PPATCH_CONTEXT;
 
 //
 // Global hook engine instance
@@ -150,7 +137,7 @@ KIRQL HookEngineDisableWriteProtection(VOID);
 VOID HookEngineEnableWriteProtection(_In_ KIRQL OldIrql);
 
 //
-// Executable memory allocation (NEW)
+// Executable memory allocation
 //
 
 PVOID HookEngineAllocateExecutableMemory(
@@ -166,12 +153,8 @@ VOID HookEngineFreeExecutableMemory(
 );
 
 //
-// Multi-processor synchronization (NEW)
+// Simplified atomic patching
 //
-
-ULONG_PTR NTAPI HookEngineSyncCallback(
-    _In_ ULONG_PTR Context
-);
 
 VOID HookEngineAtomicPatch(
     _In_ PVOID Target,
