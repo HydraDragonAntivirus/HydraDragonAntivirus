@@ -389,7 +389,6 @@ Return Value:
     DbgPrint("FSFilter: Unloading driver\n");
 
     // Hook Cleanup
-    RemoveKernelApiHooks();
     HookEngineCleanup();
 
     // Registry Cleanup
