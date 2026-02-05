@@ -1153,25 +1153,105 @@ impl ProcessBehaviorState {
         
         self.irp_stats.record_operation(&rec);
         
-        // NEW: Track kernel API events
+        // NEW: Track kernel API events with detailed logging
         match irp_op {
-            12 => self.kernel_write_memory_events += 1,      // IRP_KERNEL_WRITE_MEMORY
-            13 => self.kernel_allocate_memory_events += 1,   // IRP_KERNEL_ALLOCATE_MEMORY
-            14 => self.kernel_protect_memory_events += 1,    // IRP_KERNEL_PROTECT_MEMORY
-            15 => self.kernel_create_thread_events += 1,     // IRP_KERNEL_CREATE_THREAD
-            16 => self.kernel_queue_apc_events += 1,         // IRP_KERNEL_QUEUE_APC
-            17 => self.kernel_set_context_events += 1,       // IRP_KERNEL_SET_CONTEXT
-            18 => self.kernel_create_section_events += 1,    // IRP_KERNEL_CREATE_SECTION
-            19 => self.kernel_map_section_events += 1,       // IRP_KERNEL_MAP_SECTION
-            20 => self.kernel_delete_file_events += 1,       // IRP_KERNEL_DELETE_FILE
-            21 => self.kernel_load_driver_events += 1,       // IRP_KERNEL_LOAD_DRIVER
-            22 => self.kernel_open_process_events += 1,      // IRP_KERNEL_OPEN_PROCESS
+            12 => {
+                self.kernel_write_memory_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] NtWriteVirtualMemory detected - PID: {}, Target: {}, Size: {} bytes, Total count: {}",
+                    msg.pid, msg.pid, msg.mem_sized_used, self.kernel_write_memory_events
+                ));
+            },
+            13 => {
+                self.kernel_allocate_memory_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] NtAllocateVirtualMemory detected - PID: {}, Size: {} bytes, Total count: {}",
+                    msg.pid, msg.mem_sized_used, self.kernel_allocate_memory_events
+                ));
+            },
+            14 => {
+                self.kernel_protect_memory_events += 1;
+                Logging::warning(&format!(
+                    "[KERNEL API] NtProtectVirtualMemory detected (DEP bypass attempt) - PID: {}, Size: {} bytes, Total count: {}",
+                    msg.pid, msg.mem_sized_used, self.kernel_protect_memory_events
+                ));
+            },
+            15 => {
+                self.kernel_create_thread_events += 1;
+                Logging::warning(&format!(
+                    "[KERNEL API] NtCreateThreadEx detected (remote thread creation) - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_create_thread_events
+                ));
+            },
+            16 => {
+                self.kernel_queue_apc_events += 1;
+                Logging::warning(&format!(
+                    "[KERNEL API] NtQueueApcThread detected (APC injection) - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_queue_apc_events
+                ));
+            },
+            17 => {
+                self.kernel_set_context_events += 1;
+                Logging::warning(&format!(
+                    "[KERNEL API] NtSetContextThread detected (thread hijacking) - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_set_context_events
+                ));
+            },
+            18 => {
+                self.kernel_create_section_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] ZwCreateSection detected - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_create_section_events
+                ));
+            },
+            19 => {
+                self.kernel_map_section_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] ZwMapViewOfSection detected - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_map_section_events
+                ));
+            },
+            20 => {
+                self.kernel_delete_file_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] NtDeleteFile detected - PID: {}, Path: {}, Total count: {}",
+                    msg.pid, msg.filepathstr, self.kernel_delete_file_events
+                ));
+            },
+            21 => {
+                self.kernel_load_driver_events += 1;
+                Logging::warning(&format!(
+                    "[KERNEL API] NtLoadDriver detected (driver loading) - PID: {}, Path: {}, Total count: {}",
+                    msg.pid, msg.filepathstr, self.kernel_load_driver_events
+                ));
+            },
+            22 => {
+                self.kernel_open_process_events += 1;
+                Logging::info(&format!(
+                    "[KERNEL API] NtOpenProcess detected - PID: {}, Total count: {}",
+                    msg.pid, self.kernel_open_process_events
+                ));
+            },
             _ => {},
         }
         
-        // Increment total kernel events counter
+        // Increment total kernel events counter and log injection pattern detection
         if irp_op >= 12 && irp_op <= 22 {
             self.kernel_events_total += 1;
+            
+            // Check for injection indicators after each kernel API event
+            if self.irp_stats.has_injection_indicators() {
+                Logging::warning(&format!(
+                    "[INJECTION DETECTED] PID {} shows multiple injection techniques - Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Total injection APIs: {}",
+                    msg.pid,
+                    self.irp_stats.kernel_write_memory_count,
+                    self.irp_stats.kernel_allocate_memory_count,
+                    self.irp_stats.kernel_protect_memory_count,
+                    self.irp_stats.kernel_create_thread_count,
+                    self.irp_stats.kernel_queue_apc_count,
+                    self.irp_stats.get_injection_api_count()
+                ));
+            }
         }
         
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
@@ -2586,6 +2666,39 @@ impl BehaviorEngine {
             let app_name = state.app_name.clone();
             let exe_path_buf = state.exe_path.clone();
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
+
+            let pid = state.pid;
+            let app_name = state.app_name.clone();
+            let exe_path_buf = state.exe_path.clone();
+            let exe_path_str = exe_path_buf.to_string_lossy().to_string();
+
+            // Log kernel API activity summary if any kernel events detected
+            if state.kernel_events_total > 0 {
+                Logging::info(&format!(
+                    "[KERNEL API SUMMARY] PID {} ({}) - Total kernel events: {}, Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Context: {}, Section: {}, Map: {}, DelFile: {}, Driver: {}, OpenProc: {}",
+                    pid, app_name,
+                    state.kernel_events_total,
+                    state.kernel_write_memory_events,
+                    state.kernel_allocate_memory_events,
+                    state.kernel_protect_memory_events,
+                    state.kernel_create_thread_events,
+                    state.kernel_queue_apc_events,
+                    state.kernel_set_context_events,
+                    state.kernel_create_section_events,
+                    state.kernel_map_section_events,
+                    state.kernel_delete_file_events,
+                    state.kernel_load_driver_events,
+                    state.kernel_open_process_events
+                ));
+                
+                // Warn if injection indicators detected
+                if state.irp_stats.has_injection_indicators() {
+                    Logging::warning(&format!(
+                        "[INJECTION PATTERN] PID {} ({}) shows code injection behavior pattern - Total injection APIs: {}",
+                        pid, app_name, state.irp_stats.get_injection_api_count()
+                    ));
+                }
+            }
 
             for rule in &self.rules {
                 let mut legacy_triggered = false;
