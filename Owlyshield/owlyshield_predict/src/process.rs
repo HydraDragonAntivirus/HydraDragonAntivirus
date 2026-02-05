@@ -28,7 +28,6 @@ use std::collections::HashSet;
 use std::fmt::Formatter;
 use std::ops::Mul;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, SystemTime};

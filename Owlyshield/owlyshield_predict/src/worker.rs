@@ -616,7 +616,7 @@ pub mod worker_instance {
     use crate::jsonrpc::{Jsonrpc, RPCMessage};
     use crate::predictions::prediction::input_tensors::Timestep;
     use crate::threat_handler::ThreatHandler;
-    use sysinfo::{System, ProcessesToUpdate, ProcessRefreshKind, Pid};
+    use sysinfo::{System, ProcessesToUpdate};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     #[cfg(feature = "realtime_learning")]

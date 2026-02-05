@@ -16,11 +16,11 @@ use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 
-use windows::Win32::NetworkManagement::IpHelper::{
-    GetExtendedTcpTable, GetExtendedUdpTable, 
-    TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID
-};
-use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+// REMOVED: Non-kernel API network detection Windows imports
+// Network detection is now purely kernel-based via:
+// - Kernel API hooks for process operations
+// - DLL load monitoring for network modules (ws2_32.dll, winhttp.dll, etc.)
+// - File system monitoring for URL cache/cookies
 
 use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
@@ -39,6 +39,19 @@ pub struct IrpOperationRecord {
     pub extension: String,
     pub entropy: f64,
     pub bytes_transferred: u64,
+    pub target_pid: u32,  // NEW: For kernel operations targeting another process
+}
+
+/// Kernel API operation details for detailed tracking and forensics
+#[derive(Debug, Clone)]
+pub struct KernelApiOperation {
+    pub timestamp: SystemTime,
+    pub api_type: IrpMajorOp,
+    pub source_pid: u32,
+    pub target_pid: u32,
+    pub memory_address: u64,
+    pub memory_size: u64,
+    pub operation_details: String,
 }
 
 /// Maintains comprehensive operation statistics
@@ -61,11 +74,26 @@ pub struct IrpStatistics {
     // Process operations
     pub process_create_count: u64,
     pub process_terminate_count: u64,
+    pub process_exit_count: u64,
+    pub process_handle_open_count: u64,
+    pub process_terminate_attempt_count: u64,
     
-    // Network operations
-    pub network_connect_count: u64,
-    pub network_send_count: u64,
-    pub network_receive_count: u64,
+    // Kernel API Hook operations - Code Injection/Manipulation
+    pub kernel_write_memory_count: u64,
+    pub kernel_allocate_memory_count: u64,
+    pub kernel_protect_memory_count: u64,
+    pub kernel_create_thread_count: u64,
+    pub kernel_queue_apc_count: u64,
+    pub kernel_set_context_count: u64,
+    
+    // Kernel API Hook operations - File/Section
+    pub kernel_create_section_count: u64,
+    pub kernel_map_section_count: u64,
+    pub kernel_delete_file_count: u64,
+    
+    // Kernel API Hook operations - System
+    pub kernel_load_driver_count: u64,
+    pub kernel_open_process_count: u64,
     
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -80,16 +108,37 @@ pub struct IrpStatistics {
     pub high_entropy_files: HashSet<String>,
     pub average_entropy: f64,
     pub entropy_samples: Vec<f64>,
+    
+    // Kernel API operation history (limited to last 100 for memory efficiency)
+    pub kernel_api_operations: Vec<KernelApiOperation>,
 }
 
 impl IrpStatistics {
     pub fn record_operation(&mut self, rec: &IrpOperationRecord) {
         let irp_op = IrpMajorOp::from_byte(rec.irp_type);
+        
         match irp_op {
-            IrpMajorOp::IrpRead => self.read_count += 1,
-            IrpMajorOp::IrpWrite => self.write_count += 1,
+            // File operations
+            IrpMajorOp::IrpRead => {
+                self.read_count += 1;
+                self.total_bytes_read += rec.bytes_transferred;
+            },
+            IrpMajorOp::IrpWrite => {
+                self.write_count += 1;
+                self.total_bytes_written += rec.bytes_transferred;
+            },
             IrpMajorOp::IrpCreate => self.create_count += 1,
-            IrpMajorOp::IrpSetInfo => self.setinfo_count += 1,
+            IrpMajorOp::IrpSetInfo => {
+                self.setinfo_count += 1;
+                // Track specific file changes
+                match rec.file_change {
+                    _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8 => self.delete_count += 1,
+                    _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8 => self.rename_count += 1,
+                    _ => {},
+                }
+            },
+            
+            // Registry operations
             IrpMajorOp::IrpRegistry => {
                 match rec.file_change {
                     _ if rec.file_change == FileChangeInfo::RegCreateKey as u8 => self.registry_create_count += 1,
@@ -98,14 +147,68 @@ impl IrpStatistics {
                     _ => self.registry_read_count += 1,
                 }
             },
+            
+            // Process operations
             IrpMajorOp::IrpProcessCreate => self.process_create_count += 1,
-            IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_count += 1,
+            IrpMajorOp::IrpProcessTerminate => self.process_terminate_count += 1,
+            IrpMajorOp::IrpProcessTerminateAttempt => self.process_terminate_attempt_count += 1,
+            IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
+            IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
+            
+            // Kernel API Hooks - Code Injection/Manipulation
+            IrpMajorOp::IrpKernelWriteMemory => {
+                self.kernel_write_memory_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtWriteVirtualMemory - Code injection attempt");
+            },
+            IrpMajorOp::IrpKernelAllocateMemory => {
+                self.kernel_allocate_memory_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtAllocateVirtualMemory - Memory allocation");
+            },
+            IrpMajorOp::IrpKernelProtectMemory => {
+                self.kernel_protect_memory_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtProtectVirtualMemory - DEP bypass attempt");
+            },
+            IrpMajorOp::IrpKernelCreateThread => {
+                self.kernel_create_thread_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtCreateThreadEx - Remote thread creation");
+            },
+            IrpMajorOp::IrpKernelQueueApc => {
+                self.kernel_queue_apc_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtQueueApcThread - APC injection");
+            },
+            IrpMajorOp::IrpKernelSetContext => {
+                self.kernel_set_context_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtSetContextThread - Thread context manipulation");
+            },
+            
+            // Kernel API Hooks - File/Section
+            IrpMajorOp::IrpKernelCreateSection => {
+                self.kernel_create_section_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "ZwCreateSection - Section creation");
+            },
+            IrpMajorOp::IrpKernelMapSection => {
+                self.kernel_map_section_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "ZwMapViewOfSection - Section mapping");
+            },
+            IrpMajorOp::IrpKernelDeleteFile => {
+                self.kernel_delete_file_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtDeleteFile - File deletion");
+            },
+            
+            // Kernel API Hooks - System
+            IrpMajorOp::IrpKernelLoadDriver => {
+                self.kernel_load_driver_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
+            },
+            IrpMajorOp::IrpKernelOpenProcess => {
+                self.kernel_open_process_count += 1;
+                self.record_kernel_api_operation(rec, irp_op, "NtOpenProcess - Process access");
+            },
+            
             _ => {},
         }
         
-        self.total_bytes_read += rec.bytes_transferred;
-        self.total_bytes_written += rec.bytes_transferred;
-        
+        // Track file statistics
         if !rec.extension.is_empty() {
             *self.files_by_extension.entry(rec.extension.clone()).or_insert(0) += 1;
         }
@@ -119,6 +222,26 @@ impl IrpStatistics {
         if self.entropy_samples.len() < 1000 {
             self.entropy_samples.push(rec.entropy);
             self.average_entropy = self.entropy_samples.iter().sum::<f64>() / self.entropy_samples.len() as f64;
+        }
+    }
+    
+    /// Record detailed kernel API operation for forensics and analysis
+    fn record_kernel_api_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
+        let operation = KernelApiOperation {
+            timestamp: rec.timestamp,
+            api_type,
+            source_pid: 0, // Will be filled from IOMessage if available
+            target_pid: rec.target_pid,
+            memory_address: 0, // Will be filled from KERNEL_EVENT_INFO if available
+            memory_size: rec.bytes_transferred,
+            operation_details: details.to_string(),
+        };
+        
+        self.kernel_api_operations.push(operation);
+        
+        // Keep only last 100 operations to prevent memory bloat
+        if self.kernel_api_operations.len() > 100 {
+            self.kernel_api_operations.remove(0);
         }
     }
     
@@ -136,15 +259,51 @@ impl IrpStatistics {
             "registry_create" => self.registry_create_count,
             "process_create" => self.process_create_count,
             "process_terminate" => self.process_terminate_count,
-            "network_connect" => self.network_connect_count,
-            "network_send" => self.network_send_count,
-            "network_receive" => self.network_receive_count,
+            "process_exit" => self.process_exit_count,
+            "process_handle_open" => self.process_handle_open_count,
+            "process_terminate_attempt" => self.process_terminate_attempt_count,
+            "kernel_write_memory" => self.kernel_write_memory_count,
+            "kernel_allocate_memory" => self.kernel_allocate_memory_count,
+            "kernel_protect_memory" => self.kernel_protect_memory_count,
+            "kernel_create_thread" => self.kernel_create_thread_count,
+            "kernel_queue_apc" => self.kernel_queue_apc_count,
+            "kernel_set_context" => self.kernel_set_context_count,
+            "kernel_create_section" => self.kernel_create_section_count,
+            "kernel_map_section" => self.kernel_map_section_count,
+            "kernel_delete_file" => self.kernel_delete_file_count,
+            "kernel_load_driver" => self.kernel_load_driver_count,
+            "kernel_open_process" => self.kernel_open_process_count,
             _ => 0,
         }
     }
+    
+    /// Get total count of all injection-related kernel API calls
+    pub fn get_injection_api_count(&self) -> u64 {
+        self.kernel_write_memory_count +
+        self.kernel_allocate_memory_count +
+        self.kernel_protect_memory_count +
+        self.kernel_create_thread_count +
+        self.kernel_queue_apc_count +
+        self.kernel_set_context_count +
+        self.kernel_create_section_count +
+        self.kernel_map_section_count
+    }
+    
+    /// Check if process shows signs of code injection behavior
+    pub fn has_injection_indicators(&self) -> bool {
+        // Multiple different injection techniques used
+        let technique_count = 
+            (if self.kernel_write_memory_count > 0 { 1 } else { 0 }) +
+            (if self.kernel_allocate_memory_count > 0 { 1 } else { 0 }) +
+            (if self.kernel_protect_memory_count > 0 { 1 } else { 0 }) +
+            (if self.kernel_create_thread_count > 0 { 1 } else { 0 }) +
+            (if self.kernel_queue_apc_count > 0 { 1 } else { 0 });
+        
+        // Suspicious if using 3+ different injection techniques
+        technique_count >= 3 || self.get_injection_api_count() > 10
+    }
 }
 
-// =============================================================================
 // GLOBAL PROTECTED/EXCLUDED PATHS (Kernel-Protected Resources)
 // =============================================================================
 
@@ -989,6 +1148,7 @@ impl ProcessBehaviorState {
             extension: msg.extension.to_lowercase(),
             entropy: msg.entropy,
             bytes_transferred: msg.mem_sized_used,
+            target_pid: msg.pid,  // For most operations, source = target. For cross-process ops, driver should populate this differently
         };
         
         self.irp_stats.record_operation(&rec);
@@ -1942,7 +2102,7 @@ impl BehaviorEngine {
             let browsed_access_count = state_ref.browsed_paths_tracker.len();
             let has_staged_data = !state_ref.staged_files_written.is_empty();
             let is_online = if rule.require_internet {
-                !state_ref.network_apis_called.is_empty() || self.has_active_connections(state_ref.pid) || state_ref.network_activity_detected
+                self.has_network_activity(&state_ref)
             } else {
                 true
             };
@@ -1994,7 +2154,7 @@ impl BehaviorEngine {
                     legacy_satisfied += 1;
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has active connections",
+                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has kernel-detected network activity",
                             state_ref.pid
                         ));
                     }
@@ -2367,78 +2527,49 @@ impl BehaviorEngine {
         }
     }
     
-    fn has_active_connections(&self, pid: u32) -> bool {
-        if pid == 0 { 
-            return false; 
+    
+    /// KERNEL-BASED network activity detection (replaces has_active_connections)
+    /// Detects network activity through kernel-observed indicators:
+    /// - DLL loads of network modules (ws2_32.dll, winhttp.dll, wininet.dll)
+    /// - File operations on URL cache, cookies, network config
+    /// - network_apis_called flag from DLL monitoring
+    /// - network_activity_detected flag from file system operations
+    fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
+        // Check if network APIs detected from DLL loads
+        if !state.network_apis_called.is_empty() {
+            return true;
         }
         
-        let check_tcp = |family: u16| -> bool {
-            let mut dw_size = 0;
-            unsafe {
-                let _ = GetExtendedTcpTable(None, &mut dw_size, false, family as u32, TCP_TABLE_OWNER_PID_ALL, 0);
-                if dw_size == 0 { 
-                    return false; 
-                }
-                let mut buffer = vec![0u8; dw_size as usize];
-                if GetExtendedTcpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, family as u32, TCP_TABLE_OWNER_PID_ALL, 0) == 0 {
-                    if buffer.len() < 4 { 
-                        return false; 
-                    }
-                    let num_entries = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
-                    let (stride, pid_offset) = if family == AF_INET.0 { (24, 20) } else { (56, 52) };
-                    let start_offset = 4;
-                    for i in 0..num_entries {
-                        let offset = start_offset + (i as usize * stride);
-                        if offset + stride > buffer.len() { 
-                            break; 
-                        }
-                        let entry_pid_offset = offset + pid_offset;
-                        if entry_pid_offset + 4 <= buffer.len() {
-                            let entry_pid = u32::from_ne_bytes(buffer[entry_pid_offset..entry_pid_offset+4].try_into().unwrap());
-                            if entry_pid == pid { 
-                                return true; 
-                            }
-                        }
-                    }
-                }
-            }
-            false
-        };
+        // Check if network activity detected from file operations
+        if state.network_activity_detected {
+            return true;
+        }
         
-        let check_udp = |family: u16| -> bool {
-            let mut dw_size = 0;
-            unsafe {
-                let _ = GetExtendedUdpTable(None, &mut dw_size, false, family as u32, UDP_TABLE_OWNER_PID, 0);
-                if dw_size == 0 { 
-                    return false; 
-                }
-                let mut buffer = vec![0u8; dw_size as usize];
-                if GetExtendedUdpTable(Some(buffer.as_mut_ptr() as *mut _), &mut dw_size, false, family as u32, UDP_TABLE_OWNER_PID, 0) == 0 {
-                    if buffer.len() < 4 { 
-                        return false; 
-                    }
-                    let num_entries = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
-                    let (stride, pid_offset) = if family == AF_INET.0 { (12, 8) } else { (28, 24) };
-                    let start_offset = 4;
-                    for i in 0..num_entries {
-                        let offset = start_offset + (i as usize * stride);
-                        if offset + stride > buffer.len() { 
-                            break; 
-                        }
-                        let entry_pid_offset = offset + pid_offset;
-                        if entry_pid_offset + 4 <= buffer.len() {
-                            let entry_pid = u32::from_ne_bytes(buffer[entry_pid_offset..entry_pid_offset+4].try_into().unwrap());
-                            if entry_pid == pid { 
-                                return true; 
-                            }
-                        }
-                    }
-                }
+        // Check for specific network-related DLL loads in all_apis_called
+        let network_modules = ["ws2_32.dll", "winhttp.dll", "wininet.dll", "mswsock.dll", "wsock32.dll"];
+        for api in &state.all_apis_called {
+            let api_lower = api.to_lowercase();
+            if network_modules.iter().any(|m| api_lower.contains(m)) {
+                return true;
             }
-            false
-        };
+        }
         
-        check_tcp(AF_INET.0) || check_tcp(AF_INET6.0) || check_udp(AF_INET.0) || check_udp(AF_INET6.0)
+        // Check file operations for network indicators
+        for path in &state.irp_stats.unique_paths_accessed {
+            let path_lower = path.to_lowercase();
+            // URL cache, cookies, network config files
+            if path_lower.contains("cache") && (path_lower.contains("url") || path_lower.contains("inet") || path_lower.contains("http")) {
+                return true;
+            }
+            if path_lower.contains("cookies") || path_lower.contains("cookie") {
+                return true;
+            }
+            if path_lower.contains("winsock") || path_lower.contains("tcp") || path_lower.contains("dns") {
+                return true;
+            }
+        }
+        
+        false
     }
         
     pub fn scan_all_processes(&mut self, _config: &Config, _threat_handler: &dyn ThreatHandler) -> Vec<ProcessRecord> {
@@ -2467,7 +2598,8 @@ impl BehaviorEngine {
                 if !rule.staging_paths.is_empty() && !state.staged_files_written.is_empty() {
                     legacy_triggered = true;
                 }
-                if rule.require_internet && self.has_active_connections(pid) {
+                // UPDATED: Use kernel-based network detection instead of has_active_connections
+                if rule.require_internet && self.has_network_activity(&state) {
                     legacy_triggered = true;
                 }
 

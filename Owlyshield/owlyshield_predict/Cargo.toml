@@ -59,8 +59,6 @@ features = [
     "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_System_Registry",
-    "Win32_NetworkManagement_IpHelper",
-    "Win32_Networking_WinSock",
     "Win32_System_Services",
     "Win32_Security_WinTrust",
     "Win32_Security_Cryptography",
