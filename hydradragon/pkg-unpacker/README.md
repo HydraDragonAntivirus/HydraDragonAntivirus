@@ -67,19 +67,19 @@ Options:
 -   Unpack a UNIX application:
 
 ```console
-$ npm start -i ./pkg_app -o ./unpacked
+$ npm start -- -i ./pkg_app -o ./unpacked
 ```
 
 -   Unpack a Windows application:
 
 ```console
-$ npm start -i ./pkg_app.exe -o ./unpacked
+$ npm start -- -i ./pkg_app.exe -o ./unpacked
 ```
 
 -   Unpack a UNIX application and run it:
 
 ```console
-$ npm start -i ./pkg_app -o ./unpacked --run
+$ npm start -- -i ./pkg_app -o ./unpacked --run
 ```
 
 ### As a library
