@@ -24,6 +24,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
+    KernelEventInfo,  // NEW: Import KernelEventInfo
 };
 
 pub type BufPath = [wchar_t; 520];
@@ -317,6 +318,29 @@ pub struct UnicodeString {
     pub buffer: *const wchar_t,
 }
 
+/// NEW: C-compatible representation of KERNEL_EVENT_INFO from the driver
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct CKernelEventInfo {
+    pub event_type: c_ulong,
+    pub timestamp: c_ulonglong,
+    pub source_process_id: c_ulong,
+    pub target_process_id: c_ulong,
+    
+    pub memory_address: *const c_void,
+    pub memory_size: usize,
+    pub memory_protection: c_ulong,
+    pub is_executable_memory: c_uchar,  // BOOLEAN in C
+    
+    pub thread_handle: *const c_void,  // HANDLE
+    pub thread_start_routine: *const c_void,
+    
+    pub object_name: [wchar_t; 520],  // MAX_FILE_NAME_LENGTH from SharedDefs.h
+    
+    pub access_mask: c_ulong,
+    pub operation_status: i32,  // NTSTATUS
+}
+
 /// The C object returned by the minifilter, available through [`ReplyIrp`].
 /// It is low level and use C pointers logic which is
 /// not always compatible with RUST (in particular the lifetime of *next). That's why we convert
@@ -342,6 +366,8 @@ pub struct CDriverMsg {
     pub attacker_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
     pub attacker_gid: c_ulonglong,
+    /// NEW: Kernel event information for API hook operations
+    pub kernel_event_info: CKernelEventInfo,
     /// null (0x0) when there is no [`IOMessage`] remaining
     pub next: *const CDriverMsg,
 }
@@ -372,6 +398,34 @@ impl UnicodeString {
             // Find the first null terminator or use the full length
             let effective_len = str_slice.iter().position(|&c| c == 0).unwrap_or(num_elements);
             String::from_utf16_lossy(&str_slice[..effective_len])
+        }
+    }
+}
+
+impl CKernelEventInfo {
+    /// Convert C kernel event info to Rust KernelEventInfo
+    pub fn to_kernel_event_info(&self) -> KernelEventInfo {
+        let object_name = if self.object_name[0] != 0 {
+            let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
+            String::from_utf16_lossy(&self.object_name[..len])
+        } else {
+            String::new()
+        };
+        
+        KernelEventInfo {
+            event_type: self.event_type,
+            timestamp: self.timestamp,
+            source_process_id: self.source_process_id,
+            target_process_id: self.target_process_id,
+            memory_address: self.memory_address as u64,
+            memory_size: self.memory_size,
+            memory_protection: self.memory_protection,
+            is_executable_memory: self.is_executable_memory != 0,
+            thread_handle: self.thread_handle as u64,
+            thread_start_routine: self.thread_start_routine as u64,
+            object_name,
+            access_mask: self.access_mask,
+            operation_status: self.operation_status,
         }
     }
 }
@@ -444,6 +498,8 @@ impl IOMessage {
             attacker_pid: c_drivermsg.attacker_pid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: c_drivermsg.attacker_gid,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            kernel_event_info: c_drivermsg.kernel_event_info.to_kernel_event_info(),  // NEW
             runtime_features: RuntimeFeatures::new(),
             file_size: match PathBuf::from(
                 &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
