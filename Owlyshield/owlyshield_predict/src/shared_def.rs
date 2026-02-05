@@ -210,6 +210,36 @@ impl FileId {
     }
 }
 
+/// NEW: Kernel event details for API hook operations
+/// Matches KERNEL_EVENT_INFO from SharedDefs.h
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[repr(C)]
+pub struct KernelEventInfo {
+    pub event_type: u32,           // IRP_MAJOR_OP type
+    pub timestamp: u64,            // Event timestamp
+    pub source_process_id: u32,    // Process initiating the operation
+    pub target_process_id: u32,    // Target process (if applicable)
+    
+    // Memory operation details
+    pub memory_address: u64,       // Address involved in operation
+    pub memory_size: usize,        // Size of memory operation
+    pub memory_protection: u32,    // Protection flags
+    pub is_executable_memory: bool, // Whether operation targets executable memory
+    
+    // Thread operation details
+    pub thread_handle: u64,        // Thread handle (for thread operations)
+    pub thread_start_routine: u64, // Start routine (for thread creation)
+    
+    // File/Section operation details
+    pub object_name: String,       // File/section name (up to 520 WCHARs in C)
+    
+    // Access control details
+    pub access_mask: u32,          // Requested access rights
+    
+    // Operation result
+    pub operation_status: i32,     // NTSTATUS of the operation
+}
+
 /// Represents a driver message.
 ///
 /// - extension: The file extension
@@ -267,6 +297,9 @@ pub struct IOMessage {
     /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_gid: u64,
+    /// NEW: Kernel-level API hook event details (matches KERNEL_EVENT_INFO from SharedDefs.h)
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    pub kernel_event_info: KernelEventInfo,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
     pub time: SystemTime,
@@ -291,6 +324,8 @@ impl Default for IOMessage {
             attacker_pid: 0,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: 0,
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            kernel_event_info: KernelEventInfo::default(),
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,
             time: SystemTime::now(),

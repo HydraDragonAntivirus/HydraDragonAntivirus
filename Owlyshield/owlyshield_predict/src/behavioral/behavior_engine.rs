@@ -1153,88 +1153,353 @@ impl ProcessBehaviorState {
         
         self.irp_stats.record_operation(&rec);
         
-        // NEW: Track kernel API events with detailed logging
         match irp_op {
-            12 => {
+            12 => {  // IRP_KERNEL_WRITE_MEMORY
                 self.kernel_write_memory_events += 1;
-                Logging::info(&format!(
-                    "[KERNEL API] NtWriteVirtualMemory detected - PID: {}, Target: {}, Size: {} bytes, Total count: {}",
-                    msg.pid, msg.pid, msg.mem_sized_used, self.kernel_write_memory_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let source_pid = if msg.kernel_event_info.source_process_id != 0 {
+                        msg.kernel_event_info.source_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    let size = if msg.kernel_event_info.memory_size != 0 {
+                        msg.kernel_event_info.memory_size
+                    } else {
+                        msg.mem_sized_used as usize
+                    };
+                    
+                    Logging::info(&format!(
+                        "[KERNEL API] NtWriteVirtualMemory - Source PID: {}, Target PID: {}, Address: 0x{:X}, Size: {} bytes, Count: {}",
+                        source_pid,
+                        target_pid,
+                        msg.kernel_event_info.memory_address,
+                        size,
+                        self.kernel_write_memory_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL API] NtWriteVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        msg.pid,
+                        msg.mem_sized_used,
+                        self.kernel_write_memory_events
+                    ));
+                }
             },
-            13 => {
+            
+            13 => {  // IRP_KERNEL_ALLOCATE_MEMORY
                 self.kernel_allocate_memory_events += 1;
-                Logging::info(&format!(
-                    "[KERNEL API] NtAllocateVirtualMemory detected - PID: {}, Size: {} bytes, Total count: {}",
-                    msg.pid, msg.mem_sized_used, self.kernel_allocate_memory_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    let size = if msg.kernel_event_info.memory_size != 0 {
+                        msg.kernel_event_info.memory_size
+                    } else {
+                        msg.mem_sized_used as usize
+                    };
+                    
+                    Logging::info(&format!(
+                        "[KERNEL API] NtAllocateVirtualMemory - PID: {}, Target: {}, Size: {} bytes, Protection: 0x{:X}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        size,
+                        msg.kernel_event_info.memory_protection,
+                        self.kernel_allocate_memory_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL API] NtAllocateVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        msg.pid,
+                        msg.mem_sized_used,
+                        self.kernel_allocate_memory_events
+                    ));
+                }
             },
-            14 => {
+            
+            14 => {  // IRP_KERNEL_PROTECT_MEMORY
                 self.kernel_protect_memory_events += 1;
-                Logging::warning(&format!(
-                    "[KERNEL API] NtProtectVirtualMemory detected (DEP bypass attempt) - PID: {}, Size: {} bytes, Total count: {}",
-                    msg.pid, msg.mem_sized_used, self.kernel_protect_memory_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    let size = if msg.kernel_event_info.memory_size != 0 {
+                        msg.kernel_event_info.memory_size
+                    } else {
+                        msg.mem_sized_used as usize
+                    };
+                    
+                    let is_exec = if msg.kernel_event_info.is_executable_memory { "EXECUTABLE" } else { "non-exec" };
+                    
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtProtectVirtualMemory (DEP bypass!) - PID: {}, Target: {}, Address: 0x{:X}, Size: {} bytes, Protection: 0x{:X} ({}), Count: {}",
+                        msg.pid,
+                        target_pid,
+                        msg.kernel_event_info.memory_address,
+                        size,
+                        msg.kernel_event_info.memory_protection,
+                        is_exec,
+                        self.kernel_protect_memory_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtProtectVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        msg.pid,
+                        msg.mem_sized_used,
+                        self.kernel_protect_memory_events
+                    ));
+                }
             },
-            15 => {
+            
+            15 => {  // IRP_KERNEL_CREATE_THREAD
                 self.kernel_create_thread_events += 1;
-                Logging::warning(&format!(
-                    "[KERNEL API] NtCreateThreadEx detected (remote thread creation) - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_create_thread_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtCreateThreadEx (remote thread!) - Source PID: {}, Target PID: {}, StartAddress: 0x{:X}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        msg.kernel_event_info.thread_start_routine,
+                        self.kernel_create_thread_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtCreateThreadEx - PID: {}, Count: {}",
+                        msg.pid,
+                        self.kernel_create_thread_events
+                    ));
+                }
             },
-            16 => {
+            
+            16 => {  // IRP_KERNEL_QUEUE_APC
                 self.kernel_queue_apc_events += 1;
-                Logging::warning(&format!(
-                    "[KERNEL API] NtQueueApcThread detected (APC injection) - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_queue_apc_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtQueueApcThread (APC injection!) - Source PID: {}, Target PID: {}, ApcRoutine: 0x{:X}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        msg.kernel_event_info.thread_start_routine,
+                        self.kernel_queue_apc_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtQueueApcThread - PID: {}, Count: {}",
+                        msg.pid,
+                        self.kernel_queue_apc_events
+                    ));
+                }
             },
-            17 => {
+            
+            17 => {  // IRP_KERNEL_SET_CONTEXT
                 self.kernel_set_context_events += 1;
-                Logging::warning(&format!(
-                    "[KERNEL API] NtSetContextThread detected (thread hijacking) - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_set_context_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtSetContextThread (thread hijack!) - Source PID: {}, Target PID: {}, ThreadHandle: 0x{:X}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        msg.kernel_event_info.thread_handle,
+                        self.kernel_set_context_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtSetContextThread - PID: {}, Count: {}",
+                        msg.pid,
+                        self.kernel_set_context_events
+                    ));
+                }
             },
-            18 => {
+            
+            18 => {  // IRP_KERNEL_CREATE_SECTION
                 self.kernel_create_section_events += 1;
+                
                 Logging::info(&format!(
-                    "[KERNEL API] ZwCreateSection detected - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_create_section_events
+                    "[KERNEL API] ZwCreateSection - PID: {}, Count: {}",
+                    msg.pid,
+                    self.kernel_create_section_events
                 ));
             },
-            19 => {
+            
+            19 => {  // IRP_KERNEL_MAP_SECTION
                 self.kernel_map_section_events += 1;
-                Logging::info(&format!(
-                    "[KERNEL API] ZwMapViewOfSection detected - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_map_section_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+                    
+                    Logging::info(&format!(
+                        "[KERNEL API] ZwMapViewOfSection - Source PID: {}, Target PID: {}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        self.kernel_map_section_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL API] ZwMapViewOfSection - PID: {}, Count: {}",
+                        msg.pid,
+                        self.kernel_map_section_events
+                    ));
+                }
             },
-            20 => {
+            
+            20 => {  // IRP_KERNEL_DELETE_FILE
                 self.kernel_delete_file_events += 1;
-                Logging::info(&format!(
-                    "[KERNEL API] NtDeleteFile detected - PID: {}, Path: {}, Total count: {}",
-                    msg.pid, msg.filepathstr, self.kernel_delete_file_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let path = if !msg.kernel_event_info.object_name.is_empty() {
+                        &msg.kernel_event_info.object_name
+                    } else {
+                        &msg.filepathstr
+                    };
+                    
+                    Logging::info(&format!(
+                        "[KERNEL API] NtDeleteFile - PID: {}, Path: {}, Count: {}",
+                        msg.pid,
+                        path,
+                        self.kernel_delete_file_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL API] NtDeleteFile - PID: {}, Path: {}, Count: {}",
+                        msg.pid,
+                        msg.filepathstr,
+                        self.kernel_delete_file_events
+                    ));
+                }
             },
-            21 => {
+            
+            21 => {  // IRP_KERNEL_LOAD_DRIVER
                 self.kernel_load_driver_events += 1;
-                Logging::warning(&format!(
-                    "[KERNEL API] NtLoadDriver detected (driver loading) - PID: {}, Path: {}, Total count: {}",
-                    msg.pid, msg.filepathstr, self.kernel_load_driver_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let path = if !msg.kernel_event_info.object_name.is_empty() {
+                        &msg.kernel_event_info.object_name
+                    } else {
+                        &msg.filepathstr
+                    };
+                    
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtLoadDriver (driver load!) - PID: {}, Path: {}, Count: {}",
+                        msg.pid,
+                        path,
+                        self.kernel_load_driver_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::warning(&format!(
+                        "[KERNEL API] NtLoadDriver - PID: {}, Path: {}, Count: {}",
+                        msg.pid,
+                        msg.filepathstr,
+                        self.kernel_load_driver_events
+                    ));
+                }
             },
-            22 => {
+            
+            22 => {  // IRP_KERNEL_OPEN_PROCESS
                 self.kernel_open_process_events += 1;
-                Logging::info(&format!(
-                    "[KERNEL API] NtOpenProcess detected - PID: {}, Total count: {}",
-                    msg.pid, self.kernel_open_process_events
-                ));
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
+                        msg.kernel_event_info.target_process_id
+                    } else {
+                        0
+                    };
+                    
+                    Logging::info(&format!(
+                        "[KERNEL API] NtOpenProcess - PID: {}, Target: {}, Access: 0x{:X}, Count: {}",
+                        msg.pid,
+                        target_pid,
+                        msg.kernel_event_info.access_mask,
+                        self.kernel_open_process_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL API] NtOpenProcess - PID: {}, Count: {}",
+                        msg.pid,
+                        self.kernel_open_process_events
+                    ));
+                }
             },
+            
             _ => {},
         }
-        
+
         // Increment total kernel events counter and log injection pattern detection
         if irp_op >= 12 && irp_op <= 22 {
             self.kernel_events_total += 1;
