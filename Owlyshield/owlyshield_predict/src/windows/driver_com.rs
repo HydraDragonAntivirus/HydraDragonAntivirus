@@ -24,7 +24,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    NtDllEventInfo,
+    NtdllEventInfo, // AMENDED: Fix typo
 };
 
 pub type BufPath = [wchar_t; 520];
@@ -403,8 +403,8 @@ impl UnicodeString {
 }
 
 impl CKernelEventInfo {
-    /// Convert C kernel event info to Rust KernelEventInfo
-    pub fn to_ntdll_event_info(&self) -> KernelEventInfo {
+    /// Convert C kernel event info to Rust NtdllEventInfo
+    pub fn to_ntdll_event_info(&self) -> NtdllEventInfo { // AMENDED: Fix return type
         let object_name = if self.object_name[0] != 0 {
             let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
             String::from_utf16_lossy(&self.object_name[..len])
@@ -412,7 +412,7 @@ impl CKernelEventInfo {
             String::new()
         };
         
-        KernelEventInfo {
+        NtdllEventInfo { // AMENDED: Fix struct construction
             event_type: self.event_type,
             timestamp: self.timestamp,
             source_process_id: self.source_process_id,
@@ -499,7 +499,7 @@ impl IOMessage {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: c_drivermsg.attacker_gid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            ntdll_event_info: c_drivermsg.ntdll_event_info.to_ntdll_event_info(),  // NEW
+            ntdll_event_info: c_drivermsg.ntdll_event_info.to_ntdll_event_info(),
             runtime_features: RuntimeFeatures::new(),
             file_size: match PathBuf::from(
                 &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
