@@ -24,7 +24,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    KernelEventInfo,  // NEW: Import KernelEventInfo
+    NtDllEventInfo,
 };
 
 pub type BufPath = [wchar_t; 520];
@@ -318,7 +318,7 @@ pub struct UnicodeString {
     pub buffer: *const wchar_t,
 }
 
-/// NEW: C-compatible representation of KERNEL_EVENT_INFO from the driver
+/// NEW: C-compatible representation of ntdll_event_info from the driver
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CKernelEventInfo {
@@ -366,8 +366,8 @@ pub struct CDriverMsg {
     pub attacker_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
     pub attacker_gid: c_ulonglong,
-    /// NEW: Kernel event information for API hook operations
-    pub kernel_event_info: CKernelEventInfo,
+    /// NEW: NtDLL event information for API hook operations
+    pub ntdll_event_info: CKernelEventInfo,
     /// null (0x0) when there is no [`IOMessage`] remaining
     pub next: *const CDriverMsg,
 }
@@ -404,7 +404,7 @@ impl UnicodeString {
 
 impl CKernelEventInfo {
     /// Convert C kernel event info to Rust KernelEventInfo
-    pub fn to_kernel_event_info(&self) -> KernelEventInfo {
+    pub fn to_ntdll_event_info(&self) -> KernelEventInfo {
         let object_name = if self.object_name[0] != 0 {
             let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
             String::from_utf16_lossy(&self.object_name[..len])
@@ -499,7 +499,7 @@ impl IOMessage {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: c_drivermsg.attacker_gid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            kernel_event_info: c_drivermsg.kernel_event_info.to_kernel_event_info(),  // NEW
+            ntdll_event_info: c_drivermsg.ntdll_event_info.to_ntdll_event_info(),  // NEW
             runtime_features: RuntimeFeatures::new(),
             file_size: match PathBuf::from(
                 &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
