@@ -23,6 +23,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - This project doesn't replace your daily AV and this project not an AV.
 - It's very experimental program and you need to be careful.
 - I made very dumb choices in past. It damaged my project but now I improving it.
+- We are not going to detect too old samples. See here: https://blog.clamav.net/2025/12/clamav-signature-retirement.html
 - You must uninstall it manually; the auto-uninstaller won't work.
 - The ClamAV update issue is temporary during setup; you can safely ignore it.
 - Disable Secure Boot if the driver installation fails.
