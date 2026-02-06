@@ -23,15 +23,12 @@ Environment :
 //  Name of port used to communicate
 //
 
-const WCHAR * const ComPortName = L"\\RWFilter";
+const WCHAR *const ComPortName = L"\\RWFilter";
 
 #define MAX_FILE_NAME_LENGTH 520
 #define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR)) // max length in bytes of files sizes and dir paths
 #define FILE_OBJECT_ID_SIZE 16
 #define FILE_OBJEC_MAX_EXTENSION_SIZE 11
-// #define MAX_COMM_BUFFER_SIZE 0x100000 // size of the buffer we allocate to recieve irp ops from the driver
-// #define MAX_OPS_SAVE 0x10000 // max ops to save, we limit this to prevent driver from filling the non paged memory
-// and crashing the os
 
 #define MAX_COMM_BUFFER_SIZE 0x10000 // size of the buffer we allocate to recieve irp ops from the driver
 #define MAX_OPS_SAVE                                                                                                   \
@@ -45,9 +42,9 @@ enum COM_MESSAGE_TYPE
     MESSAGE_GET_OPS,
     MESSAGE_SET_PID,
     MESSAGE_KILL_GID,
-    MESSAGE_KILL_AND_QUARANTINE_GID, // NEW: Kill process and quarantine files
-    MESSAGE_KILL_ONLY_GID,           // NEW: Kill process without quarantine
-    MESSAGE_KILL_AND_REMOVE_GID,     // NEW: Kill process and delete file
+    MESSAGE_KILL_AND_QUARANTINE_GID, // Kill process and quarantine files
+    MESSAGE_KILL_ONLY_GID,           // Kill process without quarantine
+    MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES
 };
 
@@ -59,7 +56,7 @@ typedef struct _COM_MESSAGE
     ULONG pid;
     ULONGLONG gid;
     WCHAR path[MAX_FILE_NAME_LENGTH];
-    WCHAR quarantine_path[MAX_FILE_NAME_LENGTH]; // Added to match usermode
+    WCHAR quarantine_path[MAX_FILE_NAME_LENGTH];
 
 } COM_MESSAGE, *PCOM_MESSAGE;
 
@@ -97,67 +94,75 @@ enum IRP_MAJOR_OP
     IRP_CREATE,
     IRP_CLEANUP,
     IRP_REGISTRY,
-    
+
     // Process-related operations
-    IRP_PROCESS_CREATE,                 // Process creation
-    IRP_PROCESS_TERMINATE,              // Process termination
-    IRP_PROCESS_TERMINATE_ATTEMPT,      // External process attempting to terminate another
-    IRP_PROCESS_EXIT,                   // Process exit/cleanup
-    IRP_PROCESS_HANDLE_OPEN,            // Process handle opened for access
-    
-    // Kernel-level API hooks - Injection/Code manipulation
-    IRP_KERNEL_WRITE_MEMORY,            // NtWriteVirtualMemory - code injection attempt
-    IRP_KERNEL_ALLOCATE_MEMORY,         // NtAllocateVirtualMemory - memory allocation
-    IRP_KERNEL_PROTECT_MEMORY,          // NtProtectVirtualMemory - DEP bypass attempt
-    IRP_KERNEL_CREATE_THREAD,           // NtCreateThreadEx - remote thread creation
-    IRP_KERNEL_QUEUE_APC,               // NtQueueApcThread - APC injection
-    IRP_KERNEL_SET_CONTEXT,             // NtSetContextThread - thread context manipulation
-    
-    // Kernel-level API hooks - File/Section manipulation
-    IRP_KERNEL_CREATE_SECTION,          // ZwCreateSection - section creation
-    IRP_KERNEL_MAP_SECTION,             // ZwMapViewOfSection - section mapping
-    IRP_KERNEL_DELETE_FILE,             // NtDeleteFile - file deletion
-    
-    // Kernel-level API hooks - Driver/System operations
-    IRP_KERNEL_LOAD_DRIVER,             // NtLoadDriver - driver loading
-    IRP_KERNEL_OPEN_PROCESS,            // NtOpenProcess - process access
+    IRP_PROCESS_CREATE,            // Process creation
+    IRP_PROCESS_TERMINATE,         // Process termination
+    IRP_PROCESS_TERMINATE_ATTEMPT, // External process attempting to terminate another
+    IRP_PROCESS_EXIT,              // Process exit/cleanup
+    IRP_PROCESS_HANDLE_OPEN,       // Process handle opened for access
+
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
+    // --------------------------------------------------------------------------------
+    IRP_NT_WRITE_VIRTUAL_MEMORY,    // NtWriteVirtualMemory - code injection attempt
+    IRP_NT_ALLOCATE_VIRTUAL_MEMORY, // NtAllocateVirtualMemory - memory allocation
+    IRP_NT_PROTECT_VIRTUAL_MEMORY,  // NtProtectVirtualMemory - DEP bypass attempt
+    IRP_NT_CREATE_THREAD,           // NtCreateThreadEx - remote thread creation
+    IRP_NT_QUEUE_APC,               // NtQueueApcThread - APC injection
+    IRP_NT_SET_CONTEXT,             // NtSetContextThread - thread context manipulation
+
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - File/Section manipulation
+    // --------------------------------------------------------------------------------
+    IRP_NT_CREATE_SECTION, // NtCreateSection - section creation
+    IRP_NT_MAP_SECTION,    // NtMapViewOfSection - section mapping
+    IRP_NT_DELETE_FILE,    // NtDeleteFile - file deletion
+
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - Driver/System operations
+    // --------------------------------------------------------------------------------
+    IRP_NT_LOAD_DRIVER,  // NtLoadDriver - driver loading
+    IRP_NT_OPEN_PROCESS, // NtOpenProcess - process access
 };
 
-// NEW: Action types for threat response
+// Action types for threat response
 enum THREAT_ACTION_TYPE
 {
     THREAT_ACTION_KILL_AND_QUARANTINE = 0,
     THREAT_ACTION_KILL_ONLY = 1
 };
 
-// NEW: Kernel event details structure for capturing detailed kernel-level activity
-typedef struct _KERNEL_EVENT_INFO
+//
+// Details structure for capturing API calls intercepted in User Mode (ntdll.dll)
+//
+typedef struct _NTDLL_EVENT_INFO
 {
-    ULONG EventType;                    // IRP_MAJOR_OP type for this event
-    ULONGLONG Timestamp;                // Event timestamp
-    ULONG SourceProcessId;              // Process initiating the operation
-    ULONG TargetProcessId;              // Target process (if applicable)
-    
+    ULONG EventType;       // IRP_MAJOR_OP type for this event (IRP_NT_*)
+    ULONGLONG Timestamp;   // Event timestamp
+    ULONG SourceProcessId; // Process initiating the operation
+    ULONG TargetProcessId; // Target process (if applicable)
+
     // Memory operation details
-    PVOID MemoryAddress;                // Address involved in operation
-    SIZE_T MemorySize;                  // Size of memory operation
-    ULONG MemoryProtection;             // Protection flags (for protect/allocate ops)
-    BOOLEAN IsExecutableMemory;         // Whether operation targets executable memory
-    
+    PVOID MemoryAddress;        // Address involved in operation
+    SIZE_T MemorySize;          // Size of memory operation
+    ULONG MemoryProtection;     // Protection flags (for protect/allocate ops)
+    BOOLEAN IsExecutableMemory; // Whether operation targets executable memory
+
     // Thread operation details
-    HANDLE ThreadHandle;                // Thread handle (for thread operations)
-    PVOID ThreadStartRoutine;           // Start routine (for thread creation)
-    
+    HANDLE ThreadHandle;      // Thread handle (for thread operations)
+    PVOID ThreadStartRoutine; // Start routine (for thread creation)
+
     // File/Section operation details
     WCHAR ObjectName[MAX_FILE_NAME_LENGTH]; // File/section name
-    
+
     // Access control details
-    ACCESS_MASK AccessMask;             // Requested access rights
-    
+    ACCESS_MASK AccessMask; // Requested access rights
+
     // Operation result
-    NTSTATUS OperationStatus;           // Status of the operation
-    
-} KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
+    NTSTATUS OperationStatus; // Status of the operation
+
+} NTDLL_EVENT_INFO, *PNTDLL_EVENT_INFO;
 
 // -64- bytes structure, fixed to -96- bytes, fixed to 104 bytes
 typedef struct _DRIVER_MESSAGE
@@ -183,17 +188,17 @@ typedef struct _DRIVER_MESSAGE
     UNICODE_STRING
     filePath;      // 16 bytes unicode string - filename, also contains size and max size, buffer is outside the struct
     ULONGLONG Gid; // 8 bytes process ransomwatch gid
-    
+
     // Parent PID of the process
-    ULONG ParentPid;        // 4 bytes
-    
+    ULONG ParentPid; // 4 bytes
+
     // For IRP_PROCESS_TERMINATE_ATTEMPT: Info about the attacker process
-    ULONG AttackerPID;      // 4 bytes - PID of process attempting termination (0 if not applicable)
-    ULONGLONG AttackerGid;  // 8 bytes - GID of attacker process (0 if not tracked)
-    
-    // Kernel-level API hooking extended fields
-    KERNEL_EVENT_INFO KernelEventInfo;  // Detailed kernel event information
-    
+    ULONG AttackerPID;     // 4 bytes - PID of process attempting termination (0 if not applicable)
+    ULONGLONG AttackerGid; // 8 bytes - GID of attacker process (0 if not tracked)
+
+    // User-mode API Hooking (ntdll) extended fields
+    NTDLL_EVENT_INFO NtdllEventInfo; // Detailed ntdll event information
+
     PVOID
     next; // 8 bytes - next PDRIVER_MESSAGE, we use it to allow adding the fileName to the same buffer, this pointer
           // should point to the next PDRIVER_MESSAGE in buffer (kernel handled)

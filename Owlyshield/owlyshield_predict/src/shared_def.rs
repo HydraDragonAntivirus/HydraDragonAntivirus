@@ -1,10 +1,9 @@
-/// Contains all definitions shared between this usermode app and the minifilter in order
-/// to communicate properly. Those are C-representation of structures sent or received from the minifilter.
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
+use num_derive::FromPrimitive;
 
 #[cfg(target_os = "windows")]
 const FILE_ID_LEN: usize = 16;
@@ -13,33 +12,33 @@ const FILE_ID_LEN: usize = 32;
 
 /// See [`IOMessage`] struct. Used with [`crate::shared_def::IrpMajorOp::IrpSetInfo`]
 #[allow(non_local_definitions)]
-#[derive(FromPrimitive)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileChangeInfo {
-    ChangeNotSet,
-    OpenDirectory,
-    ChangeWrite,
-    ChangeNewFile,
-    ChangeRenameFile,
-    ChangeExtensionChanged,
-    ChangeDeleteFile,
+    ChangeNotSet = 0,
+    OpenDirectory = 1,
+    ChangeWrite = 2,
+    ChangeNewFile = 3,
+    ChangeRenameFile = 4,
+    ChangeExtensionChanged = 5,
+    ChangeDeleteFile = 6,
     /// Temp file: created and deleted on close
-    ChangeDeleteNewFile,
-    ChangeOverwriteFile,
-    RegCreateKey,
-    RegSetValue,
-    RegDeleteValue,
-    RegRenameKey,
+    ChangeDeleteNewFile = 7,
+    ChangeOverwriteFile = 8,
+    RegCreateKey = 9,
+    RegSetValue = 10,
+    RegDeleteValue = 11,
+    RegRenameKey = 12,
 }
 
 /// See [`IOMessage`] struct.
 #[allow(non_local_definitions)]
-#[derive(FromPrimitive)]
+#[derive(FromPrimitive, Debug, Clone, Copy)]
 #[allow(dead_code)]
 pub enum FileLocationInfo {
-    NotProtected,
-    Protected,
-    MovedIn,
-    MovedOut,
+    NotProtected = 0,
+    Protected = 1,
+    MovedIn = 2,
+    MovedOut = 3,
 }
 
 /// Messages types to send directives to the minifilter, by using te [`DriverComMessage`] struct.
@@ -78,7 +77,7 @@ pub enum IrpMajorOp {
     /// Registry operation
     IrpRegistry,
     
-    // Process-related operations (NEW: Extended event types)
+    // Process-related operations
     /// Process creation
     IrpProcessCreate,
     /// Process termination (normal exit)
@@ -90,33 +89,39 @@ pub enum IrpMajorOp {
     /// Process handle opened for access (OB callback)
     IrpProcessHandleOpen,
     
-    // Kernel-level API hooks - Injection/Code manipulation (NEW)
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
+    // --------------------------------------------------------------------------------
     /// NtWriteVirtualMemory - code injection attempt
-    IrpKernelWriteMemory,
+    IrpNtWriteVirtualMemory,
     /// NtAllocateVirtualMemory - memory allocation
-    IrpKernelAllocateMemory,
+    IrpNtAllocateVirtualMemory,
     /// NtProtectVirtualMemory - DEP bypass attempt
-    IrpKernelProtectMemory,
+    IrpNtProtectVirtualMemory,
     /// NtCreateThreadEx - remote thread creation
-    IrpKernelCreateThread,
+    IrpNtCreateThread,
     /// NtQueueApcThread - APC injection
-    IrpKernelQueueApc,
+    IrpNtQueueApc,
     /// NtSetContextThread - thread context manipulation
-    IrpKernelSetContext,
+    IrpNtSetContext,
     
-    // Kernel-level API hooks - File/Section manipulation (NEW)
-    /// ZwCreateSection - section creation
-    IrpKernelCreateSection,
-    /// ZwMapViewOfSection - section mapping
-    IrpKernelMapSection,
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - File/Section manipulation
+    // --------------------------------------------------------------------------------
+    /// NtCreateSection - section creation
+    IrpNtCreateSection,
+    /// NtMapViewOfSection - section mapping
+    IrpNtMapSection,
     /// NtDeleteFile - file deletion
-    IrpKernelDeleteFile,
+    IrpNtDeleteFile,
     
-    // Kernel-level API hooks - Driver/System operations (NEW)
+    // --------------------------------------------------------------------------------
+    // User-mode API hooks (ntdll.dll) - Driver/System operations
+    // --------------------------------------------------------------------------------
     /// NtLoadDriver - driver loading
-    IrpKernelLoadDriver,
+    IrpNtLoadDriver,
     /// NtOpenProcess - process access
-    IrpKernelOpenProcess,
+    IrpNtOpenProcess,
 }
 
 impl IrpMajorOp {
@@ -127,24 +132,27 @@ impl IrpMajorOp {
             2 => IrpMajorOp::IrpWrite,
             3 => IrpMajorOp::IrpSetInfo,
             4 => IrpMajorOp::IrpCreate,
-            5 => IrpMajorOp::IrpCreate,
+            5 => IrpMajorOp::IrpCreate, // Mapping IRP_CLEANUP to Create logic or ignore in old code, keeping for consistency
             6 => IrpMajorOp::IrpRegistry,
             7 => IrpMajorOp::IrpProcessCreate,
             8 => IrpMajorOp::IrpProcessTerminate,
             9 => IrpMajorOp::IrpProcessTerminateAttempt,
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
-            12 => IrpMajorOp::IrpKernelWriteMemory,
-            13 => IrpMajorOp::IrpKernelAllocateMemory,
-            14 => IrpMajorOp::IrpKernelProtectMemory,
-            15 => IrpMajorOp::IrpKernelCreateThread,
-            16 => IrpMajorOp::IrpKernelQueueApc,
-            17 => IrpMajorOp::IrpKernelSetContext,
-            18 => IrpMajorOp::IrpKernelCreateSection,
-            19 => IrpMajorOp::IrpKernelMapSection,
-            20 => IrpMajorOp::IrpKernelDeleteFile,
-            21 => IrpMajorOp::IrpKernelLoadDriver,
-            22 => IrpMajorOp::IrpKernelOpenProcess,
+            
+            // NTDLL Hooks
+            12 => IrpMajorOp::IrpNtWriteVirtualMemory,
+            13 => IrpMajorOp::IrpNtAllocateVirtualMemory,
+            14 => IrpMajorOp::IrpNtProtectVirtualMemory,
+            15 => IrpMajorOp::IrpNtCreateThread,
+            16 => IrpMajorOp::IrpNtQueueApc,
+            17 => IrpMajorOp::IrpNtSetContext,
+            18 => IrpMajorOp::IrpNtCreateSection,
+            19 => IrpMajorOp::IrpNtMapSection,
+            20 => IrpMajorOp::IrpNtDeleteFile,
+            21 => IrpMajorOp::IrpNtLoadDriver,
+            22 => IrpMajorOp::IrpNtOpenProcess,
+            
             _ => IrpMajorOp::IrpNone,
         }
     }
@@ -210,11 +218,11 @@ impl FileId {
     }
 }
 
-/// NEW: Kernel event details for API hook operations
-/// Matches KERNEL_EVENT_INFO from SharedDefs.h
+/// NEW: Detailed user-mode API hook event info
+/// Matches NTDLL_EVENT_INFO from SharedDefs.h
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[repr(C)]
-pub struct KernelEventInfo {
+pub struct NtdllEventInfo {
     pub event_type: u32,           // IRP_MAJOR_OP type
     pub timestamp: u64,            // Event timestamp
     pub source_process_id: u32,    // Process initiating the operation
@@ -241,40 +249,6 @@ pub struct KernelEventInfo {
 }
 
 /// Represents a driver message.
-///
-/// - extension: The file extension
-/// - `file_id_id`:  File ID on the disk (`FILE_ID_INFO`)
-/// - `mem_size_used`: Number of bytes transferred (`IO_STATUS_BLOCK.Information`)
-/// - `entropy`: (Optional) File Entropy calculated by the driver
-/// - `is_entropy_calc`: is the entropy calculated?
-/// - `pid`: Pid responsible for this io activity
-/// - `irp_op`: Windows IRP Type catched by the minifilter:
-///     * NONE (0)
-///     * READ (1)
-///     * WRITE (2)
-///     * SETINFO (3)
-///     * CREATE (4)
-///     * CLEANUP (5)
-/// - `file_change`: type of i/o operation:
-///     * `FILE_CHANGE_NOT_SET` (0)
-///     * `FILE_OPEN_DIRECTORY` (1)
-///     * `FILE_CHANGE_WRITE` (2)
-///     * `FILE_CHANGE_NEW_FILE` (3)
-///     * `FILE_CHANGE_RENAME_FILE` (44)
-///     * `FILE_CHANGE_EXTENSION_CHANGED` (5)
-///     * `FILE_CHANGE_DELETE_FILE` (6)
-///     * `FILE_CHANGE_DELETE_NEW_FILE` (7)
-///     * `FILE_CHANGE_OVERWRITE_FILE` (8)
-/// - `file_location_info`: the driver has the ability to monitor specific directories only (feature currently not used):
-///     * `FILE_NOT_PROTECTED` (0): Monitored dirs do not contained this file
-///     * `FILE_PROTECTED` (1)
-///     * `FILE_MOVED_IN` (2)
-///     * `FILE_MOVED_OUT` (3)
-/// - filepath: File path on the disk
-/// - gid: Group Identifier (maintained by the minifilter) of the operation
-/// - `runtime_features`: see class [`RuntimeFeatures`]
-/// - `file_size`: size of the file. Can be equal to -1 if the file path is not found.
-/// - time: time of execution of the i/o operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct IOMessage {
@@ -297,9 +271,9 @@ pub struct IOMessage {
     /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_gid: u64,
-    /// NEW: Kernel-level API hook event details (matches KERNEL_EVENT_INFO from SharedDefs.h)
+    /// NEW: Ntdll API hook event details (matches NTDLL_EVENT_INFO from SharedDefs.h)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    pub kernel_event_info: KernelEventInfo,
+    pub ntdll_event_info: NtdllEventInfo,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
     pub time: SystemTime,
@@ -325,7 +299,7 @@ impl Default for IOMessage {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: 0,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            kernel_event_info: KernelEventInfo::default(),
+            ntdll_event_info: NtdllEventInfo::default(),
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,
             time: SystemTime::now(),
@@ -334,9 +308,6 @@ impl Default for IOMessage {
 }
 
 /// Stores runtime features that come from *`owlyshield_predict`* (and not the minifilter).
-///
-/// - exepath: The path of the gid root process
-/// - `exe_exists`: Did the root exe file still existed (at the moment of this specific *`DriverMessage`* operation)?
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RuntimeFeatures {
     pub exepath: PathBuf,
