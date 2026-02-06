@@ -240,6 +240,11 @@ pub fn run() {
         });
 
         // Main thread: read driver messages and forward to worker thread
+        // DIAGNOSTIC: Track which opcodes actually arrive from kernel
+        let mut opcode_counts: [u64; 32] = [0; 32];
+        let mut total_msgs: u64 = 0;
+        let mut last_diag = std::time::Instant::now();
+        
         loop {
             match driver.get_irp(&mut vecnew) {
                 Ok(Some(reply_irp)) => {
@@ -247,6 +252,20 @@ pub fn run() {
                         let drivermsgs = CDriverMsgs::new(&reply_irp);
                         for drivermsg in drivermsgs {
                             let iomsg = IOMessage::from_driver_msg(&drivermsg);
+                            
+                            // DIAGNOSTIC: Count by opcode
+                            let op = iomsg.irp_op as usize;
+                            if op < 32 { opcode_counts[op] += 1; }
+                            total_msgs += 1;
+                            
+                            // Log first kernel hook event we ever see (opcodes 12-22)
+                            if op >= 12 && op <= 22 {
+                                Logging::info(&format!(
+                                    "[DIAG] !!! KERNEL HOOK EVENT RECEIVED: opcode={} pid={} gid={} path={}",
+                                    op, iomsg.pid, iomsg.gid, &iomsg.filepathstr
+                                ));
+                            }
+                            
                             if tx_iomsgs.send(iomsg).is_err() {
                                 println!("Cannot send iomsg");
                                 Logging::error("Cannot send iomsg");
@@ -263,6 +282,34 @@ pub fn run() {
                     Logging::error(&format!("Driver communication error (HRESULT: 0x{:X})", e.code().0));
                     thread::sleep(std::time::Duration::from_millis(100));
                 }
+            }
+            
+            // DIAGNOSTIC: Print opcode distribution every 10 seconds
+            if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
+                let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
+                let names = [
+                    "None","Read","Write","SetInfo","Create","Cleanup","Registry",
+                    "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen",
+                    "KrnWriteMem","KrnAllocMem","KrnProtectMem","KrnCreateThread",
+                    "KrnQueueApc","KrnSetCtx","KrnCreateSec","KrnMapSec",
+                    "KrnDeleteFile","KrnLoadDrv","KrnOpenProc"
+                ];
+                for i in 0..23 {
+                    if opcode_counts[i] > 0 {
+                        summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
+                    }
+                }
+                Logging::info(&summary);
+                
+                // Check specifically for kernel hook events
+                let kernel_total: u64 = opcode_counts[12..=22].iter().sum();
+                if kernel_total == 0 {
+                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes 12-22) received from driver!");
+                }
+                
+                opcode_counts = [0; 32];
+                total_msgs = 0;
+                last_diag = std::time::Instant::now();
             }
         }
     }

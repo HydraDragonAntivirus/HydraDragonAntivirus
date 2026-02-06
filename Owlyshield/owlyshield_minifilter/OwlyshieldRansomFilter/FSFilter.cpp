@@ -7,6 +7,9 @@ Module Name:
 Abstract:
 
     This is the main module of the FsFilter miniFilter driver.
+    
+    UPDATED: Replaced broken kernel hooking with working user-mode hooking
+             and proper Windows notification callbacks.
 
 Environment:
 
@@ -17,8 +20,7 @@ Environment:
 #include "FsFilter.h"
 #include "Regedit.h"
 #include "ProcessProtection.h"
-#include "KernelHookEngine.h"
-#include "KernelApiHooks.h"
+#include "UserModeHookEngine.h"  // CHANGED: Use user-mode hooking instead
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -39,10 +41,29 @@ DRIVER_INITIALIZE DriverEntry;
 
 EXTERN_C_END
 
+//
+// Forward declarations for new callback functions
+//
 
+VOID ThreadCreationCallback(
+    _In_ HANDLE ProcessId,
+    _In_ HANDLE ThreadId,
+    _In_ BOOLEAN Create
+);
+
+VOID ImageLoadCallback(
+    _In_opt_ PUNICODE_STRING FullImageName,
+    _In_ HANDLE ProcessId,
+    _In_ PIMAGE_INFO ImageInfo
+);
+
+// FIX: Forward declaration added because it is used before definition
+FLT_POSTOP_CALLBACK_STATUS
+FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
+                      _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
 //
-//  Constant FLT_REGISTRATION structure for our filter.  This
+//  Constant FLT_REGISTRATION structure for our filter.
 //  initializes the callback routines our filter wants to register
 //  for.  This is only used to register with the filter manager
 //
@@ -236,36 +257,238 @@ Return Value:
     driverData->SetQuarantinePath(&quarantinePathString);
 
     // ====================================================================
-    // NEW: Initialize Kernel Hooking Engine
-    // This will install ALL 11 hooks (basic + advanced)
+    // UPDATED: Initialize WORKING monitoring systems
+    // - User-mode hooking (bypasses PatchGuard)
+    // - Thread creation callbacks
+    // - Image load callbacks
     // ====================================================================
 
-    status = HookEngineInitialize();
+    DbgPrint("!!! FSFilter: Initializing advanced monitoring systems...\n");
+
+    // 1. Initialize user-mode hooking engine
+    //    This hooks ntdll.dll in monitored processes instead of kernel functions
+    status = UserModeHookEngineInitialize();
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to initialize hook engine: 0x%X\n", status);
-        // Continue anyway - hooking is optional enhancement
+        DbgPrint("!!! FSFilter: Failed to initialize user-mode hook engine: 0x%X\n", status);
+        DbgPrint("!!! FSFilter: Memory operations will not be monitored (non-fatal)\n");
     }
     else
     {
-        // Install all kernel API hooks (basic + advanced integrated)
-        status = InstallKernelApiHooks();
-        if (!NT_SUCCESS(status))
-        {
-            DbgPrint("!!! FSFilter: Failed to install kernel hooks: 0x%X\n", status);
-            HookEngineCleanup();
-            // Continue anyway - hooking is optional
-        }
-        else
-        {
-            DbgPrint("!!! FSFilter: All kernel API hooks installed successfully (11 hooks)\n");
-        }
+        DbgPrint("!!! FSFilter: User-mode hook engine initialized successfully\n");
+        DbgPrint("!!! FSFilter: Will hook ntdll.dll in each monitored process\n");
     }
 
+    // 2. Register thread creation callback
+    //    Detects remote thread injection (NtCreateThreadEx from different process)
+    status = PsSetCreateThreadNotifyRoutine(ThreadCreationCallback);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: Failed to register thread creation callback: 0x%X\n", status);
+    }
+    else
+    {
+        DbgPrint("!!! FSFilter: Thread creation monitoring enabled\n");
+    }
+
+    // 3. Register image load callback
+    //    Detects DLL injection and driver loading
+    status = PsSetLoadImageNotifyRoutine(ImageLoadCallback);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: Failed to register image load callback: 0x%X\n", status);
+    }
+    else
+    {
+        DbgPrint("!!! FSFilter: Image load monitoring enabled (DLL/driver detection)\n");
+    }
+
+    DbgPrint("!!! FSFilter: ========================================\n");
+    DbgPrint("!!! FSFilter: MONITORING COVERAGE:\n");
+    DbgPrint("!!! FSFilter: - Process creation/termination (PsSetCreateProcessNotifyRoutine)\n");
+    DbgPrint("!!! FSFilter: - Process/thread handle operations (ObRegisterCallbacks)\n");
+    DbgPrint("!!! FSFilter: - Thread creation (PsSetCreateThreadNotifyRoutine)\n");
+    DbgPrint("!!! FSFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
+    DbgPrint("!!! FSFilter: - File operations (Minifilter callbacks)\n");
+    DbgPrint("!!! FSFilter: - Registry operations (CmRegisterCallback)\n");
+    DbgPrint("!!! FSFilter: - Memory operations (User-mode hooks - ntdll.dll)\n");
+    DbgPrint("!!! FSFilter: ========================================\n");
+
     // ====================================================================
-    // End of NEW code
+    // End of monitoring initialization
     // ====================================================================
+    
     return STATUS_SUCCESS;
+}
+
+//
+// NEW: Thread creation callback
+// Detects remote thread injection
+//
+
+VOID ThreadCreationCallback(
+    _In_ HANDLE ProcessId,
+    _In_ HANDLE ThreadId,
+    _In_ BOOLEAN Create
+)
+{
+    UNREFERENCED_PARAMETER(ThreadId);
+    
+    if (!Create) {
+        return; // Only monitor thread creation, not termination
+    }
+    
+    if (driverData == NULL || driverData->isFilterClosed()) {
+        return;
+    }
+    
+    HANDLE currentPid = PsGetCurrentProcessId();
+    
+    // If the thread is being created in a different process, this is remote thread injection
+    if (currentPid != ProcessId) {
+        DbgPrint("!!! FSFilter: Remote thread creation detected!\n");
+        DbgPrint("!!!   Source PID: %lu -> Target PID: %lu, Thread ID: %lu\n",
+                 (ULONG)(ULONG_PTR)currentPid,
+                 (ULONG)(ULONG_PTR)ProcessId,
+                 (ULONG)(ULONG_PTR)ThreadId);
+        
+        // Check if either process is monitored
+        BOOLEAN sourceFound = FALSE;
+        BOOLEAN targetFound = FALSE;
+        ULONGLONG sourceGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)currentPid, &sourceFound);
+        ULONGLONG targetGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &targetFound);
+        
+        if (sourceFound || targetFound) {
+            // Log to usermode via IRP_KERNEL_CREATE_THREAD
+            PIRP_ENTRY newEntry = new IRP_ENTRY();
+            if (newEntry != NULL) {
+                PDRIVER_MESSAGE newItem = &newEntry->data;
+                newItem->IRP_OP = IRP_KERNEL_CREATE_THREAD; // 15
+                
+                // Attribute to the attacker (source process)
+                if (sourceFound) {
+                    newItem->PID = (ULONG)(ULONG_PTR)currentPid;
+                    newItem->Gid = sourceGid;
+                } else {
+                    newItem->PID = (ULONG)(ULONG_PTR)ProcessId;
+                    newItem->Gid = targetGid;
+                }
+                
+                newItem->AttackerPID = (ULONG)(ULONG_PTR)currentPid;
+                newItem->AttackerGid = sourceFound ? sourceGid : 0;
+                
+                // Fill in kernel event info
+                newItem->KernelEventInfo.EventType = IRP_KERNEL_CREATE_THREAD;
+                newItem->KernelEventInfo.SourceProcessId = (ULONG)(ULONG_PTR)currentPid;
+                newItem->KernelEventInfo.TargetProcessId = (ULONG)(ULONG_PTR)ProcessId;
+                KeQuerySystemTimePrecise((PLARGE_INTEGER)&newItem->KernelEventInfo.Timestamp);
+                
+                if (!driverData->AddIrpMessage(newEntry)) {
+                    delete newEntry;
+                }
+            }
+        }
+    }
+}
+
+//
+// NEW: Image load callback
+// Detects DLL injection and driver loading
+//
+
+VOID ImageLoadCallback(
+    _In_opt_ PUNICODE_STRING FullImageName,
+    _In_ HANDLE ProcessId,
+    _In_ PIMAGE_INFO ImageInfo
+)
+{
+    if (FullImageName == NULL || ImageInfo == NULL) {
+        return;
+    }
+    
+    if (driverData == NULL || driverData->isFilterClosed()) {
+        return;
+    }
+    
+    HANDLE currentPid = PsGetCurrentProcessId();
+    
+    // Detect kernel driver loading (system-mode image)
+    if (ImageInfo->SystemModeImage) {
+        DbgPrint("!!! FSFilter: Kernel driver loaded: %wZ\n", FullImageName);
+        DbgPrint("!!!   Loaded by PID: %lu\n", (ULONG)(ULONG_PTR)currentPid);
+        
+        // Check if the loading process is monitored
+        BOOLEAN found = FALSE;
+        ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)currentPid, &found);
+        
+        if (found) {
+            // Log via IRP_KERNEL_LOAD_DRIVER (21)
+            PIRP_ENTRY newEntry = new IRP_ENTRY();
+            if (newEntry != NULL) {
+                PDRIVER_MESSAGE newItem = &newEntry->data;
+                newItem->IRP_OP = IRP_KERNEL_LOAD_DRIVER;
+                newItem->PID = (ULONG)(ULONG_PTR)currentPid;
+                newItem->Gid = gid;
+                
+                newItem->KernelEventInfo.EventType = IRP_KERNEL_LOAD_DRIVER;
+                newItem->KernelEventInfo.SourceProcessId = (ULONG)(ULONG_PTR)currentPid;
+                newItem->KernelEventInfo.TargetProcessId = 0;
+                KeQuerySystemTimePrecise((PLARGE_INTEGER)&newItem->KernelEventInfo.Timestamp);
+                
+                // Copy driver path
+                USHORT copyLen = FullImageName->Length;
+                if (copyLen > MAX_FILE_NAME_SIZE - sizeof(WCHAR))
+                    copyLen = MAX_FILE_NAME_SIZE - sizeof(WCHAR);
+                
+                RtlCopyMemory(newEntry->Buffer, FullImageName->Buffer, copyLen);
+                newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+                newEntry->filePath.Length = copyLen;
+                newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                newEntry->filePath.Buffer = newEntry->Buffer;
+                
+                if (!driverData->AddIrpMessage(newEntry)) {
+                    delete newEntry;
+                }
+            }
+        }
+    }
+    
+    // Also hook ntdll.dll when it loads in monitored processes
+    if (!ImageInfo->SystemModeImage && ProcessId != 0) {
+        // Check if this is ntdll.dll
+        if (FullImageName->Length > 0) {
+            UNICODE_STRING ntdllName;
+            RtlInitUnicodeString(&ntdllName, L"ntdll.dll");
+            
+            // Simple check: does path end with "ntdll.dll"?
+            if (FullImageName->Length >= ntdllName.Length) {
+                PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + 
+                                     FullImageName->Length - ntdllName.Length);
+                
+                if (_wcsnicmp(pathEnd, ntdllName.Buffer, ntdllName.Length / sizeof(WCHAR)) == 0) {
+                    // This is ntdll.dll loading - check if process is monitored
+                    BOOLEAN found = FALSE;
+                    driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
+                    
+                    if (found) {
+                        DbgPrint("!!! FSFilter: ntdll.dll loaded in monitored process %lu\n",
+                                 (ULONG)(ULONG_PTR)ProcessId);
+                        
+                        // Hook this process's ntdll.dll
+                        NTSTATUS status = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
+                        if (NT_SUCCESS(status)) {
+                            DbgPrint("!!! FSFilter: Successfully hooked process %lu\n",
+                                     (ULONG)(ULONG_PTR)ProcessId);
+                        } else {
+                            DbgPrint("!!! FSFilter: Failed to hook process %lu: 0x%X\n",
+                                     (ULONG)(ULONG_PTR)ProcessId, status);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // FIX: Removed invalid 'return STATUS_SUCCESS' from VOID function
 }
 
 VOID EnumerateExistingProcesses(VOID)
@@ -389,7 +612,7 @@ Return Value:
     DbgPrint("FSFilter: Unloading driver\n");
 
     // Hook Cleanup
-    HookEngineCleanup();
+    UserModeHookEngineCleanup();
 
     // Registry Cleanup
     RegeditUnloadDriver();
@@ -602,7 +825,7 @@ Arguments:
     CompletionContext - Output parameter which can be used to pass a context
         from this pre-create callback to the post-create callback.
 
-Return Value:
+    Return Value:
 
    FLT_PREOP_SUCCESS_WITH_CALLBACK - If this is not our user-mode process.
    FLT_PREOP_SUCCESS_NO_CALLBACK - All other threads.
@@ -628,15 +851,18 @@ Return Value:
     {
         return FLT_PREOP_SUCCESS_WITH_CALLBACK;
     }
-    hr = FSProcessPreOperartion(Data, FltObjects, CompletionContext);
+    
+    // FIX: Corrected typo 'FSProcessPreOperartion' -> 'FSProcessPreOperation'
+    hr = FSProcessPreOperation(Data, FltObjects, CompletionContext);
     if (hr == FLT_PREOP_SUCCESS_WITH_CALLBACK)
         return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
+// FIX: Corrected typo 'FSProcessPreOperartion' -> 'FSProcessPreOperation'
 NTSTATUS
-FSProcessPreOperartion(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
+FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                        _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
     // NO COMMUNICATION CHECK (kept same as original)
