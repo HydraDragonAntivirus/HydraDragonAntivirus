@@ -1467,7 +1467,8 @@ impl ProcessBehaviorState {
         
         self.irp_operations.push(rec);
     }
-    
+
+    //// TODO: Use Firewall instead of guessing dll loads for better accuracy and coverage of network activity, but this can be a useful heuristic in the meantime
     /// Detect network APIs directly from DLL loading and operation patterns
     pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
         // Detect internet DLLs being loaded
