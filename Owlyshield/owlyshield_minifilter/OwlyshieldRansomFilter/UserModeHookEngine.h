@@ -212,6 +212,11 @@ typedef struct _PROCESS_HOOK_ENTRY
     UCHAR NtAllocateVirtualMemory_Original[USERMODE_HOOK_SIZE];
     PVOID NtWriteVirtualMemory_Addr;
     PVOID NtAllocateVirtualMemory_Addr;
+
+    // Shellcode specific
+    PVOID ShellcodeBase;
+    SIZE_T ShellcodeSize;
+    HANDLE DriverDeviceHandle;
 } PROCESS_HOOK_ENTRY, *PPROCESS_HOOK_ENTRY;
 
 typedef struct _USERMODE_HOOK_ENGINE
@@ -230,6 +235,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID);
 VOID UserModeHookEngineCleanup(VOID);
 
 // Updated Prototype
-NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID DetourAddress_NtWrite,
-                             _In_opt_ PVOID DetourAddress_NtAlloc);
+// Updated Prototype
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
+NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);

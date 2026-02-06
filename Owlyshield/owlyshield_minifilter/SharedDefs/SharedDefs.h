@@ -30,6 +30,21 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 #define MAX_FILE_NAME_LENGTH 520
 #endif
 
+// Define IOCTL for Shellcode -> Driver communication
+#define FILE_DEVICE_OWLYSHIELD 0x8000
+#define IOCTL_REPORT_HOOK_EVENT CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _HOOK_EVENT_DATA {
+    ULONG EventType;
+    ULONG ProcessId;
+    WCHAR FunctionName[64];
+    // Generic arguments storage (up to 4 arguments for now to keep it simple)
+    ULONG_PTR Arg1;
+    ULONG_PTR Arg2;
+    ULONG_PTR Arg3;
+    ULONG_PTR Arg4;
+} HOOK_EVENT_DATA, *PHOOK_EVENT_DATA;
+
 #define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR))
 #define FILE_OBJECT_ID_SIZE 16
 #define FILE_OBJEC_MAX_EXTENSION_SIZE 11

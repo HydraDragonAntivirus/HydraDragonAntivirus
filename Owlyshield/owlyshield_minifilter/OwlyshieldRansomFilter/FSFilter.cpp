@@ -62,6 +62,13 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
+// CDO Dispatch Routines
+NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+NTSTATUS HookDeviceCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+
+PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
+
 //
 //  Constant FLT_REGISTRATION structure for our filter.
 //  initializes the callback routines our filter wants to register
@@ -162,6 +169,36 @@ Return Value:
     //
     //  Register with filter manager.
     //
+    
+    // -------------------------------------------------------------------------
+    // Create Control Device Object (CDO) for Shellcode Communication
+    // -------------------------------------------------------------------------
+    UNICODE_STRING deviceName;
+    UNICODE_STRING symLinkName;
+    RtlInitUnicodeString(&deviceName, L"\\Device\\OwlyshieldHook");
+    RtlInitUnicodeString(&symLinkName, L"\\DosDevices\\OwlyshieldHook");
+
+    status = IoCreateDevice(DriverObject, 0, &deviceName, FILE_DEVICE_UNKNOWN, 0, FALSE, &g_HookDeviceObject);
+    if (NT_SUCCESS(status))
+    {
+        status = IoCreateSymbolicLink(&symLinkName, &deviceName);
+        if (!NT_SUCCESS(status)) {
+            IoDeleteDevice(g_HookDeviceObject);
+            g_HookDeviceObject = NULL;
+        } else {
+            // Register Dispatch Routines
+            DriverObject->MajorFunction[IRP_MJ_CREATE] = HookDeviceCreate;
+            DriverObject->MajorFunction[IRP_MJ_CLOSE] = HookDeviceClose;
+            DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HookDeviceControl;
+            
+            g_HookDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+            DbgPrint("FSFilter: Hook Device Created Successfully\n");
+        }
+    }
+    else {
+        DbgPrint("FSFilter: Failed to create Hook Device: 0x%X\n", status);
+    }
+
     driverData = new DriverData(DriverObject);
     if (driverData == NULL)
     {
@@ -443,10 +480,8 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
                     DbgPrint("!!! FSFilter: ntdll.dll loaded in process %lu\n", (ULONG)(ULONG_PTR)ProcessId);
 
                     // FIX IS HERE:
-                    // Pass NULL, NULL for the detour addresses.
-                    // This initializes the engine slot but waits for a later IOCTL
-                    // to provide the actual "Predictor" address to jump to.
-                    NTSTATUS status = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId, NULL, NULL);
+                    // Call new shellcode-based hook
+                    NTSTATUS status = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
 
                     if (NT_SUCCESS(status))
                     {
@@ -619,6 +654,15 @@ Return Value:
     if (driverData) {
         delete driverData;
         driverData = NULL;
+    }
+    
+    // Cleanup CDO
+    UNICODE_STRING symLinkName;
+    RtlInitUnicodeString(&symLinkName, L"\\DosDevices\\OwlyshieldHook");
+    IoDeleteSymbolicLink(&symLinkName);
+    if (g_HookDeviceObject) {
+        IoDeleteDevice(g_HookDeviceObject);
+        g_HookDeviceObject = NULL;
     }
 
     return STATUS_SUCCESS;
@@ -2132,4 +2176,61 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
+}
+
+// ====================================================================
+// Hook Device Dispatch Routines
+// ====================================================================
+
+NTSTATUS HookDeviceCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG bytesWritten = 0;
+    
+    if (irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_REPORT_HOOK_EVENT)
+    {
+        if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
+        {
+            PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)Irp->AssociatedIrp.SystemBuffer;
+            if (eventData) {
+                // Log event using existing mechanism
+                DbgPrint("FSFilter: Hook Event from PID %lu: Type=%lu\n", 
+                    eventData->ProcessId, eventData->EventType);
+                
+                // Pass Arg2 (BaseAddress) as Generic Data Pointer
+                OnKernelApiEvent(eventData->EventType, eventData->ProcessId, eventData->ProcessId, (PVOID)eventData->Arg2);
+            }
+        }
+        else {
+            status = STATUS_BUFFER_TOO_SMALL;
+        }
+    }
+    else {
+        status = STATUS_INVALID_DEVICE_REQUEST;
+    }
+    
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = bytesWritten;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
 }
