@@ -16,12 +16,6 @@ use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
 
-// REMOVED: Non-kernel API network detection Windows imports
-// Network detection is now purely kernel-based via:
-// - Kernel API hooks for process operations
-// - DLL load monitoring for network modules (ws2_32.dll, winhttp.dll, etc.)
-// - File system monitoring for URL cache/cookies
-
 use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
 
@@ -39,12 +33,12 @@ pub struct IrpOperationRecord {
     pub extension: String,
     pub entropy: f64,
     pub bytes_transferred: u64,
-    pub target_pid: u32,  // NEW: For kernel operations targeting another process
+    pub target_pid: u32,  // NEW: For operations targeting another process
 }
 
-/// Kernel API operation details for detailed tracking and forensics
+/// Ntdll API operation details for detailed tracking and forensics
 #[derive(Debug, Clone)]
-pub struct KernelApiOperation {
+pub struct NtdllApiOperation {
     pub timestamp: SystemTime,
     pub api_type: IrpMajorOp,
     pub source_pid: u32,
@@ -78,22 +72,22 @@ pub struct IrpStatistics {
     pub process_handle_open_count: u64,
     pub process_terminate_attempt_count: u64,
     
-    // Kernel API Hook operations - Code Injection/Manipulation
-    pub kernel_write_memory_count: u64,
-    pub kernel_allocate_memory_count: u64,
-    pub kernel_protect_memory_count: u64,
-    pub kernel_create_thread_count: u64,
-    pub kernel_queue_apc_count: u64,
-    pub kernel_set_context_count: u64,
+    // Ntdll API Hooks - Code Injection/Manipulation
+    pub nt_write_virtual_memory_count: u64,
+    pub nt_allocate_virtual_memory_count: u64,
+    pub nt_protect_virtual_memory_count: u64,
+    pub nt_create_thread_count: u64,
+    pub nt_queue_apc_count: u64,
+    pub nt_set_context_count: u64,
     
-    // Kernel API Hook operations - File/Section
-    pub kernel_create_section_count: u64,
-    pub kernel_map_section_count: u64,
-    pub kernel_delete_file_count: u64,
+    // Ntdll API Hooks - File/Section
+    pub nt_create_section_count: u64,
+    pub nt_map_section_count: u64,
+    pub nt_delete_file_count: u64,
     
-    // Kernel API Hook operations - System
-    pub kernel_load_driver_count: u64,
-    pub kernel_open_process_count: u64,
+    // Ntdll API Hooks - System
+    pub nt_load_driver_count: u64,
+    pub nt_open_process_count: u64,
     
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -109,8 +103,8 @@ pub struct IrpStatistics {
     pub average_entropy: f64,
     pub entropy_samples: Vec<f64>,
     
-    // Kernel API operation history (limited to last 100 for memory efficiency)
-    pub kernel_api_operations: Vec<KernelApiOperation>,
+    // Ntdll API operation history (limited to last 100 for memory efficiency)
+    pub ntdll_api_operations: Vec<NtdllApiOperation>,
 }
 
 impl IrpStatistics {
@@ -155,54 +149,54 @@ impl IrpStatistics {
             IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
             
-            // Kernel API Hooks - Code Injection/Manipulation
-            IrpMajorOp::IrpKernelWriteMemory => {
-                self.kernel_write_memory_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtWriteVirtualMemory - Code injection attempt");
+            // Ntdll API Hooks - Code Injection/Manipulation
+            IrpMajorOp::IrpNtWriteVirtualMemory => {
+                self.nt_write_virtual_memory_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtWriteVirtualMemory - Code injection attempt");
             },
-            IrpMajorOp::IrpKernelAllocateMemory => {
-                self.kernel_allocate_memory_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtAllocateVirtualMemory - Memory allocation");
+            IrpMajorOp::IrpNtAllocateVirtualMemory => {
+                self.nt_allocate_virtual_memory_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtAllocateVirtualMemory - Memory allocation");
             },
-            IrpMajorOp::IrpKernelProtectMemory => {
-                self.kernel_protect_memory_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtProtectVirtualMemory - DEP bypass attempt");
+            IrpMajorOp::IrpNtProtectVirtualMemory => {
+                self.nt_protect_virtual_memory_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtProtectVirtualMemory - DEP bypass attempt");
             },
-            IrpMajorOp::IrpKernelCreateThread => {
-                self.kernel_create_thread_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtCreateThreadEx - Remote thread creation");
+            IrpMajorOp::IrpNtCreateThread => {
+                self.nt_create_thread_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtCreateThreadEx - Remote thread creation");
             },
-            IrpMajorOp::IrpKernelQueueApc => {
-                self.kernel_queue_apc_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtQueueApcThread - APC injection");
+            IrpMajorOp::IrpNtQueueApc => {
+                self.nt_queue_apc_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtQueueApcThread - APC injection");
             },
-            IrpMajorOp::IrpKernelSetContext => {
-                self.kernel_set_context_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtSetContextThread - Thread context manipulation");
-            },
-            
-            // Kernel API Hooks - File/Section
-            IrpMajorOp::IrpKernelCreateSection => {
-                self.kernel_create_section_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "ZwCreateSection - Section creation");
-            },
-            IrpMajorOp::IrpKernelMapSection => {
-                self.kernel_map_section_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "ZwMapViewOfSection - Section mapping");
-            },
-            IrpMajorOp::IrpKernelDeleteFile => {
-                self.kernel_delete_file_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtDeleteFile - File deletion");
+            IrpMajorOp::IrpNtSetContext => {
+                self.nt_set_context_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtSetContextThread - Thread context manipulation");
             },
             
-            // Kernel API Hooks - System
-            IrpMajorOp::IrpKernelLoadDriver => {
-                self.kernel_load_driver_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
+            // Ntdll API Hooks - File/Section
+            IrpMajorOp::IrpNtCreateSection => {
+                self.nt_create_section_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtCreateSection - Section creation");
             },
-            IrpMajorOp::IrpKernelOpenProcess => {
-                self.kernel_open_process_count += 1;
-                self.record_kernel_api_operation(rec, irp_op, "NtOpenProcess - Process access");
+            IrpMajorOp::IrpNtMapSection => {
+                self.nt_map_section_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtMapViewOfSection - Section mapping");
+            },
+            IrpMajorOp::IrpNtDeleteFile => {
+                self.nt_delete_file_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtDeleteFile - File deletion");
+            },
+            
+            // Ntdll API Hooks - System
+            IrpMajorOp::IrpNtLoadDriver => {
+                self.nt_load_driver_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
+            },
+            IrpMajorOp::IrpNtOpenProcess => {
+                self.nt_open_process_count += 1;
+                self.record_ntdll_api_operation(rec, irp_op, "NtOpenProcess - Process access");
             },
             
             _ => {},
@@ -225,23 +219,23 @@ impl IrpStatistics {
         }
     }
     
-    /// Record detailed kernel API operation for forensics and analysis
-    fn record_kernel_api_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
-        let operation = KernelApiOperation {
+    /// Record detailed Ntdll API operation for forensics and analysis
+    fn record_ntdll_api_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
+        let operation = NtdllApiOperation {
             timestamp: rec.timestamp,
             api_type,
             source_pid: 0, // Will be filled from IOMessage if available
             target_pid: rec.target_pid,
-            memory_address: 0, // Will be filled from KERNEL_EVENT_INFO if available
+            memory_address: 0, // Will be filled from NTDLL_EVENT_INFO if available
             memory_size: rec.bytes_transferred,
             operation_details: details.to_string(),
         };
         
-        self.kernel_api_operations.push(operation);
+        self.ntdll_api_operations.push(operation);
         
         // Keep only last 100 operations to prevent memory bloat
-        if self.kernel_api_operations.len() > 100 {
-            self.kernel_api_operations.remove(0);
+        if self.ntdll_api_operations.len() > 100 {
+            self.ntdll_api_operations.remove(0);
         }
     }
     
@@ -262,75 +256,59 @@ impl IrpStatistics {
             "process_exit" => self.process_exit_count,
             "process_handle_open" => self.process_handle_open_count,
             "process_terminate_attempt" => self.process_terminate_attempt_count,
-            "kernel_write_memory" => self.kernel_write_memory_count,
-            "kernel_allocate_memory" => self.kernel_allocate_memory_count,
-            "kernel_protect_memory" => self.kernel_protect_memory_count,
-            "kernel_create_thread" => self.kernel_create_thread_count,
-            "kernel_queue_apc" => self.kernel_queue_apc_count,
-            "kernel_set_context" => self.kernel_set_context_count,
-            "kernel_create_section" => self.kernel_create_section_count,
-            "kernel_map_section" => self.kernel_map_section_count,
-            "kernel_delete_file" => self.kernel_delete_file_count,
-            "kernel_load_driver" => self.kernel_load_driver_count,
-            "kernel_open_process" => self.kernel_open_process_count,
+            // Updated mappings for Ntdll
+            "nt_write_virtual_memory" => self.nt_write_virtual_memory_count,
+            "nt_allocate_virtual_memory" => self.nt_allocate_virtual_memory_count,
+            "nt_protect_virtual_memory" => self.nt_protect_virtual_memory_count,
+            "nt_create_thread" => self.nt_create_thread_count,
+            "nt_queue_apc" => self.nt_queue_apc_count,
+            "nt_set_context" => self.nt_set_context_count,
+            "nt_create_section" => self.nt_create_section_count,
+            "nt_map_section" => self.nt_map_section_count,
+            "nt_delete_file" => self.nt_delete_file_count,
+            "nt_load_driver" => self.nt_load_driver_count,
+            "nt_open_process" => self.nt_open_process_count,
             _ => 0,
         }
     }
     
-    /// Get total count of all injection-related kernel API calls
+    /// Get total count of all injection-related Ntdll API calls
     pub fn get_injection_api_count(&self) -> u64 {
-        self.kernel_write_memory_count +
-        self.kernel_allocate_memory_count +
-        self.kernel_protect_memory_count +
-        self.kernel_create_thread_count +
-        self.kernel_queue_apc_count +
-        self.kernel_set_context_count +
-        self.kernel_create_section_count +
-        self.kernel_map_section_count
+        self.nt_write_virtual_memory_count +
+        self.nt_allocate_virtual_memory_count +
+        self.nt_protect_virtual_memory_count +
+        self.nt_create_thread_count +
+        self.nt_queue_apc_count +
+        self.nt_set_context_count +
+        self.nt_create_section_count +
+        self.nt_map_section_count
     }
     
     /// Check if process shows signs of code injection behavior
     pub fn has_injection_indicators(&self) -> bool {
         // Multiple different injection techniques used
         let technique_count = 
-            (if self.kernel_write_memory_count > 0 { 1 } else { 0 }) +
-            (if self.kernel_allocate_memory_count > 0 { 1 } else { 0 }) +
-            (if self.kernel_protect_memory_count > 0 { 1 } else { 0 }) +
-            (if self.kernel_create_thread_count > 0 { 1 } else { 0 }) +
-            (if self.kernel_queue_apc_count > 0 { 1 } else { 0 });
+            (if self.nt_write_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_allocate_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_protect_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_create_thread_count > 0 { 1 } else { 0 }) +
+            (if self.nt_queue_apc_count > 0 { 1 } else { 0 });
         
         // Suspicious if using 3+ different injection techniques
         technique_count >= 3 || self.get_injection_api_count() > 10
     }
 }
 
-// GLOBAL PROTECTED/EXCLUDED PATHS (Kernel-Protected Resources)
+// GLOBAL PROTECTED/EXCLUDED PATHS
 // =============================================================================
 
-/// Paths protected by kernel that should be excluded from monitoring
-/// 
-/// Configure in behavior rules YAML under each rule:
-/// ```yaml
-/// rules:
-///   - name: "malware_detection"
-///     protected_paths:
-///       file_paths:
-///         - "\\??\\C:\\Program Files\\HydraDragonAntivirus\\"
-///         - "\\Desktop\\Sanctum\\"
-///         - "\\AppData\\Roaming\\Sanctum\\"
-///       registry_paths:
-///         - "SOFTWARE\\OwlyShield"
-///         - "Services\\owlyshield_ransom"
-/// ```
-/// 
-/// Paths must be explicitly configured after setup completion - no hardcoded defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProtectedPaths {
-    /// File system paths to exclude (protected by kernel)
+    /// File system paths to exclude
     #[serde(default)]
     pub file_paths: Vec<String>,
     
-    /// Registry paths to exclude (protected by kernel)
+    /// Registry paths to exclude
     #[serde(default)]
     pub registry_paths: Vec<String>,
 }
@@ -529,44 +507,6 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
 }
 
 // =============================================================================
-// INTERNET API KEYWORDS (DEPRECATED: Use Kernel-Based Network Detection)
-// =============================================================================
-// NOTE: Legacy API pattern matching for network operations has been consolidated
-// into kernel-level hooks. New detection uses:
-// - IrpKernelOpenProcess for process interrogation (replacing GetAddrInfo patterns)
-// - Filesystem monitoring for URL cache patterns (replacing InternetReadFile patterns)
-// - System event tracking for bind/connect operations (replacing WSA* patterns)
-//
-// Kept for backward compatibility with realtime_learning module but should be
-// replaced with kernel event counters (from ProcessBehaviorState) in ML features.
-// See ProcessBehaviorState::write_memory_count, create_thread_count, etc.
-
-pub const INTERNET_API_KEYWORDS: &[&str] = &[
-    "internetopen", "internetconnect", "httpopen", "httpsend",
-    "httpsendrequesta", "httpsendrequestw", "httpopenrequesta",
-    "httpopenrequestw", "internetopenurla", "internetopenurlw",
-    "internetreadfile", "internetwritefile", "internetclosehandle",
-    "urldownload", "urldownloadtofile", "urldownloadtofilea",
-    "urldownloadtofilew", "urldownloadtocachefile",
-    "socket", "connect", "send", "recv", "bind", "listen",
-    "accept", "closesocket", "shutdown", "gethostbyname",
-    "getaddrinfo", "wsasend", "wsarecv", "wsasocket",
-    "wsaconnect", "wsastartup", "wsacleanup", "wsaasyncgethost",
-    "winhttp", "winhttpopen", "winhttpconnect", "winhttpopenrequest",
-    "winhttpsendrequest", "winhttpreceiveresponse", "winhttpreaddata",
-    "winhttpwritedata", "winhttpclosehandle",
-    "dnsquery", "dnsquery_a", "dnsquery_w", "dnsqueryfree",
-    "getaddrinfow", "getnameinfo", "ftpopen", "ftpconnect",
-    "ftpgetfile", "ftpputfile", "ftpfindfirstfile",
-    "internetsetcookie", "internetgetcookie", "internetsetstatuscallback",
-];
-
-pub fn is_internet_api(name: &str) -> bool {
-    let name_lower = name.to_lowercase();
-    INTERNET_API_KEYWORDS.iter().any(|keyword| name_lower.contains(keyword))
-}
-
-// =============================================================================
 // RICH CONDITION SYSTEM
 // =============================================================================
 
@@ -651,43 +591,43 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub requires_signed: Option<bool>,
     #[serde(default)]
-    pub is_signed: Option<bool>,        // NEW: Check if file is simply signed (not unsigned)
+    pub is_signed: Option<bool>,        
     #[serde(default)]
-    pub is_valid_signed: Option<bool>,  // NEW: Check if signature is valid/trusted
+    pub is_valid_signed: Option<bool>,  
     #[serde(default)]
     pub trusted_signers: Vec<String>,
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
     
-    // NEW: Kernel-level API hook event tracking
+    // UPDATED: Nt-level API hook event tracking
     #[serde(default)]
-    pub kernel_write_memory_apis: Vec<String>,
+    pub nt_write_memory_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_thread_creation_apis: Vec<String>,
+    pub nt_thread_creation_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_apc_injection_apis: Vec<String>,
+    pub nt_apc_injection_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_section_apis: Vec<String>,
+    pub nt_section_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_memory_protection_apis: Vec<String>,
+    pub nt_memory_protection_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_process_access_apis: Vec<String>,
+    pub nt_process_access_apis: Vec<String>,
     #[serde(default)]
-    pub kernel_driver_loading_apis: Vec<String>,
+    pub nt_driver_loading_apis: Vec<String>,
     #[serde(default)]
-    pub detect_kernel_write_memory: bool,
+    pub detect_nt_write_memory: bool,
     #[serde(default)]
-    pub detect_kernel_thread_creation: bool,
+    pub detect_nt_thread_creation: bool,
     #[serde(default)]
-    pub detect_kernel_apc_injection: bool,
+    pub detect_nt_apc_injection: bool,
     #[serde(default)]
-    pub detect_kernel_section_mapping: bool,
+    pub detect_nt_section_mapping: bool,
     #[serde(default)]
-    pub detect_kernel_memory_protection: bool,
+    pub detect_nt_memory_protection: bool,
     #[serde(default)]
-    pub detect_kernel_process_access: bool,
+    pub detect_nt_process_access: bool,
     #[serde(default)]
-    pub kernel_event_threshold: usize,
+    pub ntdll_event_threshold: usize,
     
     #[serde(default = "default_zero")]
     pub min_matches: usize,
@@ -731,9 +671,9 @@ pub enum RuleCondition {
     FileCount { category: String, #[serde(default)] comparison: Comparison, threshold: u64 },
     Signature { 
         #[serde(default)]
-        is_trusted: Option<bool>,  // Check if signature is valid/trusted
+        is_trusted: Option<bool>,  
         #[serde(default)]
-        is_signed: Option<bool>,   // Check if file is signed at all (not unsigned)
+        is_signed: Option<bool>,   
         #[serde(default)]
         signer_pattern: Option<String> 
     },
@@ -862,7 +802,7 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub min_indicator_count: Option<usize>,
     
-    // NEW: Global protected/excluded paths from kernel
+    // Global protected/excluded paths
     #[serde(default)]
     pub protected_paths: ProtectedPaths,
 }
@@ -950,14 +890,14 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
             
-            // NEW: Expand kernel event tracking fields
-            expand_vec(&mut cond_group.kernel_write_memory_apis);
-            expand_vec(&mut cond_group.kernel_thread_creation_apis);
-            expand_vec(&mut cond_group.kernel_apc_injection_apis);
-            expand_vec(&mut cond_group.kernel_section_apis);
-            expand_vec(&mut cond_group.kernel_memory_protection_apis);
-            expand_vec(&mut cond_group.kernel_process_access_apis);
-            expand_vec(&mut cond_group.kernel_driver_loading_apis);
+            // UPDATED: Expand Nt-level event tracking fields
+            expand_vec(&mut cond_group.nt_write_memory_apis);
+            expand_vec(&mut cond_group.nt_thread_creation_apis);
+            expand_vec(&mut cond_group.nt_apc_injection_apis);
+            expand_vec(&mut cond_group.nt_section_apis);
+            expand_vec(&mut cond_group.nt_memory_protection_apis);
+            expand_vec(&mut cond_group.nt_process_access_apis);
+            expand_vec(&mut cond_group.nt_driver_loading_apis);
         }
 
         for stage in &mut self.stages {
@@ -1072,7 +1012,7 @@ pub struct ProcessBehaviorState {
     pub app_name: String,
     pub signature_checked: bool,
     pub has_valid_signature: bool,
-    pub is_signed: bool,  // NEW: Track if file is simply signed (not necessarily valid)
+    pub is_signed: bool, 
     
     pub satisfied_named_conditions: HashSet<String>,
     pub condition_match_counts: HashMap<String, usize>,
@@ -1080,25 +1020,25 @@ pub struct ProcessBehaviorState {
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
     
-    // NEW: Comprehensive IRP tracking
+    // Comprehensive IRP tracking
     pub irp_operations: Vec<IrpOperationRecord>,
     pub irp_stats: IrpStatistics,
     pub network_apis_called: HashSet<String>,
     pub all_apis_called: HashSet<String>,
     
-    // NEW: Kernel-level API hooking event tracking
-    pub kernel_write_memory_events: u32,
-    pub kernel_allocate_memory_events: u32,
-    pub kernel_protect_memory_events: u32,
-    pub kernel_create_thread_events: u32,
-    pub kernel_queue_apc_events: u32,
-    pub kernel_set_context_events: u32,
-    pub kernel_create_section_events: u32,
-    pub kernel_map_section_events: u32,
-    pub kernel_delete_file_events: u32,
-    pub kernel_load_driver_events: u32,
-    pub kernel_open_process_events: u32,
-    pub kernel_events_total: u32,
+    // UPDATED: Nt-level API hooking event tracking
+    pub nt_write_virtual_memory_events: u32,
+    pub nt_allocate_virtual_memory_events: u32,
+    pub nt_protect_virtual_memory_events: u32,
+    pub nt_create_thread_events: u32,
+    pub nt_queue_apc_events: u32,
+    pub nt_set_context_events: u32,
+    pub nt_create_section_events: u32,
+    pub nt_map_section_events: u32,
+    pub nt_delete_file_events: u32,
+    pub nt_load_driver_events: u32,
+    pub nt_open_process_events: u32,
+    pub ntdll_events_total: u32,
 }
 
 impl ProcessBehaviorState {
@@ -1121,24 +1061,24 @@ impl ProcessBehaviorState {
         state.network_apis_called = HashSet::new();
         state.all_apis_called = HashSet::new();
         
-        // NEW: Initialize kernel event counters
-        state.kernel_write_memory_events = 0;
-        state.kernel_allocate_memory_events = 0;
-        state.kernel_protect_memory_events = 0;
-        state.kernel_create_thread_events = 0;
-        state.kernel_queue_apc_events = 0;
-        state.kernel_set_context_events = 0;
-        state.kernel_create_section_events = 0;
-        state.kernel_map_section_events = 0;
-        state.kernel_delete_file_events = 0;
-        state.kernel_load_driver_events = 0;
-        state.kernel_open_process_events = 0;
-        state.kernel_events_total = 0;
+        // UPDATED: Initialize Nt event counters
+        state.nt_write_virtual_memory_events = 0;
+        state.nt_allocate_virtual_memory_events = 0;
+        state.nt_protect_virtual_memory_events = 0;
+        state.nt_create_thread_events = 0;
+        state.nt_queue_apc_events = 0;
+        state.nt_set_context_events = 0;
+        state.nt_create_section_events = 0;
+        state.nt_map_section_events = 0;
+        state.nt_delete_file_events = 0;
+        state.nt_load_driver_events = 0;
+        state.nt_open_process_events = 0;
+        state.ntdll_events_total = 0;
         
         state
     }
     
-    /// Record IRP operation with full context and track kernel events
+    /// Record IRP operation with full context and track Nt events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
@@ -1148,351 +1088,351 @@ impl ProcessBehaviorState {
             extension: msg.extension.to_lowercase(),
             entropy: msg.entropy,
             bytes_transferred: msg.mem_sized_used,
-            target_pid: msg.pid,  // For most operations, source = target. For cross-process ops, driver should populate this differently
+            target_pid: msg.pid,
         };
         
         self.irp_stats.record_operation(&rec);
         
         match irp_op {
-            12 => {  // IRP_KERNEL_WRITE_MEMORY
-                self.kernel_write_memory_events += 1;
+            12 => {  // IRP_NT_WRITE_VIRTUAL_MEMORY
+                self.nt_write_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let source_pid = if msg.kernel_event_info.source_process_id != 0 {
-                        msg.kernel_event_info.source_process_id
+                    let source_pid = if msg.ntdll_event_info.source_process_id != 0 {
+                        msg.ntdll_event_info.source_process_id
                     } else {
                         msg.pid
                     };
                     
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
-                    let size = if msg.kernel_event_info.memory_size != 0 {
-                        msg.kernel_event_info.memory_size
+                    let size = if msg.ntdll_event_info.memory_size != 0 {
+                        msg.ntdll_event_info.memory_size
                     } else {
                         msg.mem_sized_used as usize
                     };
                     
                     Logging::info(&format!(
-                        "[KERNEL API] NtWriteVirtualMemory - Source PID: {}, Target PID: {}, Address: 0x{:X}, Size: {} bytes, Count: {}",
+                        "[NTDLL HOOK] NtWriteVirtualMemory - Source PID: {}, Target PID: {}, Address: 0x{:X}, Size: {} bytes, Count: {}",
                         source_pid,
                         target_pid,
-                        msg.kernel_event_info.memory_address,
+                        msg.ntdll_event_info.memory_address,
                         size,
-                        self.kernel_write_memory_events
+                        self.nt_write_virtual_memory_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::info(&format!(
-                        "[KERNEL API] NtWriteVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        "[NTDLL HOOK] NtWriteVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
                         msg.pid,
                         msg.mem_sized_used,
-                        self.kernel_write_memory_events
+                        self.nt_write_virtual_memory_events
                     ));
                 }
             },
             
-            13 => {  // IRP_KERNEL_ALLOCATE_MEMORY
-                self.kernel_allocate_memory_events += 1;
+            13 => {  // IRP_NT_ALLOCATE_VIRTUAL_MEMORY
+                self.nt_allocate_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
-                    let size = if msg.kernel_event_info.memory_size != 0 {
-                        msg.kernel_event_info.memory_size
+                    let size = if msg.ntdll_event_info.memory_size != 0 {
+                        msg.ntdll_event_info.memory_size
                     } else {
                         msg.mem_sized_used as usize
                     };
                     
                     Logging::info(&format!(
-                        "[KERNEL API] NtAllocateVirtualMemory - PID: {}, Target: {}, Size: {} bytes, Protection: 0x{:X}, Count: {}",
+                        "[NTDLL HOOK] NtAllocateVirtualMemory - PID: {}, Target: {}, Size: {} bytes, Protection: 0x{:X}, Count: {}",
                         msg.pid,
                         target_pid,
                         size,
-                        msg.kernel_event_info.memory_protection,
-                        self.kernel_allocate_memory_events
+                        msg.ntdll_event_info.memory_protection,
+                        self.nt_allocate_virtual_memory_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::info(&format!(
-                        "[KERNEL API] NtAllocateVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        "[NTDLL HOOK] NtAllocateVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
                         msg.pid,
                         msg.mem_sized_used,
-                        self.kernel_allocate_memory_events
+                        self.nt_allocate_virtual_memory_events
                     ));
                 }
             },
             
-            14 => {  // IRP_KERNEL_PROTECT_MEMORY
-                self.kernel_protect_memory_events += 1;
+            14 => {  // IRP_NT_PROTECT_VIRTUAL_MEMORY
+                self.nt_protect_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
-                    let size = if msg.kernel_event_info.memory_size != 0 {
-                        msg.kernel_event_info.memory_size
+                    let size = if msg.ntdll_event_info.memory_size != 0 {
+                        msg.ntdll_event_info.memory_size
                     } else {
                         msg.mem_sized_used as usize
                     };
                     
-                    let is_exec = if msg.kernel_event_info.is_executable_memory { "EXECUTABLE" } else { "non-exec" };
+                    let is_exec = if msg.ntdll_event_info.is_executable_memory { "EXECUTABLE" } else { "non-exec" };
                     
                     Logging::warning(&format!(
-                        "[KERNEL API] NtProtectVirtualMemory (DEP bypass!) - PID: {}, Target: {}, Address: 0x{:X}, Size: {} bytes, Protection: 0x{:X} ({}), Count: {}",
+                        "[NTDLL HOOK] NtProtectVirtualMemory (DEP bypass!) - PID: {}, Target: {}, Address: 0x{:X}, Size: {} bytes, Protection: 0x{:X} ({}), Count: {}",
                         msg.pid,
                         target_pid,
-                        msg.kernel_event_info.memory_address,
+                        msg.ntdll_event_info.memory_address,
                         size,
-                        msg.kernel_event_info.memory_protection,
+                        msg.ntdll_event_info.memory_protection,
                         is_exec,
-                        self.kernel_protect_memory_events
+                        self.nt_protect_virtual_memory_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::warning(&format!(
-                        "[KERNEL API] NtProtectVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
+                        "[NTDLL HOOK] NtProtectVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
                         msg.pid,
                         msg.mem_sized_used,
-                        self.kernel_protect_memory_events
+                        self.nt_protect_virtual_memory_events
                     ));
                 }
             },
             
-            15 => {  // IRP_KERNEL_CREATE_THREAD
-                self.kernel_create_thread_events += 1;
+            15 => {  // IRP_NT_CREATE_THREAD
+                self.nt_create_thread_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
                     Logging::warning(&format!(
-                        "[KERNEL API] NtCreateThreadEx (remote thread!) - Source PID: {}, Target PID: {}, StartAddress: 0x{:X}, Count: {}",
+                        "[NTDLL HOOK] NtCreateThreadEx (remote thread!) - Source PID: {}, Target PID: {}, StartAddress: 0x{:X}, Count: {}",
                         msg.pid,
                         target_pid,
-                        msg.kernel_event_info.thread_start_routine,
-                        self.kernel_create_thread_events
+                        msg.ntdll_event_info.thread_start_routine,
+                        self.nt_create_thread_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::warning(&format!(
-                        "[KERNEL API] NtCreateThreadEx - PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtCreateThreadEx - PID: {}, Count: {}",
                         msg.pid,
-                        self.kernel_create_thread_events
+                        self.nt_create_thread_events
                     ));
                 }
             },
             
-            16 => {  // IRP_KERNEL_QUEUE_APC
-                self.kernel_queue_apc_events += 1;
+            16 => {  // IRP_NT_QUEUE_APC
+                self.nt_queue_apc_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
                     Logging::warning(&format!(
-                        "[KERNEL API] NtQueueApcThread (APC injection!) - Source PID: {}, Target PID: {}, ApcRoutine: 0x{:X}, Count: {}",
+                        "[NTDLL HOOK] NtQueueApcThread (APC injection!) - Source PID: {}, Target PID: {}, ApcRoutine: 0x{:X}, Count: {}",
                         msg.pid,
                         target_pid,
-                        msg.kernel_event_info.thread_start_routine,
-                        self.kernel_queue_apc_events
+                        msg.ntdll_event_info.thread_start_routine,
+                        self.nt_queue_apc_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::warning(&format!(
-                        "[KERNEL API] NtQueueApcThread - PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtQueueApcThread - PID: {}, Count: {}",
                         msg.pid,
-                        self.kernel_queue_apc_events
+                        self.nt_queue_apc_events
                     ));
                 }
             },
             
-            17 => {  // IRP_KERNEL_SET_CONTEXT
-                self.kernel_set_context_events += 1;
+            17 => {  // IRP_NT_SET_CONTEXT
+                self.nt_set_context_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
                     Logging::warning(&format!(
-                        "[KERNEL API] NtSetContextThread (thread hijack!) - Source PID: {}, Target PID: {}, ThreadHandle: 0x{:X}, Count: {}",
+                        "[NTDLL HOOK] NtSetContextThread (thread hijack!) - Source PID: {}, Target PID: {}, ThreadHandle: 0x{:X}, Count: {}",
                         msg.pid,
                         target_pid,
-                        msg.kernel_event_info.thread_handle,
-                        self.kernel_set_context_events
+                        msg.ntdll_event_info.thread_handle,
+                        self.nt_set_context_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::warning(&format!(
-                        "[KERNEL API] NtSetContextThread - PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtSetContextThread - PID: {}, Count: {}",
                         msg.pid,
-                        self.kernel_set_context_events
+                        self.nt_set_context_events
                     ));
                 }
             },
             
-            18 => {  // IRP_KERNEL_CREATE_SECTION
-                self.kernel_create_section_events += 1;
+            18 => {  // IRP_NT_CREATE_SECTION
+                self.nt_create_section_events += 1;
                 
                 Logging::info(&format!(
-                    "[KERNEL API] ZwCreateSection - PID: {}, Count: {}",
+                    "[NTDLL HOOK] NtCreateSection - PID: {}, Count: {}",
                     msg.pid,
-                    self.kernel_create_section_events
+                    self.nt_create_section_events
                 ));
             },
             
-            19 => {  // IRP_KERNEL_MAP_SECTION
-                self.kernel_map_section_events += 1;
+            19 => {  // IRP_NT_MAP_SECTION
+                self.nt_map_section_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         msg.pid
                     };
                     
                     Logging::info(&format!(
-                        "[KERNEL API] ZwMapViewOfSection - Source PID: {}, Target PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtMapViewOfSection - Source PID: {}, Target PID: {}, Count: {}",
                         msg.pid,
                         target_pid,
-                        self.kernel_map_section_events
+                        self.nt_map_section_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::info(&format!(
-                        "[KERNEL API] ZwMapViewOfSection - PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtMapViewOfSection - PID: {}, Count: {}",
                         msg.pid,
-                        self.kernel_map_section_events
+                        self.nt_map_section_events
                     ));
                 }
             },
             
-            20 => {  // IRP_KERNEL_DELETE_FILE
-                self.kernel_delete_file_events += 1;
+            20 => {  // IRP_NT_DELETE_FILE
+                self.nt_delete_file_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let path = if !msg.kernel_event_info.object_name.is_empty() {
-                        &msg.kernel_event_info.object_name
+                    let path = if !msg.ntdll_event_info.object_name.is_empty() {
+                        &msg.ntdll_event_info.object_name
                     } else {
                         &msg.filepathstr
                     };
                     
                     Logging::info(&format!(
-                        "[KERNEL API] NtDeleteFile - PID: {}, Path: {}, Count: {}",
+                        "[NTDLL HOOK] NtDeleteFile - PID: {}, Path: {}, Count: {}",
                         msg.pid,
                         path,
-                        self.kernel_delete_file_events
+                        self.nt_delete_file_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::info(&format!(
-                        "[KERNEL API] NtDeleteFile - PID: {}, Path: {}, Count: {}",
+                        "[NTDLL HOOK] NtDeleteFile - PID: {}, Path: {}, Count: {}",
                         msg.pid,
                         msg.filepathstr,
-                        self.kernel_delete_file_events
+                        self.nt_delete_file_events
                     ));
                 }
             },
             
-            21 => {  // IRP_KERNEL_LOAD_DRIVER
-                self.kernel_load_driver_events += 1;
+            21 => {  // IRP_NT_LOAD_DRIVER
+                self.nt_load_driver_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let path = if !msg.kernel_event_info.object_name.is_empty() {
-                        &msg.kernel_event_info.object_name
+                    let path = if !msg.ntdll_event_info.object_name.is_empty() {
+                        &msg.ntdll_event_info.object_name
                     } else {
                         &msg.filepathstr
                     };
                     
                     Logging::warning(&format!(
-                        "[KERNEL API] NtLoadDriver (driver load!) - PID: {}, Path: {}, Count: {}",
+                        "[NTDLL HOOK] NtLoadDriver (driver load!) - PID: {}, Path: {}, Count: {}",
                         msg.pid,
                         path,
-                        self.kernel_load_driver_events
+                        self.nt_load_driver_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::warning(&format!(
-                        "[KERNEL API] NtLoadDriver - PID: {}, Path: {}, Count: {}",
+                        "[NTDLL HOOK] NtLoadDriver - PID: {}, Path: {}, Count: {}",
                         msg.pid,
                         msg.filepathstr,
-                        self.kernel_load_driver_events
+                        self.nt_load_driver_events
                     ));
                 }
             },
             
-            22 => {  // IRP_KERNEL_OPEN_PROCESS
-                self.kernel_open_process_events += 1;
+            22 => {  // IRP_NT_OPEN_PROCESS
+                self.nt_open_process_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
-                    let target_pid = if msg.kernel_event_info.target_process_id != 0 {
-                        msg.kernel_event_info.target_process_id
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
                     } else {
                         0
                     };
                     
                     Logging::info(&format!(
-                        "[KERNEL API] NtOpenProcess - PID: {}, Target: {}, Access: 0x{:X}, Count: {}",
+                        "[NTDLL HOOK] NtOpenProcess - PID: {}, Target: {}, Access: 0x{:X}, Count: {}",
                         msg.pid,
                         target_pid,
-                        msg.kernel_event_info.access_mask,
-                        self.kernel_open_process_events
+                        msg.ntdll_event_info.access_mask,
+                        self.nt_open_process_events
                     ));
                 }
                 
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                 {
                     Logging::info(&format!(
-                        "[KERNEL API] NtOpenProcess - PID: {}, Count: {}",
+                        "[NTDLL HOOK] NtOpenProcess - PID: {}, Count: {}",
                         msg.pid,
-                        self.kernel_open_process_events
+                        self.nt_open_process_events
                     ));
                 }
             },
@@ -1500,20 +1440,20 @@ impl ProcessBehaviorState {
             _ => {},
         }
 
-        // Increment total kernel events counter and log injection pattern detection
+        // Increment total Ntdll events counter and log injection pattern detection
         if irp_op >= 12 && irp_op <= 22 {
-            self.kernel_events_total += 1;
+            self.ntdll_events_total += 1;
             
-            // Check for injection indicators after each kernel API event
+            // Check for injection indicators after each Nt API event
             if self.irp_stats.has_injection_indicators() {
                 Logging::warning(&format!(
                     "[INJECTION DETECTED] PID {} shows multiple injection techniques - Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Total injection APIs: {}",
                     msg.pid,
-                    self.irp_stats.kernel_write_memory_count,
-                    self.irp_stats.kernel_allocate_memory_count,
-                    self.irp_stats.kernel_protect_memory_count,
-                    self.irp_stats.kernel_create_thread_count,
-                    self.irp_stats.kernel_queue_apc_count,
+                    self.irp_stats.nt_write_virtual_memory_count,
+                    self.irp_stats.nt_allocate_virtual_memory_count,
+                    self.irp_stats.nt_protect_virtual_memory_count,
+                    self.irp_stats.nt_create_thread_count,
+                    self.irp_stats.nt_queue_apc_count,
                     self.irp_stats.get_injection_api_count()
                 ));
             }
@@ -1530,19 +1470,10 @@ impl ProcessBehaviorState {
     
     /// Detect network APIs directly from DLL loading and operation patterns
     pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
-        // Detect internet DLLs being loaded (WinINet, WinHTTP, etc.)
+        // Detect internet DLLs being loaded
         let path_lower = msg.filepathstr.to_lowercase();
         let ext_lower = msg.extension.to_lowercase();
         
-        // Check for network/internet DLLs (LEGACY: Consolidate with kernel hooks)
-        // NOTE: DLL loading detection is being consolidated with kernel-level monitoring:
-        // - Filesystem monitoring for DLL paths (via IrpMajorOp::IrpDllLoad)
-        // - System process open tracking (via IrpKernelOpenProcess)
-        // - Direct API hook tracking in ProcessBehaviorState kernel event counters
-        //
-        // This section retained for backward compatibility with realtime_learning module.
-        // Future: Replace with kernel event counters when ML features fully transition to
-        // ProcessBehaviorState metrics instead of legacy API pattern matching.
         let internet_dlls = [
             "wininet", "winhttp", "ws2_32", "mswsock", "urlmon", "ole32",
             "oleaut32", "shell32", "shlwapi", "advapi32", "kernel32"
@@ -1712,9 +1643,6 @@ impl BehaviorEngine {
         for mut rule in raw_rules {
             rule.finalize_rich_fields();
             
-            // Protected paths are now configured via YAML (protected_paths field in behavior rules)
-            // No hardcoded defaults - paths must be explicitly configured after setup completion
-            
             if let Some(yaml_private) = rule.private_rules.take() {
                 if let Ok(private_rules) = serde_yaml::from_value::<Vec<BehaviorRule>>(yaml_private) {
                     let mut processed_private = self.finalize_rules(private_rules);
@@ -1746,12 +1674,11 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
-    // API DETECTION FROM KERNEL IO EVENTS
+    // API DETECTION FROM NTDLL HOOK EVENTS
     // ==========================================================================
     
-    /// Get actual detected APIs from kernel hooks (DLL loads, etc)
+    /// Get actual detected APIs from ntdll hooks
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
-        // Return the actual API calls detected from kernel-monitored DLL loads
         state.all_apis_called.clone()
     }
 
@@ -1839,7 +1766,7 @@ impl BehaviorEngine {
             state.record_irp_operation(msg, irp_op_byte);
         }
         
-        // === STEP 2: DETECT NETWORK APIs FROM KERNEL DATA ===
+        // === STEP 2: DETECT NETWORK APIs ===
         if let Some(state) = self.process_states.get_mut(&gid) {
             state.detect_network_apis_from_io(msg);
         }
@@ -1874,9 +1801,7 @@ impl BehaviorEngine {
             }
         }
 
-        // === STEP 3B: CHECK PROTECTED PATHS (Kernel-Protected Resources) ===
-        // Skip monitoring for kernel-protected paths configured in behavior rules
-        // Paths are configurable per-rule via YAML protected_paths field after setup completion
+        // === STEP 3B: CHECK PROTECTED PATHS ===
         let is_protected_path = self.rules.iter().any(|rule| {
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&filepath)) ||
             (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&msg.filepathstr)) ||
@@ -1890,7 +1815,7 @@ impl BehaviorEngine {
                     filepath, irp_op
                 ));
             }
-            return;  // Skip processing for rule-configured protected paths
+            return;
         }
 
         // === STEP 4: HANDLE PROCESS TERMINATION ===
@@ -2004,14 +1929,12 @@ impl BehaviorEngine {
         let now = SystemTime::now();
         let mut available_apis = HashSet::new();
         
-        // Get detected APIs from the process state (from kernel-detected DLL loads)
         let state_detected_apis = if let Some(state) = self.process_states.get(&gid) {
             state.all_apis_called.clone()
         } else {
             HashSet::new()
         };
         
-        // Add state APIs to available APIs
         for api in &state_detected_apis {
             available_apis.insert(api.to_lowercase());
         }
@@ -2033,7 +1956,6 @@ impl BehaviorEngine {
                 None => continue,
             };
             
-            // Skip rules that are already fully satisfied to reduce processing overhead
             let remaining_conditions: Vec<_> = rule.named_conditions.iter()
                 .filter(|(name, _)| !state.satisfied_named_conditions.contains(name.as_str()))
                 .collect();
@@ -2077,9 +1999,6 @@ impl BehaviorEngine {
                 }
 
                 if !matched && cond_group.has_network_activity {
-                    // LEGACY: Network API detection based on DLL loading
-                    // NEW: Use ProcessBehaviorState kernel event counters instead
-                    // Transition: Check IrpKernelOpenProcess, IrpKernelCreateThread (network manipulation)
                     if !state.network_apis_called.is_empty() {
                         matched = true;
                         Logging::info(&format!(
@@ -2202,7 +2121,6 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // NEW: Signature checking conditions
                 if !matched && cond_group.is_signed.is_some() {
                     let check_signed = cond_group.is_signed.unwrap();
                     if state.is_signed == check_signed {
@@ -2236,52 +2154,52 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // NEW: Kernel event tracking conditions
-                if !matched && cond_group.detect_kernel_write_memory && state.kernel_write_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                // UPDATED: Nt event tracking conditions
+                if !matched && cond_group.detect_nt_write_memory && state.nt_write_virtual_memory_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel memory write detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_write_memory_events
+                        "[BehaviorEngine] Condition '{}' - NtWriteVirtualMemory detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_write_virtual_memory_events
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_thread_creation && state.kernel_create_thread_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                if !matched && cond_group.detect_nt_thread_creation && state.nt_create_thread_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel thread creation detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_create_thread_events
+                        "[BehaviorEngine] Condition '{}' - NtCreateThreadEx detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_create_thread_events
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_apc_injection && state.kernel_queue_apc_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                if !matched && cond_group.detect_nt_apc_injection && state.nt_queue_apc_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel APC injection detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_queue_apc_events
+                        "[BehaviorEngine] Condition '{}' - NtQueueApcThread detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_queue_apc_events
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_section_mapping && (state.kernel_create_section_events + state.kernel_map_section_events) >= cond_group.kernel_event_threshold.max(1) as u32 {
+                if !matched && cond_group.detect_nt_section_mapping && (state.nt_create_section_events + state.nt_map_section_events) >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel section operation detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_create_section_events + state.kernel_map_section_events
+                        "[BehaviorEngine] Condition '{}' - Nt Section Operation detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_create_section_events + state.nt_map_section_events
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_memory_protection && state.kernel_protect_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                if !matched && cond_group.detect_nt_memory_protection && state.nt_protect_virtual_memory_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel memory protection change detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_protect_memory_events
+                        "[BehaviorEngine] Condition '{}' - NtProtectVirtualMemory detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_protect_virtual_memory_events
                     ));
                 }
                 
-                if !matched && cond_group.detect_kernel_process_access && state.kernel_open_process_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                if !matched && cond_group.detect_nt_process_access && state.nt_open_process_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Kernel process access detected for PID {}: {} events",
-                        cond_name, state.pid, state.kernel_open_process_events
+                        "[BehaviorEngine] Condition '{}' - NtOpenProcess detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_open_process_events
                     ));
                 }
                 
@@ -2430,7 +2348,6 @@ impl BehaviorEngine {
             None => return,
         };
 
-        // Early exit if already detected and killed - prevents redundant checks on same PID
         if precord.is_malicious && precord.time_killed.is_some() {
             return;
         }
@@ -2499,7 +2416,7 @@ impl BehaviorEngine {
                     legacy_satisfied += 1;
                     if rule.debug || self.rules.iter().any(|r| r.debug) {
                         Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has kernel-detected network activity",
+                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has detected network activity",
                             state_ref.pid
                         ));
                     }
@@ -2617,7 +2534,6 @@ impl BehaviorEngine {
             };
             let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
             
-            // Log partial matches for debugging
             if legacy_total > 0 && legacy_ratio > 0.0 && legacy_ratio < legacy_threshold && (rule.debug || self.rules.iter().any(|r| r.debug)) {
                 Logging::debug(&format!(
                     "[BehaviorEngine] Partial match on rule '{}' for PID {}: {}/{} conditions met ({:.1}% < {:.1}% required)",
@@ -2872,25 +2788,21 @@ impl BehaviorEngine {
         }
     }
     
-    
-    /// KERNEL-BASED network activity detection (replaces has_active_connections)
-    /// Detects network activity through kernel-observed indicators:
+    /// NT-BASED network activity detection
+    /// Detects network activity through Nt-observed indicators:
     /// - DLL loads of network modules (ws2_32.dll, winhttp.dll, wininet.dll)
     /// - File operations on URL cache, cookies, network config
     /// - network_apis_called flag from DLL monitoring
     /// - network_activity_detected flag from file system operations
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
-        // Check if network APIs detected from DLL loads
         if !state.network_apis_called.is_empty() {
             return true;
         }
         
-        // Check if network activity detected from file operations
         if state.network_activity_detected {
             return true;
         }
         
-        // Check for specific network-related DLL loads in all_apis_called
         let network_modules = ["ws2_32.dll", "winhttp.dll", "wininet.dll", "mswsock.dll", "wsock32.dll"];
         for api in &state.all_apis_called {
             let api_lower = api.to_lowercase();
@@ -2899,7 +2811,6 @@ impl BehaviorEngine {
             }
         }
         
-        // Check file operations for network indicators
         for path in &state.irp_stats.unique_paths_accessed {
             let path_lower = path.to_lowercase();
             // URL cache, cookies, network config files
@@ -2932,31 +2843,25 @@ impl BehaviorEngine {
             let exe_path_buf = state.exe_path.clone();
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
-            let pid = state.pid;
-            let app_name = state.app_name.clone();
-            let exe_path_buf = state.exe_path.clone();
-            let exe_path_str = exe_path_buf.to_string_lossy().to_string();
-
-            // Log kernel API activity summary if any kernel events detected
-            if state.kernel_events_total > 0 {
+            // Log Nt API activity summary if any events detected
+            if state.ntdll_events_total > 0 {
                 Logging::info(&format!(
-                    "[KERNEL API SUMMARY] PID {} ({}) - Total kernel events: {}, Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Context: {}, Section: {}, Map: {}, DelFile: {}, Driver: {}, OpenProc: {}",
+                    "[NTDLL API SUMMARY] PID {} ({}) - Total events: {}, Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Context: {}, Section: {}, Map: {}, DelFile: {}, Driver: {}, OpenProc: {}",
                     pid, app_name,
-                    state.kernel_events_total,
-                    state.kernel_write_memory_events,
-                    state.kernel_allocate_memory_events,
-                    state.kernel_protect_memory_events,
-                    state.kernel_create_thread_events,
-                    state.kernel_queue_apc_events,
-                    state.kernel_set_context_events,
-                    state.kernel_create_section_events,
-                    state.kernel_map_section_events,
-                    state.kernel_delete_file_events,
-                    state.kernel_load_driver_events,
-                    state.kernel_open_process_events
+                    state.ntdll_events_total,
+                    state.nt_write_virtual_memory_events,
+                    state.nt_allocate_virtual_memory_events,
+                    state.nt_protect_virtual_memory_events,
+                    state.nt_create_thread_events,
+                    state.nt_queue_apc_events,
+                    state.nt_set_context_events,
+                    state.nt_create_section_events,
+                    state.nt_map_section_events,
+                    state.nt_delete_file_events,
+                    state.nt_load_driver_events,
+                    state.nt_open_process_events
                 ));
                 
-                // Warn if injection indicators detected
                 if state.irp_stats.has_injection_indicators() {
                     Logging::warning(&format!(
                         "[INJECTION PATTERN] PID {} ({}) shows code injection behavior pattern - Total injection APIs: {}",
@@ -2976,7 +2881,6 @@ impl BehaviorEngine {
                 if !rule.staging_paths.is_empty() && !state.staged_files_written.is_empty() {
                     legacy_triggered = true;
                 }
-                // UPDATED: Use kernel-based network detection instead of has_active_connections
                 if rule.require_internet && self.has_network_activity(&state) {
                     legacy_triggered = true;
                 }
