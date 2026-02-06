@@ -406,8 +406,6 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     // Check if driverData is initialized (assuming external global/class)
     // if (driverData == NULL || driverData->isFilterClosed()) { return; }
 
-    HANDLE currentPid = PsGetCurrentProcessId();
-
     // -----------------------------------------------------------
     // 1. Detect Kernel Driver Loading (System Mode)
     // -----------------------------------------------------------

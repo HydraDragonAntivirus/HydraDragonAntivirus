@@ -25,16 +25,18 @@ Environment :
 
 const WCHAR *const ComPortName = L"\\RWFilter";
 
+// Fix C4005: Macro redefinition warning
+#ifndef MAX_FILE_NAME_LENGTH
 #define MAX_FILE_NAME_LENGTH 520
-#define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR)) // max length in bytes of files sizes and dir paths
+#endif
+
+#define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR))
 #define FILE_OBJECT_ID_SIZE 16
 #define FILE_OBJEC_MAX_EXTENSION_SIZE 11
 
-#define MAX_COMM_BUFFER_SIZE 0x10000 // size of the buffer we allocate to recieve irp ops from the driver
-#define MAX_OPS_SAVE                                                                                                   \
-    0x1000 // max ops to save, we limit this to prevent driver from filling the non paged memory and crashing the os
+#define MAX_COMM_BUFFER_SIZE 0x10000
+#define MAX_OPS_SAVE 0x1000
 
-// msgs types that the application may send to the driver
 enum COM_MESSAGE_TYPE
 {
     MESSAGE_ADD_SCAN_DIRECTORY,
@@ -95,124 +97,103 @@ enum IRP_MAJOR_OP
     IRP_CLEANUP,
     IRP_REGISTRY,
 
-    // Process-related operations
-    IRP_PROCESS_CREATE,            // Process creation
-    IRP_PROCESS_TERMINATE,         // Process termination
-    IRP_PROCESS_TERMINATE_ATTEMPT, // External process attempting to terminate another
-    IRP_PROCESS_EXIT,              // Process exit/cleanup
-    IRP_PROCESS_HANDLE_OPEN,       // Process handle opened for access
+    IRP_PROCESS_CREATE,
+    IRP_PROCESS_TERMINATE,
+    IRP_PROCESS_TERMINATE_ATTEMPT,
+    IRP_PROCESS_EXIT,
+    IRP_PROCESS_HANDLE_OPEN,
 
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
-    // --------------------------------------------------------------------------------
-    IRP_NT_WRITE_VIRTUAL_MEMORY,    // NtWriteVirtualMemory - code injection attempt
-    IRP_NT_ALLOCATE_VIRTUAL_MEMORY, // NtAllocateVirtualMemory - memory allocation
-    IRP_NT_PROTECT_VIRTUAL_MEMORY,  // NtProtectVirtualMemory - DEP bypass attempt
-    IRP_NT_CREATE_THREAD,           // NtCreateThreadEx - remote thread creation
-    IRP_NT_QUEUE_APC,               // NtQueueApcThread - APC injection
-    IRP_NT_SET_CONTEXT,             // NtSetContextThread - thread context manipulation
+    IRP_NT_WRITE_VIRTUAL_MEMORY,
+    IRP_NT_ALLOCATE_VIRTUAL_MEMORY,
+    IRP_NT_PROTECT_VIRTUAL_MEMORY,
+    IRP_NT_CREATE_THREAD,
+    IRP_NT_QUEUE_APC,
+    IRP_NT_SET_CONTEXT,
 
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - File/Section manipulation
-    // --------------------------------------------------------------------------------
-    IRP_NT_CREATE_SECTION, // NtCreateSection - section creation
-    IRP_NT_MAP_SECTION,    // NtMapViewOfSection - section mapping
-    IRP_NT_DELETE_FILE,    // NtDeleteFile - file deletion
+    IRP_NT_CREATE_SECTION,
+    IRP_NT_MAP_SECTION,
+    IRP_NT_DELETE_FILE,
 
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Driver/System operations
-    // --------------------------------------------------------------------------------
-    IRP_NT_LOAD_DRIVER,  // NtLoadDriver - driver loading
-    IRP_NT_OPEN_PROCESS, // NtOpenProcess - process access
+    IRP_NT_LOAD_DRIVER,
+    IRP_NT_OPEN_PROCESS,
 };
 
-// Action types for threat response
+// Aliases to resolve E0020 (Undefined identifier) in ProcessProtection.cpp
+#define IRP_KERNEL_WRITE_MEMORY IRP_NT_WRITE_VIRTUAL_MEMORY
+#define IRP_KERNEL_PROTECT_MEMORY IRP_NT_PROTECT_VIRTUAL_MEMORY
+#define IRP_KERNEL_CREATE_THREAD IRP_NT_CREATE_THREAD
+#define IRP_KERNEL_QUEUE_APC IRP_NT_QUEUE_APC
+#define IRP_KERNEL_CREATE_SECTION IRP_NT_CREATE_SECTION
+#define IRP_KERNEL_MAP_SECTION IRP_NT_MAP_SECTION
+
 enum THREAT_ACTION_TYPE
 {
     THREAT_ACTION_KILL_AND_QUARANTINE = 0,
     THREAT_ACTION_KILL_ONLY = 1
 };
 
-//
-// Details structure for capturing API calls intercepted in User Mode (ntdll.dll)
-//
 typedef struct _NTDLL_EVENT_INFO
 {
-    ULONG EventType;       // IRP_MAJOR_OP type for this event (IRP_NT_*)
-    ULONGLONG Timestamp;   // Event timestamp
-    ULONG SourceProcessId; // Process initiating the operation
-    ULONG TargetProcessId; // Target process (if applicable)
+    ULONG EventType;
+    ULONGLONG Timestamp;
+    ULONG SourceProcessId;
+    ULONG TargetProcessId;
 
-    // Memory operation details
-    PVOID MemoryAddress;        // Address involved in operation
-    SIZE_T MemorySize;          // Size of memory operation
-    ULONG MemoryProtection;     // Protection flags (for protect/allocate ops)
-    BOOLEAN IsExecutableMemory; // Whether operation targets executable memory
+    PVOID MemoryAddress;
+    SIZE_T MemorySize;
+    ULONG MemoryProtection;
+    BOOLEAN IsExecutableMemory;
 
-    // Thread operation details
-    HANDLE ThreadHandle;      // Thread handle (for thread operations)
-    PVOID ThreadStartRoutine; // Start routine (for thread creation)
+    HANDLE ThreadHandle;
+    PVOID ThreadStartRoutine;
 
-    // File/Section operation details
-    WCHAR ObjectName[MAX_FILE_NAME_LENGTH]; // File/section name
+    WCHAR ObjectName[MAX_FILE_NAME_LENGTH];
 
-    // Access control details
-    ACCESS_MASK AccessMask; // Requested access rights
-
-    // Operation result
-    NTSTATUS OperationStatus; // Status of the operation
-
+    ACCESS_MASK AccessMask;
+    NTSTATUS OperationStatus;
 } NTDLL_EVENT_INFO, *PNTDLL_EVENT_INFO;
 
-// -64- bytes structure, fixed to -96- bytes, fixed to 104 bytes
+// Alias to satisfy KERNEL_EVENT_INFO usage
+typedef NTDLL_EVENT_INFO KERNEL_EVENT_INFO;
+
 typedef struct _DRIVER_MESSAGE
 {
-    WCHAR Extension[FILE_OBJEC_MAX_EXTENSION_SIZE + 1]; // null terminated 24 bytes
+    WCHAR Extension[FILE_OBJEC_MAX_EXTENSION_SIZE + 1];
 
 #ifdef _KERNEL_MODE
-    FILE_ID_INFORMATION
-    FileID; // 24 bytes - file id 128 bits and its volume serial number
+    FILE_ID_INFORMATION FileID;
 #else
-    FILE_ID_INFO
-    FileID; // 24 bytes - file id 128 bits and its volume serial number
+    FILE_ID_INFO FileID;
 #endif
 
-    ULONGLONG
-    MemSizeUsed;            // for read and write, we follow buffer sizes 8 bytes
-    DOUBLE Entropy;         // 8 bytes
-    ULONG PID;              // 4 bytes
-    UCHAR IRP_OP;           // 1 byte
-    BOOLEAN isEntropyCalc;  // 1 byte
-    UCHAR FileChange;       // 1 byte
-    UCHAR FileLocationInfo; // 1 byte align
-    UNICODE_STRING
-    filePath;      // 16 bytes unicode string - filename, also contains size and max size, buffer is outside the struct
-    ULONGLONG Gid; // 8 bytes process ransomwatch gid
+    ULONGLONG MemSizeUsed;
+    DOUBLE Entropy;
+    ULONG PID;
+    UCHAR IRP_OP;
+    BOOLEAN isEntropyCalc;
+    UCHAR FileChange;
+    UCHAR FileLocationInfo;
+    UNICODE_STRING filePath;
+    ULONGLONG Gid;
+    ULONG ParentPid;
+    ULONG AttackerPID;
+    ULONGLONG AttackerGid;
 
-    // Parent PID of the process
-    ULONG ParentPid; // 4 bytes
+    // Union to resolve E0135 (No member KernelEventInfo)
+    union {
+        NTDLL_EVENT_INFO NtdllEventInfo;
+        NTDLL_EVENT_INFO KernelEventInfo;
+    };
 
-    // For IRP_PROCESS_TERMINATE_ATTEMPT: Info about the attacker process
-    ULONG AttackerPID;     // 4 bytes - PID of process attempting termination (0 if not applicable)
-    ULONGLONG AttackerGid; // 8 bytes - GID of attacker process (0 if not tracked)
-
-    // User-mode API Hooking (ntdll) extended fields
-    NTDLL_EVENT_INFO NtdllEventInfo; // Detailed ntdll event information
-
-    PVOID
-    next; // 8 bytes - next PDRIVER_MESSAGE, we use it to allow adding the fileName to the same buffer, this pointer
-          // should point to the next PDRIVER_MESSAGE in buffer (kernel handled)
+    PVOID next;
 
 } DRIVER_MESSAGE, *PDRIVER_MESSAGE;
 
-// header for return buffer from driver on irp ops, has pointer to the first driver message, num ops in the buffer and
-// readable data size in the buffer
 typedef struct _RWD_REPLY_IRPS
 {
-    size_t dataSize; // 8 bytes
-    PDRIVER_MESSAGE
-    data; // 8 bytes points to the first IRP driver message, the next DRIVER_MESSAGE is a pointer inside DRIVER_MESSAGE
-    ULONGLONG num_ops; // 8 bytes
+    size_t dataSize;
+    PDRIVER_MESSAGE data;
+    ULONGLONG num_ops;
 
     size_t size()
     {
