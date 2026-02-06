@@ -1,139 +1,221 @@
 /*++
-
 Module Name:
-
     UserModeHookEngine.h
-
 Abstract:
-
-    User-mode ntdll.dll hooking engine for modern Windows.
-    
-    Instead of hooking kernel functions (blocked by PatchGuard),
-    this hooks the user-mode syscall stubs in ntdll.dll of each
-    monitored process.
-    
-    This approach:
-    - Bypasses PatchGuard (user-mode code modification is allowed)
-    - Catches ALL syscalls from user-mode
-    - Can block operations before they reach kernel
-    - Used by commercial AV/EDR solutions
-
+    User-mode ntdll.dll hooking engine.
+    Fixed for redefinition errors and missing exports.
 Environment:
-
-    Kernel mode driver, operates on user-mode memory
-
+    Kernel mode driver
 --*/
 
 #pragma once
 
+// -------------------------------------------------------------------------
+// HEADER FIX: Use ONLY ntifs.h.
+// It contains PEPROCESS/PETHREAD definitions.
+// Do not include ntddk.h or windef.h alongside it if they conflict.
+// -------------------------------------------------------------------------
 #include <ntifs.h>
-#include <ntddk.h>
-#include <windef.h>
 
 //
-// Maximum number of processes to hook simultaneously
+// -------------------------------------------------------------------------
+// TYPE DEFINITIONS
+// -------------------------------------------------------------------------
+typedef unsigned char BYTE;
+typedef BYTE *PBYTE;
+
 //
+// -------------------------------------------------------------------------
+// UNDOCUMENTED STRUCTURE DEFINITIONS
+// -------------------------------------------------------------------------
+#pragma warning(push)
+#pragma warning(disable : 4201) // Disable nameless struct/union warning
+
+// PEB structures (Required because they are opaque in Kernel)
+typedef struct _PEB_LDR_DATA
+{
+    ULONG Length;
+    BOOLEAN Initialized;
+    HANDLE SsHandle;
+    LIST_ENTRY InLoadOrderModuleList;
+    LIST_ENTRY InMemoryOrderModuleList;
+    LIST_ENTRY InInitializationOrderModuleList;
+    PVOID EntryInProgress;
+    BOOLEAN ShutdownInProgress;
+    HANDLE ShutdownThreadId;
+} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+typedef struct _RTL_USER_PROCESS_PARAMETERS
+{
+    BYTE Reserved1[16];
+    PVOID Reserved2[10];
+    UNICODE_STRING ImagePathName;
+    UNICODE_STRING CommandLine;
+} RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
+
+typedef struct _PEB
+{
+    BOOLEAN InheritedAddressSpace;
+    BOOLEAN ReadImageFileExecOptions;
+    BOOLEAN BeingDebugged;
+    union {
+        BOOLEAN BitField;
+        struct
+        {
+            BOOLEAN ImageDbGlobalFlag : 1;
+            BOOLEAN SpareBool : 1;
+            BOOLEAN BackGndLocallyVisible : 1;
+            BOOLEAN SpareBool1 : 1;
+            BOOLEAN TwoGlobalFlagBits : 2;
+            BOOLEAN CriticalSectionDefaultTimeout : 1;
+            BOOLEAN CriticalSectionRenderer : 1;
+        };
+    };
+    HANDLE Mutant;
+    PVOID ImageBaseAddress;
+    PPEB_LDR_DATA Ldr;
+    PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+    PVOID SubSystemData;
+    PVOID ProcessHeap;
+    KSPIN_LOCK FastPebLock;
+    PVOID AtlThunkSListPtr;
+    PVOID IFEOKey;
+    union {
+        ULONG CrossProcessFlags;
+        struct
+        {
+            ULONG ProcessInJob : 1;
+            ULONG ProcessInitializing : 1;
+            ULONG ProcessUsingVEH : 1;
+            ULONG ProcessUsingVCH : 1;
+            ULONG ProcessUsingFTH : 1;
+            ULONG ReservedBits0 : 27;
+        };
+    };
+    PVOID KernelCallbackTable;
+    ULONG SystemReserved[1];
+    ULONG AtlThunkSListPtr32;
+    PVOID ApiSetMap;
+    ULONG TlsExpansionCounter;
+    PVOID TlsBitmap;
+    ULONG TlsBitmapBits[2];
+    PVOID ReadOnlySharedMemoryBase;
+    PVOID SharedMemoryBase;
+    PVOID *ReadOnlyStaticServerData;
+    PVOID AnsiCodePageData;
+    PVOID OemCodePageData;
+    PVOID UnicodeCaseTableData;
+    ULONG NumberOfProcessors;
+    ULONG NtGlobalFlag;
+    LARGE_INTEGER CriticalSectionTimeout;
+    ULONG_PTR HeapSegmentReserve;
+    ULONG_PTR HeapSegmentCommit;
+    ULONG_PTR HeapDeCommitTotalFreeThreshold;
+    ULONG_PTR HeapDeCommitFreeBlockThreshold;
+    ULONG NumberOfHeaps;
+    ULONG MaximumNumberOfHeaps;
+    PVOID *ProcessHeaps;
+    PVOID GdiSharedHandleTable;
+    PVOID ProcessStarterHelper;
+    ULONG GdiDCAttributeList;
+    KSPIN_LOCK LoaderLock;
+    ULONG OSMajorVersion;
+    ULONG OSMinorVersion;
+    USHORT OSBuildNumber;
+    USHORT OSCSDVersion;
+    ULONG OSPlatformId;
+    ULONG ImageSubsystem;
+    ULONG ImageSubsystemMajorVersion;
+    ULONG ImageSubsystemMinorVersion;
+    ULONG_PTR ImageProcessAffinityMask;
+    ULONG GdiHandleBuffer[34];
+    PVOID PostProcessInitRoutine;
+    PVOID TlsExpansionBitmap;
+    ULONG TlsExpansionBitmapBits[32];
+    ULONG SessionId;
+    ULARGE_INTEGER AppCompatFlags;
+    ULARGE_INTEGER AppCompatFlagsUser;
+    PVOID pShimData;
+    PVOID AppCompatInfo;
+    UNICODE_STRING CSDVersion;
+    PVOID ActivationContextData;
+    PVOID ProcessAssemblyStorageMap;
+    PVOID SystemDefaultActivationContextData;
+    PVOID SystemAssemblyStorageMap;
+    ULONG_PTR MinimumStackCommit;
+} PEB, *PPEB;
+
+typedef struct _LDR_DATA_TABLE_ENTRY
+{
+    LIST_ENTRY InLoadOrderLinks;
+    LIST_ENTRY InMemoryOrderLinks;
+    LIST_ENTRY InInitializationOrderLinks;
+    PVOID DllBase;
+    PVOID EntryPoint;
+    ULONG SizeOfImage;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+    ULONG Flags;
+    USHORT LoadCount;
+    USHORT TlsIndex;
+    union {
+        LIST_ENTRY HashLinks;
+        struct
+        {
+            PVOID SectionPointer;
+            ULONG CheckSum;
+        };
+    };
+    union {
+        ULONG TimeDateStamp;
+        PVOID LoadedImports;
+    };
+    PVOID EntryPointActivationContext;
+    PVOID PatchInformation;
+    LIST_ENTRY ForwarderLinks;
+    LIST_ENTRY ServiceTagLinks;
+    LIST_ENTRY StaticLinks;
+} LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
+
+#pragma warning(pop)
+
+//
+// -------------------------------------------------------------------------
+// EXPORT DEFINITIONS (Fixes VCR001/Linker Errors)
+// -------------------------------------------------------------------------
+//
+
+// PsGetProcessPeb is exported by ntoskrnl but not always in standard headers
+extern "C" NTKERNELAPI PPEB PsGetProcessPeb(_In_ PEPROCESS Process);
+
+// ZwProtectVirtualMemory is exported by ntoskrnl (Zw version)
+extern "C" NTKERNELAPI NTSTATUS ZwProtectVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                       _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
+                                                       _Out_ PULONG OldProtect);
+
+//
+// -------------------------------------------------------------------------
+// ENGINE DEFINITIONS
+// -------------------------------------------------------------------------
 
 #define MAX_HOOKED_PROCESSES 256
+#define USERMODE_HOOK_SIZE 14
 
-//
-// Hook shellcode size (JMP instruction + address)
-//
-
-#define USERMODE_HOOK_SIZE 14  // FF 25 00 00 00 00 [8 byte address]
-
-//
-// Function signatures for ntdll exports
-//
-
-typedef NTSTATUS (NTAPI *pNtWriteVirtualMemory)(
-    HANDLE ProcessHandle,
-    PVOID BaseAddress,
-    PVOID Buffer,
-    SIZE_T NumberOfBytesToWrite,
-    PSIZE_T NumberOfBytesWritten
-);
-
-typedef NTSTATUS (NTAPI *pNtAllocateVirtualMemory)(
-    HANDLE ProcessHandle,
-    PVOID *BaseAddress,
-    ULONG_PTR ZeroBits,
-    PSIZE_T RegionSize,
-    ULONG AllocationType,
-    ULONG Protect
-);
-
-typedef NTSTATUS (NTAPI *pNtProtectVirtualMemory)(
-    HANDLE ProcessHandle,
-    PVOID *BaseAddress,
-    PSIZE_T NumberOfBytesToProtect,
-    ULONG NewAccessProtection,
-    PULONG OldAccessProtection
-);
-
-typedef NTSTATUS (NTAPI *pNtCreateThreadEx)(
-    PHANDLE ThreadHandle,
-    ACCESS_MASK DesiredAccess,
-    PVOID ObjectAttributes,
-    HANDLE ProcessHandle,
-    PVOID StartRoutine,
-    PVOID Argument,
-    ULONG CreateFlags,
-    SIZE_T ZeroBits,
-    SIZE_T StackSize,
-    SIZE_T MaximumStackSize,
-    PVOID AttributeList
-);
-
-typedef NTSTATUS (NTAPI *pNtQueueApcThread)(
-    HANDLE ThreadHandle,
-    PVOID ApcRoutine,
-    PVOID ApcArgument1,
-    PVOID ApcArgument2,
-    PVOID ApcArgument3
-);
-
-typedef NTSTATUS (NTAPI *pNtSetContextThread)(
-    HANDLE ThreadHandle,
-    PCONTEXT ThreadContext
-);
-
-//
-// Per-process hook information
-//
-
-typedef struct _PROCESS_HOOK_ENTRY {
+typedef struct _PROCESS_HOOK_ENTRY
+{
     ULONG ProcessId;
     PEPROCESS ProcessObject;
     BOOLEAN IsHooked;
-    
-    // Base address of ntdll.dll in target process
     PVOID NtdllBase;
     SIZE_T NtdllSize;
-    
-    // Original bytes for each hooked function
     UCHAR NtWriteVirtualMemory_Original[USERMODE_HOOK_SIZE];
     UCHAR NtAllocateVirtualMemory_Original[USERMODE_HOOK_SIZE];
-    UCHAR NtProtectVirtualMemory_Original[USERMODE_HOOK_SIZE];
-    UCHAR NtCreateThreadEx_Original[USERMODE_HOOK_SIZE];
-    UCHAR NtQueueApcThread_Original[USERMODE_HOOK_SIZE];
-    UCHAR NtSetContextThread_Original[USERMODE_HOOK_SIZE];
-    
-    // Addresses of functions in target process's ntdll
     PVOID NtWriteVirtualMemory_Addr;
     PVOID NtAllocateVirtualMemory_Addr;
-    PVOID NtProtectVirtualMemory_Addr;
-    PVOID NtCreateThreadEx_Addr;
-    PVOID NtQueueApcThread_Addr;
-    PVOID NtSetContextThread_Addr;
-    
 } PROCESS_HOOK_ENTRY, *PPROCESS_HOOK_ENTRY;
 
-//
-// Global hook engine state
-//
-
-typedef struct _USERMODE_HOOK_ENGINE {
+typedef struct _USERMODE_HOOK_ENGINE
+{
     BOOLEAN IsInitialized;
     FAST_MUTEX EngineMutex;
     ULONG HookedProcessCount;
@@ -147,27 +229,7 @@ typedef struct _USERMODE_HOOK_ENGINE {
 NTSTATUS UserModeHookEngineInitialize(VOID);
 VOID UserModeHookEngineCleanup(VOID);
 
-NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
+// Updated Prototype
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID DetourAddress_NtWrite,
+                             _In_opt_ PVOID DetourAddress_NtAlloc);
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
-
-//
-// Internal functions
-//
-
-PVOID FindModuleBaseAddress(
-    _In_ PEPROCESS Process,
-    _In_ PCWSTR ModuleName,
-    _Out_opt_ PSIZE_T ModuleSize
-);
-
-PVOID FindExportedFunction(
-    _In_ PVOID ModuleBase,
-    _In_ PCSTR FunctionName
-);
-
-NTSTATUS InstallUsermodeHook(
-    _In_ PEPROCESS Process,
-    _In_ PVOID TargetAddress,
-    _In_ PVOID HookRoutine,
-    _Out_writes_bytes_(USERMODE_HOOK_SIZE) PUCHAR OriginalBytes
-);

@@ -8,8 +8,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{D289F655-3416-4C39-97D1-9EC964BA43FF}"
 	ProjectSection(SolutionItems) = preProject
 		README.md = README.md
-		OwlyshieldRansomFilter\UserModeHookEngine.cpp = OwlyshieldRansomFilter\UserModeHookEngine.cpp
-		OwlyshieldRansomFilter\UserModeHookEngine.h = OwlyshieldRansomFilter\UserModeHookEngine.h
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "sharedDefs", "sharedDefs", "{FBDB615D-884C-4735-9C31-372EE539AE85}"
