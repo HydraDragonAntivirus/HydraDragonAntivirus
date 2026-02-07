@@ -62,7 +62,8 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_AND_QUARANTINE_GID, // Kill process and quarantine files
     MESSAGE_KILL_ONLY_GID,           // Kill process without quarantine
     MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
-    MESSAGE_REVERT_REGISTRY_CHANGES
+    MESSAGE_REVERT_REGISTRY_CHANGES,
+    MESSAGE_ADD_HOOK                 // Dynamic Hook Config
 };
 
 // msgs struct that the application send when sending msg to the driver, type member should be one of the
@@ -131,6 +132,7 @@ enum IRP_MAJOR_OP
 
     IRP_NT_LOAD_DRIVER,
     IRP_NT_OPEN_PROCESS,
+    IRP_NT_GENERIC_API_CALL, // 23
 };
 
 // Aliases to resolve E0020 (Undefined identifier) in ProcessProtection.cpp
@@ -139,7 +141,21 @@ enum IRP_MAJOR_OP
 #define IRP_KERNEL_CREATE_THREAD IRP_NT_CREATE_THREAD
 #define IRP_KERNEL_QUEUE_APC IRP_NT_QUEUE_APC
 #define IRP_KERNEL_CREATE_SECTION IRP_NT_CREATE_SECTION
+// Define IOCTL for Dynamic Hook Configuration
+#define IOCTL_ADD_HOOK_TARGET CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _HOOK_CONFIG_DATA {
+    WCHAR ModuleName[64];
+    CHAR FunctionName[64];
+    ULONG EventId;
+} HOOK_CONFIG_DATA, *PHOOK_CONFIG_DATA;
+
+// ... (Existing Macros) ...
+
+// Add Generic Event ID
 #define IRP_KERNEL_MAP_SECTION IRP_NT_MAP_SECTION
+// IRP_GENERIC_API_CALL will be 23
+
 
 enum THREAT_ACTION_TYPE
 {

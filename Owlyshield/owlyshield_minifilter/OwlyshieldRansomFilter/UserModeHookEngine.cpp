@@ -51,6 +51,27 @@ PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 extern PDEVICE_OBJECT g_HookDeviceObject;
 
+// Dynamic Configuration
+#define MAX_CUSTOM_HOOKS 16
+HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
+ULONG g_CustomHookCount = 0;
+FAST_MUTEX g_ConfigMutex;
+
+NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
+{
+    ExAcquireFastMutex(&g_ConfigMutex);
+    if (g_CustomHookCount >= MAX_CUSTOM_HOOKS) {
+        ExReleaseFastMutex(&g_ConfigMutex);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    
+    RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], Config, sizeof(HOOK_CONFIG_DATA));
+    g_CustomHookCount++;
+    
+    ExReleaseFastMutex(&g_ConfigMutex);
+    return STATUS_SUCCESS;
+}
+
 // Minimal x64 Shellcode for Notification
 // It calls NtDeviceIoControlFile to notify the driver
 // Then executes the original instruction and jumps back
@@ -633,16 +654,34 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // 3. Inject Hooks (Generic!)
     // Now we can hook ANY function in ANY dll.
     
-    // NTDLL Hooks
+    // NTDLL Hooks (Default)
     ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &hookEntry->NtWriteVirtualMemory, 12, targetNtDeviceIo);
     ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &hookEntry->NtAllocateVirtualMemory, 13, targetNtDeviceIo);
     ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &hookEntry->NtProtectVirtualMemory, 14, targetNtDeviceIo);
     ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtCreateThreadEx", &hookEntry->NtCreateThreadEx, 15, targetNtDeviceIo);
     ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtMapViewOfSection", &hookEntry->NtMapViewOfSection, 19, targetNtDeviceIo);
+    
+    // Custom Hooks (Dynamic)
+    ExAcquireFastMutex(&g_ConfigMutex);
+    for (ULONG i = 0; i < g_CustomHookCount; i++) {
+        if (i < MAX_CUSTOM_HOOKS) { // Safety
+            // Convert Char String if needed?
+            // ResolveAndHook takes PCSTR FunctionName. Our struct has CHAR FunctionName. Correct.
+            // ResolveAndHook takes PCWSTR ModuleName. Our struct has WCHAR ModuleName. Correct.
+            
+            ResolveAndHook(process, hookEntry, 
+                           g_GlobalCustomHooks[i].ModuleName, 
+                           g_GlobalCustomHooks[i].FunctionName, 
+                           &hookEntry->CustomHooks[i], 
+                           g_GlobalCustomHooks[i].EventId, 
+                           targetNtDeviceIo);
+        }
+    }
+    ExReleaseFastMutex(&g_ConfigMutex);
 
     hookEntry->IsHooked = TRUE;
     g_UserHookEngine->HookedProcessCount++;
-    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu (Generic)\n", ProcessId);
+    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu (Generic + %lu Custom)\n", ProcessId, g_CustomHookCount);
 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
     return STATUS_SUCCESS;

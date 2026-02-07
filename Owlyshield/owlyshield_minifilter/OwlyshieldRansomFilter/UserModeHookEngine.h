@@ -256,6 +256,9 @@ typedef struct _PROCESS_HOOK_ENTRY
     HOOK_DEF NtProtectVirtualMemory;
     HOOK_DEF NtCreateThreadEx;
     HOOK_DEF NtMapViewOfSection;
+    
+    // Dynamic Hooks (Up to 16)
+    HOOK_DEF CustomHooks[16];
 
     // Shellcode specific
     PVOID ShellcodeBase;
@@ -289,4 +292,6 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
 
 // Expose these if needed or keep static in cpp
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
-// NTSTATUS ResolveAndHook(...) // Internal helper
+
+// Generic Config
+NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config);
