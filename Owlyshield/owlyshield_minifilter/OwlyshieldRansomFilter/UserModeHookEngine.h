@@ -235,6 +235,12 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 #define MAX_HOOKED_PROCESSES 256
 #define USERMODE_HOOK_SIZE 14
 
+typedef struct _HOOK_DEF {
+    PVOID Address;
+    UCHAR OriginalBytes[USERMODE_HOOK_SIZE];
+    BOOLEAN IsHooked;
+} HOOK_DEF, *PHOOK_DEF;
+
 typedef struct _PROCESS_HOOK_ENTRY
 {
     ULONG ProcessId;
@@ -242,14 +248,18 @@ typedef struct _PROCESS_HOOK_ENTRY
     BOOLEAN IsHooked;
     PVOID NtdllBase;
     SIZE_T NtdllSize;
-    UCHAR NtWriteVirtualMemory_Original[USERMODE_HOOK_SIZE];
-    UCHAR NtAllocateVirtualMemory_Original[USERMODE_HOOK_SIZE];
-    PVOID NtWriteVirtualMemory_Addr;
-    PVOID NtAllocateVirtualMemory_Addr;
+
+    // Hooked Functions
+    HOOK_DEF NtWriteVirtualMemory;
+    HOOK_DEF NtAllocateVirtualMemory;
+    HOOK_DEF NtProtectVirtualMemory;
+    HOOK_DEF NtCreateThreadEx;
+    HOOK_DEF NtMapViewOfSection;
 
     // Shellcode specific
     PVOID ShellcodeBase;
     SIZE_T ShellcodeSize;
+    SIZE_T ShellcodeUsed;
     HANDLE DriverDeviceHandle;
 } PROCESS_HOOK_ENTRY, *PPROCESS_HOOK_ENTRY;
 

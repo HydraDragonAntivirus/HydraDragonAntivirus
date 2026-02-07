@@ -6,7 +6,7 @@
     Dynamically imports whitelisted extensions from extensions.txt file.
     This rule serves as a data provider for other rules that need to check
     against known safe file extensions.
-  severity: high
+  severity: 100
   category: ransomware
 
 # Data import configuration

@@ -401,25 +401,101 @@ NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _
 //
 
 //
-// Inject Shellcode Hook
+// Helper to Inject a Single Hook
 //
-NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
+NTSTATUS InjectSingleHook(
+    _In_ PEPROCESS Process,
+    _In_ ULONG ProcessId,
+    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
+    _Inout_ PHOOK_DEF HookDef,
+    _In_ ULONG EventId,
+    _In_ PVOID TargetNtDeviceIo
+)
+{
+    NTSTATUS status;
+    KAPC_STATE apcState;
+    
+    if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
+    if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
+
+    // Calculate Offset
+    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    
+    PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
+
+    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+
+    // 1. Prepare Shellcode (Copy and Patch)
+    UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
+    RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
+    
+    // Patch EventType (0x11...)
+    *(PULONG)(shellcode + 27) = EventId;
+    
+    // Patch ProcessId (0x22...)
+    *(PULONG)(shellcode + 35) = ProcessId;
+    
+    // Patch Handle (0x33...)
+    *(PHANDLE)(shellcode + 88) = HookEntry->DriverDeviceHandle;
+    
+    // Patch NtDeviceIoControlFile Address (0x44...)
+    *(PVOID*)(shellcode + 102) = TargetNtDeviceIo;
+    
+    // Patch Stolen Bytes (At 122, 14 bytes) from HookDef->Address
+    RtlCopyMemory(shellcode + 122, HookDef->Address, 14); // Read directly
+    
+    // Save original bytes locally
+    RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
+
+    // Patch Return Address (0x55...) -> Addr + 14
+    *(PVOID*)(shellcode + 140) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+
+    // Write Shellcode to Target at specific offset
+    RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+    
+    // 2. Install Hook (JMP to Shellcode)
+    PVOID pageAddr = HookDef->Address;
+    SIZE_T pageSize = 14;
+    ULONG oldProt;
+    if (fnZwProtectVirtualMemory) {
+        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        if (NT_SUCCESS(status)) {
+            // Write JMP [RIP+0] -> Shellcode Address
+            // FF 25 00 00 00 00 [Address]
+            UCHAR jmp[14];
+            RtlZeroMemory(jmp, 14);
+            jmp[0] = 0xFF; jmp[1] = 0x25; 
+            *(PULONG)&jmp[2] = 0;
+            *(PVOID*)&jmp[6] = myShellcodeAddress;
+            
+            RtlCopyMemory(HookDef->Address, jmp, 14);
+            
+            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
+            
+            HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
+            HookDef->IsHooked = TRUE;
+        }
+    }
+
+    KeUnstackDetachProcess(&apcState);
+    return STATUS_SUCCESS;
+}
+
+//
+// Inject Shellcode Initialization (Alloc + Handle)
+//
+NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     NTSTATUS status;
     KAPC_STATE apcState;
     PVOID baseAddress = NULL;
-    SIZE_T regionSize = 4096; // 1 Page
-    PVOID targetNtDeviceIo = NULL;
-    // HANDLE dupHandle = NULL; // Unused now
-    
-    // 1. Resolve NtDeviceIoControlFile in Target
-    targetNtDeviceIo = FindExportedFunction(HookEntry->NtdllBase, "NtDeviceIoControlFile");
-    if (!targetNtDeviceIo) return STATUS_NOT_FOUND;
+    SIZE_T regionSize = 4096 * 2; // 2 Pages to be safe
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // 2. Allocate Shellcode Memory
-    // Use fnZwAllocateVirtualMemory
+    // 1. Allocate Shellcode Memory
     if (fnZwAllocateVirtualMemory) {
         status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     } else {
@@ -427,20 +503,18 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
     }
 
     if (!NT_SUCCESS(status)) {
-        DbgPrint("UserModeHook: Alloc Failed %x\n", status);
         KeUnstackDetachProcess(&apcState);
         return status;
     }
     
     HookEntry->ShellcodeBase = baseAddress;
     HookEntry->ShellcodeSize = regionSize;
+    HookEntry->ShellcodeUsed = 0;
 
-    // 3. Create Handle to Driver Device in Target Process
-    // We are attached to the target process, so ObOpenObjectByPointer 
-    // without OBJ_KERNEL_HANDLE creates the handle in the *Current* (Target) process handle table.
+    // 2. Create Handle
     HANDLE targetHandle = NULL;
     status = ObOpenObjectByPointer(g_HookDeviceObject, 
-                                   OBJ_CASE_INSENSITIVE, // No OBJ_KERNEL_HANDLE
+                                   OBJ_CASE_INSENSITIVE, 
                                    NULL, 
                                    GENERIC_READ | GENERIC_WRITE, 
                                    *IoFileObjectType, 
@@ -448,8 +522,6 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
                                    &targetHandle);
                                    
     if (!NT_SUCCESS(status)) {
-        DbgPrint("UserModeHook: Handle Open Failed %x\n", status);
-        // Clean up memory
         if (fnZwFreeVirtualMemory) {
             SIZE_T freeSize = 0;
             fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
@@ -458,61 +530,7 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
         return status;
     }
     
-    HookEntry->DriverDeviceHandle = targetHandle; 
-
-    // 4. Prepare Shellcode (Copy and Patch)
-    // For simplicity, we create a specialized block for NtWriteVirtualMemory
-    UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
-    RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
-    
-    // Patch EventType (0x11...) -> IRP_NT_WRITE_VIRTUAL_MEMORY (13)
-    *(PULONG)(shellcode + 27) = 13;
-    
-    // Patch ProcessId (0x22...)
-    *(PULONG)(shellcode + 35) = ProcessId;
-    
-    // Patch Handle (0x33...)
-    *(PHANDLE)(shellcode + 88) = targetHandle;
-    
-    // Patch NtDeviceIoControlFile Address (0x44...)
-    *(PVOID*)(shellcode + 102) = targetNtDeviceIo;
-    
-    // Patch Stolen Bytes (At 122, 14 bytes) from HookEntry->NtWriteVirtualMemory_Original
-    // We assume we haven't read them yet? We need to read them.
-    RtlCopyMemory(shellcode + 122, HookEntry->NtWriteVirtualMemory_Addr, 14); // Read directly (we are attached)
-    
-    // Save original bytes locally too
-    RtlCopyMemory(HookEntry->NtWriteVirtualMemory_Original, HookEntry->NtWriteVirtualMemory_Addr, 14);
-
-    // Patch Return Address (0x55...) -> Addr + 14
-    *(PVOID*)(shellcode + 140) = (PVOID)((ULONG_PTR)HookEntry->NtWriteVirtualMemory_Addr + 14);
-
-    // Write Shellcode to Target
-    RtlCopyMemory(baseAddress, shellcode, sizeof(shellcode));
-    
-    // Install Hook (JMP to Shellcode)
-    PVOID hookAddress = HookEntry->NtWriteVirtualMemory_Addr;
-    
-    // Need to protect memory of ntdll function to Write
-    PVOID pageAddr = hookAddress;
-    SIZE_T pageSize = 14;
-    ULONG oldProt;
-    if (fnZwProtectVirtualMemory) {
-        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
-        
-        // Write JMP [RIP+0] -> Shellcode Address
-        // FF 25 00 00 00 00 [Address]
-        UCHAR jmp[14];
-        RtlZeroMemory(jmp, 14);
-        jmp[0] = 0xFF; jmp[1] = 0x25; 
-        *(PULONG)&jmp[2] = 0;
-        *(PVOID*)&jmp[6] = baseAddress;
-        
-        RtlCopyMemory(hookAddress, jmp, 14);
-        
-        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
-    }
-
+    HookEntry->DriverDeviceHandle = targetHandle;
     KeUnstackDetachProcess(&apcState);
     return STATUS_SUCCESS;
 }
@@ -549,6 +567,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
+    RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY)); // Clear it
     hookEntry->ProcessId = ProcessId;
     hookEntry->ProcessObject = process;
 
@@ -564,19 +583,58 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // Resolve Addresses
     KAPC_STATE apcState;
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    hookEntry->NtWriteVirtualMemory_Addr = FindExportedFunction(hookEntry->NtdllBase, "NtWriteVirtualMemory");
-    hookEntry->NtAllocateVirtualMemory_Addr = FindExportedFunction(hookEntry->NtdllBase, "NtAllocateVirtualMemory");
+    
+    PVOID val;
+    val = FindExportedFunction(hookEntry->NtdllBase, "NtWriteVirtualMemory");
+    if(val) hookEntry->NtWriteVirtualMemory.Address = val;
+    
+    val = FindExportedFunction(hookEntry->NtdllBase, "NtAllocateVirtualMemory");
+    if(val) hookEntry->NtAllocateVirtualMemory.Address = val;
+    
+    val = FindExportedFunction(hookEntry->NtdllBase, "NtProtectVirtualMemory");
+    if(val) hookEntry->NtProtectVirtualMemory.Address = val;
+    
+    val = FindExportedFunction(hookEntry->NtdllBase, "NtCreateThreadEx");
+    if(val) hookEntry->NtCreateThreadEx.Address = val;
+    
+    val = FindExportedFunction(hookEntry->NtdllBase, "NtMapViewOfSection");
+    if(val) hookEntry->NtMapViewOfSection.Address = val;
+
+    PVOID targetNtDeviceIo = FindExportedFunction(hookEntry->NtdllBase, "NtDeviceIoControlFile");
+    
     KeUnstackDetachProcess(&apcState);
 
-    // Call InjectShellcodeHook
-    if (hookEntry->NtWriteVirtualMemory_Addr) {
-        status = InjectShellcodeHook(process, ProcessId, hookEntry);
-        if (NT_SUCCESS(status)) {
-            hookEntry->IsHooked = TRUE;
-            g_UserHookEngine->HookedProcessCount++;
-            DbgPrint("UserModeHook: Shellcode Injected into PID %lu\n", ProcessId);
-        }
+    if (!targetNtDeviceIo) {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return STATUS_NOT_FOUND;
     }
+
+    // Initialize Infrastructure
+    status = InitializeShellcodeInfrastructure(process, hookEntry);
+    if (!NT_SUCCESS(status)) {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return status;
+    }
+
+    // Inject Hooks
+    // Event IDs from SharedDefs/shared_def.rs:
+    // 12 => IrpNtWriteVirtualMemory
+    // 13 => IrpNtAllocateVirtualMemory
+    // 14 => IrpNtProtectVirtualMemory
+    // 15 => IrpNtCreateThread
+    // 19 => IrpNtMapSection
+    
+    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtWriteVirtualMemory, 12, targetNtDeviceIo);
+    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtAllocateVirtualMemory, 13, targetNtDeviceIo);
+    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtProtectVirtualMemory, 14, targetNtDeviceIo);
+    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtCreateThreadEx, 15, targetNtDeviceIo);
+    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtMapViewOfSection, 19, targetNtDeviceIo);
+
+    hookEntry->IsHooked = TRUE;
+    g_UserHookEngine->HookedProcessCount++;
+    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu\n", ProcessId);
 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
     return STATUS_SUCCESS;
@@ -586,10 +644,43 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 // Unhook
 //
 
+//
+// Helper to Unhook Single Function
+//
+VOID UnhookSingleFunction(
+    _In_ PEPROCESS Process,
+    _Inout_ PHOOK_DEF HookDef
+)
+{
+    NTSTATUS status;
+    KAPC_STATE apcState;
+    if (!HookDef->IsHooked || !HookDef->Address) return;
+
+    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+
+    // Restore Original Bytes
+    PVOID pageAddr = HookDef->Address;
+    SIZE_T pageSize = 14;
+    ULONG oldProt;
+    
+    if (fnZwProtectVirtualMemory) {
+        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        if (NT_SUCCESS(status)) {
+            RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
+            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
+            HookDef->IsHooked = FALSE;
+        }
+    }
+
+    KeUnstackDetachProcess(&apcState);
+}
+
+
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 {
+    PEPROCESS process = NULL;
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
-    KAPC_STATE apcState;
+    NTSTATUS status;
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
@@ -613,52 +704,41 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     DbgPrint("!!! UserModeHook: Unhooking process %lu\n", ProcessId);
 
-    KeStackAttachProcess((PRKPROCESS)hookEntry->ProcessObject, &apcState);
-
-    __try
+    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
+    if (NT_SUCCESS(status))
     {
-        // Restore NtWriteVirtualMemory
-        if (hookEntry->NtWriteVirtualMemory_Addr)
-        {
-            PVOID baseAddr = hookEntry->NtWriteVirtualMemory_Addr;
-            SIZE_T size = USERMODE_HOOK_SIZE;
-            ULONG oldProt, newProt = PAGE_EXECUTE_READWRITE;
-
-            // FIX: Use function pointer
-            if (NT_SUCCESS(fnZwProtectVirtualMemory(ZwCurrentProcess(), &baseAddr, &size, newProt, &oldProt)))
-            {
-                RtlCopyMemory(hookEntry->NtWriteVirtualMemory_Addr, hookEntry->NtWriteVirtualMemory_Original,
-                              USERMODE_HOOK_SIZE);
-                fnZwProtectVirtualMemory(ZwCurrentProcess(), &baseAddr, &size, oldProt, &oldProt);
-            }
+        // Unhook all functions
+        UnhookSingleFunction(process, &hookEntry->NtWriteVirtualMemory);
+        UnhookSingleFunction(process, &hookEntry->NtAllocateVirtualMemory);
+        UnhookSingleFunction(process, &hookEntry->NtProtectVirtualMemory);
+        UnhookSingleFunction(process, &hookEntry->NtCreateThreadEx);
+        UnhookSingleFunction(process, &hookEntry->NtMapViewOfSection);
+        
+        // Free Shellcode Memory using ZwFreeVirtualMemory
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        
+        if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
+            SIZE_T size = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
+            hookEntry->ShellcodeBase = NULL;
+        }
+        
+        // Close Handle
+        if (hookEntry->DriverDeviceHandle) {
+            ZwClose(hookEntry->DriverDeviceHandle);
+            hookEntry->DriverDeviceHandle = NULL;
         }
 
-        // Restore NtAllocateVirtualMemory
-        if (hookEntry->NtAllocateVirtualMemory_Addr)
-        {
-            PVOID baseAddr = hookEntry->NtAllocateVirtualMemory_Addr;
-            SIZE_T size = USERMODE_HOOK_SIZE;
-            ULONG oldProt, newProt = PAGE_EXECUTE_READWRITE;
-
-            // FIX: Use function pointer
-            if (NT_SUCCESS(fnZwProtectVirtualMemory(ZwCurrentProcess(), &baseAddr, &size, newProt, &oldProt)))
-            {
-                RtlCopyMemory(hookEntry->NtAllocateVirtualMemory_Addr, hookEntry->NtAllocateVirtualMemory_Original,
-                              USERMODE_HOOK_SIZE);
-                fnZwProtectVirtualMemory(ZwCurrentProcess(), &baseAddr, &size, oldProt, &oldProt);
-            }
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
+        KeUnstackDetachProcess(&apcState);
+        ObDereferenceObject(process);
     }
 
-    KeUnstackDetachProcess(&apcState);
-
-    ObDereferenceObject(hookEntry->ProcessObject);
-    RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+    hookEntry->IsHooked = FALSE;
+    hookEntry->ProcessId = 0;
+    hookEntry->ProcessObject = NULL; // We didn't ref it here, just stored pointer. But lookup adds ref.
     g_UserHookEngine->HookedProcessCount--;
-    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
     return STATUS_SUCCESS;
 }
