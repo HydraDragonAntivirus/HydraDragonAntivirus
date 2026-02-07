@@ -235,6 +235,11 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 
 #define MAX_HOOKED_PROCESSES 256
 #define USERMODE_HOOK_SIZE 14
+#define MAX_CUSTOM_HOOKS 16
+
+extern HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
+extern ULONG g_CustomHookCount;
+extern FAST_MUTEX g_ConfigMutex;
 
 typedef struct _HOOK_DEF {
     PVOID Address;
@@ -266,6 +271,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     SIZE_T ShellcodeSize;
     SIZE_T ShellcodeUsed;
     HANDLE DriverDeviceHandle;
+    PVOID NtDeviceIoControlFileAddr; // Cached for re-hooking
 } PROCESS_HOOK_ENTRY, *PPROCESS_HOOK_ENTRY;
 
 typedef struct _USERMODE_HOOK_ENGINE

@@ -435,67 +435,61 @@ VOID ThreadCreationCallback(
 
 VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE ProcessId, _In_ PIMAGE_INFO ImageInfo)
 {
-    if (FullImageName == NULL || ImageInfo == NULL)
+    if (FullImageName == NULL || ImageInfo == NULL || ProcessId == 0)
     {
         return;
     }
 
-    // Check if driverData is initialized (assuming external global/class)
-    // if (driverData == NULL || driverData->isFilterClosed()) { return; }
-
-    // -----------------------------------------------------------
     // 1. Detect Kernel Driver Loading (System Mode)
-    // -----------------------------------------------------------
     if (ImageInfo->SystemModeImage)
     {
         DbgPrint("!!! FSFilter: Kernel driver loaded: %wZ\n", FullImageName);
-
-        // Logic to log to user mode (omitted for brevity, assume existing logic matches)
-        // ...
+        // ... (logging omitted as per existing code)
+        return;
     }
 
-    // -----------------------------------------------------------
-    // 2. Hook ntdll.dll in Monitored Processes (User Mode)
-    // -----------------------------------------------------------
-    if (!ImageInfo->SystemModeImage && ProcessId != 0)
+    // 2. User Mode Image Load
+    // Check if this is ntdll.dll or a custom target module
+    BOOLEAN isInteresting = FALSE;
+
+    // Check ntdll.dll
+    UNICODE_STRING ntdllName;
+    RtlInitUnicodeString(&ntdllName, L"ntdll.dll");
+    if (FullImageName->Length >= ntdllName.Length)
     {
-
-        // Check if this is ntdll.dll
-        if (FullImageName->Length > 0)
+        PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + (FullImageName->Length - ntdllName.Length));
+        if (_wcsnicmp(pathEnd, ntdllName.Buffer, ntdllName.Length / sizeof(WCHAR)) == 0)
         {
-            UNICODE_STRING ntdllName;
-            RtlInitUnicodeString(&ntdllName, L"ntdll.dll");
+            isInteresting = TRUE;
+        }
+    }
 
-            // Case-insensitive check if path ends in "ntdll.dll"
-            if (FullImageName->Length >= ntdllName.Length)
+    // Check Custom Targets
+    if (!isInteresting)
+    {
+        ExAcquireFastMutex(&g_ConfigMutex);
+        for (ULONG i = 0; i < g_CustomHookCount; i++)
+        {
+            UNICODE_STRING targetModule;
+            RtlInitUnicodeString(&targetModule, g_GlobalCustomHooks[i].ModuleName);
+            if (FullImageName->Length >= targetModule.Length)
             {
-                PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + FullImageName->Length - ntdllName.Length);
-
-                if (_wcsnicmp(pathEnd, ntdllName.Buffer, ntdllName.Length / sizeof(WCHAR)) == 0)
+                PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + (FullImageName->Length - targetModule.Length));
+                if (_wcsnicmp(pathEnd, targetModule.Buffer, targetModule.Length / sizeof(WCHAR)) == 0)
                 {
-
-                    // TODO: Check if process is monitored via your driverData->GetProcessGid()
-                    // For now, we assume we want to hook it:
-
-                    DbgPrint("!!! FSFilter: ntdll.dll loaded in process %lu\n", (ULONG)(ULONG_PTR)ProcessId);
-
-                    // FIX IS HERE:
-                    // Call new shellcode-based hook
-                    NTSTATUS status = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
-
-                    if (NT_SUCCESS(status))
-                    {
-                        DbgPrint("!!! FSFilter: Hook initialized for %lu (waiting for detour addr)\n",
-                                 (ULONG)(ULONG_PTR)ProcessId);
-                    }
-                    else
-                    {
-                        DbgPrint("!!! FSFilter: Failed to initialize hook for %lu: 0x%X\n", (ULONG)(ULONG_PTR)ProcessId,
-                                 status);
-                    }
+                    isInteresting = TRUE;
+                    break;
                 }
             }
         }
+        ExReleaseFastMutex(&g_ConfigMutex);
+    }
+
+    if (isInteresting)
+    {
+        DbgPrint("!!! FSFilter: Triggering hook engine for %lu (Module: %wZ)\n",
+                 (ULONG)(ULONG_PTR)ProcessId, FullImageName);
+        UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
     }
 }
 
@@ -578,6 +572,9 @@ VOID EnumerateExistingProcesses(VOID)
                             {
                                 delete newEntry;
                             }
+                            
+                            // PROACTIVE: Hook existing process now
+                            UserModeHookProcess(pidNum);
                         }
                     }
 

@@ -52,10 +52,62 @@ PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 extern PDEVICE_OBJECT g_HookDeviceObject;
 
 // Dynamic Configuration
-#define MAX_CUSTOM_HOOKS 16
 HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
+
+// Forward Declarations
+NTSTATUS ResolveAndHook(
+    _In_ PEPROCESS Process,
+    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
+    _In_ PCWSTR ModuleName,
+    _In_ PCSTR FunctionName,
+    _Inout_ PHOOK_DEF HookDef,
+    _In_ ULONG EventId,
+    _In_ PVOID TargetNtDeviceIo
+);
+
+VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo)
+{
+    // NTDLL Hooks (Default)
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12, TargetNtDeviceIo);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13, TargetNtDeviceIo);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14, TargetNtDeviceIo);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15, TargetNtDeviceIo);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19, TargetNtDeviceIo);
+    
+    // Custom Hooks (Dynamic)
+    ExAcquireFastMutex(&g_ConfigMutex);
+    for (ULONG i = 0; i < g_CustomHookCount; i++) {
+        if (i < MAX_CUSTOM_HOOKS) {
+            ResolveAndHook(Process, HookEntry, 
+                           g_GlobalCustomHooks[i].ModuleName, 
+                           g_GlobalCustomHooks[i].FunctionName, 
+                           &HookEntry->CustomHooks[i], 
+                           g_GlobalCustomHooks[i].EventId, 
+                           TargetNtDeviceIo);
+        }
+    }
+    ExReleaseFastMutex(&g_ConfigMutex);
+}
+
+VOID ApplyGlobalHooksToAll()
+{
+    if (g_UserHookEngine == NULL) return;
+    
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId != 0) {
+            PPROCESS_HOOK_ENTRY hookEntry = &g_UserHookEngine->Processes[i];
+            
+            // Re-apply hooks (Generic logic will skip if already hooked)
+            if (hookEntry->ProcessObject && hookEntry->NtDeviceIoControlFileAddr) {
+                ApplyHooksInternal(hookEntry->ProcessObject, hookEntry, hookEntry->NtDeviceIoControlFileAddr);
+            }
+        }
+    }
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+}
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
@@ -67,8 +119,11 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     
     RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], Config, sizeof(HOOK_CONFIG_DATA));
     g_CustomHookCount++;
-    
     ExReleaseFastMutex(&g_ConfigMutex);
+    
+    // Trigger retroactive application to all processes
+    ApplyGlobalHooksToAll();
+    
     return STATUS_SUCCESS;
 }
 
@@ -569,6 +624,8 @@ NTSTATUS ResolveAndHook(
     _In_ PVOID TargetNtDeviceIo
 )
 {
+    if (HookDef->IsHooked) return STATUS_SUCCESS;
+
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
@@ -599,10 +656,31 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
+    // Check if already being monitored
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        {
+            hookEntry = &g_UserHookEngine->Processes[i];
+            break;
+        }
+    }
+
+    if (hookEntry)
+    {
+        // Already tracked. Just apply any missing/newly added hooks.
+        if (hookEntry->NtDeviceIoControlFileAddr) {
+            ApplyHooksInternal(process, hookEntry, hookEntry->NtDeviceIoControlFileAddr);
+        }
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return STATUS_SUCCESS;
+    }
+
     // Find free slot
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (!g_UserHookEngine->Processes[i].IsHooked)
+        if (!g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == 0)
         {
             hookEntry = &g_UserHookEngine->Processes[i];
             break;
@@ -629,13 +707,10 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     }
 
     // 2. Resolve NtDeviceIoControlFile (Needed for communication)
-    // We strictly need this from ntdll.dll
     SIZE_T ntdllSize = 0;
     PVOID ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &ntdllSize);
     if (!ntdllBase) {
-         // Cleanup? Generic Unhook will handle cleanup if we fail here but we haven't hooked yet.
-         // Just free memory?
-         UserModeUnhookProcess(ProcessId); // Abuse unhook to cleanup
+         UserModeUnhookProcess(ProcessId); 
          ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
          return STATUS_NOT_FOUND;
     }
@@ -651,33 +726,10 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
          return STATUS_NOT_FOUND;
     }
 
+    hookEntry->NtDeviceIoControlFileAddr = targetNtDeviceIo;
+
     // 3. Inject Hooks (Generic!)
-    // Now we can hook ANY function in ANY dll.
-    
-    // NTDLL Hooks (Default)
-    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &hookEntry->NtWriteVirtualMemory, 12, targetNtDeviceIo);
-    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &hookEntry->NtAllocateVirtualMemory, 13, targetNtDeviceIo);
-    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &hookEntry->NtProtectVirtualMemory, 14, targetNtDeviceIo);
-    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtCreateThreadEx", &hookEntry->NtCreateThreadEx, 15, targetNtDeviceIo);
-    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtMapViewOfSection", &hookEntry->NtMapViewOfSection, 19, targetNtDeviceIo);
-    
-    // Custom Hooks (Dynamic)
-    ExAcquireFastMutex(&g_ConfigMutex);
-    for (ULONG i = 0; i < g_CustomHookCount; i++) {
-        if (i < MAX_CUSTOM_HOOKS) { // Safety
-            // Convert Char String if needed?
-            // ResolveAndHook takes PCSTR FunctionName. Our struct has CHAR FunctionName. Correct.
-            // ResolveAndHook takes PCWSTR ModuleName. Our struct has WCHAR ModuleName. Correct.
-            
-            ResolveAndHook(process, hookEntry, 
-                           g_GlobalCustomHooks[i].ModuleName, 
-                           g_GlobalCustomHooks[i].FunctionName, 
-                           &hookEntry->CustomHooks[i], 
-                           g_GlobalCustomHooks[i].EventId, 
-                           targetNtDeviceIo);
-        }
-    }
-    ExReleaseFastMutex(&g_ConfigMutex);
+    ApplyHooksInternal(process, hookEntry, targetNtDeviceIo);
 
     hookEntry->IsHooked = TRUE;
     g_UserHookEngine->HookedProcessCount++;
