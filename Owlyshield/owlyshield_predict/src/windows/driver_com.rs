@@ -274,9 +274,13 @@ impl Driver {
     /// * `function`: Function name (e.g., "MessageBoxW")
     /// * `event_id`: Custom event ID to report when hooked (defaults to 23 if 0)
     pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+        self.add_hook_target_for_pid(0, module, function, event_id)
+    }
+
+    pub fn add_hook_target_for_pid(&self, pid: u32, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
         let mut msg = DriverComMessage {
             r#type: DriverComMessageType::MessageAddHook as c_ulong,
-            pid: 0,
+            pid: pid as c_ulong,
             gid: event_id as u64,
             path: Driver::string_to_commessage_buffer(module),
             quarantine_path: Driver::string_to_commessage_buffer(function),

@@ -1085,7 +1085,7 @@ pub mod worker_instance {
                     
                     // FIX: Check if we're ALREADY tracking this PID
                     // This prevents duplicate entries when GID generation is non-deterministic
-                    if let Some(existing_gid) = self.find_gid_by_pid(pid_u32) {
+                    if let Some(_) = self.find_gid_by_pid(pid_u32) {
                         // Already tracking this PID - skip to avoid duplicates
                         continue;
                     }
@@ -1156,7 +1156,7 @@ pub mod worker_instance {
                         
                         // If termination is requested, execute via threat_handler and cleanup
                         if det.termination_requested {
-                            if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
+                            if let Some(_) = self.behavior_engine.process_states.get(&det.gid) {
                                 threat_handler.kill(det.gid);
                                 // FIX: Cleanup killed process immediately
                                 self.cleanup_process(det.gid, "Killed (malicious)");
@@ -1219,12 +1219,16 @@ pub mod worker_instance {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
             
+            // Register dynamic hooks for the new process before borrowing precord
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if is_process_create {
+                self.register_dynamic_hooks_for_process(iomsg.pid);
+            }
+            
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes, run static scan immediately
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create {
-                    // Register dynamic hooks for the new process
-                    self.register_dynamic_hooks_for_process(iomsg.pid);
 
                     if let Some(ref th) = self.threat_handler {
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);

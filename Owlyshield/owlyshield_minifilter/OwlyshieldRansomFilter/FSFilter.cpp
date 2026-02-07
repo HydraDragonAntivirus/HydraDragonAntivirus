@@ -475,7 +475,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
             if (FullImageName->Length >= targetModule.Length)
             {
                 PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + (FullImageName->Length - targetModule.Length));
-                if (_wcsnicmp(pathEnd, targetModule.Buffer, targetModule.Length / sizeof(WCHAR)) == 0)
+                if (targetModule.Buffer != NULL && _wcsnicmp(pathEnd, targetModule.Buffer, targetModule.Length / sizeof(WCHAR)) == 0)
                 {
                     isInteresting = TRUE;
                     break;
