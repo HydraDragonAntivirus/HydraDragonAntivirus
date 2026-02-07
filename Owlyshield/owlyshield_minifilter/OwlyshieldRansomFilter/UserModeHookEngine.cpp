@@ -271,6 +271,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
 
     RtlZeroMemory(g_UserHookEngine, sizeof(USERMODE_HOOK_ENGINE));
     ExInitializeFastMutex(&g_UserHookEngine->EngineMutex);
+    ExInitializeFastMutex(&g_ConfigMutex);
     g_UserHookEngine->IsInitialized = TRUE;
 
     return STATUS_SUCCESS;
