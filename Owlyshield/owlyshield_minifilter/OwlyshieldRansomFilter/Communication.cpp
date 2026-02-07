@@ -1,5 +1,6 @@
 #include "Communication.h"
 #include "FsFilter.h"
+#include "UserModeHookEngine.h"
 
 NTSTATUS InitCommData(
 

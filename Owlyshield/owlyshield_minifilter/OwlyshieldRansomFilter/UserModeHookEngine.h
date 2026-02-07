@@ -16,6 +16,7 @@ Environment:
 // Do not include ntddk.h or windef.h alongside it if they conflict.
 // -------------------------------------------------------------------------
 #include <ntifs.h>
+#include "..\SharedDefs\SharedDefs.h"
 
 //
 // -------------------------------------------------------------------------
