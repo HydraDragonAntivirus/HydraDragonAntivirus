@@ -56,6 +56,7 @@ pub enum DriverComMessageType {
     MessageKillOnlyGid,
     MessageKillAndRemoveGid, // NEW: Kill process and delete file
     MessageRevertRegistryChanges,
+    MessageAddHook,
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).
@@ -122,6 +123,8 @@ pub enum IrpMajorOp {
     IrpNtLoadDriver,
     /// NtOpenProcess - process access
     IrpNtOpenProcess,
+    /// Generic API call (dynamic hook)
+    IrpNtGenericApiCall,
 }
 
 impl IrpMajorOp {
@@ -152,6 +155,7 @@ impl IrpMajorOp {
             20 => IrpMajorOp::IrpNtDeleteFile,
             21 => IrpMajorOp::IrpNtLoadDriver,
             22 => IrpMajorOp::IrpNtOpenProcess,
+            23 => IrpMajorOp::IrpNtGenericApiCall,
             
             _ => IrpMajorOp::IrpNone,
         }

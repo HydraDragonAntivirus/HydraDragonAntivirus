@@ -269,6 +269,33 @@ impl Driver {
         Ok(hres)
     }
 
+    /// Dynamically add a hook target to the driver.
+    /// * `module`: DLL name (e.g., "user32.dll")
+    /// * `function`: Function name (e.g., "MessageBoxW")
+    /// * `event_id`: Custom event ID to report when hooked (defaults to 23 if 0)
+    pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
+        let mut msg = DriverComMessage {
+            r#type: DriverComMessageType::MessageAddHook as c_ulong,
+            pid: 0,
+            gid: event_id as u64,
+            path: Driver::string_to_commessage_buffer(module),
+            quarantine_path: Driver::string_to_commessage_buffer(function),
+        };
+        let mut res_size: u32 = 0;
+
+        unsafe {
+            FilterSendMessage(
+                self.handle,
+                ptr::addr_of_mut!(msg) as *mut c_void,
+                mem::size_of::<DriverComMessage>() as c_ulong,
+                None,
+                0,
+                ptr::addr_of_mut!(res_size) as *mut u32,
+            )?;
+        }
+        Ok(())
+    }
+
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
         let temp = U16CString::from_str(&bufstr).unwrap();
         let mut buf: BufPath = [0; 520];
