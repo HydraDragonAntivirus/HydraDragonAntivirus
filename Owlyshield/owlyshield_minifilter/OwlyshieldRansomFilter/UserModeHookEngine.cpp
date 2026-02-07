@@ -535,6 +535,34 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     return STATUS_SUCCESS;
 }
 
+//
+// Helper: Resolve and Prepare Hook
+//
+NTSTATUS ResolveAndHook(
+    _In_ PEPROCESS Process,
+    _In_ PPROCESS_HOOK_ENTRY HookEntry,
+    _In_ PCWSTR ModuleName,
+    _In_ PCSTR FunctionName,
+    _Inout_ PHOOK_DEF HookDef,
+    _In_ ULONG EventId,
+    _In_ PVOID TargetNtDeviceIo
+)
+{
+    SIZE_T modSize = 0;
+    PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+    if (!modBase) return STATUS_NOT_FOUND;
+    
+    // Attach to resolve export
+    KAPC_STATE apcState;
+    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+    HookDef->Address = FindExportedFunction(modBase, FunctionName);
+    KeUnstackDetachProcess(&apcState);
+
+    if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
+
+    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
+}
+
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 {
     NTSTATUS status;
@@ -571,46 +599,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     hookEntry->ProcessId = ProcessId;
     hookEntry->ProcessObject = process;
 
-    // Find ntdll.dll
-    hookEntry->NtdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &hookEntry->NtdllSize);
-    if (!hookEntry->NtdllBase)
-    {
-        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        ObDereferenceObject(process);
-        return STATUS_NOT_FOUND;
-    }
-
-    // Resolve Addresses
-    KAPC_STATE apcState;
-    KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    
-    PVOID val;
-    val = FindExportedFunction(hookEntry->NtdllBase, "NtWriteVirtualMemory");
-    if(val) hookEntry->NtWriteVirtualMemory.Address = val;
-    
-    val = FindExportedFunction(hookEntry->NtdllBase, "NtAllocateVirtualMemory");
-    if(val) hookEntry->NtAllocateVirtualMemory.Address = val;
-    
-    val = FindExportedFunction(hookEntry->NtdllBase, "NtProtectVirtualMemory");
-    if(val) hookEntry->NtProtectVirtualMemory.Address = val;
-    
-    val = FindExportedFunction(hookEntry->NtdllBase, "NtCreateThreadEx");
-    if(val) hookEntry->NtCreateThreadEx.Address = val;
-    
-    val = FindExportedFunction(hookEntry->NtdllBase, "NtMapViewOfSection");
-    if(val) hookEntry->NtMapViewOfSection.Address = val;
-
-    PVOID targetNtDeviceIo = FindExportedFunction(hookEntry->NtdllBase, "NtDeviceIoControlFile");
-    
-    KeUnstackDetachProcess(&apcState);
-
-    if (!targetNtDeviceIo) {
-        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        ObDereferenceObject(process);
-        return STATUS_NOT_FOUND;
-    }
-
-    // Initialize Infrastructure
+    // 1. Initialize Infrastructure (Alloc + Handle)
     status = InitializeShellcodeInfrastructure(process, hookEntry);
     if (!NT_SUCCESS(status)) {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
@@ -618,23 +607,42 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         return status;
     }
 
-    // Inject Hooks
-    // Event IDs from SharedDefs/shared_def.rs:
-    // 12 => IrpNtWriteVirtualMemory
-    // 13 => IrpNtAllocateVirtualMemory
-    // 14 => IrpNtProtectVirtualMemory
-    // 15 => IrpNtCreateThread
-    // 19 => IrpNtMapSection
+    // 2. Resolve NtDeviceIoControlFile (Needed for communication)
+    // We strictly need this from ntdll.dll
+    SIZE_T ntdllSize = 0;
+    PVOID ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &ntdllSize);
+    if (!ntdllBase) {
+         // Cleanup? Generic Unhook will handle cleanup if we fail here but we haven't hooked yet.
+         // Just free memory?
+         UserModeUnhookProcess(ProcessId); // Abuse unhook to cleanup
+         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+         return STATUS_NOT_FOUND;
+    }
     
-    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtWriteVirtualMemory, 12, targetNtDeviceIo);
-    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtAllocateVirtualMemory, 13, targetNtDeviceIo);
-    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtProtectVirtualMemory, 14, targetNtDeviceIo);
-    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtCreateThreadEx, 15, targetNtDeviceIo);
-    InjectSingleHook(process, ProcessId, hookEntry, &hookEntry->NtMapViewOfSection, 19, targetNtDeviceIo);
+    KAPC_STATE apcState;
+    KeStackAttachProcess((PRKPROCESS)process, &apcState);
+    PVOID targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
+    KeUnstackDetachProcess(&apcState);
+    
+    if (!targetNtDeviceIo) {
+         UserModeUnhookProcess(ProcessId);
+         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+         return STATUS_NOT_FOUND;
+    }
+
+    // 3. Inject Hooks (Generic!)
+    // Now we can hook ANY function in ANY dll.
+    
+    // NTDLL Hooks
+    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &hookEntry->NtWriteVirtualMemory, 12, targetNtDeviceIo);
+    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &hookEntry->NtAllocateVirtualMemory, 13, targetNtDeviceIo);
+    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &hookEntry->NtProtectVirtualMemory, 14, targetNtDeviceIo);
+    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtCreateThreadEx", &hookEntry->NtCreateThreadEx, 15, targetNtDeviceIo);
+    ResolveAndHook(process, hookEntry, L"ntdll.dll", "NtMapViewOfSection", &hookEntry->NtMapViewOfSection, 19, targetNtDeviceIo);
 
     hookEntry->IsHooked = TRUE;
     g_UserHookEngine->HookedProcessCount++;
-    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu\n", ProcessId);
+    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu (Generic)\n", ProcessId);
 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
     return STATUS_SUCCESS;

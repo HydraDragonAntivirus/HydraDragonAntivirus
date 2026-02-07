@@ -246,8 +246,9 @@ typedef struct _PROCESS_HOOK_ENTRY
     ULONG ProcessId;
     PEPROCESS ProcessObject;
     BOOLEAN IsHooked;
-    PVOID NtdllBase;
-    SIZE_T NtdllSize;
+    // Generic: No single base. We find base per hook if needed.
+    // PVOID NtdllBase; 
+    // SIZE_T NtdllSize;
 
     // Hooked Functions
     HOOK_DEF NtWriteVirtualMemory;
@@ -281,5 +282,11 @@ VOID UserModeHookEngineCleanup(VOID);
 // Updated Prototype
 // Updated Prototype
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
-NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
+// Updated Prototypes
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
+// NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry); // Removed
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
+
+// Expose these if needed or keep static in cpp
+NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
+// NTSTATUS ResolveAndHook(...) // Internal helper
