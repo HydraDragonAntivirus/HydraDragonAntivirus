@@ -1,5 +1,4 @@
-rule:
-  name: ransomware_whitelist_importer
+- name: ransomware_whitelist_importer
   author: Emirhan Ucan
   date: 2026-02-02
   version: 1.0.0

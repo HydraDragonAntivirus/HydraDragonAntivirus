@@ -36,12 +36,17 @@ typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _
                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
                                               _In_ ULONG Options);
+typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                 _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 
+//
 // Global Function Pointers
-static PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
-static PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
-static PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
-static PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
+//
+PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
+PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
+PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
+PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
+PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 extern PDEVICE_OBJECT g_HookDeviceObject;
@@ -168,6 +173,10 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // Resolve ZwDuplicateObject
     RtlInitUnicodeString(&routineName, L"ZwDuplicateObject");
     fnZwDuplicateObject = (PZW_DUPLICATE_OBJECT)MmGetSystemRoutineAddress(&routineName);
+    
+    // Resolve ZwFreeVirtualMemory
+    RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
+    fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
     if (!fnZwDuplicateObject) {
          DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
@@ -401,7 +410,7 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
     PVOID baseAddress = NULL;
     SIZE_T regionSize = 4096; // 1 Page
     PVOID targetNtDeviceIo = NULL;
-    HANDLE dupHandle = NULL;
+    // HANDLE dupHandle = NULL; // Unused now
     
     // 1. Resolve NtDeviceIoControlFile in Target
     targetNtDeviceIo = FindExportedFunction(HookEntry->NtdllBase, "NtDeviceIoControlFile");
@@ -426,20 +435,30 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
     HookEntry->ShellcodeBase = baseAddress;
     HookEntry->ShellcodeSize = regionSize;
 
-    // 3. Duplicate Driver Device Handle to Target
-    // Requires g_HookDeviceObject.
-    // However, we need a HANDLE to the Device Object.
-    // ObOpenObjectByPointer(g_HookDeviceObject, ...) -> Kernel Handle -> ZwDuplicateObject to Target
-    HANDLE kernelHandle = NULL;
-    status = ObOpenObjectByPointer(g_HookDeviceObject, OBJ_KERNEL_HANDLE, NULL, 0, *IoFileObjectType, KernelMode, &kernelHandle);
-    if (NT_SUCCESS(status)) {
-        if (fnZwDuplicateObject) {
-            status = fnZwDuplicateObject(ZwCurrentProcess(), kernelHandle, ZwCurrentProcess(), &dupHandle, 0, 0, DUPLICATE_SAME_ACCESS);
+    // 3. Create Handle to Driver Device in Target Process
+    // We are attached to the target process, so ObOpenObjectByPointer 
+    // without OBJ_KERNEL_HANDLE creates the handle in the *Current* (Target) process handle table.
+    HANDLE targetHandle = NULL;
+    status = ObOpenObjectByPointer(g_HookDeviceObject, 
+                                   OBJ_CASE_INSENSITIVE, // No OBJ_KERNEL_HANDLE
+                                   NULL, 
+                                   GENERIC_READ | GENERIC_WRITE, 
+                                   *IoFileObjectType, 
+                                   KernelMode, 
+                                   &targetHandle);
+                                   
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("UserModeHook: Handle Open Failed %x\n", status);
+        // Clean up memory
+        if (fnZwFreeVirtualMemory) {
+            SIZE_T freeSize = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
         }
-        ZwClose(kernelHandle);
+        KeUnstackDetachProcess(&apcState);
+        return status;
     }
     
-    HookEntry->DriverDeviceHandle = dupHandle; // In target process context
+    HookEntry->DriverDeviceHandle = targetHandle; 
 
     // 4. Prepare Shellcode (Copy and Patch)
     // For simplicity, we create a specialized block for NtWriteVirtualMemory
@@ -453,7 +472,7 @@ NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inou
     *(PULONG)(shellcode + 35) = ProcessId;
     
     // Patch Handle (0x33...)
-    *(PHANDLE)(shellcode + 88) = dupHandle;
+    *(PHANDLE)(shellcode + 88) = targetHandle;
     
     // Patch NtDeviceIoControlFile Address (0x44...)
     *(PVOID*)(shellcode + 102) = targetNtDeviceIo;

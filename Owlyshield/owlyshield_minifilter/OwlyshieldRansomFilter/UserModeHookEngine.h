@@ -186,12 +186,46 @@ typedef struct _LDR_DATA_TABLE_ENTRY
 //
 
 // PsGetProcessPeb is exported by ntoskrnl but not always in standard headers
-extern "C" NTKERNELAPI PPEB PsGetProcessPeb(_In_ PEPROCESS Process);
+typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
+extern PPS_GET_PROCESS_PEB fnPsGetProcessPeb;
 
 // ZwProtectVirtualMemory is exported by ntoskrnl (Zw version)
-extern "C" NTKERNELAPI NTSTATUS ZwProtectVirtualMemory(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
-                                                       _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
-                                                       _Out_ PULONG OldProtect);
+typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(
+    _In_ HANDLE ProcessHandle,
+    _Inout_ PVOID *BaseAddress,
+    _Inout_ PSIZE_T RegionSize,
+    _In_ ULONG NewProtect,
+    _Out_ PULONG OldProtect);
+extern PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory;
+
+// ZwAllocateVirtualMemory is exported by ntoskrnl (Zw version)
+typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(
+    _In_ HANDLE ProcessHandle,
+    _Inout_ PVOID *BaseAddress,
+    _In_ ULONG_PTR ZeroBits,
+    _Inout_ PSIZE_T RegionSize,
+    _In_ ULONG AllocationType,
+    _In_ ULONG Protect);
+extern PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory;
+
+// ZwDuplicateObject is exported by ntoskrnl (Zw version)
+typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(
+    _In_ HANDLE SourceProcessHandle,
+    _In_ HANDLE SourceHandle,
+    _In_ HANDLE TargetProcessHandle,
+    _Out_ PHANDLE TargetHandle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_ ULONG HandleAttributes,
+    _In_ ULONG Options);
+extern PZW_DUPLICATE_OBJECT fnZwDuplicateObject;
+
+// FIX: Declare Free prototype
+typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(
+    _In_ HANDLE ProcessHandle,
+    _Inout_ PVOID *BaseAddress,
+    _Inout_ PSIZE_T RegionSize,
+    _In_ ULONG FreeType);
+extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 
 //
 // -------------------------------------------------------------------------
