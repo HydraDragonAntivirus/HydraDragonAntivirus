@@ -1446,7 +1446,9 @@ pub mod worker_instance {
             exepath.file_name()?.to_str().map(|s| s.to_string())
         }
 
+
         /// Register high-interest API hooks for a specific PID
+        /// REQUIRES explicit module!function format (e.g., "ntdll!NtWriteVirtualMemory")
         fn register_dynamic_hooks_for_process(&self, pid: u32) {
             if let Some(ref driver) = self.driver {
                 let monitored_apis = self.behavior_engine.get_all_monitored_apis();
@@ -1461,31 +1463,25 @@ pub mod worker_instance {
                 let mut skipped_count = 0;
 
                 for api_spec in monitored_apis {
-                    // Handle module!function format OR infer module from API name
-                    let (module, function) = if let Some(idx) = api_spec.find('!') {
-                        // Explicit module specified
-                        (api_spec[..idx].to_string(), api_spec[idx+1..].to_string())
+                    // REQUIRE explicit module!function format - no guessing
+                    if let Some(idx) = api_spec.find('!') {
+                        let module = &api_spec[..idx];
+                        let function = &api_spec[idx+1..];
+                        
+                        match driver.add_hook_target_for_pid(pid, module, function, 23) {
+                            Ok(_) => {
+                                Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
+                                registered_count += 1;
+                            }
+                            Err(e) => {
+                                Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
+                                failed_count += 1;
+                            }
+                        }
                     } else {
-                        // Try to infer module from API name
-                        if let Some(inferred_module) = Self::infer_module_from_api(&api_spec) {
-                            (inferred_module.to_string(), api_spec.clone())
-                        } else {
-                            // Cannot infer - skip with warning
-                            Logging::warning(&format!("[DYNAMIC HOOK] Skipping API '{}' for PID {} - cannot determine module", api_spec, pid));
-                            skipped_count += 1;
-                            continue;
-                        }
-                    };
-                    
-                    match driver.add_hook_target_for_pid(pid, &module, &function, 23) {
-                        Ok(_) => {
-                            Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
-                            registered_count += 1;
-                        }
-                        Err(e) => {
-                            Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
-                            failed_count += 1;
-                        }
+                        // Skip APIs without explicit module specification
+                        Logging::warning(&format!("[DYNAMIC HOOK] Skipping API '{}' for PID {} - MUST use 'module!function' format (e.g., 'ntdll!NtWriteVirtualMemory')", api_spec, pid));
+                        skipped_count += 1;
                     }
                 }
                 

@@ -89,6 +89,7 @@ pub struct IrpStatistics {
     // Ntdll API Hooks - System
     pub nt_load_driver_count: u64,
     pub nt_open_process_count: u64,
+    pub nt_generic_api_events: u64,  // Generic API calls from dynamic hooks
     
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -106,6 +107,9 @@ pub struct IrpStatistics {
     
     // Ntdll API operation history (limited to last 100 for memory efficiency)
     pub ntdll_api_operations: Vec<NtdllApiOperation>,
+    
+    // All APIs called (for comprehensive tracking)
+    pub all_apis_called: HashSet<String>,
 }
 
 impl IrpStatistics {
