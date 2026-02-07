@@ -747,6 +747,7 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
+        pub driver: Option<crate::Driver>,
     }
 
     impl<'a> Worker<'a> {
@@ -775,6 +776,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
                 threat_handler: None,
+                driver: None,
             }
         }
 
@@ -902,6 +904,11 @@ pub mod worker_instance {
 
         pub fn threat_handler(mut self, handler: Box<dyn ThreatHandler>) -> Worker<'a> {
             self.threat_handler = Some(handler);
+            self
+        }
+
+        pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
+            self.driver = Some(driver);
             self
         }
 
@@ -1198,6 +1205,7 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
                 threat_handler: None,
+                driver: None,
             }
         }
 
@@ -1215,6 +1223,9 @@ pub mod worker_instance {
                 // For new processes, run static scan immediately
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create {
+                    // Register dynamic hooks for the new process
+                    self.register_dynamic_hooks_for_process(iomsg.pid);
+
                     if let Some(ref th) = self.threat_handler {
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);
                         for det in detections {
@@ -1429,6 +1440,38 @@ pub mod worker_instance {
         
         fn appname_from_exepath_static(exepath: &Path) -> Option<String> {
             exepath.file_name()?.to_str().map(|s| s.to_string())
+        }
+
+        /// Register high-interest API hooks for a specific PID
+        fn register_dynamic_hooks_for_process(&self, pid: u32) {
+            if let Some(ref driver) = self.driver {
+                let monitored_apis = self.behavior_engine.get_all_monitored_apis();
+                
+                if monitored_apis.is_empty() {
+                    Logging::debug(&format!("[DYNAMIC HOOK] No monitored APIs found in rules for PID {}", pid));
+                    return;
+                }
+
+                for api_spec in monitored_apis {
+                    // Handle module!function format, default to ntdll.dll
+                    let (module, function) = if let Some(idx) = api_spec.find('!') {
+                        (&api_spec[..idx], &api_spec[idx+1..])
+                    } else if api_spec.to_lowercase().starts_with("nt") {
+                        ("ntdll.dll", api_spec.as_str())
+                    } else {
+                        // If it's not a common NT function but doesn't have a module, fallback to ntdll or assume user knows what they're doing
+                        // For now we default to ntdll.dll for simple names
+                        ("ntdll.dll", api_spec.as_str())
+                    };
+
+                    match driver.add_hook_target_for_pid(pid, module, function, 23) {
+                        Ok(_) => Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function)),
+                        Err(e) => Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e)),
+                    }
+                }
+            } else {
+                Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
+            }
         }
     }
 }

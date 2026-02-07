@@ -454,6 +454,7 @@ NTSTATUS OnKernelApiEvent(
     _In_ ULONG EventType,
     _In_ ULONG SourcePid,
     _In_ ULONG TargetPid,
+    _In_opt_ PCWSTR FunctionName,
     _In_opt_ PVOID EventData
 )
 {
@@ -488,8 +489,13 @@ NTSTATUS OnKernelApiEvent(
     newItem->KernelEventInfo.SourceProcessId = SourcePid;
     newItem->KernelEventInfo.TargetProcessId = TargetPid;
 
-    DbgPrint("!!! ProcessProtection: Kernel API event detected - Type: %lu, Source PID: %lu, Target PID: %lu\n",
-        EventType, SourcePid, TargetPid);
+    if (FunctionName != NULL) {
+        RtlCopyMemory(newItem->KernelEventInfo.ObjectName, FunctionName, 
+            min(wcslen(FunctionName) * sizeof(WCHAR), sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
+    }
+
+    DbgPrint("!!! ProcessProtection: Kernel API event detected - Type: %lu, Name: %ls, Source PID: %lu, Target PID: %lu\n",
+        EventType, FunctionName ? FunctionName : L"Unknown", SourcePid, TargetPid);
 
     if (!driverData->AddIrpMessage(newEntry)) {
         delete newEntry;

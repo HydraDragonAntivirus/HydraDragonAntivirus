@@ -63,8 +63,11 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_ONLY_GID,           // Kill process without quarantine
     MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES,
-    MESSAGE_ADD_HOOK                 // Dynamic Hook Config
+    MESSAGE_ADD_HOOK,                 // Dynamic Hook Config
+    MESSAGE_HOOK_PROCESS              // Force hook a specific PID
 };
+
+#define IOCTL_HOOK_PROCESS CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 // msgs struct that the application send when sending msg to the driver, type member should be one of the
 // COM_MESSAGE_TYPE

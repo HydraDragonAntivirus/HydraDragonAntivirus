@@ -2214,8 +2214,8 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 DbgPrint("FSFilter: Hook Event from PID %lu: Type=%lu\n", 
                     eventData->ProcessId, eventData->EventType);
                 
-                // Pass Arg2 (BaseAddress) as Generic Data Pointer
-                OnKernelApiEvent(eventData->EventType, eventData->ProcessId, eventData->ProcessId, (PVOID)eventData->Arg2);
+                // Pass Arg2 (BaseAddress) as Generic Data Pointer and FunctionName
+                OnKernelApiEvent(eventData->EventType, eventData->ProcessId, eventData->ProcessId, eventData->FunctionName, (PVOID)eventData->Arg2);
             }
         }
         else {

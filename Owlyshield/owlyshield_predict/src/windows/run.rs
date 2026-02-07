@@ -56,7 +56,8 @@ pub fn run() {
             .expect("Failed to load app settings for replay");
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay);
+        let mut worker = Worker::new_replay(&config, &whitelist, app_settings_replay)
+            .driver(driver.clone());
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 

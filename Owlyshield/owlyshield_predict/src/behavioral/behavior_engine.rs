@@ -1038,6 +1038,7 @@ pub struct ProcessBehaviorState {
     pub nt_delete_file_events: u32,
     pub nt_load_driver_events: u32,
     pub nt_open_process_events: u32,
+    pub nt_generic_api_events: u32,
     pub ntdll_events_total: u32,
 }
 
@@ -1073,6 +1074,7 @@ impl ProcessBehaviorState {
         state.nt_delete_file_events = 0;
         state.nt_load_driver_events = 0;
         state.nt_open_process_events = 0;
+        state.nt_generic_api_events = 0;
         state.ntdll_events_total = 0;
         
         state
@@ -1437,6 +1439,19 @@ impl ProcessBehaviorState {
                 }
             },
             
+            23 => { // IRP_NT_GENERIC_API_CALL
+                self.nt_generic_api_events += 1;
+                self.detected_apis.insert(msg.ntdll_event_info.object_name.clone());
+                self.all_apis_called.insert(msg.ntdll_event_info.object_name.clone());
+
+                Logging::info(&format!(
+                    "[NTDLL HOOK] Generic API Call: {} - PID: {}, Count: {}",
+                    msg.ntdll_event_info.object_name,
+                    msg.pid,
+                    self.nt_generic_api_events
+                ));
+            },
+            
             _ => {},
         }
 
@@ -1587,6 +1602,49 @@ impl BehaviorEngine {
         self.rules = rules;
         Logging::info(&format!("[EDR]: {} behavior rules loaded from {:?}", self.rules.len(), path));
         Ok(())
+    }
+
+    /// Extract all unique APIs mentioned across all rules, stages, and named conditions
+    pub fn get_all_monitored_apis(&self) -> HashSet<String> {
+        let mut all_apis = HashSet::new();
+
+        for rule in &self.rules {
+            // 1. Rule-level monitored_apis
+            for api in &rule.monitored_apis {
+                all_apis.insert(api.clone());
+            }
+
+            // 2. Named conditions
+            for (_, cond_group) in &rule.named_conditions {
+                for api in &cond_group.apis {
+                    all_apis.insert(api.clone());
+                }
+                for api in &cond_group.scheduled_task_apis {
+                    all_apis.insert(api.clone());
+                }
+                for api in &cond_group.anti_debug_apis {
+                    all_apis.insert(api.clone());
+                }
+                for api in &cond_group.anti_vm_apis {
+                    all_apis.insert(api.clone());
+                }
+            }
+
+            // 3. Stage-level conditions
+            for stage in &rule.stages {
+                for cond in &stage.conditions {
+                    if let RuleCondition::Api { name_pattern, module_pattern } = cond {
+                        if module_pattern.is_empty() {
+                            all_apis.insert(name_pattern.clone());
+                        } else {
+                            all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
+                        }
+                    }
+                }
+            }
+        }
+
+        all_apis
     }
 
     fn load_rules_recursive(&self, path: &Path) -> Result<Vec<BehaviorRule>, Box<dyn std::error::Error>> {

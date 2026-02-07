@@ -76,6 +76,7 @@ NTSTATUS OnKernelApiEvent(
     _In_ ULONG EventType,
     _In_ ULONG SourcePid,
     _In_ ULONG TargetPid,
+    _In_opt_ PCWSTR FunctionName,
     _In_opt_ PVOID EventData
 );
 
