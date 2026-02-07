@@ -1448,7 +1448,7 @@ pub mod worker_instance {
 
 
         /// Register high-interest API hooks for a specific PID
-        /// REQUIRES explicit module!function format (e.g., "ntdll!NtWriteVirtualMemory")
+        /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         fn register_dynamic_hooks_for_process(&self, pid: u32) {
             if let Some(ref driver) = self.driver {
                 let monitored_apis = self.behavior_engine.get_all_monitored_apis();
@@ -1460,33 +1460,42 @@ pub mod worker_instance {
 
                 let mut registered_count = 0;
                 let mut failed_count = 0;
-                let mut skipped_count = 0;
+                let mut wildcard_count = 0;
 
                 for api_spec in monitored_apis {
-                    // REQUIRE explicit module!function format - no guessing
-                    if let Some(idx) = api_spec.find('!') {
-                        let module = &api_spec[..idx];
-                        let function = &api_spec[idx+1..];
-                        
-                        match driver.add_hook_target_for_pid(pid, module, function, 23) {
-                            Ok(_) => {
-                                Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
-                                registered_count += 1;
-                            }
-                            Err(e) => {
-                                Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
-                                failed_count += 1;
-                            }
-                        }
+                    let (module, function) = if let Some(idx) = api_spec.find('!') {
+                        // Explicit module!function format
+                        (api_spec[..idx].to_string(), api_spec[idx+1..].to_string())
                     } else {
-                        // Skip APIs without explicit module specification
-                        Logging::warning(&format!("[DYNAMIC HOOK] Skipping API '{}' for PID {} - MUST use 'module!function' format (e.g., 'ntdll!NtWriteVirtualMemory')", api_spec, pid));
-                        skipped_count += 1;
+                        // No module specified - use wildcard to search ALL loaded modules
+                        // This is powerful for detecting sophisticated attacks that use custom/obfuscated names
+                        wildcard_count += 1;
+                        ("*".to_string(), api_spec.clone())
+                    };
+                    
+                    match driver.add_hook_target_for_pid(pid, &module, &function, 23) {
+                        Ok(_) => {
+                            if module == "*" {
+                                Logging::debug(&format!("[DYNAMIC HOOK] Registered WILDCARD hook for PID {}: *!{} (will search all modules)", pid, function));
+                            } else {
+                                Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
+                            }
+                            registered_count += 1;
+                        }
+                        Err(e) => {
+                            Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
+                            failed_count += 1;
+                        }
                     }
                 }
                 
-                Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {}, Failed {}, Skipped {} hooks", 
-                    pid, registered_count, failed_count, skipped_count));
+                if wildcard_count > 0 {
+                    Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {} hooks ({} wildcard, {} explicit), Failed {}", 
+                        pid, registered_count, wildcard_count, registered_count - wildcard_count, failed_count));
+                } else {
+                    Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {}, Failed {} hooks", 
+                        pid, registered_count, failed_count));
+                }
             } else {
                 Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
             }
