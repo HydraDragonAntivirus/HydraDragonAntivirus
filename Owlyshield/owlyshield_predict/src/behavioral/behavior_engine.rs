@@ -34,6 +34,7 @@ pub struct IrpOperationRecord {
     pub entropy: f64,
     pub bytes_transferred: u64,
     pub target_pid: u32,  // NEW: For operations targeting another process
+    pub function_name: String,  // NEW: For generic API hooks - which function was called
 }
 
 /// Ntdll API operation details for detailed tracking and forensics
@@ -197,6 +198,21 @@ impl IrpStatistics {
             IrpMajorOp::IrpNtOpenProcess => {
                 self.nt_open_process_count += 1;
                 self.record_ntdll_api_operation(rec, irp_op, "NtOpenProcess - Process access");
+            },
+            
+            // Generic API Hook (Event ID 23) - Dynamic hooks from behavior rules
+            IrpMajorOp::IrpNtGenericApiCall => {
+                self.nt_generic_api_events += 1;
+                // The function name is in the record
+                let api_name = if !rec.function_name.is_empty() {
+                    &rec.function_name
+                } else {
+                    "Unknown"
+                };
+                self.record_ntdll_api_operation(rec, irp_op, &format!("Generic API Call: {}", api_name));
+                
+                // Track the specific API that was called
+                self.all_apis_called.insert(api_name.to_string());
             },
             
             _ => {},
@@ -1091,6 +1107,7 @@ impl ProcessBehaviorState {
             entropy: msg.entropy,
             bytes_transferred: msg.mem_sized_used,
             target_pid: msg.pid,
+            function_name: msg.ntdll_event_info.object_name.clone(),
         };
         
         self.irp_stats.record_operation(&rec);

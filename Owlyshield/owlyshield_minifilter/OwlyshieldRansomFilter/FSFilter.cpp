@@ -448,46 +448,24 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
         return;
     }
 
-    // 2. User Mode Image Load
-    // Check if this is ntdll.dll or a custom target module
-    BOOLEAN isInteresting = FALSE;
 
-    // Check ntdll.dll
-    UNICODE_STRING ntdllName;
-    RtlInitUnicodeString(&ntdllName, L"ntdll.dll");
-    if (FullImageName->Length >= ntdllName.Length)
+    // 2. User Mode Image Load - Hook ALL executables (EXE and DLL) for comprehensive API monitoring
+    // Modern EDRs monitor all API calls across the entire process address space
+    
+    // Check if this is an executable file (.exe or .dll)
+    BOOLEAN isExecutable = FALSE;
+    if (FullImageName->Length > 8) // At least ".exe" or ".dll"
     {
-        PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + (FullImageName->Length - ntdllName.Length));
-        if (_wcsnicmp(pathEnd, ntdllName.Buffer, ntdllName.Length / sizeof(WCHAR)) == 0)
+        PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + FullImageName->Length - (4 * sizeof(WCHAR)));
+        if (_wcsnicmp(pathEnd, L".dll", 4) == 0 || _wcsnicmp(pathEnd, L".exe", 4) == 0)
         {
-            isInteresting = TRUE;
+            isExecutable = TRUE;
         }
     }
 
-    // Check Custom Targets
-    if (!isInteresting)
+    if (isExecutable)
     {
-        ExAcquireFastMutex(&g_ConfigMutex);
-        for (ULONG i = 0; i < g_CustomHookCount; i++)
-        {
-            UNICODE_STRING targetModule;
-            RtlInitUnicodeString(&targetModule, g_GlobalCustomHooks[i].ModuleName);
-            if (FullImageName->Length >= targetModule.Length)
-            {
-                PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + (FullImageName->Length - targetModule.Length));
-                if (targetModule.Buffer != NULL && _wcsnicmp(pathEnd, targetModule.Buffer, targetModule.Length / sizeof(WCHAR)) == 0)
-                {
-                    isInteresting = TRUE;
-                    break;
-                }
-            }
-        }
-        ExReleaseFastMutex(&g_ConfigMutex);
-    }
-
-    if (isInteresting)
-    {
-        DbgPrint("!!! FSFilter: Triggering hook engine for %lu (Module: %wZ)\n",
+        DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ - Triggering hook engine\n",
                  (ULONG)(ULONG_PTR)ProcessId, FullImageName);
         UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
     }

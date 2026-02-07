@@ -1456,23 +1456,41 @@ pub mod worker_instance {
                     return;
                 }
 
-                for api_spec in monitored_apis {
-                    // Handle module!function format, default to ntdll.dll
-                    let (module, function) = if let Some(idx) = api_spec.find('!') {
-                        (&api_spec[..idx], &api_spec[idx+1..])
-                    } else if api_spec.to_lowercase().starts_with("nt") {
-                        ("ntdll.dll", api_spec.as_str())
-                    } else {
-                        // If it's not a common NT function but doesn't have a module, fallback to ntdll or assume user knows what they're doing
-                        // For now we default to ntdll.dll for simple names
-                        ("ntdll.dll", api_spec.as_str())
-                    };
+                let mut registered_count = 0;
+                let mut failed_count = 0;
+                let mut skipped_count = 0;
 
-                    match driver.add_hook_target_for_pid(pid, module, function, 23) {
-                        Ok(_) => Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function)),
-                        Err(e) => Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e)),
+                for api_spec in monitored_apis {
+                    // Handle module!function format OR infer module from API name
+                    let (module, function) = if let Some(idx) = api_spec.find('!') {
+                        // Explicit module specified
+                        (api_spec[..idx].to_string(), api_spec[idx+1..].to_string())
+                    } else {
+                        // Try to infer module from API name
+                        if let Some(inferred_module) = Self::infer_module_from_api(&api_spec) {
+                            (inferred_module.to_string(), api_spec.clone())
+                        } else {
+                            // Cannot infer - skip with warning
+                            Logging::warning(&format!("[DYNAMIC HOOK] Skipping API '{}' for PID {} - cannot determine module", api_spec, pid));
+                            skipped_count += 1;
+                            continue;
+                        }
+                    };
+                    
+                    match driver.add_hook_target_for_pid(pid, &module, &function, 23) {
+                        Ok(_) => {
+                            Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
+                            registered_count += 1;
+                        }
+                        Err(e) => {
+                            Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
+                            failed_count += 1;
+                        }
                     }
                 }
+                
+                Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {}, Failed {}, Skipped {} hooks", 
+                    pid, registered_count, failed_count, skipped_count));
             } else {
                 Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
             }

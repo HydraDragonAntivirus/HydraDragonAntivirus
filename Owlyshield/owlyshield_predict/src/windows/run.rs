@@ -151,9 +151,9 @@ pub fn run() {
             }
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            let mut worker = Worker::new(&thread_config, thread_app_settings);
+            let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver.clone());
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-            let mut worker = Worker::new(&thread_config);
+            let mut worker = Worker::new(&thread_config).driver(driver.clone());
 
             // Initialize threat handler early to reuse the driver connection
             let win_threat_handler = WindowsThreatHandler::from(driver);

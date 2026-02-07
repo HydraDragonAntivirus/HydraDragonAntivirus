@@ -9,54 +9,54 @@
   severity: 100
   category: ransomware
 
-# Data import configuration
-data:
-  whitelisted_extensions:
-    type: file
-    source: extensions.txt
-    format: line-separated
-    description: List of known safe file extensions (quoted format)
+  # Data import configuration
+  data:
+    whitelisted_extensions:
+      type: file
+      source: extensions.txt
+      format: line-separated
+      description: List of known safe file extensions (quoted format)
 
-# Detection logic
-detection:
-  unknown_extension_check:
-    description: Identify files with extensions NOT in the whitelist
-    logic: |
-      file_extension NOT IN whitelist:whitelisted_extensions
-      
-  suspicious_encryption_api:
-    description: Detect encryption API calls from unknown process
-    api_calls:
-      - CryptEncrypt
-      - CryptDecrypt
-      - BCryptEncrypt
-      - BCryptDecrypt
-      - RtlEncryptStandardBlock
-      
-  correlation_engine:
-    name: whitelist_correlation
-    steps:
-      - condition: unknown_extension_check
-      - condition: suspicious_encryption_api
-      - action: alert_if_both_true
-      
-condition: whitelist_correlation
+  # Detection logic
+  detection:
+    unknown_extension_check:
+      description: Identify files with extensions NOT in the whitelist
+      logic: |
+        file_extension NOT IN whitelist:whitelisted_extensions
+        
+    suspicious_encryption_api:
+      description: Detect encryption API calls from unknown process
+      api_calls:
+        - CryptEncrypt
+        - CryptDecrypt
+        - BCryptEncrypt
+        - BCryptDecrypt
+        - RtlEncryptStandardBlock
+        
+    correlation_engine:
+      name: whitelist_correlation
+      steps:
+        - condition: unknown_extension_check
+        - condition: suspicious_encryption_api
+        - action: alert_if_both_true
+        
+  condition: whitelist_correlation
 
-action:
-  alert: true
-  log_details: true
-  block: conditional
-  trigger_behavior_analysis: true
+  action:
+    alert: true
+    log_details: true
+    block: conditional
+    trigger_behavior_analysis: true
 
-# Configuration for behavior engine integration
-config:
-  enable_dynamic_loading: true
-  reload_interval_seconds: 300
-  cache_whitelisted_extensions: true
-  max_file_extensions: 5000
+  # Configuration for behavior engine integration
+  config:
+    enable_dynamic_loading: true
+    reload_interval_seconds: 300
+    cache_whitelisted_extensions: true
+    max_file_extensions: 5000
 
-tags:
-  - whitelist
-  - extension-based-detection
-  - dynamic-loading
-  - encryption-monitoring
+  tags:
+    - whitelist
+    - extension-based-detection
+    - dynamic-loading
+    - encryption-monitoring
