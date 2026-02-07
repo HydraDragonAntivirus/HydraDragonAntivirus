@@ -233,9 +233,9 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 // ENGINE DEFINITIONS
 // -------------------------------------------------------------------------
 
-#define MAX_HOOKED_PROCESSES 256
+#define MAX_HOOKED_PROCESSES 8196
 #define USERMODE_HOOK_SIZE 14
-#define MAX_CUSTOM_HOOKS 256  // Increased for comprehensive API monitoring
+#define MAX_CUSTOM_HOOKS 8196  // Increased for comprehensive API monitoring
 
 extern HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 extern ULONG g_CustomHookCount;
