@@ -243,6 +243,10 @@ impl Config {
         models_dir.join(Path::new(model_name))
     }
 
+    pub fn get_param(&self, param: Param) -> Option<&str> {
+        self.params.get(&param).map(|s| s.as_str())
+    }
+
     pub fn get_kill_policy(&self) -> KillPolicy {
         match self[Param::KillPolicy].as_str() {
             "KILL" => KillPolicy::Kill,

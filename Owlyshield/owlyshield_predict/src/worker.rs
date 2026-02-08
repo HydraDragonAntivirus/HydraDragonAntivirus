@@ -755,6 +755,19 @@ pub mod worker_instance {
     impl<'a> Worker<'a> {
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
 
+        #[cfg(feature = "realtime_learning")]
+        fn realtime_learning_output_dir(config: &Config) -> &str {
+            if let Some(path) = config.get_param(Param::NoveltyPath) {
+                return path;
+            }
+
+            if let Some(path) = config.get_param(Param::ProcessActivityLogPath) {
+                return path;
+            }
+
+            "./ml_data/realtime"
+        }
+
         /// Normalize unstable kernel GIDs to keep per-process tracking coherent.
         /// 1) gid=0 => PID-scoped synthetic GID.
         /// 2) If PID is already known under another GID, re-use that GID.
@@ -824,8 +837,15 @@ pub mod worker_instance {
                     let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
                     #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                     let trust_path = None;
-                    
-                    crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), trust_path)
+
+                    if config.get_param(Param::NoveltyPath).is_none() {
+                        Logging::warning("[CONFIG] NOVELTY_PATH missing; realtime learning will use PROCESS_ACTIVITY_PATH fallback.");
+                    }
+
+                    crate::realtime_learning::RealtimeLearningEngine::new(
+                        Self::realtime_learning_output_dir(config),
+                        trust_path
+                    )
                 },
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: std::collections::HashMap::new(),
@@ -1257,8 +1277,15 @@ pub mod worker_instance {
                     let trust_path = Some(app_settings.win_verify_trust_path.to_str().unwrap());
                     #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                     let trust_path = None;
-                    
-                    crate::realtime_learning::RealtimeLearningEngine::new(config[Param::NoveltyPath].as_str(), trust_path)
+
+                    if config.get_param(Param::NoveltyPath).is_none() {
+                        Logging::warning("[CONFIG] NOVELTY_PATH missing; realtime learning will use PROCESS_ACTIVITY_PATH fallback.");
+                    }
+
+                    crate::realtime_learning::RealtimeLearningEngine::new(
+                        Self::realtime_learning_output_dir(config),
+                        trust_path
+                    )
                 },
                 #[cfg(feature = "realtime_learning")]
                 api_trackers: HashMap::new(),
