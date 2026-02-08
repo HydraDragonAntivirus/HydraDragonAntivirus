@@ -746,11 +746,30 @@ pub mod worker_instance {
         pub api_trackers: HashMap<u64, ApiTracker>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         pub app_settings: AppSettings,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hooks_registered: bool,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
     }
 
     impl<'a> Worker<'a> {
+        const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
+
+        /// Some kernel events can arrive with gid=0 (unknown process group).
+        /// Use a PID-scoped synthetic id so events do not collapse into one shared bucket.
+        fn normalize_tracking_gid(iomsg: &mut IOMessage) {
+            if iomsg.gid == 0 {
+                let basis_pid = if iomsg.pid != 0 {
+                    iomsg.pid
+                } else {
+                    iomsg.attacker_pid
+                };
+                if basis_pid != 0 {
+                    iomsg.gid = Self::PID_FALLBACK_GID_MASK | (basis_pid as u64);
+                }
+            }
+        }
+
         pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
             Worker {
                 whitelist: None,
@@ -775,6 +794,8 @@ pub mod worker_instance {
                 api_trackers: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hooks_registered: false,
                 threat_handler: None,
                 driver: None,
             }
@@ -830,6 +851,7 @@ pub mod worker_instance {
                         exepath.clone(),
                         appname.clone()
                     );
+                    self.register_dynamic_hooks_for_process(pid_u32);
                 }
                 
                 discovered_count += 1;
@@ -1103,6 +1125,7 @@ pub mod worker_instance {
                     self.behavior_engine.register_process(gid, pid_u32, exepath.clone(), appname.clone());
                     let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(gid, precord);
+                    self.register_dynamic_hooks_for_process(pid_u32);
                     
                     // Register in learning engine
                     #[cfg(feature = "realtime_learning")]
@@ -1204,6 +1227,8 @@ pub mod worker_instance {
                 api_trackers: HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 app_settings,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hooks_registered: false,
                 threat_handler: None,
                 driver: None,
             }
@@ -1211,6 +1236,8 @@ pub mod worker_instance {
 
         /// Process kernel I/O event - this is the main event handler
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
+            Self::normalize_tracking_gid(iomsg);
+
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
             let is_process_terminate = irp_op == IrpMajorOp::IrpProcessTerminate;
@@ -1449,7 +1476,11 @@ pub mod worker_instance {
 
         /// Register high-interest API hooks for a specific PID
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
-        fn register_dynamic_hooks_for_process(&self, pid: u32) {
+        fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
+            if self.dynamic_hooks_registered {
+                return;
+            }
+
             if let Some(ref driver) = self.driver {
                 let monitored_apis = self.behavior_engine.get_all_monitored_apis();
                 
@@ -1473,27 +1504,32 @@ pub mod worker_instance {
                         ("*".to_string(), api_spec.clone())
                     };
                     
-                    match driver.add_hook_target_for_pid(pid, &module, &function, 23) {
+                    // Driver-side MESSAGE_ADD_HOOK is global today (not truly PID-scoped),
+                    // so register once globally to avoid exhausting hook slots.
+                    match driver.add_hook_target(&module, &function, 23) {
                         Ok(_) => {
                             if module == "*" {
-                                Logging::debug(&format!("[DYNAMIC HOOK] Registered WILDCARD hook for PID {}: *!{} (will search all modules)", pid, function));
+                                Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL wildcard hook (trigger PID {}): *!{}", pid, function));
                             } else {
-                                Logging::debug(&format!("[DYNAMIC HOOK] Registered hook for PID {}: {}!{}", pid, module, function));
+                                Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL hook (trigger PID {}): {}!{}", pid, module, function));
                             }
                             registered_count += 1;
                         }
                         Err(e) => {
-                            Logging::error(&format!("[DYNAMIC HOOK] Failed to register hook for PID {}: {}!{}: {}", pid, module, function, e));
+                            Logging::error(&format!("[DYNAMIC HOOK] Failed GLOBAL hook registration (trigger PID {}): {}!{}: {}", pid, module, function, e));
                             failed_count += 1;
                         }
                     }
                 }
+
+                // Mark as attempted so we don't repeatedly hammer MESSAGE_ADD_HOOK and exhaust resources.
+                self.dynamic_hooks_registered = true;
                 
                 if wildcard_count > 0 {
-                    Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {} hooks ({} wildcard, {} explicit), Failed {}", 
+                    Logging::info(&format!("[DYNAMIC HOOK] Global registration complete (trigger PID {}): {} hooks ({} wildcard, {} explicit), Failed {}", 
                         pid, registered_count, wildcard_count, registered_count - wildcard_count, failed_count));
                 } else {
-                    Logging::info(&format!("[DYNAMIC HOOK] PID {}: Registered {}, Failed {} hooks", 
+                    Logging::info(&format!("[DYNAMIC HOOK] Global registration complete (trigger PID {}): Registered {}, Failed {}", 
                         pid, registered_count, failed_count));
                 }
             } else {

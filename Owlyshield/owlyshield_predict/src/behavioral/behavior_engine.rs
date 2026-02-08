@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
 use serde_yaml::Value as YamlValue;
@@ -133,6 +133,7 @@ impl IrpStatistics {
                 match rec.file_change {
                     _ if rec.file_change == FileChangeInfo::ChangeDeleteFile as u8 => self.delete_count += 1,
                     _ if rec.file_change == FileChangeInfo::ChangeRenameFile as u8 => self.rename_count += 1,
+                    _ if rec.file_change == FileChangeInfo::ChangeExtensionChanged as u8 => self.rename_count += 1,
                     _ => {},
                 }
             },
@@ -483,7 +484,7 @@ fn normalize_path_separators(path: &str) -> String {
 }
 
 fn normalize_device_prefix(path: &str) -> String {
-    let mut p = path.to_string();
+    let mut p = path.trim().to_string();
     let p_lc = p.to_lowercase();
     if p_lc.starts_with("\\\\?\\") {
         p = p[4..].to_string();
@@ -491,12 +492,26 @@ fn normalize_device_prefix(path: &str) -> String {
         p = p[4..].to_string();
     }
 
-    let p_lc = p.to_lowercase();
-    if p_lc.starts_with("\\device\\harddiskvolume") {
-        if let Some(idx) = p.find('\\') {
-            let rest = &p[idx + 1..];
-            if let Some(next) = rest.find('\\') {
-                let remainder = &rest[next + 1..];
+    let p_norm = p.replace("\\", "/");
+    let p_trim = p_norm.trim_start_matches('/');
+    let p_trim_lc = p_trim.to_lowercase();
+
+    // \Device\HarddiskVolumeX\Users\... -> Users\...
+    if p_trim_lc.starts_with("device/harddiskvolume") {
+        let after_device = &p_trim["device/".len()..];
+        if let Some(idx) = after_device.find('/') {
+            let remainder = &after_device[idx + 1..];
+            if !remainder.is_empty() {
+                return remainder.to_string();
+            }
+        }
+    }
+
+    // Defensive: HarddiskVolumeX\Users\... -> Users\...
+    if p_trim_lc.starts_with("harddiskvolume") {
+        if let Some(idx) = p_trim.find('/') {
+            let remainder = &p_trim[idx + 1..];
+            if !remainder.is_empty() {
                 return remainder.to_string();
             }
         }
@@ -571,6 +586,8 @@ pub struct NamedConditionGroup {
     
     #[serde(default)]
     pub file_extensions: Vec<String>,
+    #[serde(default)]
+    pub detect_extension_changes: bool,
     #[serde(default)]
     pub file_actions: Vec<String>,
     #[serde(default)]
@@ -962,12 +979,15 @@ impl BehaviorRule {
         }
         
         for (_, cond_group) in &mut self.named_conditions {
-            cond_group.apis = cond_group.apis.iter().map(|s| s.to_lowercase()).collect();
+            // Keep API names case-preserved so exported symbol hooks resolve correctly in user-mode hook engine.
             cond_group.file_paths = cond_group.file_paths.iter().map(|s| s.to_lowercase()).collect();
             cond_group.registry_keys = cond_group.registry_keys.iter().map(|s| s.to_lowercase()).collect();
             cond_group.process_names = cond_group.process_names.iter().map(|s| s.to_lowercase()).collect();
             cond_group.parent_names = cond_group.parent_names.iter().map(|s| s.to_lowercase()).collect();
             cond_group.file_actions = cond_group.file_actions.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.file_operations = cond_group.file_operations.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.registry_operations = cond_group.registry_operations.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.file_extensions = cond_group.file_extensions.iter().map(|s| s.to_lowercase()).collect();
         }
     }
 }
@@ -1512,8 +1532,7 @@ impl ProcessBehaviorState {
         let ext_lower = msg.extension.to_lowercase();
         
         let internet_dlls = [
-            "wininet", "winhttp", "ws2_32", "mswsock", "urlmon", "ole32",
-            "oleaut32", "shell32", "shlwapi", "advapi32", "kernel32"
+            "wininet", "winhttp", "ws2_32", "mswsock", "wsock32", "urlmon"
         ];
         
         for dll in &internet_dlls {
@@ -1881,22 +1900,8 @@ impl BehaviorEngine {
             }
         }
 
-        // === STEP 3B: CHECK PROTECTED PATHS ===
-        let is_protected_path = self.rules.iter().any(|rule| {
-            (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&filepath)) ||
-            (!rule.protected_paths.file_paths.is_empty() && rule.protected_paths.is_file_path_protected(&msg.filepathstr)) ||
-            (!rule.protected_paths.registry_paths.is_empty() && irp_op == IrpMajorOp::IrpRegistry && rule.protected_paths.is_registry_path_protected(&filepath))
-        });
-
-        if is_protected_path {
-            if self.rules.iter().any(|r| r.debug) {
-                Logging::debug(&format!(
-                    "[BehaviorEngine] Skipping rule-configured protected path: {} (IRP: {:?})",
-                    filepath, irp_op
-                ));
-            }
-            return;
-        }
+        // NOTE: Protected-path filtering is intentionally disabled so every kernel event is processed.
+        // This keeps detection/debugging fully transparent for all disk/registry paths.
 
         // === STEP 4: HANDLE PROCESS TERMINATION ===
         if irp_op == IrpMajorOp::IrpProcessTerminateAttempt {
@@ -2088,14 +2093,43 @@ impl BehaviorEngine {
                     }
                 }
 
-                let has_path_conditions = !cond_group.file_paths.is_empty() || 
-                                          !cond_group.staging_paths.is_empty() ||
-                                          !cond_group.browsed_paths.is_empty() ||
-                                          !cond_group.sensitive_paths.is_empty() ||
-                                          !cond_group.persistence_locations.is_empty() ||
-                                          !cond_group.file_extensions.is_empty();
+                let current_file_op = match *irp_op {
+                    IrpMajorOp::IrpRead => Some("read"),
+                    IrpMajorOp::IrpWrite => Some("write"),
+                    IrpMajorOp::IrpCreate => Some("create"),
+                    IrpMajorOp::IrpSetInfo => {
+                        let change = FromPrimitive::from_u8(msg.file_change);
+                        match change {
+                            Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
+                            Some(FileChangeInfo::ChangeExtensionChanged) => Some("rename"),
+                            Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
+                            Some(FileChangeInfo::ChangeWrite) => Some("write"),
+                            Some(FileChangeInfo::ChangeOverwriteFile) => Some("write"),
+                            Some(FileChangeInfo::ChangeNewFile) => Some("create"),
+                            _ => Some("setinfo"),
+                        }
+                    }
+                    _ => None,
+                };
 
-                if !matched && has_path_conditions {
+                let file_op_allowed = if cond_group.file_operations.is_empty() {
+                    true
+                } else if let Some(op) = current_file_op {
+                    cond_group.file_operations.iter().any(|v| v == op)
+                } else {
+                    false
+                };
+
+                let has_path_filters = !cond_group.file_paths.is_empty() || 
+                                       !cond_group.staging_paths.is_empty() ||
+                                       !cond_group.browsed_paths.is_empty() ||
+                                       !cond_group.sensitive_paths.is_empty() ||
+                                       !cond_group.persistence_locations.is_empty();
+
+                let has_extension_conditions = !cond_group.file_extensions.is_empty() || cond_group.detect_extension_changes;
+
+                // Path-only conditions: match on path filters when no extension-specific matcher is requested.
+                if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
                     let mut path_iter = cond_group.file_paths.iter()
                         .chain(cond_group.staging_paths.iter())
@@ -2105,8 +2139,10 @@ impl BehaviorEngine {
 
                     let matched_path: Option<String> = path_iter.find(|p| {
                         let p_norm = p.replace("\\", "/");
+                        let p_norm_stripped = strip_drive_prefix(&p_norm);
                         path_variants.iter().any(|v| {
-                            Self::matches_pattern_internal(&self.regex_cache, &p_norm, v)
+                            Self::matches_pattern_internal(&self.regex_cache, &p_norm, v) ||
+                            Self::matches_pattern_internal(&self.regex_cache, &p_norm_stripped, v)
                         })
                     }).map(|s| s.to_string());
                     
@@ -2116,6 +2152,87 @@ impl BehaviorEngine {
                             "[BehaviorEngine] Condition '{}' - Path match for PID {}: {}",
                             cond_name, state.pid, matched_path.unwrap_or_default()
                         ));
+                    }
+                }
+
+                // File-operation-only conditions (no path or extension constraints) should still accumulate.
+                if !matched
+                    && !cond_group.file_operations.is_empty()
+                    && !has_path_filters
+                    && !has_extension_conditions
+                    && file_op_allowed
+                    && current_file_op.is_some()
+                {
+                    matched = true;
+                    if let Some(op) = current_file_op {
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - File operation match for PID {}: {}",
+                            cond_name, state.pid, op
+                        ));
+                    }
+                }
+
+                if !matched && has_extension_conditions && file_op_allowed {
+                    let extension_changed = matches!(
+                        FromPrimitive::from_u8(msg.file_change),
+                        Some(FileChangeInfo::ChangeExtensionChanged)
+                    );
+
+                    let path_filter_match = if has_path_filters {
+                        let path_variants = build_path_variants(filepath, &msg.filepathstr);
+                        cond_group.file_paths.iter()
+                            .chain(cond_group.staging_paths.iter())
+                            .chain(cond_group.browsed_paths.iter())
+                            .chain(cond_group.sensitive_paths.iter())
+                            .chain(cond_group.persistence_locations.iter())
+                            .any(|p| {
+                                let p_norm = p.replace("\\", "/");
+                                let p_norm_stripped = strip_drive_prefix(&p_norm);
+                                path_variants.iter().any(|v| {
+                                    Self::matches_pattern_internal(&self.regex_cache, &p_norm, v) ||
+                                    Self::matches_pattern_internal(&self.regex_cache, &p_norm_stripped, v)
+                                })
+                            })
+                    } else {
+                        true
+                    };
+
+                    if path_filter_match {
+                        let mut ext = msg.extension.to_lowercase();
+                        if ext.is_empty() {
+                            if let Some((_, tail)) = filepath.rsplit_once('.') {
+                                ext = tail.to_lowercase();
+                            }
+                        }
+
+                        if !ext.is_empty() && !cond_group.file_extensions.is_empty() {
+                            let ext_with_dot = if ext.starts_with('.') {
+                                ext.clone()
+                            } else {
+                                format!(".{}", ext)
+                            };
+                            if let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
+                                Self::matches_pattern_internal(&self.regex_cache, p, &ext_with_dot) ||
+                                Self::matches_pattern_internal(&self.regex_cache, p, &ext)
+                            }) {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Extension match for PID {}: {}",
+                                    cond_name, state.pid, matched_ext
+                                ));
+                            }
+                        }
+
+                        // Some minifilter rename/extension-change paths may not carry the final extension
+                        // in `extension`/`filepathstr`. Allow explicit opt-in to treat extension-change events
+                        // as a match for extension-focused conditions.
+                        if !matched && extension_changed && cond_group.detect_extension_changes {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
+                                cond_name, state.pid
+                            ));
+                        }
                     }
                 }
 
@@ -2288,8 +2405,19 @@ impl BehaviorEngine {
                         filepath.to_string()
                     } else if !msg.filepathstr.is_empty() {
                         msg.filepathstr.to_lowercase().replace("\\", "/")
+                    } else if msg.file_id_id.0 != 0 {
+                        format!(
+                            "fileid:{:016x}:op{}:chg{}",
+                            msg.file_id_id.0, msg.irp_op, msg.file_change
+                        )
                     } else {
-                        cond_name.clone()
+                        let event_ts = msg.time.duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_nanos())
+                            .unwrap_or(0);
+                        format!(
+                            "event:{}:pid{}:op{}:{}",
+                            cond_name, msg.pid, msg.irp_op, event_ts
+                        )
                     };
                     let values = state.condition_match_values.entry(cond_name.clone()).or_insert_with(HashSet::new);
                     if values.len() > 256 {
@@ -2437,9 +2565,7 @@ impl BehaviorEngine {
                 break;
             }
 
-            if self.check_allowlist(&precord.appname, rule, Some(&precord.exepath)) {
-                continue;
-            }
+            // NOTE: Allowlist filtering is intentionally disabled so rules evaluate all processes.
 
             let browsed_access_count = state_ref.browsed_paths_tracker.len();
             let has_staged_data = !state_ref.staged_files_written.is_empty();

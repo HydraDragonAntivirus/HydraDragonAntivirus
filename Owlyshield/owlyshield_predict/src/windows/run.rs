@@ -218,7 +218,12 @@ pub fn run() {
 
             worker.discover_existing_processes();
 
-            // --- Event-driven worker loop: immediate processing with direct scanning ---
+            // --- Event-driven worker loop ---
+            // Run heavyweight process scans on a short cadence instead of every message
+            // to keep up with high-volume file I/O.
+            let mut last_scan = std::time::Instant::now();
+            let scan_interval = std::time::Duration::from_millis(750);
+            let mut msgs_since_scan: usize = 0;
             loop {
                 let mut iomsg = match rx_iomsgs.recv() {
                     Ok(msg) => msg,
@@ -228,14 +233,16 @@ pub fn run() {
                 // Process the incoming IO message immediately
                 worker.process_io(&mut iomsg, &thread_config);
 
-                // Immediately run scans and suspended-record processing after every message
-                // No throttling - direct scan on every event
-                if let Some(handler) = worker.threat_handler.as_ref() {
-                    let th_scan = handler.clone_box();
-                    let th_suspended = handler.clone_box();
-
-                    worker.scan_processes(&thread_config, th_scan);
-                    worker.process_suspended_records(&thread_config, th_suspended);
+                msgs_since_scan += 1;
+                if msgs_since_scan >= 256 || last_scan.elapsed() >= scan_interval {
+                    if let Some(handler) = worker.threat_handler.as_ref() {
+                        let th_scan = handler.clone_box();
+                        let th_suspended = handler.clone_box();
+                        worker.scan_processes(&thread_config, th_scan);
+                        worker.process_suspended_records(&thread_config, th_suspended);
+                    }
+                    msgs_since_scan = 0;
+                    last_scan = std::time::Instant::now();
                 }
             }
         });
@@ -259,13 +266,11 @@ pub fn run() {
                             if op < 32 { opcode_counts[op] += 1; }
                             total_msgs += 1;
                             
-                            // Log first kernel hook event we ever see (opcodes 12-22)
-                            if op >= 12 && op <= 22 {
-                                Logging::info(&format!(
-                                    "[DIAG] !!! KERNEL HOOK EVENT RECEIVED: opcode={} pid={} gid={} path={}",
-                                    op, iomsg.pid, iomsg.gid, &iomsg.filepathstr
-                                ));
-                            }
+                            // Log every kernel event from the driver (no opcode filter).
+                            Logging::info(&format!(
+                                "[DIAG] KERNEL EVENT RECEIVED: opcode={} pid={} gid={} path={}",
+                                op, iomsg.pid, iomsg.gid, &iomsg.filepathstr
+                            ));
                             
                             if tx_iomsgs.send(iomsg).is_err() {
                                 println!("Cannot send iomsg");
@@ -293,9 +298,9 @@ pub fn run() {
                     "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen",
                     "KrnWriteMem","KrnAllocMem","KrnProtectMem","KrnCreateThread",
                     "KrnQueueApc","KrnSetCtx","KrnCreateSec","KrnMapSec",
-                    "KrnDeleteFile","KrnLoadDrv","KrnOpenProc"
+                    "KrnDeleteFile","KrnLoadDrv","KrnOpenProc","KrnGenericApi"
                 ];
-                for i in 0..23 {
+                for i in 0..24 {
                     if opcode_counts[i] > 0 {
                         summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
                     }
@@ -303,9 +308,9 @@ pub fn run() {
                 Logging::info(&summary);
                 
                 // Check specifically for kernel hook events
-                let kernel_total: u64 = opcode_counts[12..=22].iter().sum();
+                let kernel_total: u64 = opcode_counts[12..=23].iter().sum();
                 if kernel_total == 0 {
-                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes 12-22) received from driver!");
+                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes 12-23) received from driver!");
                 }
                 
                 opcode_counts = [0; 32];
