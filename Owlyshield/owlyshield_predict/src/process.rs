@@ -24,7 +24,7 @@
 //! That's why *Owlyshield* uses time-independant metric which is the number of driver messages received
 //! from a driver.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;
 use std::ops::Mul;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,54 @@ use crate::extensions::ExtensionsCount;
 use crate::novelty::DirectoriesContent;
 #[cfg(all(target_os = "windows", feature = "hydradragon"))]
 use crate::av_integration::AVIntegration;
+
+fn normalize_extension_token(extension: &str) -> String {
+    extension
+        .trim()
+        .trim_matches('"')
+        .trim_matches(char::from(0))
+        .trim_start_matches('.')
+        .to_lowercase()
+}
+
+fn normalize_path_for_extension_tracking(filepath: &str) -> String {
+    filepath.to_lowercase().replace("\\", "/")
+}
+
+fn extract_extension_from_path(filepath: &str) -> String {
+    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
+    if let Some((_, tail)) = leaf.rsplit_once('.') {
+        return normalize_extension_token(tail);
+    }
+    String::new()
+}
+
+fn extract_effective_extension(msg_extension: &str, filepath: &str) -> String {
+    let ext = normalize_extension_token(msg_extension);
+    if !ext.is_empty() {
+        return ext;
+    }
+    let normalized_path = normalize_path_for_extension_tracking(filepath);
+    extract_extension_from_path(&normalized_path)
+}
+
+fn filepath_stem_key(filepath: &str) -> Option<String> {
+    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
+    let (stem, _) = leaf.rsplit_once('.')?;
+    if stem.is_empty() {
+        return None;
+    }
+
+    if let Some((parent, _)) = filepath.rsplit_once('/') {
+        if parent.is_empty() {
+            Some(stem.to_string())
+        } else {
+            Some(format!("{}/{}", parent, stem))
+        }
+    } else {
+        Some(stem.to_string())
+    }
+}
 
 
 /// GID state in real-time. This is a central structure.
@@ -84,6 +132,12 @@ pub struct ProcessRecord {
     pub files_read: HashSet<FileId>,
     /// File descriptors renamed
     pub files_renamed: HashSet<FileId>,
+    /// Last known extension by file id (without leading dot)
+    extension_by_file_id: HashMap<FileId, String>,
+    /// Last known extension by normalized full path (without leading dot)
+    extension_by_path: HashMap<String, String>,
+    /// Last known extension by normalized stem path (without leading dot)
+    extension_by_stem_path: HashMap<String, String>,
     /// File descriptors created
     pub files_opened: HashSet<FileId>,
     /// File descriptors written
@@ -235,6 +289,9 @@ impl ProcessRecord {
             entropy_written: 0.0,
             files_read: HashSet::new(),
             files_renamed: HashSet::new(),
+            extension_by_file_id: HashMap::new(),
+            extension_by_path: HashMap::new(),
+            extension_by_stem_path: HashMap::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -321,6 +378,9 @@ impl ProcessRecord {
             entropy_written: 0.0,
             files_read: HashSet::new(),
             files_renamed: HashSet::new(),
+            extension_by_file_id: HashMap::new(),
+            extension_by_path: HashMap::new(),
+            extension_by_stem_path: HashMap::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -388,6 +448,67 @@ impl ProcessRecord {
             
             time: iomsg.time,
         }
+    }
+
+    pub fn effective_extension_for_event(iomsg: &IOMessage) -> String {
+        extract_effective_extension(&iomsg.extension, &iomsg.filepathstr)
+    }
+
+    pub fn previous_extension_for_event(&self, iomsg: &IOMessage) -> Option<String> {
+        if iomsg.file_id_id.0 != 0 {
+            if let Some(ext) = self.extension_by_file_id.get(&iomsg.file_id_id) {
+                if !ext.is_empty() {
+                    return Some(ext.clone());
+                }
+            }
+        }
+
+        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        if let Some(ext) = self.extension_by_path.get(&normalized_path) {
+            if !ext.is_empty() {
+                return Some(ext.clone());
+            }
+        }
+
+        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
+            if let Some(ext) = self.extension_by_stem_path.get(&stem_key) {
+                if !ext.is_empty() {
+                    return Some(ext.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn remember_extension_observation(&mut self, iomsg: &IOMessage, ext_without_dot: &str) {
+        if ext_without_dot.is_empty() {
+            return;
+        }
+
+        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        if iomsg.file_id_id.0 != 0 {
+            self.extension_by_file_id.insert(iomsg.file_id_id, ext_without_dot.to_string());
+        }
+        self.extension_by_path.insert(normalized_path.clone(), ext_without_dot.to_string());
+        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
+            self.extension_by_stem_path.insert(stem_key, ext_without_dot.to_string());
+        }
+
+        const MAX_TRACKED_EXTENSIONS: usize = 16384;
+        if self.extension_by_file_id.len() > MAX_TRACKED_EXTENSIONS {
+            self.extension_by_file_id.clear();
+        }
+        if self.extension_by_path.len() > MAX_TRACKED_EXTENSIONS {
+            self.extension_by_path.clear();
+        }
+        if self.extension_by_stem_path.len() > MAX_TRACKED_EXTENSIONS {
+            self.extension_by_stem_path.clear();
+        }
+    }
+
+    pub fn has_renamed_file_id(&self, file_id: &FileId) -> bool {
+        self.files_renamed.contains(file_id)
     }
 
     fn launch_thread_clustering(&self) {

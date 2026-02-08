@@ -551,40 +551,6 @@ fn normalize_extension_token(extension: &str) -> String {
         .to_lowercase()
 }
 
-fn extract_extension_from_path(filepath: &str) -> String {
-    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
-    if let Some((_, tail)) = leaf.rsplit_once('.') {
-        return normalize_extension_token(tail);
-    }
-    String::new()
-}
-
-fn extract_effective_extension(msg_extension: &str, filepath: &str) -> String {
-    let ext = normalize_extension_token(msg_extension);
-    if !ext.is_empty() {
-        return ext;
-    }
-    extract_extension_from_path(filepath)
-}
-
-fn filepath_stem_key(filepath: &str) -> Option<String> {
-    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
-    let (stem, _) = leaf.rsplit_once('.')?;
-    if stem.is_empty() {
-        return None;
-    }
-
-    if let Some((parent, _)) = filepath.rsplit_once('/') {
-        if parent.is_empty() {
-            Some(stem.to_string())
-        } else {
-            Some(format!("{}/{}", parent, stem))
-        }
-    } else {
-        Some(stem.to_string())
-    }
-}
-
 fn build_default_extension_whitelist() -> HashSet<String> {
     let mut whitelist = HashSet::new();
     let extension_list = ExtensionList::new();
@@ -1125,9 +1091,6 @@ pub struct ProcessBehaviorState {
     pub condition_match_values: HashMap<String, HashSet<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
-    pub last_extension_by_file_id: HashMap<u64, String>,
-    pub last_extension_by_path: HashMap<String, String>,
-    pub last_extension_by_stem_path: HashMap<String, String>,
     
     // Comprehensive IRP tracking
     pub irp_operations: Vec<IrpOperationRecord>,
@@ -1166,9 +1129,6 @@ impl ProcessBehaviorState {
         state.condition_match_values = HashMap::new();
         state.condition_first_seen = HashMap::new();
         state.condition_last_seen = HashMap::new();
-        state.last_extension_by_file_id = HashMap::new();
-        state.last_extension_by_path = HashMap::new();
-        state.last_extension_by_stem_path = HashMap::new();
         state.irp_operations = Vec::new();
         state.irp_stats = IrpStatistics::default();
         state.network_apis_called = HashSet::new();
@@ -1759,67 +1719,6 @@ impl BehaviorEngine {
         })
     }
 
-    fn previous_extension_for_event(
-        state: &ProcessBehaviorState,
-        file_id: u64,
-        filepath: &str,
-    ) -> Option<String> {
-        if file_id != 0 {
-            if let Some(ext) = state.last_extension_by_file_id.get(&file_id) {
-                if !ext.is_empty() {
-                    return Some(ext.clone());
-                }
-            }
-        }
-
-        if let Some(ext) = state.last_extension_by_path.get(filepath) {
-            if !ext.is_empty() {
-                return Some(ext.clone());
-            }
-        }
-
-        if let Some(stem_key) = filepath_stem_key(filepath) {
-            if let Some(ext) = state.last_extension_by_stem_path.get(&stem_key) {
-                if !ext.is_empty() {
-                    return Some(ext.clone());
-                }
-            }
-        }
-
-        None
-    }
-
-    fn remember_extension_observation(
-        state: &mut ProcessBehaviorState,
-        file_id: u64,
-        filepath: &str,
-        ext_without_dot: &str,
-    ) {
-        if ext_without_dot.is_empty() {
-            return;
-        }
-
-        if file_id != 0 {
-            state.last_extension_by_file_id.insert(file_id, ext_without_dot.to_string());
-        }
-
-        state.last_extension_by_path.insert(filepath.to_string(), ext_without_dot.to_string());
-        if let Some(stem_key) = filepath_stem_key(filepath) {
-            state.last_extension_by_stem_path.insert(stem_key, ext_without_dot.to_string());
-        }
-
-        const MAX_TRACKED_EXTENSIONS: usize = 16384;
-        if state.last_extension_by_file_id.len() > MAX_TRACKED_EXTENSIONS {
-            state.last_extension_by_file_id.clear();
-        }
-        if state.last_extension_by_path.len() > MAX_TRACKED_EXTENSIONS {
-            state.last_extension_by_path.clear();
-        }
-        if state.last_extension_by_stem_path.len() > MAX_TRACKED_EXTENSIONS {
-            state.last_extension_by_stem_path.clear();
-        }
-    }
-
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
@@ -2143,7 +2042,7 @@ impl BehaviorEngine {
         }
 
         // === STEP 5: UPDATE NAMED CONDITIONS STATE ===
-        self.update_named_conditions_state(gid, msg, &irp_op, &filepath);
+        self.update_named_conditions_state(precord, gid, msg, &irp_op, &filepath);
 
         // === STEP 6: UPDATE LEGACY TRACKING ===
         for rule in &self.rules {
@@ -2193,7 +2092,7 @@ impl BehaviorEngine {
         self.check_rules(precord, gid, msg, irp_op, config, &mut actions);
     }
 
-    fn update_named_conditions_state(&mut self, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
+    fn update_named_conditions_state(&mut self, precord: &mut ProcessRecord, gid: u64, msg: &IOMessage, irp_op: &IrpMajorOp, filepath: &str) {
         let now = SystemTime::now();
         let mut available_apis = HashSet::new();
         
@@ -2219,11 +2118,9 @@ impl BehaviorEngine {
             event_file_change,
             Some(FileChangeInfo::ChangeExtensionChanged)
         );
-        let event_extension = extract_effective_extension(&msg.extension, filepath);
+        let event_extension = ProcessRecord::effective_extension_for_event(msg);
         let previous_extension = if is_extension_change_event {
-            self.process_states.get(&gid).and_then(|state| {
-                Self::previous_extension_for_event(state, msg.file_id_id.0, filepath)
-            })
+            precord.previous_extension_for_event(msg)
         } else {
             None
         };
@@ -2381,7 +2278,7 @@ impl BehaviorEngine {
                 }
 
                 if !matched && has_extension_conditions && file_op_allowed && !is_directory_event {
-                    let extension_changed = matches!(
+                    let extension_changed = precord.has_renamed_file_id(&msg.file_id_id) && matches!(
                         file_change,
                         Some(FileChangeInfo::ChangeExtensionChanged)
                     );
@@ -2706,9 +2603,7 @@ impl BehaviorEngine {
             }
         }
 
-        if let Some(state) = self.process_states.get_mut(&gid) {
-            Self::remember_extension_observation(state, msg.file_id_id.0, filepath, &event_extension);
-        }
+        precord.remember_extension_observation(msg, &event_extension);
     }
 
     fn evaluate_detection_condition(
