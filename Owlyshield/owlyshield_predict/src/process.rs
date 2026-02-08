@@ -673,9 +673,6 @@ impl ProcessRecord {
                     self.dirs_with_files_updated.insert(dir);
                 }
                 self.files_renamed.insert(iomsg.file_id_id);
-                if iomsg.file_id_id.0 != 0 {
-                    self.last_rename_seq_by_file_id.insert(iomsg.file_id_id, self.driver_msg_count as u64);
-                }
             }
             _ => {}
         }

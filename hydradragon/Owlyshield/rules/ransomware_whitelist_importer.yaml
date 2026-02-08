@@ -41,7 +41,7 @@
 
   detection_logic:
     and:
-      - any_of:
+      - or:
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_read_write_rename"
