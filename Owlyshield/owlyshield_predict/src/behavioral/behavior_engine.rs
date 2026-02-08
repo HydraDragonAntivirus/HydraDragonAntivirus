@@ -2093,13 +2093,21 @@ impl BehaviorEngine {
                     }
                 }
 
+                let file_change = FromPrimitive::from_u8(msg.file_change);
+                let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
+
                 let current_file_op = match *irp_op {
                     IrpMajorOp::IrpRead => Some("read"),
                     IrpMajorOp::IrpWrite => Some("write"),
-                    IrpMajorOp::IrpCreate => Some("create"),
+                    IrpMajorOp::IrpCreate => {
+                        if is_directory_event {
+                            None
+                        } else {
+                            Some("create")
+                        }
+                    }
                     IrpMajorOp::IrpSetInfo => {
-                        let change = FromPrimitive::from_u8(msg.file_change);
-                        match change {
+                        match file_change {
                             Some(FileChangeInfo::ChangeRenameFile) => Some("rename"),
                             Some(FileChangeInfo::ChangeExtensionChanged) => Some("rename"),
                             Some(FileChangeInfo::ChangeDeleteFile) => Some("delete"),
@@ -2172,9 +2180,9 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && has_extension_conditions && file_op_allowed {
+                if !matched && has_extension_conditions && file_op_allowed && !is_directory_event {
                     let extension_changed = matches!(
-                        FromPrimitive::from_u8(msg.file_change),
+                        file_change,
                         Some(FileChangeInfo::ChangeExtensionChanged)
                     );
 
@@ -2200,8 +2208,11 @@ impl BehaviorEngine {
                     if path_filter_match {
                         let mut ext = msg.extension.to_lowercase();
                         if ext.is_empty() {
-                            if let Some((_, tail)) = filepath.rsplit_once('.') {
-                                ext = tail.to_lowercase();
+                            let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
+                            if let Some((_, tail)) = leaf.rsplit_once('.') {
+                                if !tail.is_empty() {
+                                    ext = tail.to_lowercase();
+                                }
                             }
                         }
 
@@ -2212,8 +2223,20 @@ impl BehaviorEngine {
                                 format!(".{}", ext)
                             };
                             if let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
-                                Self::matches_pattern_internal(&self.regex_cache, p, &ext_with_dot) ||
-                                Self::matches_pattern_internal(&self.regex_cache, p, &ext)
+                                let pat = p.to_lowercase();
+                                let pat_with_dot = if pat.starts_with('.') {
+                                    pat.clone()
+                                } else {
+                                    format!(".{}", pat)
+                                };
+                                let pat_without_dot = pat_with_dot.trim_start_matches('.').to_string();
+
+                                if pat.contains('*') || pat.contains('?') {
+                                    Self::matches_pattern_internal(&self.regex_cache, &pat, &ext_with_dot) ||
+                                    Self::matches_pattern_internal(&self.regex_cache, &pat, &ext)
+                                } else {
+                                    ext_with_dot == pat_with_dot || ext == pat_without_dot
+                                }
                             }) {
                                 matched = true;
                                 Logging::info(&format!(

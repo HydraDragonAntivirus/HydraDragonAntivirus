@@ -755,18 +755,55 @@ pub mod worker_instance {
     impl<'a> Worker<'a> {
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
 
-        /// Some kernel events can arrive with gid=0 (unknown process group).
-        /// Use a PID-scoped synthetic id so events do not collapse into one shared bucket.
-        fn normalize_tracking_gid(iomsg: &mut IOMessage) {
+        /// Normalize unstable kernel GIDs to keep per-process tracking coherent.
+        /// 1) gid=0 => PID-scoped synthetic GID.
+        /// 2) If PID is already known under another GID, re-use that GID.
+        /// 3) If an incoming GID is already owned by a different PID, remap to synthetic PID GID.
+        fn normalize_tracking_gid(&self, iomsg: &mut IOMessage) {
+            let pid = if iomsg.pid != 0 { iomsg.pid } else { iomsg.attacker_pid };
+            if pid == 0 {
+                return;
+            }
+
             if iomsg.gid == 0 {
-                let basis_pid = if iomsg.pid != 0 {
-                    iomsg.pid
-                } else {
-                    iomsg.attacker_pid
-                };
-                if basis_pid != 0 {
-                    iomsg.gid = Self::PID_FALLBACK_GID_MASK | (basis_pid as u64);
+                iomsg.gid = Self::PID_FALLBACK_GID_MASK | (pid as u64);
+                return;
+            }
+
+            if let Some(existing_gid_for_pid) = self.find_gid_by_pid(pid) {
+                if existing_gid_for_pid != iomsg.gid {
+                    Logging::warning(&format!(
+                        "[GID RESOLVE] PID {} remapped from kernel GID {} to tracked GID {}",
+                        pid, iomsg.gid, existing_gid_for_pid
+                    ));
+                    iomsg.gid = existing_gid_for_pid;
                 }
+                return;
+            }
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            let behavior_pid_conflict = self.behavior_engine
+                .process_states
+                .get(&iomsg.gid)
+                .map(|s| s.pid != 0 && s.pid != pid)
+                .unwrap_or(false);
+
+            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+            let behavior_pid_conflict = false;
+
+            let record_pid_conflict = self.process_records
+                .process_records
+                .peek(&iomsg.gid)
+                .map(|p| !p.pids.is_empty() && !p.pids.contains(&pid))
+                .unwrap_or(false);
+
+            if behavior_pid_conflict || record_pid_conflict {
+                let remapped = Self::PID_FALLBACK_GID_MASK | (pid as u64);
+                Logging::warning(&format!(
+                    "[GID COLLISION] PID {} kernel GID {} collides with existing tracked process; using synthetic GID {}",
+                    pid, iomsg.gid, remapped
+                ));
+                iomsg.gid = remapped;
             }
         }
 
@@ -1236,7 +1273,7 @@ pub mod worker_instance {
 
         /// Process kernel I/O event - this is the main event handler
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
-            Self::normalize_tracking_gid(iomsg);
+            self.normalize_tracking_gid(iomsg);
 
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
