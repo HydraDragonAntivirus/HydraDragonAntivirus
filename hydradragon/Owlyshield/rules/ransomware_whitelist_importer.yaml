@@ -24,16 +24,10 @@
       api_threshold: 1
 
     ransomware_extension_activity:
-      file_extensions:
-        - ".winball"
-        - ".encrypted"
-        - ".locked"
-        - ".crypt"
-        - ".enc"
-        - ".wncry"
-      file_operations: ["setinfo", "rename", "write", "create"]
+      detect_non_whitelisted_extensions: true
+      file_operations: ["setinfo", "rename"]
       detect_extension_changes: true
-      min_matches: 1
+      min_matches: 2
 
   detection_logic:
     or:

@@ -12,6 +12,7 @@ use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
 use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
+use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
@@ -541,6 +542,29 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
 
+fn normalize_extension_token(extension: &str) -> String {
+    extension
+        .trim()
+        .trim_matches('"')
+        .trim_matches(char::from(0))
+        .trim_start_matches('.')
+        .to_lowercase()
+}
+
+fn build_default_extension_whitelist() -> HashSet<String> {
+    let mut whitelist = HashSet::new();
+    let extension_list = ExtensionList::new();
+    for category in extension_list.categories.values() {
+        for ext in category {
+            let normalized = normalize_extension_token(ext);
+            if !normalized.is_empty() {
+                whitelist.insert(normalized);
+            }
+        }
+    }
+    whitelist
+}
+
 // =============================================================================
 // RICH CONDITION SYSTEM
 // =============================================================================
@@ -588,6 +612,10 @@ pub struct NamedConditionGroup {
     pub file_extensions: Vec<String>,
     #[serde(default)]
     pub detect_extension_changes: bool,
+    #[serde(default, alias = "extension_allowlist")]
+    pub extension_whitelist: Vec<String>,
+    #[serde(default, alias = "detect_non_allowlisted_extensions")]
+    pub detect_non_whitelisted_extensions: bool,
     #[serde(default)]
     pub file_actions: Vec<String>,
     #[serde(default)]
@@ -912,6 +940,7 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.terminated_processes);
             expand_vec(&mut cond_group.created_processes);
             expand_vec(&mut cond_group.file_extensions);
+            expand_vec(&mut cond_group.extension_whitelist);
             expand_vec(&mut cond_group.file_actions);
             expand_cmd_patterns(&mut cond_group.cmdline_patterns);
             expand_vec(&mut cond_group.cmdline_keywords);
@@ -988,6 +1017,7 @@ impl BehaviorRule {
             cond_group.file_operations = cond_group.file_operations.iter().map(|s| s.to_lowercase()).collect();
             cond_group.registry_operations = cond_group.registry_operations.iter().map(|s| s.to_lowercase()).collect();
             cond_group.file_extensions = cond_group.file_extensions.iter().map(|s| s.to_lowercase()).collect();
+            cond_group.extension_whitelist = cond_group.extension_whitelist.iter().map(|s| s.to_lowercase()).collect();
         }
     }
 }
@@ -1553,6 +1583,7 @@ pub struct BehaviorEngine {
     pub process_states: HashMap<u64, ProcessBehaviorState>,
     regex_cache: RefCell<HashMap<String, Regex>>,
     pub process_terminated: HashSet<String>,
+    default_extension_whitelist: HashSet<String>,
     system: RefCell<System>,
 }
 
@@ -1563,6 +1594,7 @@ impl BehaviorEngine {
             process_states: HashMap::new(),
             regex_cache: RefCell::new(HashMap::new()),
             process_terminated: HashSet::new(),
+            default_extension_whitelist: build_default_extension_whitelist(),
             system: RefCell::new(System::new()),
         }
     }
@@ -1635,6 +1667,54 @@ impl BehaviorEngine {
             }
         };
         cond_group.registry_operations.iter().any(|v| v == op)
+    }
+
+    fn extension_pattern_matches(
+        cache: &RefCell<HashMap<String, Regex>>,
+        pattern: &str,
+        ext_without_dot: &str,
+        ext_with_dot: &str,
+    ) -> bool {
+        let pat = pattern
+            .trim()
+            .trim_matches('"')
+            .trim_matches(char::from(0))
+            .to_lowercase();
+        if pat.is_empty() {
+            return false;
+        }
+
+        if pat.contains('*') || pat.contains('?') {
+            return Self::matches_pattern_internal(cache, &pat, ext_with_dot)
+                || Self::matches_pattern_internal(cache, &pat, ext_without_dot);
+        }
+
+        let pat_without_dot = pat.trim_start_matches('.');
+        if pat_without_dot.is_empty() {
+            return false;
+        }
+        let pat_with_dot = format!(".{}", pat_without_dot);
+        ext_without_dot == pat_without_dot || ext_with_dot == pat_with_dot
+    }
+
+    fn is_extension_whitelisted(
+        cache: &RefCell<HashMap<String, Regex>>,
+        default_whitelist: &HashSet<String>,
+        cond_group: &NamedConditionGroup,
+        ext_without_dot: &str,
+        ext_with_dot: &str,
+    ) -> bool {
+        if ext_without_dot.is_empty() {
+            return false;
+        }
+
+        if cond_group.extension_whitelist.is_empty() {
+            return default_whitelist.contains(ext_without_dot);
+        }
+
+        cond_group.extension_whitelist.iter().any(|p| {
+            Self::extension_pattern_matches(cache, p, ext_without_dot, ext_with_dot)
+        })
     }
 
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -2134,7 +2214,9 @@ impl BehaviorEngine {
                                        !cond_group.sensitive_paths.is_empty() ||
                                        !cond_group.persistence_locations.is_empty();
 
-                let has_extension_conditions = !cond_group.file_extensions.is_empty() || cond_group.detect_extension_changes;
+                let has_extension_conditions = !cond_group.file_extensions.is_empty()
+                    || cond_group.detect_extension_changes
+                    || cond_group.detect_non_whitelisted_extensions;
 
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
@@ -2206,43 +2288,46 @@ impl BehaviorEngine {
                     };
 
                     if path_filter_match {
-                        let mut ext = msg.extension.to_lowercase();
+                        let mut ext = normalize_extension_token(&msg.extension);
                         if ext.is_empty() {
                             let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
                             if let Some((_, tail)) = leaf.rsplit_once('.') {
                                 if !tail.is_empty() {
-                                    ext = tail.to_lowercase();
+                                    ext = normalize_extension_token(tail);
                                 }
                             }
                         }
 
-                        if !ext.is_empty() && !cond_group.file_extensions.is_empty() {
-                            let ext_with_dot = if ext.starts_with('.') {
-                                ext.clone()
-                            } else {
-                                format!(".{}", ext)
-                            };
-                            if let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
-                                let pat = p.to_lowercase();
-                                let pat_with_dot = if pat.starts_with('.') {
-                                    pat.clone()
-                                } else {
-                                    format!(".{}", pat)
-                                };
-                                let pat_without_dot = pat_with_dot.trim_start_matches('.').to_string();
+                        if !ext.is_empty() {
+                            let ext_with_dot = format!(".{}", ext);
 
-                                if pat.contains('*') || pat.contains('?') {
-                                    Self::matches_pattern_internal(&self.regex_cache, &pat, &ext_with_dot) ||
-                                    Self::matches_pattern_internal(&self.regex_cache, &pat, &ext)
-                                } else {
-                                    ext_with_dot == pat_with_dot || ext == pat_without_dot
+                            if !cond_group.file_extensions.is_empty() {
+                                if let Some(matched_ext) = cond_group.file_extensions.iter().find(|p| {
+                                    Self::extension_pattern_matches(&self.regex_cache, p, &ext, &ext_with_dot)
+                                }) {
+                                    matched = true;
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Extension match for PID {}: {}",
+                                        cond_name, state.pid, matched_ext
+                                    ));
                                 }
-                            }) {
-                                matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - Extension match for PID {}: {}",
-                                    cond_name, state.pid, matched_ext
-                                ));
+                            }
+
+                            if !matched && cond_group.detect_non_whitelisted_extensions {
+                                let whitelisted = Self::is_extension_whitelisted(
+                                    &self.regex_cache,
+                                    &self.default_extension_whitelist,
+                                    cond_group,
+                                    &ext,
+                                    &ext_with_dot,
+                                );
+                                if !whitelisted {
+                                    matched = true;
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Non-whitelisted extension for PID {}: {}",
+                                        cond_name, state.pid, ext_with_dot
+                                    ));
+                                }
                             }
                         }
 
