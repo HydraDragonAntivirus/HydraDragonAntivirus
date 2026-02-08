@@ -551,6 +551,40 @@ fn normalize_extension_token(extension: &str) -> String {
         .to_lowercase()
 }
 
+fn extract_extension_from_path(filepath: &str) -> String {
+    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
+    if let Some((_, tail)) = leaf.rsplit_once('.') {
+        return normalize_extension_token(tail);
+    }
+    String::new()
+}
+
+fn extract_effective_extension(msg_extension: &str, filepath: &str) -> String {
+    let ext = normalize_extension_token(msg_extension);
+    if !ext.is_empty() {
+        return ext;
+    }
+    extract_extension_from_path(filepath)
+}
+
+fn filepath_stem_key(filepath: &str) -> Option<String> {
+    let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
+    let (stem, _) = leaf.rsplit_once('.')?;
+    if stem.is_empty() {
+        return None;
+    }
+
+    if let Some((parent, _)) = filepath.rsplit_once('/') {
+        if parent.is_empty() {
+            Some(stem.to_string())
+        } else {
+            Some(format!("{}/{}", parent, stem))
+        }
+    } else {
+        Some(stem.to_string())
+    }
+}
+
 fn build_default_extension_whitelist() -> HashSet<String> {
     let mut whitelist = HashSet::new();
     let extension_list = ExtensionList::new();
@@ -612,6 +646,8 @@ pub struct NamedConditionGroup {
     pub file_extensions: Vec<String>,
     #[serde(default)]
     pub detect_extension_changes: bool,
+    #[serde(default)]
+    pub detect_known_to_unknown_extension_change: bool,
     #[serde(default, alias = "extension_allowlist")]
     pub extension_whitelist: Vec<String>,
     #[serde(default, alias = "detect_non_allowlisted_extensions")]
@@ -1089,6 +1125,9 @@ pub struct ProcessBehaviorState {
     pub condition_match_values: HashMap<String, HashSet<String>>,
     pub condition_first_seen: HashMap<String, SystemTime>,
     pub condition_last_seen: HashMap<String, SystemTime>,
+    pub last_extension_by_file_id: HashMap<u64, String>,
+    pub last_extension_by_path: HashMap<String, String>,
+    pub last_extension_by_stem_path: HashMap<String, String>,
     
     // Comprehensive IRP tracking
     pub irp_operations: Vec<IrpOperationRecord>,
@@ -1127,6 +1166,9 @@ impl ProcessBehaviorState {
         state.condition_match_values = HashMap::new();
         state.condition_first_seen = HashMap::new();
         state.condition_last_seen = HashMap::new();
+        state.last_extension_by_file_id = HashMap::new();
+        state.last_extension_by_path = HashMap::new();
+        state.last_extension_by_stem_path = HashMap::new();
         state.irp_operations = Vec::new();
         state.irp_stats = IrpStatistics::default();
         state.network_apis_called = HashSet::new();
@@ -1717,6 +1759,67 @@ impl BehaviorEngine {
         })
     }
 
+    fn previous_extension_for_event(
+        state: &ProcessBehaviorState,
+        file_id: u64,
+        filepath: &str,
+    ) -> Option<String> {
+        if file_id != 0 {
+            if let Some(ext) = state.last_extension_by_file_id.get(&file_id) {
+                if !ext.is_empty() {
+                    return Some(ext.clone());
+                }
+            }
+        }
+
+        if let Some(ext) = state.last_extension_by_path.get(filepath) {
+            if !ext.is_empty() {
+                return Some(ext.clone());
+            }
+        }
+
+        if let Some(stem_key) = filepath_stem_key(filepath) {
+            if let Some(ext) = state.last_extension_by_stem_path.get(&stem_key) {
+                if !ext.is_empty() {
+                    return Some(ext.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn remember_extension_observation(
+        state: &mut ProcessBehaviorState,
+        file_id: u64,
+        filepath: &str,
+        ext_without_dot: &str,
+    ) {
+        if ext_without_dot.is_empty() {
+            return;
+        }
+
+        if file_id != 0 {
+            state.last_extension_by_file_id.insert(file_id, ext_without_dot.to_string());
+        }
+
+        state.last_extension_by_path.insert(filepath.to_string(), ext_without_dot.to_string());
+        if let Some(stem_key) = filepath_stem_key(filepath) {
+            state.last_extension_by_stem_path.insert(stem_key, ext_without_dot.to_string());
+        }
+
+        const MAX_TRACKED_EXTENSIONS: usize = 16384;
+        if state.last_extension_by_file_id.len() > MAX_TRACKED_EXTENSIONS {
+            state.last_extension_by_file_id.clear();
+        }
+        if state.last_extension_by_path.len() > MAX_TRACKED_EXTENSIONS {
+            state.last_extension_by_path.clear();
+        }
+        if state.last_extension_by_stem_path.len() > MAX_TRACKED_EXTENSIONS {
+            state.last_extension_by_stem_path.clear();
+        }
+    }
+
     pub fn load_rules(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self.load_rules_recursive(path)?;
         self.rules = rules;
@@ -2111,6 +2214,20 @@ impl BehaviorEngine {
             ));
         }
 
+        let event_file_change = FromPrimitive::from_u8(msg.file_change);
+        let is_extension_change_event = matches!(
+            event_file_change,
+            Some(FileChangeInfo::ChangeExtensionChanged)
+        );
+        let event_extension = extract_effective_extension(&msg.extension, filepath);
+        let previous_extension = if is_extension_change_event {
+            self.process_states.get(&gid).and_then(|state| {
+                Self::previous_extension_for_event(state, msg.file_id_id.0, filepath)
+            })
+        } else {
+            None
+        };
+
         for rule in &self.rules {
             if rule.named_conditions.is_empty() {
                 continue;
@@ -2173,7 +2290,7 @@ impl BehaviorEngine {
                     }
                 }
 
-                let file_change = FromPrimitive::from_u8(msg.file_change);
+                let file_change = event_file_change;
                 let is_directory_event = matches!(file_change, Some(FileChangeInfo::OpenDirectory));
 
                 let current_file_op = match *irp_op {
@@ -2216,7 +2333,8 @@ impl BehaviorEngine {
 
                 let has_extension_conditions = !cond_group.file_extensions.is_empty()
                     || cond_group.detect_extension_changes
-                    || cond_group.detect_non_whitelisted_extensions;
+                    || cond_group.detect_non_whitelisted_extensions
+                    || cond_group.detect_known_to_unknown_extension_change;
 
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
@@ -2288,15 +2406,7 @@ impl BehaviorEngine {
                     };
 
                     if path_filter_match {
-                        let mut ext = normalize_extension_token(&msg.extension);
-                        if ext.is_empty() {
-                            let leaf = filepath.rsplit('/').next().unwrap_or(filepath);
-                            if let Some((_, tail)) = leaf.rsplit_once('.') {
-                                if !tail.is_empty() {
-                                    ext = normalize_extension_token(tail);
-                                }
-                            }
-                        }
+                        let ext = event_extension.clone();
 
                         if !ext.is_empty() {
                             let ext_with_dot = format!(".{}", ext);
@@ -2331,15 +2441,51 @@ impl BehaviorEngine {
                             }
                         }
 
-                        // Some minifilter rename/extension-change paths may not carry the final extension
-                        // in `extension`/`filepathstr`. Allow explicit opt-in to treat extension-change events
-                        // as a match for extension-focused conditions.
-                        if !matched && extension_changed && cond_group.detect_extension_changes {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
-                                cond_name, state.pid
-                            ));
+                        if !matched && extension_changed {
+                            if cond_group.detect_known_to_unknown_extension_change {
+                                let matched_known_to_unknown = if let Some(previous_ext) = previous_extension.as_ref() {
+                                    if event_extension.is_empty() {
+                                        false
+                                    } else {
+                                        let previous_ext_with_dot = format!(".{}", previous_ext);
+                                        let current_ext_with_dot = format!(".{}", event_extension);
+                                        let previous_is_known = Self::is_extension_whitelisted(
+                                            &self.regex_cache,
+                                            &self.default_extension_whitelist,
+                                            cond_group,
+                                            previous_ext,
+                                            &previous_ext_with_dot,
+                                        );
+                                        let current_is_known = Self::is_extension_whitelisted(
+                                            &self.regex_cache,
+                                            &self.default_extension_whitelist,
+                                            cond_group,
+                                            &event_extension,
+                                            &current_ext_with_dot,
+                                        );
+                                        previous_is_known && !current_is_known
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if matched_known_to_unknown {
+                                    matched = true;
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Known-to-unknown extension change for PID {} (prev: .{}, new: .{})",
+                                        cond_name,
+                                        state.pid,
+                                        previous_extension.as_deref().unwrap_or(""),
+                                        event_extension
+                                    ));
+                                }
+                            } else if cond_group.detect_extension_changes {
+                                matched = true;
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
+                                    cond_name, state.pid
+                                ));
+                            }
                         }
                     }
                 }
@@ -2558,6 +2704,10 @@ impl BehaviorEngine {
                     }
                 }
             }
+        }
+
+        if let Some(state) = self.process_states.get_mut(&gid) {
+            Self::remember_extension_observation(state, msg.file_id_id.0, filepath, &event_extension);
         }
     }
 
