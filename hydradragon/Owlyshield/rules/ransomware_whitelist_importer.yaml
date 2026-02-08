@@ -21,10 +21,10 @@
 
     suspicious_encryption_apis:
       apis:
-        - "CryptEncrypt"
-        - "BCryptEncrypt"
-        - "NCryptEncrypt"
-        - "RtlEncrypt*"
+        - "advapi32!CryptEncrypt"
+        - "bcrypt!BCryptEncrypt"
+        - "ncrypt!NCryptEncrypt"
+        - "ntdll!RtlEncrypt*"
       api_threshold: 1
 
     ransomware_read_write_rename:
