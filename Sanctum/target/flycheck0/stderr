@@ -1,4 +1,4 @@
 warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
 package:   C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\Sanctum\sanctum_ppl_runner\Cargo.toml
 workspace: C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\Sanctum\Cargo.toml
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.73s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.94s

@@ -24,13 +24,17 @@
       api_threshold: 1
 
     ransomware_extension_activity:
-      file_operations: ["setinfo", "rename"]
+      file_operations: ["write", "rename", "create", "delete"]
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
 
   detection_logic:
-    condition: "ransomware_extension_activity"
+    and:
+      - condition: "ransomware_extension_activity"
+      - any_of:
+          - "mass_disk_writes"
+          - "suspicious_encryption_apis"
 
   response:
     terminate_process: true

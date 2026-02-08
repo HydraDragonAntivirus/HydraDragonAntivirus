@@ -2280,20 +2280,19 @@ impl BehaviorEngine {
                 }
 
                 if !matched && has_extension_conditions && file_op_allowed && !is_directory_event {
-                    let rename_extension_changed = precord.has_renamed_file_id(&msg.file_id_id) && matches!(
-                        file_change,
-                        Some(FileChangeInfo::ChangeExtensionChanged)
-                    );
+                    let read_write_rename = precord.has_renamed_file_id(&msg.file_id_id)
+                        && precord.read_then_write_and_rename(&msg.file_id_id)
+                        && matches!(
+                            file_change,
+                            Some(FileChangeInfo::ChangeExtensionChanged)
+                                | Some(FileChangeInfo::ChangeRenameFile)
+                        );
                     let create_delete_extension_changed = matches!(
                         file_change,
                         Some(FileChangeInfo::ChangeNewFile) | Some(FileChangeInfo::ChangeDeleteFile)
                     )
-                        && precord.has_create_delete_extension_change_for_event(msg)
-                        && previous_extension
-                            .as_ref()
-                            .map(|previous_ext| !event_extension.is_empty() && previous_ext != &event_extension)
-                            .unwrap_or(false);
-                    let extension_changed = rename_extension_changed || create_delete_extension_changed;
+                        && precord.read_then_create_delete_by_stem(msg);
+                    let extension_changed = read_write_rename || create_delete_extension_changed;
 
                     let path_filter_match = if has_path_filters {
                         let path_variants = build_path_variants(filepath, &msg.filepathstr);
