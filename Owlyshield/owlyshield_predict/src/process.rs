@@ -138,6 +138,12 @@ pub struct ProcessRecord {
     extension_by_path: HashMap<String, String>,
     /// Last known extension by normalized stem path (without leading dot)
     extension_by_stem_path: HashMap<String, String>,
+    /// Extensions observed on created files by normalized stem path
+    create_extensions_by_stem_path: HashMap<String, HashSet<String>>,
+    /// Extensions observed on deleted files by normalized stem path
+    delete_extensions_by_stem_path: HashMap<String, HashSet<String>>,
+    /// Stem paths where create+delete observed with different extensions
+    create_delete_extension_change_stems: HashSet<String>,
     /// File descriptors created
     pub files_opened: HashSet<FileId>,
     /// File descriptors written
@@ -292,6 +298,9 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
+            create_extensions_by_stem_path: HashMap::new(),
+            delete_extensions_by_stem_path: HashMap::new(),
+            create_delete_extension_change_stems: HashSet::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -381,6 +390,9 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
+            create_extensions_by_stem_path: HashMap::new(),
+            delete_extensions_by_stem_path: HashMap::new(),
+            create_delete_extension_change_stems: HashSet::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -511,6 +523,61 @@ impl ProcessRecord {
         self.files_renamed.contains(file_id)
     }
 
+    pub fn has_create_delete_extension_change_for_event(&self, iomsg: &IOMessage) -> bool {
+        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        filepath_stem_key(&normalized_path)
+            .map(|stem_key| self.create_delete_extension_change_stems.contains(&stem_key))
+            .unwrap_or(false)
+    }
+
+    fn track_create_delete_extension_change(&mut self, iomsg: &IOMessage, is_create: bool) {
+        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
+        let stem_key = match filepath_stem_key(&normalized_path) {
+            Some(stem_key) => stem_key,
+            None => return,
+        };
+
+        let extension = extract_effective_extension(&iomsg.extension, &iomsg.filepathstr);
+        if extension.is_empty() {
+            return;
+        }
+
+        if is_create {
+            self.create_extensions_by_stem_path
+                .entry(stem_key.clone())
+                .or_insert_with(HashSet::new)
+                .insert(extension.clone());
+
+            if let Some(deleted_exts) = self.delete_extensions_by_stem_path.get(&stem_key) {
+                if deleted_exts.iter().any(|deleted_ext| deleted_ext != &extension) {
+                    self.create_delete_extension_change_stems.insert(stem_key);
+                }
+            }
+        } else {
+            self.delete_extensions_by_stem_path
+                .entry(stem_key.clone())
+                .or_insert_with(HashSet::new)
+                .insert(extension.clone());
+
+            if let Some(created_exts) = self.create_extensions_by_stem_path.get(&stem_key) {
+                if created_exts.iter().any(|created_ext| created_ext != &extension) {
+                    self.create_delete_extension_change_stems.insert(stem_key);
+                }
+            }
+        }
+
+        const MAX_TRACKED_STEMS: usize = 16384;
+        if self.create_extensions_by_stem_path.len() > MAX_TRACKED_STEMS {
+            self.create_extensions_by_stem_path.clear();
+        }
+        if self.delete_extensions_by_stem_path.len() > MAX_TRACKED_STEMS {
+            self.delete_extensions_by_stem_path.clear();
+        }
+        if self.create_delete_extension_change_stems.len() > MAX_TRACKED_STEMS {
+            self.create_delete_extension_change_stems.clear();
+        }
+    }
+
     fn launch_thread_clustering(&self) {
         let tx = self.tx.to_owned();
         let dir_with_files_u = self.dirs_with_files_updated.clone();
@@ -630,6 +697,7 @@ impl ProcessRecord {
         match file_change_enum {
             Some(FileChangeInfo::ChangeDeleteFile) => {
                 self.files_deleted.insert(iomsg.file_id_id);
+                self.track_create_delete_extension_change(iomsg, false);
                 self.fpaths_updated.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)
@@ -686,6 +754,7 @@ impl ProcessRecord {
         match file_change_enum {
             Some(FileChangeInfo::ChangeNewFile) => {
                 self.files_opened.insert(iomsg.file_id_id);
+                self.track_create_delete_extension_change(iomsg, true);
                 self.fpaths_created.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)
@@ -705,6 +774,7 @@ impl ProcessRecord {
             Some(FileChangeInfo::ChangeDeleteFile) => {
                 // Opened and deleted on close
                 self.files_deleted.insert(iomsg.file_id_id);
+                self.track_create_delete_extension_change(iomsg, false);
                 self.fpaths_updated.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)
@@ -832,11 +902,11 @@ impl fmt::Display for ProcessState {
 #[cfg(test)]
 #[doc(hidden)]
 mod tests {
-    use crate::shared_def::RuntimeFeatures;
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
-    use crate::shared_def::IOMessage;
+    use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, RuntimeFeatures};
     use std::collections::HashSet;
+    use std::path::PathBuf;
     use std::time::SystemTime;
 
     fn get_iomsgs() -> Vec<IOMessage> {
@@ -1054,6 +1124,41 @@ mod tests {
         ])
     }
 
+    fn add_record(pr: &mut ProcessRecord, iomsg: &IOMessage) {
+        #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+        {
+            use crate::av_integration::AVIntegration;
+            pr.add_irp_record(iomsg, None::<&mut AVIntegration>);
+        }
+
+        #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+        pr.add_irp_record(iomsg, None::<&mut ()>);
+    }
+
+    fn make_file_event(
+        irp_op: IrpMajorOp,
+        file_change: FileChangeInfo,
+        file_id: FileId,
+        path: &str,
+        extension: &str,
+        gid: u64,
+        time: SystemTime,
+    ) -> IOMessage {
+        IOMessage {
+            extension: extension.to_string(),
+            file_id_id: file_id,
+            pid: 4242,
+            irp_op: irp_op as u8,
+            file_change: file_change as u8,
+            filepathstr: path.to_string(),
+            gid,
+            runtime_features: RuntimeFeatures::new(),
+            file_size: 128,
+            time,
+            ..IOMessage::default()
+        }
+    }
+
     #[test]
     fn test_add_irp_record() {
         let iomsgs = get_iomsgs();
@@ -1141,5 +1246,95 @@ mod tests {
         assert_eq!(pr.on_shared_drive_write_count, 0);
         assert_eq!(pr.on_removable_drive_read_count, 0);
         assert_eq!(pr.on_removable_drive_write_count, 0);
+    }
+
+    #[test]
+    fn test_create_delete_extension_change_detected_delete_then_create() {
+        let gid = 501;
+        let time = SystemTime::now();
+        let mut pr = ProcessRecord::new(gid, "test.exe".to_string(), PathBuf::new());
+        let deleted_msg = make_file_event(
+            IrpMajorOp::IrpSetInfo,
+            FileChangeInfo::ChangeDeleteFile,
+            FileId::from([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\budget.docx",
+            "docx",
+            gid,
+            time,
+        );
+        let created_msg = make_file_event(
+            IrpMajorOp::IrpCreate,
+            FileChangeInfo::ChangeNewFile,
+            FileId::from([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\budget.locked",
+            "locked",
+            gid,
+            time,
+        );
+
+        add_record(&mut pr, &deleted_msg);
+        add_record(&mut pr, &created_msg);
+
+        assert!(pr.has_create_delete_extension_change_for_event(&created_msg));
+    }
+
+    #[test]
+    fn test_create_delete_extension_change_detected_create_then_delete() {
+        let gid = 502;
+        let time = SystemTime::now();
+        let mut pr = ProcessRecord::new(gid, "test.exe".to_string(), PathBuf::new());
+        let created_msg = make_file_event(
+            IrpMajorOp::IrpCreate,
+            FileChangeInfo::ChangeNewFile,
+            FileId::from([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\notes.locked",
+            "locked",
+            gid,
+            time,
+        );
+        let deleted_msg = make_file_event(
+            IrpMajorOp::IrpSetInfo,
+            FileChangeInfo::ChangeDeleteFile,
+            FileId::from([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\notes.txt",
+            "txt",
+            gid,
+            time,
+        );
+
+        add_record(&mut pr, &created_msg);
+        add_record(&mut pr, &deleted_msg);
+
+        assert!(pr.has_create_delete_extension_change_for_event(&deleted_msg));
+    }
+
+    #[test]
+    fn test_create_delete_extension_change_ignores_same_extension() {
+        let gid = 503;
+        let time = SystemTime::now();
+        let mut pr = ProcessRecord::new(gid, "test.exe".to_string(), PathBuf::new());
+        let created_msg = make_file_event(
+            IrpMajorOp::IrpCreate,
+            FileChangeInfo::ChangeNewFile,
+            FileId::from([5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\report.docx",
+            "docx",
+            gid,
+            time,
+        );
+        let deleted_msg = make_file_event(
+            IrpMajorOp::IrpSetInfo,
+            FileChangeInfo::ChangeDeleteFile,
+            FileId::from([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            r"C:\Users\Dev\Documents\report.docx",
+            "docx",
+            gid,
+            time,
+        );
+
+        add_record(&mut pr, &created_msg);
+        add_record(&mut pr, &deleted_msg);
+
+        assert!(!pr.has_create_delete_extension_change_for_event(&deleted_msg));
     }
 }

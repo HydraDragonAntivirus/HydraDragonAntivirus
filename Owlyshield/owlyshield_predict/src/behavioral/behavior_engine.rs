@@ -2114,12 +2114,14 @@ impl BehaviorEngine {
         }
 
         let event_file_change = FromPrimitive::from_u8(msg.file_change);
-        let is_extension_change_event = matches!(
+        let should_lookup_previous_extension = matches!(
             event_file_change,
             Some(FileChangeInfo::ChangeExtensionChanged)
+                | Some(FileChangeInfo::ChangeNewFile)
+                | Some(FileChangeInfo::ChangeDeleteFile)
         );
         let event_extension = ProcessRecord::effective_extension_for_event(msg);
-        let previous_extension = if is_extension_change_event {
+        let previous_extension = if should_lookup_previous_extension {
             precord.previous_extension_for_event(msg)
         } else {
             None
@@ -2278,10 +2280,20 @@ impl BehaviorEngine {
                 }
 
                 if !matched && has_extension_conditions && file_op_allowed && !is_directory_event {
-                    let extension_changed = precord.has_renamed_file_id(&msg.file_id_id) && matches!(
+                    let rename_extension_changed = precord.has_renamed_file_id(&msg.file_id_id) && matches!(
                         file_change,
                         Some(FileChangeInfo::ChangeExtensionChanged)
                     );
+                    let create_delete_extension_changed = matches!(
+                        file_change,
+                        Some(FileChangeInfo::ChangeNewFile) | Some(FileChangeInfo::ChangeDeleteFile)
+                    )
+                        && precord.has_create_delete_extension_change_for_event(msg)
+                        && previous_extension
+                            .as_ref()
+                            .map(|previous_ext| !event_extension.is_empty() && previous_ext != &event_extension)
+                            .unwrap_or(false);
+                    let extension_changed = rename_extension_changed || create_delete_extension_changed;
 
                     let path_filter_match = if has_path_filters {
                         let path_variants = build_path_variants(filepath, &msg.filepathstr);
@@ -2378,10 +2390,17 @@ impl BehaviorEngine {
                                 }
                             } else if cond_group.detect_extension_changes {
                                 matched = true;
-                                Logging::info(&format!(
-                                    "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
-                                    cond_name, state.pid
-                                ));
+                                if create_delete_extension_changed {
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Extension-change create+delete combo matched for PID {}",
+                                        cond_name, state.pid
+                                    ));
+                                } else {
+                                    Logging::info(&format!(
+                                        "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
+                                        cond_name, state.pid
+                                    ));
+                                }
                             }
                         }
                     }
