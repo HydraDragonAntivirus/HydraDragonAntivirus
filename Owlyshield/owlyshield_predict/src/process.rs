@@ -71,15 +71,6 @@ fn extract_extension_from_path(filepath: &str) -> String {
     String::new()
 }
 
-fn strip_last_extension(filepath: &str) -> Option<String> {
-    let (head, _) = filepath.rsplit_once('.')?;
-    if head.is_empty() {
-        None
-    } else {
-        Some(head.to_string())
-    }
-}
-
 fn extract_effective_extension(msg_extension: &str, filepath: &str) -> String {
     let ext = normalize_extension_token(msg_extension);
     if !ext.is_empty() {
@@ -147,20 +138,6 @@ pub struct ProcessRecord {
     extension_by_path: HashMap<String, String>,
     /// Last known extension by normalized stem path (without leading dot)
     extension_by_stem_path: HashMap<String, String>,
-    /// Per-file op sequence tracking for ordered detection
-    last_read_seq_by_file_id: HashMap<FileId, u64>,
-    last_write_seq_by_file_id: HashMap<FileId, u64>,
-    last_ext_change_seq_by_file_id: HashMap<FileId, u64>,
-    last_rename_seq_by_file_id: HashMap<FileId, u64>,
-    last_read_seq_by_stem_path: HashMap<String, u64>,
-    last_create_seq_by_stem_path: HashMap<String, u64>,
-    last_delete_seq_by_stem_path: HashMap<String, u64>,
-    /// Extensions observed on created files by normalized stem path
-    create_extensions_by_stem_path: HashMap<String, HashSet<String>>,
-    /// Extensions observed on deleted files by normalized stem path
-    delete_extensions_by_stem_path: HashMap<String, HashSet<String>>,
-    /// Stem paths where create+delete observed with different extensions
-    create_delete_extension_change_stems: HashSet<String>,
     /// File descriptors created
     pub files_opened: HashSet<FileId>,
     /// File descriptors written
@@ -315,16 +292,6 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
-            last_read_seq_by_file_id: HashMap::new(),
-            last_write_seq_by_file_id: HashMap::new(),
-            last_ext_change_seq_by_file_id: HashMap::new(),
-            last_rename_seq_by_file_id: HashMap::new(),
-            last_read_seq_by_stem_path: HashMap::new(),
-            last_create_seq_by_stem_path: HashMap::new(),
-            last_delete_seq_by_stem_path: HashMap::new(),
-            create_extensions_by_stem_path: HashMap::new(),
-            delete_extensions_by_stem_path: HashMap::new(),
-            create_delete_extension_change_stems: HashSet::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -414,16 +381,6 @@ impl ProcessRecord {
             extension_by_file_id: HashMap::new(),
             extension_by_path: HashMap::new(),
             extension_by_stem_path: HashMap::new(),
-            last_read_seq_by_file_id: HashMap::new(),
-            last_write_seq_by_file_id: HashMap::new(),
-            last_ext_change_seq_by_file_id: HashMap::new(),
-            last_rename_seq_by_file_id: HashMap::new(),
-            last_read_seq_by_stem_path: HashMap::new(),
-            last_create_seq_by_stem_path: HashMap::new(),
-            last_delete_seq_by_stem_path: HashMap::new(),
-            create_extensions_by_stem_path: HashMap::new(),
-            delete_extensions_by_stem_path: HashMap::new(),
-            create_delete_extension_change_stems: HashSet::new(),
             files_opened: HashSet::new(),
             files_written: HashSet::new(),
             files_deleted: HashSet::new(),
@@ -521,22 +478,6 @@ impl ProcessRecord {
             }
         }
 
-        if let Some(stripped_path) = strip_last_extension(&normalized_path) {
-            if let Some(ext) = self.extension_by_path.get(&stripped_path) {
-                if !ext.is_empty() {
-                    return Some(ext.clone());
-                }
-            }
-
-            if let Some(stem_key) = filepath_stem_key(&stripped_path) {
-                if let Some(ext) = self.extension_by_stem_path.get(&stem_key) {
-                    if !ext.is_empty() {
-                        return Some(ext.clone());
-                    }
-                }
-            }
-        }
-
         None
     }
 
@@ -570,90 +511,6 @@ impl ProcessRecord {
         self.files_renamed.contains(file_id)
     }
 
-    pub fn read_then_write_and_rename(&self, file_id: &FileId) -> bool {
-        if let (Some(read_seq), Some(write_seq), Some(rename_seq)) = (
-            self.last_read_seq_by_file_id.get(file_id),
-            self.last_write_seq_by_file_id.get(file_id),
-            self.last_rename_seq_by_file_id.get(file_id),
-        ) {
-            *read_seq < *write_seq && *read_seq < *rename_seq
-        } else {
-            false
-        }
-    }
-
-    pub fn read_then_create_delete_by_stem(&self, iomsg: &IOMessage) -> bool {
-        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        let stem_key = match filepath_stem_key(&normalized_path) {
-            Some(stem_key) => stem_key,
-            None => return false,
-        };
-
-        if let (Some(read_seq), Some(create_seq), Some(delete_seq)) = (
-            self.last_read_seq_by_stem_path.get(&stem_key),
-            self.last_create_seq_by_stem_path.get(&stem_key),
-            self.last_delete_seq_by_stem_path.get(&stem_key),
-        ) {
-            *read_seq < *create_seq && *read_seq < *delete_seq
-        } else {
-            false
-        }
-    }
-
-    pub fn has_create_delete_extension_change_for_event(&self, iomsg: &IOMessage) -> bool {
-        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        filepath_stem_key(&normalized_path)
-            .map(|stem_key| self.create_delete_extension_change_stems.contains(&stem_key))
-            .unwrap_or(false)
-    }
-
-    fn track_create_delete_extension_change(&mut self, iomsg: &IOMessage, is_create: bool) {
-        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        let stem_key = match filepath_stem_key(&normalized_path) {
-            Some(stem_key) => stem_key,
-            None => return,
-        };
-
-        let extension = extract_effective_extension(&iomsg.extension, &iomsg.filepathstr);
-        if extension.is_empty() {
-            return;
-        }
-
-        if is_create {
-            self.create_extensions_by_stem_path
-                .entry(stem_key.clone())
-                .or_insert_with(HashSet::new)
-                .insert(extension.clone());
-
-            if let Some(deleted_exts) = self.delete_extensions_by_stem_path.get(&stem_key) {
-                if deleted_exts.iter().any(|deleted_ext| deleted_ext != &extension) {
-                    self.create_delete_extension_change_stems.insert(stem_key);
-                }
-            }
-        } else {
-            self.delete_extensions_by_stem_path
-                .entry(stem_key.clone())
-                .or_insert_with(HashSet::new)
-                .insert(extension.clone());
-
-            if let Some(created_exts) = self.create_extensions_by_stem_path.get(&stem_key) {
-                if created_exts.iter().any(|created_ext| created_ext != &extension) {
-                    self.create_delete_extension_change_stems.insert(stem_key);
-                }
-            }
-        }
-
-        const MAX_TRACKED_STEMS: usize = 16384;
-        if self.create_extensions_by_stem_path.len() > MAX_TRACKED_STEMS {
-            self.create_extensions_by_stem_path.clear();
-        }
-        if self.delete_extensions_by_stem_path.len() > MAX_TRACKED_STEMS {
-            self.delete_extensions_by_stem_path.clear();
-        }
-        if self.create_delete_extension_change_stems.len() > MAX_TRACKED_STEMS {
-            self.create_delete_extension_change_stems.clear();
-        }
-    }
 
     fn launch_thread_clustering(&self) {
         let tx = self.tx.to_owned();
@@ -727,13 +584,6 @@ impl ProcessRecord {
         self.ops_read += 1;
         self.bytes_read += iomsg.mem_sized_used;
         self.files_read.insert(iomsg.file_id_id);
-        if iomsg.file_id_id.0 != 0 {
-            self.last_read_seq_by_file_id.insert(iomsg.file_id_id, self.driver_msg_count as u64);
-        }
-        let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-        if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-            self.last_read_seq_by_stem_path.insert(stem_key, self.driver_msg_count as u64);
-        }
         self.extensions_read
             .add_cat_extension(&iomsg.extension);
         self.entropy_read += iomsg.entropy * (iomsg.mem_sized_used as f64);
@@ -751,9 +601,6 @@ impl ProcessRecord {
         let fpath = iomsg.filepathstr.clone();
         self.fpaths_updated.insert(fpath);
         self.files_written.insert(iomsg.file_id_id);
-        if iomsg.file_id_id.0 != 0 {
-            self.last_write_seq_by_file_id.insert(iomsg.file_id_id, self.driver_msg_count as u64);
-        }
         if let Some(dir) = Some(
             Path::new(&iomsg.filepathstr)
                 .parent()
@@ -784,11 +631,6 @@ impl ProcessRecord {
         match file_change_enum {
             Some(FileChangeInfo::ChangeDeleteFile) => {
                 self.files_deleted.insert(iomsg.file_id_id);
-                let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-                if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-                    self.last_delete_seq_by_stem_path.insert(stem_key, self.driver_msg_count as u64);
-                }
-                self.track_create_delete_extension_change(iomsg, false);
                 self.fpaths_updated.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)
@@ -817,10 +659,6 @@ impl ProcessRecord {
                     self.dirs_with_files_updated.insert(dir);
                 }
                 self.files_renamed.insert(iomsg.file_id_id);
-                if iomsg.file_id_id.0 != 0 {
-                    self.last_ext_change_seq_by_file_id.insert(iomsg.file_id_id, self.driver_msg_count as u64);
-                    self.last_rename_seq_by_file_id.insert(iomsg.file_id_id, self.driver_msg_count as u64);
-                }
             }
             Some(FileChangeInfo::ChangeRenameFile) => {
                 self.fpaths_updated.insert(fpath);
@@ -852,11 +690,6 @@ impl ProcessRecord {
         match file_change_enum {
             Some(FileChangeInfo::ChangeNewFile) => {
                 self.files_opened.insert(iomsg.file_id_id);
-                let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-                if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-                    self.last_create_seq_by_stem_path.insert(stem_key, self.driver_msg_count as u64);
-                }
-                self.track_create_delete_extension_change(iomsg, true);
                 self.fpaths_created.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)
@@ -876,11 +709,6 @@ impl ProcessRecord {
             Some(FileChangeInfo::ChangeDeleteFile) => {
                 // Opened and deleted on close
                 self.files_deleted.insert(iomsg.file_id_id);
-                let normalized_path = normalize_path_for_extension_tracking(&iomsg.filepathstr);
-                if let Some(stem_key) = filepath_stem_key(&normalized_path) {
-                    self.last_delete_seq_by_stem_path.insert(stem_key, self.driver_msg_count as u64);
-                }
-                self.track_create_delete_extension_change(iomsg, false);
                 self.fpaths_updated.insert(fpath);
                 if let Some(dir) = Some(
                     Path::new(&iomsg.filepathstr)

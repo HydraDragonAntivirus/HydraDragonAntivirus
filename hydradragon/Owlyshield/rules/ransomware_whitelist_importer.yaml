@@ -11,6 +11,10 @@
   debug: true
 
   named_conditions:
+    ransomware_read_activity:
+      file_operations: ["read"]
+      min_matches: 1
+
     mass_disk_writes:
       file_operations: ["write", "create", "setinfo", "rename"]
       min_matches: 8
@@ -23,15 +27,27 @@
         - "RtlEncrypt*"
       api_threshold: 1
 
-    ransomware_extension_activity:
-      file_operations: ["write", "rename", "create", "delete"]
+    ransomware_read_write_rename:
+      file_operations: ["rename"]
+      detect_extension_changes: true
+      detect_known_to_unknown_extension_change: true
+      min_matches: 1
+
+    ransomware_read_create_delete:
+      file_operations: ["create", "delete"]
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
 
   detection_logic:
     and:
-      - condition: "ransomware_extension_activity"
+      - any_of:
+          - and:
+              - condition: "ransomware_read_activity"
+              - condition: "ransomware_read_write_rename"
+          - and:
+              - condition: "ransomware_read_activity"
+              - condition: "ransomware_read_create_delete"
       - any_of:
           - "mass_disk_writes"
           - "suspicious_encryption_apis"
