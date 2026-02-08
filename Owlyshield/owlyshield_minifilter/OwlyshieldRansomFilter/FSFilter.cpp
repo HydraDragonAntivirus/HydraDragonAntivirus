@@ -467,7 +467,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     {
         DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ - Triggering hook engine\n",
                  (ULONG)(ULONG_PTR)ProcessId, FullImageName);
-        UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
+        UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase);
     }
 }
 
@@ -551,8 +551,8 @@ VOID EnumerateExistingProcesses(VOID)
                                 delete newEntry;
                             }
                             
-                            // PROACTIVE: Hook existing process now
-                            UserModeHookProcess(pidNum);
+                            // PROACTIVE: Hook existing process now (Full scan)
+                            UserModeHookProcess(pidNum, NULL);
                         }
                     }
 

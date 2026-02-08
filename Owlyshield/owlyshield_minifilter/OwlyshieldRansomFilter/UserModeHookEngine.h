@@ -233,9 +233,9 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 // ENGINE DEFINITIONS
 // -------------------------------------------------------------------------
 
-#define MAX_HOOKED_PROCESSES 8196
+#define MAX_HOOKED_PROCESSES 512
 #define USERMODE_HOOK_SIZE 14
-#define MAX_CUSTOM_HOOKS 8196  // Increased for comprehensive API monitoring
+#define MAX_CUSTOM_HOOKS 8192  // Increased to 8k for comprehensive API monitoring
 
 extern HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 extern ULONG g_CustomHookCount;
@@ -263,8 +263,8 @@ typedef struct _PROCESS_HOOK_ENTRY
     HOOK_DEF NtCreateThreadEx;
     HOOK_DEF NtMapViewOfSection;
     
-    // Dynamic Hooks (Up to 16)
-    HOOK_DEF CustomHooks[16];
+    // Dynamic Hooks (Dynamically Allocated - sized to MAX_CUSTOM_HOOKS)
+    PHOOK_DEF CustomHooks;
 
     // Shellcode specific
     PVOID ShellcodeBase;
@@ -282,20 +282,15 @@ typedef struct _USERMODE_HOOK_ENGINE
     PROCESS_HOOK_ENTRY Processes[MAX_HOOKED_PROCESSES];
 } USERMODE_HOOK_ENGINE, *PUSERMODE_HOOK_ENGINE;
 
-//
 // Public API
 //
 
 NTSTATUS UserModeHookEngineInitialize(VOID);
 VOID UserModeHookEngineCleanup(VOID);
 
-// Updated Prototype
-// Updated Prototype
-NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
-// Updated Prototypes
-NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
-// NTSTATUS InjectShellcodeHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry); // Removed
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase);
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
+NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry);
 
 // Expose these if needed or keep static in cpp
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);

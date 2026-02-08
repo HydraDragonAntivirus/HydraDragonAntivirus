@@ -64,31 +64,42 @@ NTSTATUS ResolveAndHook(
     _In_ PCSTR FunctionName,
     _Inout_ PHOOK_DEF HookDef,
     _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo
+    _In_ PVOID TargetNtDeviceIo,
+    _In_opt_ PVOID NewModuleBase
 );
 
-VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo)
+VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo, PVOID NewModuleBase)
 {
     // NTDLL Hooks (Default)
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12, TargetNtDeviceIo);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13, TargetNtDeviceIo);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14, TargetNtDeviceIo);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15, TargetNtDeviceIo);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19, TargetNtDeviceIo);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12, TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13, TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14, TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15, TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19, TargetNtDeviceIo, NewModuleBase);
     
     // Custom Hooks (Dynamic)
-    ExAcquireFastMutex(&g_ConfigMutex);
-    for (ULONG i = 0; i < g_CustomHookCount; i++) {
-        if (i < MAX_CUSTOM_HOOKS) {
-            ResolveAndHook(Process, HookEntry, 
-                           g_GlobalCustomHooks[i].ModuleName, 
-                           g_GlobalCustomHooks[i].FunctionName, 
-                           &HookEntry->CustomHooks[i], 
-                           g_GlobalCustomHooks[i].EventId, 
-                           TargetNtDeviceIo);
+    if (HookEntry->CustomHooks == NULL) {
+        HookEntry->CustomHooks = (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(HOOK_DEF) * MAX_CUSTOM_HOOKS, 'UMHd');
+        if (HookEntry->CustomHooks) {
+            RtlZeroMemory(HookEntry->CustomHooks, sizeof(HOOK_DEF) * MAX_CUSTOM_HOOKS);
         }
     }
-    ExReleaseFastMutex(&g_ConfigMutex);
+
+    if (HookEntry->CustomHooks) {
+        ExAcquireFastMutex(&g_ConfigMutex);
+        for (ULONG i = 0; i < g_CustomHookCount; i++) {
+            if (i < MAX_CUSTOM_HOOKS) {
+                ResolveAndHook(Process, HookEntry, 
+                               g_GlobalCustomHooks[i].ModuleName, 
+                               g_GlobalCustomHooks[i].FunctionName, 
+                               &HookEntry->CustomHooks[i], 
+                               g_GlobalCustomHooks[i].EventId, 
+                               TargetNtDeviceIo,
+                               NewModuleBase);
+            }
+        }
+        ExReleaseFastMutex(&g_ConfigMutex);
+    }
 }
 
 VOID ApplyGlobalHooksToAll()
@@ -102,7 +113,7 @@ VOID ApplyGlobalHooksToAll()
             
             // Re-apply hooks (Generic logic will skip if already hooked)
             if (hookEntry->ProcessObject && hookEntry->NtDeviceIoControlFileAddr) {
-                ApplyHooksInternal(hookEntry->ProcessObject, hookEntry, hookEntry->NtDeviceIoControlFileAddr);
+                ApplyHooksInternal(hookEntry->ProcessObject, hookEntry, hookEntry->NtDeviceIoControlFileAddr, NULL);
             }
         }
     }
@@ -290,9 +301,9 @@ VOID UserModeHookEngineCleanup(VOID)
 
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked)
+        if (g_UserHookEngine->Processes[i].IsHooked || g_UserHookEngine->Processes[i].ProcessId != 0)
         {
-            UserModeUnhookProcess(g_UserHookEngine->Processes[i].ProcessId);
+            UserModeUnhookProcessInternal(&g_UserHookEngine->Processes[i]);
         }
     }
 
@@ -617,32 +628,74 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 //
 NTSTATUS ResolveAndHook(
     _In_ PEPROCESS Process,
-    _In_ PPROCESS_HOOK_ENTRY HookEntry,
+    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
     _In_ PCWSTR ModuleName,
     _In_ PCSTR FunctionName,
     _Inout_ PHOOK_DEF HookDef,
     _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo
+    _In_ PVOID TargetNtDeviceIo,
+    _In_opt_ PVOID NewModuleBase
 )
 {
     if (HookDef->IsHooked) return STATUS_SUCCESS;
 
+    PVOID modBase = NULL;
     SIZE_T modSize = 0;
-    PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
-    if (!modBase) return STATUS_NOT_FOUND;
-    
-    // Attach to resolve export
-    KAPC_STATE apcState;
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-    HookDef->Address = FindExportedFunction(modBase, FunctionName);
-    KeUnstackDetachProcess(&apcState);
+
+    // Wildcard Module Search
+    if (ModuleName[0] == L'*' && ModuleName[1] == L'\0') {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+        
+        if (NewModuleBase) {
+            // Targeted scan of newly loaded module
+            HookDef->Address = FindExportedFunction(NewModuleBase, FunctionName);
+            if (HookDef->Address) modBase = NewModuleBase;
+        } else {
+            // Full scan of all modules (Initial hook or retroactive)
+            __try {
+                PPEB peb = fnPsGetProcessPeb(Process);
+                if (peb && peb->Ldr) {
+                    PLIST_ENTRY listHead = &peb->Ldr->InLoadOrderModuleList;
+                    for (PLIST_ENTRY entry = listHead->Flink; entry != listHead; entry = entry->Flink) {
+                        PLDR_DATA_TABLE_ENTRY ldrEntry = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+                        if (ldrEntry->DllBase) {
+                            HookDef->Address = FindExportedFunction(ldrEntry->DllBase, FunctionName);
+                            if (HookDef->Address) {
+                                modBase = ldrEntry->DllBase;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        KeUnstackDetachProcess(&apcState);
+    } else {
+        // Explicit module check
+        if (NewModuleBase) {
+            // If NewModuleBase is provided, we only check if it matches the target ModuleName
+            // Note: FindModuleBaseAddress handles string comparison
+            modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+            if (modBase != NewModuleBase) modBase = NULL; // Only hook if it's the module that just loaded
+        } else {
+            modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+        }
+
+        if (modBase) {
+            KAPC_STATE apcState;
+            KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+            HookDef->Address = FindExportedFunction(modBase, FunctionName);
+            KeUnstackDetachProcess(&apcState);
+        }
+    }
 
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
 
-NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 {
     NTSTATUS status;
     PEPROCESS process = NULL;
@@ -671,7 +724,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     {
         // Already tracked. Just apply any missing/newly added hooks.
         if (hookEntry->NtDeviceIoControlFileAddr) {
-            ApplyHooksInternal(process, hookEntry, hookEntry->NtDeviceIoControlFileAddr);
+            ApplyHooksInternal(process, hookEntry, hookEntry->NtDeviceIoControlFileAddr, ImageBase);
         }
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
@@ -730,7 +783,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     hookEntry->NtDeviceIoControlFileAddr = targetNtDeviceIo;
 
     // 3. Inject Hooks (Generic!)
-    ApplyHooksInternal(process, hookEntry, targetNtDeviceIo);
+    // When initializing a new process entry, we pass NULL as NewModuleBase to trigger a FULL scan
+    ApplyHooksInternal(process, hookEntry, targetNtDeviceIo, NULL);
 
     hookEntry->IsHooked = TRUE;
     g_UserHookEngine->HookedProcessCount++;
@@ -776,11 +830,78 @@ VOID UnhookSingleFunction(
 }
 
 
-NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
+NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     PEPROCESS process = NULL;
-    PPROCESS_HOOK_ENTRY hookEntry = NULL;
     NTSTATUS status;
+    ULONG processId = HookEntry->ProcessId;
+
+    if (!HookEntry->IsHooked && HookEntry->ProcessId == 0)
+        return STATUS_SUCCESS;
+
+    DbgPrint("!!! UserModeHook: Unhooking process %lu\n", processId);
+
+    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)processId, &process);
+    if (NT_SUCCESS(status))
+    {
+        // Unhook all functions
+        UnhookSingleFunction(process, &HookEntry->NtWriteVirtualMemory);
+        UnhookSingleFunction(process, &HookEntry->NtAllocateVirtualMemory);
+        UnhookSingleFunction(process, &HookEntry->NtProtectVirtualMemory);
+        UnhookSingleFunction(process, &HookEntry->NtCreateThreadEx);
+        UnhookSingleFunction(process, &HookEntry->NtMapViewOfSection);
+        
+        // Unhook dynamic hooks
+        if (HookEntry->CustomHooks) {
+            for (ULONG i = 0; i < MAX_CUSTOM_HOOKS; i++) {
+                UnhookSingleFunction(process, &HookEntry->CustomHooks[i]);
+            }
+        }
+
+        // Free Shellcode Memory using ZwFreeVirtualMemory
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        
+        if (HookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
+            SIZE_T size = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &HookEntry->ShellcodeBase, &size, MEM_RELEASE);
+            HookEntry->ShellcodeBase = NULL;
+        }
+        
+        // Close Handle
+        if (HookEntry->DriverDeviceHandle) {
+            ZwClose(HookEntry->DriverDeviceHandle);
+            HookEntry->DriverDeviceHandle = NULL;
+        }
+
+        KeUnstackDetachProcess(&apcState);
+
+        // Free dynamically allocated hooks
+        if (HookEntry->CustomHooks) {
+            ExFreePoolWithTag(HookEntry->CustomHooks, 'UMHd');
+            HookEntry->CustomHooks = NULL;
+        }
+
+        ObDereferenceObject(process);
+    }
+
+    // Always free the pool memory if it exists
+    if (HookEntry->CustomHooks) {
+        ExFreePoolWithTag(HookEntry->CustomHooks, 'UMHd');
+        HookEntry->CustomHooks = NULL;
+    }
+
+    HookEntry->IsHooked = FALSE;
+    HookEntry->ProcessId = 0;
+    HookEntry->ProcessObject = NULL;
+    if (g_UserHookEngine) g_UserHookEngine->HookedProcessCount--;
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
+{
+    PPROCESS_HOOK_ENTRY hookEntry = NULL;
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
@@ -802,43 +923,8 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         return STATUS_NOT_FOUND;
     }
 
-    DbgPrint("!!! UserModeHook: Unhooking process %lu\n", ProcessId);
-
-    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (NT_SUCCESS(status))
-    {
-        // Unhook all functions
-        UnhookSingleFunction(process, &hookEntry->NtWriteVirtualMemory);
-        UnhookSingleFunction(process, &hookEntry->NtAllocateVirtualMemory);
-        UnhookSingleFunction(process, &hookEntry->NtProtectVirtualMemory);
-        UnhookSingleFunction(process, &hookEntry->NtCreateThreadEx);
-        UnhookSingleFunction(process, &hookEntry->NtMapViewOfSection);
-        
-        // Free Shellcode Memory using ZwFreeVirtualMemory
-        KAPC_STATE apcState;
-        KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        
-        if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
-            SIZE_T size = 0;
-            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
-            hookEntry->ShellcodeBase = NULL;
-        }
-        
-        // Close Handle
-        if (hookEntry->DriverDeviceHandle) {
-            ZwClose(hookEntry->DriverDeviceHandle);
-            hookEntry->DriverDeviceHandle = NULL;
-        }
-
-        KeUnstackDetachProcess(&apcState);
-        ObDereferenceObject(process);
-    }
-
-    hookEntry->IsHooked = FALSE;
-    hookEntry->ProcessId = 0;
-    hookEntry->ProcessObject = NULL; // We didn't ref it here, just stored pointer. But lookup adds ref.
-    g_UserHookEngine->HookedProcessCount--;
+    NTSTATUS status = UserModeUnhookProcessInternal(hookEntry);
 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-    return STATUS_SUCCESS;
+    return status;
 }
