@@ -392,7 +392,10 @@ from . import clamav  # noqa: E402
 logger.debug(f"clamav imported in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from . import  pyinstaller_mod_extractor_ng.PyInstArchive # noqa: E402
+from . pyinstaller_mod_extractor_ng import (PyInstArchive # noqa: E402
+)
+logger.debug(f"pyinstaller_mod_extractor_ng imported in {time.time() - start_time:.6f} seconds")
+
 start_time = time.time()
 from .detect_type import (  # noqa: E402
     is_protector_from_output,
