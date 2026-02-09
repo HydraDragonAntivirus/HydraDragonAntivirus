@@ -1818,6 +1818,19 @@ impl BehaviorEngine {
         Ok(rules)
     }
 
+    fn normalize_api_signature(raw: &str) -> (String, bool) {
+        let mut value = raw.trim().to_lowercase();
+        let mut has_path = false;
+        if let Some(idx) = value.rfind('!') {
+            let (module_part, function_part) = value.split_at(idx);
+            let function_name = function_part.trim_start_matches('!');
+            has_path = module_part.contains('\\') || module_part.contains('/');
+            let module_name = module_part.rsplit(['\\', '/']).next().unwrap_or(module_part);
+            value = format!("{}!{}", module_name, function_name);
+        }
+        (value, has_path)
+    }
+
     fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
         let mut final_rules = Vec::new();
         
@@ -2832,8 +2845,15 @@ impl BehaviorEngine {
             if !rule.monitored_apis.is_empty() {
                 legacy_total += 1;
                 let api_match_count = rule.monitored_apis.iter().filter(|monitored_api| {
+                    let (monitored_norm, monitored_has_path) = Self::normalize_api_signature(monitored_api);
                     state_ref.all_apis_called.iter().any(|tracked_api| {
-                        Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
+                        let (tracked_norm, tracked_has_path) = Self::normalize_api_signature(tracked_api);
+                        if monitored_has_path {
+                            tracked_has_path
+                                && Self::matches_pattern_internal(&self.regex_cache, monitored_api, tracked_api)
+                        } else {
+                            Self::matches_pattern_internal(&self.regex_cache, &monitored_norm, &tracked_norm)
+                        }
                     })
                 }).count();
                 let threshold = std::cmp::max(1, rule.multi_access_threshold);
