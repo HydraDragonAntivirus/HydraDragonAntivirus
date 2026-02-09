@@ -21,7 +21,7 @@ See the [LICENSE](./LICENSE) file for more information.
 ## MEGA IMPORTANT AND !!!WARNING!!!
 - This program assumes the PC is in a clean state and is not subject to post-infection.
 - This project doesn't replace your daily AV and this project not an AV.
-- This project believes that achieving 99% detection accuracy, even if it takes hours, is better than achieving 90% detection accuracy within seconds. It focuses on looking toward the future rather than being stuck in the past or present.
+- This project believes that achieving 99% detection rate, even if it takes hours, is better than achieving 90% detection rate within seconds. It focuses on looking toward the future rather than being stuck in the past or present.
 - It's very experimental program and you need to be careful.
 - I made very dumb choices in past. It damaged my project but now I improving it.
 - We are not going to detect too old samples. See here: https://blog.clamav.net/2025/12/clamav-signature-retirement.html
