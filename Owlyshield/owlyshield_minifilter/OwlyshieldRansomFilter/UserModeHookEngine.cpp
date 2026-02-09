@@ -33,7 +33,6 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, 
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
 typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                              _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
                                               _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,

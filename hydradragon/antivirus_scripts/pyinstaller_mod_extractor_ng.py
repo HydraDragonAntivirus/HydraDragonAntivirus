@@ -38,7 +38,6 @@ import pefile
 
 from uuid import uuid4 as uniquename
 
-from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
 from xdis.unmarshal import load_code
@@ -55,11 +54,11 @@ def find_pyinstaller_magic(filename):
         overlay_offset = pe.get_overlay_data_start_offset()
         
         if overlay_offset is None:
-            logger.info(f"[ERROR] No PE overlay found")
+            logger.info("[ERROR] No PE overlay found")
             return None
         
     except:
-        logger.info(f"[ERROR] Could not parse as PE file")
+        logger.info("[ERROR] Could not parse as PE file")
         return None
     
     with open(filename, 'rb') as f:
@@ -87,7 +86,7 @@ def find_pyinstaller_magic(filename):
         except:
             continue
     
-    logger.info(f"[DEBUG] No valid magic found in overlay")
+    logger.info("[DEBUG] No valid magic found in overlay")
     return None
 
 class CTOCEntry:
@@ -484,7 +483,7 @@ class PyInstArchive:
                                 logger.info(f"[!] Only found one XOR key: {xor_keys[0]}")
                                 return xor_keys[0], None
                             else:
-                                logger.info(f"[!] No XOR keys found in genexpr")
+                                logger.info("[!] No XOR keys found in genexpr")
         except Exception as e:
             logger.info(f"[!] Error extracting XOR keys: {e}")
             import traceback
@@ -508,8 +507,6 @@ class PyInstArchive:
             logger.info("[!] Attempting extraction without XOR decryption...")
 
         with open(name, "rb") as f:
-            pyzMagic = f.read(4)
-
             pyzPycMagic = f.read(4)
             if self.pycMagic == b"\0" * 4:
                 self.pycMagic = pyzPycMagic
