@@ -43,7 +43,7 @@ from .path_and_variables import (
     ghidra_logs_dir,
     ghidra_scripts_dir,
     ghidra_projects_dir,
-    FernFlower_decompiled_dir,
+    vineflower_decompiled_dir,
     jar_extracted_dir,
     dotnet_dir,
     obfuscar_dir,
@@ -56,7 +56,7 @@ from .path_and_variables import (
     net_reactor_slayer_x64_cli_path,
     nuitka_dir,
     ole2_dir,
-    FernFlower_path,
+    vineflower_path,
     system_file_names_path,
     extensions_path,
     vmprotect_unpacked_dir,
@@ -563,7 +563,7 @@ PACKER_FLAGS = {
 # Base directories common to both lists
 MANAGED_DIRECTORIES = [
     hydra_dragon_dumper_extracted_dir, enigma1_extracted_dir, inno_setup_unpacked_dir, themida_unpacked_dir, autohotkey_decompiled_dir,
-    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir, ole2_dir,
+    vineflower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, npm_pkg_extracted_dir, ole2_dir,
     androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, decompiled_jsc_dir,
     net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, pyarmor8_and_9_extracted_dir,
     pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, pyarmor7_extracted_dir,
@@ -6777,31 +6777,31 @@ def extract_resources(pe_path, output_dir):
 
     return extracted_files
 
-def run_fernflower_decompiler(file_path):
+def run_vineflower_decompiler(file_path):
     """
-    Uses FernFlower to decompile the given JAR file.
-    The FernFlower JAR is expected to be located in jar_decompiler_dir.
+    Uses vineflower to decompile the given JAR file.
+    The vineflower JAR is expected to be located in jar_decompiler_dir.
     The decompiled output is saved to a folder in script_dir.
-    The flag_fernflower indicates if a Java class file was detected.
+    The flag_vineflower indicates if a Java class file was detected.
 
     Returns:
       list[str] | None: List of paths to files in the decompiled output directory, or None on error.
     """
     try:
 
-        # Build the path to fernflower.jar.
+        # Build the path to vineflower.jar.
         base_name = os.path.splitext(os.path.basename(file_path))[0]
 
         # Find the next available numbered subfolder
         folder_number = 1
-        while os.path.exists(os.path.join(FernFlower_decompiled_dir, f"{base_name}_{folder_number}")):
+        while os.path.exists(os.path.join(vineflower_decompiled_dir, f"{base_name}_{folder_number}")):
             folder_number += 1
 
-        # Final output dir: FernFlower_decompiled/<jarname>_N
-        FernFlower_output_dir = os.path.join(FernFlower_decompiled_dir, f"{base_name}_{folder_number}")
-        Path(FernFlower_output_dir).mkdir(parents=True, exist_ok=True)
+        # Final output dir: vineflower_decompiled/<jarname>_N
+        vineflower_output_dir = os.path.join(vineflower_decompiled_dir, f"{base_name}_{folder_number}")
+        Path(vineflower_output_dir).mkdir(parents=True, exist_ok=True)
 
-        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_output_dir]
+        command = ["java", "-jar", vineflower_path, file_path, vineflower_output_dir]
         result = subprocess.run(
             command,
             stdout=subprocess.PIPE,
@@ -6812,25 +6812,25 @@ def run_fernflower_decompiler(file_path):
         )
 
         if result.returncode == 0:
-            logger.info(f"FernFlower decompilation successful to: {FernFlower_output_dir}")
+            logger.info(f"vineflower decompilation successful to: {vineflower_output_dir}")
             # List all files in output dir (recursively)
             decompiled_files = []
-            for root, dirs, files in os.walk(FernFlower_output_dir):
+            for root, dirs, files in os.walk(vineflower_output_dir):
                 for name in files:
                     decompiled_files.append(os.path.join(root, name))
             return decompiled_files
         else:
-            logger.error(f"FernFlower decompilation failed: {result.stderr}")
+            logger.error(f"vineflower decompilation failed: {result.stderr}")
             return None
     except Exception as ex:
-        logger.error(f"Error in run_fernflower_decompiler: {ex}")
+        logger.error(f"Error in run_vineflower_decompiler: {ex}")
         return None
 
-def run_jar_extractor(file_path, flag_fernflower):
+def run_jar_extractor(file_path, flag_vineflower):
     """
     Extracts a JAR file to an "extracted_files" folder in script_dir.
-    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
-    The flag_fernflower indicates if the DIE output also detected a Java class file.
+    Then conditionally calls the vineflower decompiler unless decompilation was already performed.
+    The flag_vineflower indicates if the DIE output also detected a Java class file.
 
     Returns:
       list[str] | None: List of file paths extracted or decompiled, or None on error.
@@ -6866,21 +6866,21 @@ def run_jar_extractor(file_path, flag_fernflower):
                 full_path = os.path.join(root, name)
                 extracted_file_paths.append(full_path)
 
-        # Decompile via FernFlower if not already done
-        if not flag_fernflower:
-            fernflower_results = run_fernflower_decompiler(file_path)
-            if fernflower_results:
-                extracted_file_paths.extend(fernflower_results)
+        # Decompile via vineflower if not already done
+        if not flag_vineflower:
+            vineflower_results = run_vineflower_decompiler(file_path)
+            if vineflower_results:
+                extracted_file_paths.extend(vineflower_results)
             else:
-                logger.info("No files returned from FernFlower decompiler.")
+                logger.info("No files returned from vineflower decompiler.")
         else:
-            logger.info("FernFlower analysis already performed; skipping decompilation.")
+            logger.info("vineflower analysis already performed; skipping decompilation.")
 
         # Scan every Java file
         for f in extracted_file_paths:
             if f.endswith(".java"):
                 try:
-                    scan_code_for_links(decompiled_code=f, file_path=f, fernflower_flag=True)
+                    scan_code_for_links(decompiled_code=f, file_path=f, vineflower_flag=True)
                 except Exception as e:
                     logger.error(f"Failed to scan {f}: {e}")
 
@@ -8114,7 +8114,7 @@ async def scan_and_warn(file_path,
                   flag_debloat=False,
                   flag_obfuscar=False,
                   flag_de4dot=False,
-                  flag_fernflower=False,
+                  flag_vineflower=False,
                   nsis_flag=False,
                   flag_confuserex=False,
                   flag_vmprotect=False,
@@ -9060,12 +9060,12 @@ async def scan_and_warn(file_path,
         async def jar_analysis_thread():
             try:
                 if is_jar_file_from_output(die_output):
-                    jar_extractor_paths = await asyncio.to_thread(run_jar_extractor, norm_path, flag_fernflower)
+                    jar_extractor_paths = await asyncio.to_thread(run_jar_extractor, norm_path, flag_vineflower)
                     if jar_extractor_paths:
                         for jar_extractor_path in jar_extractor_paths:
                             # MODIFIED: Call async scan_and_warn as a new task
                             asyncio.create_task(scan_and_warn(
-                                jar_extractor_path, flag_fernflower=True, main_file_path=main_file_path
+                                jar_extractor_path, flag_vineflower=True, main_file_path=main_file_path
                             ))
             except Exception as e:
                 logger.error(f"Error in JAR analysis for {norm_path}: {e}")
@@ -9073,18 +9073,18 @@ async def scan_and_warn(file_path,
         async def java_class_thread():
             try:
                 if is_java_class_from_output(die_output):
-                    decompiled_file = await asyncio.to_thread(run_fernflower_decompiler, norm_path)
+                    decompiled_file = await asyncio.to_thread(run_vineflower_decompiler, norm_path)
                     if decompiled_file:
                         # Task 1: scan_and_warn
                         # MODIFIED: Call async scan_and_warn as a new task
                         asyncio.create_task(scan_and_warn(decompiled_file, main_file_path=main_file_path))
 
-                        # Task 2: scan_code_for_links with flag_fernflower (run sync in thread)
+                        # Task 2: scan_code_for_links with flag_vineflower (run sync in thread)
                         asyncio.create_task(asyncio.to_thread(
-                            scan_code_for_links, file_path=decompiled_file, fernflower_flag=True
+                            scan_code_for_links, file_path=decompiled_file, vineflower_flag=True
                         ))
                     else:
-                        logger.info("No file returned from FernFlower decompiler.")
+                        logger.info("No file returned from vineflower decompiler.")
             except Exception as e:
                 logger.error(f"Error in Java class analysis for {norm_path}: {e}")
 
