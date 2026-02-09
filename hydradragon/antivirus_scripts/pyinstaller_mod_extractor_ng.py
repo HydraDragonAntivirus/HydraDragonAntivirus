@@ -38,6 +38,7 @@ import pefile
 
 from uuid import uuid4 as uniquename
 
+from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
 from xdis.unmarshal import load_code

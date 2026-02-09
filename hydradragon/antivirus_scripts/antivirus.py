@@ -324,14 +324,6 @@ import debloat.processor
 logger.debug(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from Crypto.Cipher import AES
-logger.debug(f"Crpyto.Cipher.AES module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from Crypto.Util import Counter
-logger.debug(f"Crpyto.Cipher.Counter module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import win32file
 import win32pipe
 import pywintypes
