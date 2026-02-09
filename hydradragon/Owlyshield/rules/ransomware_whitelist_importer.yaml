@@ -1,6 +1,6 @@
 - name: "HEUR:Win.Ransom.BehavesLike.FileEncryptor.gen"
   author: "Emirhan Ucan"
-  date: "2026-02-08"
+  date: "2026-02-09"
   status: test
   level: critical
   severity: 99
@@ -8,6 +8,10 @@
     Detects ransomware-like encryption behavior across the full disk scope.
     Uses bulk file modifications, encryption-oriented APIs, and extension-change activity
     without restricting detection to user-profile folders only.
+    Correlation policy:
+    - same-file prerequisites are declared per condition in YAML
+    - rename branch requires read+write on the same file
+    - delete branch requires read on the same file
   debug: true
 
   named_conditions:
@@ -27,27 +31,41 @@
         - "ntdll!RtlEncrypt*"
       api_threshold: 1
 
-    ransomware_read_write_rename:
+    ransomware_write_activity:
+      file_operations: ["write"]
+      min_matches: 1
+
+    ransomware_rename_activity:
       file_operations: ["rename"]
+      require_same_file_read: true
+      require_same_file_write: true
       detect_extension_changes: true
       detect_known_to_unknown_extension_change: true
       min_matches: 1
 
-    ransomware_read_create_delete:
-      file_operations: ["create", "delete"]
-      detect_extension_changes: true
-      detect_known_to_unknown_extension_change: true
+    ransomware_create_activity:
+      # Evaluated with read and delete branch.
+      file_operations: ["create"]
+      min_matches: 1
+
+    ransomware_delete_activity:
+      file_operations: ["delete"]
+      require_same_file_read: true
       min_matches: 1
 
   detection_logic:
     and:
       - or:
+          # Branch A: read + write + rename (same-file prerequisites in condition fields).
           - and:
               - condition: "ransomware_read_activity"
-              - condition: "ransomware_read_write_rename"
+              - condition: "ransomware_write_activity"
+              - condition: "ransomware_rename_activity"
+          # Branch B: read + create + delete (read/delete same-file prerequisite in delete condition).
           - and:
               - condition: "ransomware_read_activity"
-              - condition: "ransomware_read_create_delete"
+              - condition: "ransomware_create_activity"
+              - condition: "ransomware_delete_activity"
       - any_of:
           - "mass_disk_writes"
           - "suspicious_encryption_apis"

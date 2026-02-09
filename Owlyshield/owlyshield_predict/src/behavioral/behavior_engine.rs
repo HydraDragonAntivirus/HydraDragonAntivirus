@@ -580,6 +580,12 @@ pub struct NamedConditionGroup {
     pub file_paths: Vec<String>,
     #[serde(default)]
     pub file_operations: Vec<String>,
+    #[serde(default)]
+    pub require_same_file_read: bool,
+    #[serde(default)]
+    pub require_same_file_write: bool,
+    #[serde(default)]
+    pub require_same_file_rename: bool,
     
     #[serde(default)]
     pub registry_keys: Vec<String>,
@@ -2177,8 +2183,15 @@ impl BehaviorEngine {
                         .chain(cond_group.anti_vm_apis.iter());
 
                     let matched_apis: Vec<&String> = api_iter.filter(|required_api| {
+                        let (required_norm, required_has_path) = Self::normalize_api_signature(required_api);
                         available_apis.iter().any(|available| {
-                            Self::matches_pattern_internal(&self.regex_cache, required_api, available)
+                            let (available_norm, available_has_path) = Self::normalize_api_signature(available);
+                            if required_has_path {
+                                available_has_path
+                                    && Self::matches_pattern_internal(&self.regex_cache, required_api, available)
+                            } else {
+                                Self::matches_pattern_internal(&self.regex_cache, &required_norm, &available_norm)
+                            }
                         })
                     }).collect();
                     
@@ -2248,6 +2261,11 @@ impl BehaviorEngine {
                     || cond_group.detect_non_whitelisted_extensions
                     || cond_group.detect_known_to_unknown_extension_change;
 
+                let same_file_requirements_ok =
+                    (!cond_group.require_same_file_read || precord.has_read_file_id(&msg.file_id_id))
+                        && (!cond_group.require_same_file_write || precord.has_written_file_id(&msg.file_id_id))
+                        && (!cond_group.require_same_file_rename || precord.has_renamed_file_id(&msg.file_id_id));
+
                 // Path-only conditions: match on path filters when no extension-specific matcher is requested.
                 if !matched && has_path_filters && !has_extension_conditions && file_op_allowed {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
@@ -2283,23 +2301,28 @@ impl BehaviorEngine {
                     && file_op_allowed
                     && current_file_op.is_some()
                 {
-                    matched = true;
-                    if let Some(op) = current_file_op {
-                        Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - File operation match for PID {}: {}",
-                            cond_name, state.pid, op
+                    if same_file_requirements_ok {
+                        matched = true;
+                        if let Some(op) = current_file_op {
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - File operation match for PID {}: {}",
+                                cond_name, state.pid, op
+                            ));
+                        }
+                    } else {
+                        Logging::debug(&format!(
+                            "[BehaviorEngine] Condition '{}' ignored for PID {} - same-file prerequisites not satisfied",
+                            cond_name, state.pid
                         ));
                     }
                 }
 
-                if !matched && has_extension_conditions && file_op_allowed && !is_directory_event {
-                    let read_write_rename = precord.has_renamed_file_id(&msg.file_id_id)
-                        && matches!(file_change, Some(FileChangeInfo::ChangeRenameFile));
-                    let create_delete_extension_changed = matches!(
+                if !matched && has_extension_conditions && file_op_allowed && !is_directory_event && same_file_requirements_ok {
+                    let extension_changed = matches!(
                         file_change,
-                        Some(FileChangeInfo::ChangeNewFile) | Some(FileChangeInfo::ChangeDeleteFile)
+                        Some(FileChangeInfo::ChangeRenameFile)
+                            | Some(FileChangeInfo::ChangeExtensionChanged)
                     );
-                    let extension_changed = read_write_rename || create_delete_extension_changed;
 
                     let path_filter_match = if has_path_filters {
                         let path_variants = build_path_variants(filepath, &msg.filepathstr);
@@ -2396,17 +2419,10 @@ impl BehaviorEngine {
                                 }
                             } else if cond_group.detect_extension_changes {
                                 matched = true;
-                                if create_delete_extension_changed {
-                                    Logging::info(&format!(
-                                        "[BehaviorEngine] Condition '{}' - Extension-change create+delete combo matched for PID {}",
-                                        cond_name, state.pid
-                                    ));
-                                } else {
-                                    Logging::info(&format!(
-                                        "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
-                                        cond_name, state.pid
-                                    ));
-                                }
+                                Logging::info(&format!(
+                                    "[BehaviorEngine] Condition '{}' - Extension-change event matched for PID {}",
+                                    cond_name, state.pid
+                                ));
                             }
                         }
                     }

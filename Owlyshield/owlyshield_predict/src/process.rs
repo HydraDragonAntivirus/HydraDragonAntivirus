@@ -511,6 +511,14 @@ impl ProcessRecord {
         self.files_renamed.contains(file_id)
     }
 
+    pub fn has_read_file_id(&self, file_id: &FileId) -> bool {
+        self.files_read.contains(file_id)
+    }
+
+    pub fn has_written_file_id(&self, file_id: &FileId) -> bool {
+        self.files_written.contains(file_id)
+    }
+
 
     fn launch_thread_clustering(&self) {
         let tx = self.tx.to_owned();
