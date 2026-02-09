@@ -28,7 +28,7 @@
         - "advapi32!CryptEncrypt"
         - "bcrypt!BCryptEncrypt"
         - "ncrypt!NCryptEncrypt"
-        - "ntdll!RtlEncrypt*"
+        - "ntdll!RtlEncryptMemory"
       api_threshold: 1
 
     ransomware_write_activity:

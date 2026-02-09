@@ -1619,6 +1619,27 @@ pub mod worker_instance {
             23
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn normalize_hook_module_name(raw: &str) -> String {
+            let module = raw.trim();
+            if module.is_empty() || module == "*" {
+                return module.to_string();
+            }
+
+            // Allow full paths (user explicitly specified one).
+            if module.contains('\\') || module.contains('/') {
+                return module.to_string();
+            }
+
+            // If the user already specified an extension (e.g. ntdll.dll), keep it.
+            if module.rsplit_once('.').is_some() {
+                return module.to_string();
+            }
+
+            // Driver compares against BaseDllName (e.g. "advapi32.dll"), so add ".dll" by default.
+            format!("{module}.dll")
+        }
+
         /// Register high-interest API hooks for a specific PID
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1650,7 +1671,10 @@ pub mod worker_instance {
                     let event_id = self.resolve_or_allocate_dynamic_event_id(&api_spec);
                     let (module, function) = if let Some(idx) = api_spec.find('!') {
                         // Explicit module!function format
-                        (api_spec[..idx].to_string(), api_spec[idx+1..].to_string())
+                        (
+                            Self::normalize_hook_module_name(&api_spec[..idx]),
+                            api_spec[idx + 1..].to_string(),
+                        )
                     } else {
                         // No module specified - use wildcard to search ALL loaded modules
                         // This is powerful for detecting sophisticated attacks that use custom/obfuscated names
