@@ -61,11 +61,13 @@
               - condition: "ransomware_read_activity"
               - condition: "ransomware_write_activity"
               - condition: "ransomware_rename_activity"
+              - condition: "suspicious_encryption_apis"
           # Branch B: read + create + delete (read/delete same-file prerequisite in delete condition).
           - and:
               - condition: "ransomware_read_activity"
               - condition: "ransomware_create_activity"
               - condition: "ransomware_delete_activity"
+              - condition: "suspicious_encryption_apis"
       - any_of:
           - "mass_disk_writes"
           - "suspicious_encryption_apis"
