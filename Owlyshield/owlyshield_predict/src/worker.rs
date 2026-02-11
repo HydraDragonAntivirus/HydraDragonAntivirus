@@ -622,9 +622,13 @@ pub mod worker_instance {
     #[cfg(feature = "realtime_learning")]
     use std::collections::HashMap;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use std::collections::HashSet;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    use win_pe_inspection::inspect_pe;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
 
@@ -751,6 +755,8 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hook_event_map: std::collections::HashMap<u8, String>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_registered_apis: HashSet<String>,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         next_dynamic_hook_event_id: u8,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
@@ -874,6 +880,8 @@ pub mod worker_instance {
                 dynamic_hooks_registered: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_event_map: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_registered_apis: HashSet::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
                 threat_handler: None,
@@ -1319,6 +1327,8 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_event_map: std::collections::HashMap::new(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_registered_apis: HashSet::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
                 threat_handler: None,
                 driver: None,
@@ -1577,9 +1587,8 @@ pub mod worker_instance {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn is_api_already_registered(&self, api_spec: &str) -> bool {
-            self.dynamic_hook_event_map
-                .values()
-                .any(|existing| existing.eq_ignore_ascii_case(api_spec))
+            self.dynamic_registered_apis
+                .contains(&api_spec.to_ascii_lowercase())
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1640,20 +1649,86 @@ pub mod worker_instance {
             format!("{module}.dll")
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn collect_imported_apis_for_pid(&self, pid: u32) -> Vec<String> {
+            let mut imported = Vec::new();
+            let Some(gid) = self.find_gid_by_pid(pid) else {
+                return imported;
+            };
+            let Some(precord) = self.process_records.get_precord_by_gid(gid) else {
+                return imported;
+            };
+            if precord.exepath.as_os_str().is_empty() || precord.exepath.to_string_lossy() == "UNKNOWN" {
+                return imported;
+            }
+
+            match inspect_pe(&precord.exepath) {
+                Ok(static_features) => {
+                    for imp in static_features.imports {
+                        let function = imp.import.trim();
+                        if function.is_empty() {
+                            continue;
+                        }
+                        let module = Self::normalize_hook_module_name(&imp.lib);
+                        imported.push(format!("{module}!{function}"));
+                    }
+                }
+                Err(e) => {
+                    Logging::debug(&format!(
+                        "[DYNAMIC HOOK] Failed import inspection for PID {} ({}) : {}",
+                        pid,
+                        precord.exepath.display(),
+                        e
+                    ));
+                }
+            }
+
+            imported
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn collect_dynamic_hook_api_targets(&self, pid: u32) -> Vec<String> {
+            let mut seen_lower = HashSet::new();
+            let mut merged = Vec::new();
+
+            let mut rule_apis: Vec<String> = self.behavior_engine.get_all_monitored_apis().into_iter().collect();
+            rule_apis.sort_unstable();
+            for api in rule_apis {
+                let trimmed = api.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let key = trimmed.to_ascii_lowercase();
+                if seen_lower.insert(key) {
+                    merged.push(trimmed.to_string());
+                }
+            }
+
+            let mut imported_apis = self.collect_imported_apis_for_pid(pid);
+            imported_apis.sort_unstable();
+            for api in imported_apis {
+                let trimmed = api.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let key = trimmed.to_ascii_lowercase();
+                if seen_lower.insert(key) {
+                    merged.push(trimmed.to_string());
+                }
+            }
+
+            merged
+        }
+
         /// Register high-interest API hooks for a specific PID
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
-            if self.dynamic_hooks_registered {
-                return;
-            }
-
             if let Some(driver) = self.driver {
-                let mut monitored_apis: Vec<String> = self.behavior_engine.get_all_monitored_apis().into_iter().collect();
-                monitored_apis.sort_unstable();
+                let monitored_apis = self.collect_dynamic_hook_api_targets(pid);
                 
                 if monitored_apis.is_empty() {
-                    Logging::debug(&format!("[DYNAMIC HOOK] No monitored APIs found in rules for PID {}", pid));
+                    Logging::debug(&format!("[DYNAMIC HOOK] No API targets found for PID {}", pid));
                     return;
                 }
 
@@ -1668,7 +1743,8 @@ pub mod worker_instance {
                         continue;
                     }
 
-                    let event_id = self.resolve_or_allocate_dynamic_event_id(&api_spec);
+                    // Use generic dynamic event id so we are not limited by usermode event-id slots.
+                    let event_id = 23u8;
                     let (module, function) = if let Some(idx) = api_spec.find('!') {
                         // Explicit module!function format
                         (
@@ -1686,7 +1762,7 @@ pub mod worker_instance {
                     // so register once globally to avoid exhausting hook slots.
                     match driver.add_hook_target(&module, &function, event_id as u32) {
                         Ok(_) => {
-                            self.dynamic_hook_event_map.insert(event_id, api_spec.clone());
+                            self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
                             if module == "*" {
                                 Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL wildcard hook (trigger PID {}, event {}): *!{}", pid, event_id, function));
                             } else {
@@ -1701,13 +1777,10 @@ pub mod worker_instance {
                     }
                 }
 
-                let registered_for_current = self
-                    .behavior_engine
-                    .get_all_monitored_apis()
+                let pending_count = monitored_apis
                     .iter()
-                    .filter(|api| self.is_api_already_registered(api))
+                    .filter(|api| !self.is_api_already_registered(api))
                     .count();
-                let pending_count = self.behavior_engine.get_all_monitored_apis().len().saturating_sub(registered_for_current);
                 self.dynamic_hooks_registered = pending_count == 0;
                 
                 if wildcard_count > 0 {

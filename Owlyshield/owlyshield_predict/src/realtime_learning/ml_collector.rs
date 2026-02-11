@@ -2,12 +2,20 @@
 //!
 //! Collects comprehensive behavioral data for ML model training
 
-use crate::realtime_learning::api_tracker::ApiTracker;
+use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
 use crate::process::ProcessRecord;
+#[cfg(target_os = "windows")]
+use crate::signature_verification::verify_signature;
+use md5::{Digest as Md5Digest, Md5};
 use serde::{Serialize, Deserialize};
+use sha2::{Digest as Sha2Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::SystemTime;
+use win_pe_inspection::inspect_pe;
 
 /// Data collection modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +42,10 @@ pub struct MLCollector {
     auto_save_threshold: usize,
     /// Output directory for datasets
     output_dir: PathBuf,
+    /// Cache executable telemetry by exe path to avoid reparsing PE on every sample
+    executable_cache: HashMap<String, ExecutableTelemetry>,
+    /// API names loaded from models/malapi.json
+    malapi_api_set: HashSet<String>,
 }
 
 /// A single ML sample with features and label
@@ -142,6 +154,42 @@ pub struct RawBehaviorData {
     pub operation_sequence: Vec<String>,
     pub api_call_sequence: Vec<(String, String)>, // (API, category)
     pub entropy_samples: Vec<f64>,
+    pub kernel_event_log: Vec<String>,
+    pub irp_opcode_counts: HashMap<String, usize>,
+    pub loaded_kernel_drivers: Vec<String>,
+    pub executable_telemetry: ExecutableTelemetry,
+}
+
+/// Static executable telemetry captured from on-disk binary
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExecutableTelemetry {
+    pub executable_path: String,
+    pub path_exists: bool,
+    pub file_size_bytes: u64,
+    pub file_created_unix: Option<u64>,
+    pub file_modified_unix: Option<u64>,
+    pub md5: Option<String>,
+    pub sha256: Option<String>,
+    pub binary_entropy: Option<f64>,
+    pub is_pe_file: bool,
+    pub section_count: usize,
+    pub import_count: usize,
+    pub imported_dll_count: usize,
+    pub imported_api_count: usize,
+    pub imported_dlls: Vec<String>,
+    pub imported_apis: Vec<String>,
+    pub imported_apis_truncated: bool,
+    pub suspicious_import_hits: Vec<String>,
+    pub has_network_imports: bool,
+    pub has_process_injection_imports: bool,
+    pub has_crypto_imports: bool,
+    pub has_persistence_imports: bool,
+    pub has_anti_analysis_imports: bool,
+    pub has_debug_symbols: bool,
+    pub is_signed: Option<bool>,
+    pub is_trusted_signed: Option<bool>,
+    pub signer_name: Option<String>,
+    pub parse_error: Option<String>,
 }
 
 /// Feature extractor
@@ -162,6 +210,8 @@ impl MLCollector {
             feature_extractor: FeatureExtractor::new(),
             auto_save_threshold: 100,
             output_dir: PathBuf::from("./ml_data"),
+            executable_cache: HashMap::new(),
+            malapi_api_set: Self::load_malapi_api_set(),
         }
     }
 
@@ -177,6 +227,8 @@ impl MLCollector {
             feature_extractor: FeatureExtractor::new(),
             auto_save_threshold,
             output_dir,
+            executable_cache: HashMap::new(),
+            malapi_api_set: Self::load_malapi_api_set(),
         }
     }
 
@@ -192,8 +244,9 @@ impl MLCollector {
         // Extract features
         let features = self.feature_extractor.extract_features(api_tracker, precord);
 
-        // Extract raw data
-        let raw_data = self.extract_raw_data(api_tracker, precord);
+        // Extract executable telemetry and raw data
+        let executable_telemetry = self.get_executable_telemetry(precord);
+        let raw_data = self.extract_raw_data(api_tracker, precord, executable_telemetry);
 
         // Create sample
         let sample = MLSample {
@@ -220,7 +273,7 @@ impl MLCollector {
     }
 
     /// Extract raw behavioral data
-    fn extract_raw_data(&self, api_tracker: &ApiTracker, precord: &ProcessRecord) -> RawBehaviorData {
+    fn extract_raw_data(&self, api_tracker: &ApiTracker, precord: &ProcessRecord, executable_telemetry: ExecutableTelemetry) -> RawBehaviorData {
         let all_apis_used: Vec<String> = api_tracker.enumeration_apis.iter()
             .chain(api_tracker.injection_apis.iter())
             .chain(api_tracker.evasion_apis.iter())
@@ -237,6 +290,45 @@ impl MLCollector {
             .cloned()
             .collect();
 
+        let operation_sequence: Vec<String> = api_tracker.operation_sequence.iter()
+            .map(|op| match op {
+                OperationType::FileRead(path) => format!("FILE_READ:{path}"),
+                OperationType::FileWrite(path, entropy) => format!("FILE_WRITE:{path}:{entropy:.4}"),
+                OperationType::FileDelete(path) => format!("FILE_DELETE:{path}"),
+                OperationType::FileRename(src, dst) => format!("FILE_RENAME:{src}->{dst}"),
+                OperationType::ProcessCreate(name) => format!("PROC_CREATE:{name}"),
+                OperationType::ProcessTerminate(pid) => format!("PROC_TERM:{pid}"),
+                OperationType::ProcessTerminateAttempt { source_pid, target_pid } => {
+                    format!("PROC_TERM_ATTEMPT:{source_pid}->{target_pid}")
+                }
+                OperationType::ProcessHandleOpen { source_pid, target_pid } => {
+                    format!("PROC_HANDLE_OPEN:{source_pid}->{target_pid}")
+                }
+                OperationType::MemoryAllocate(sz) => format!("MEM_ALLOC:{sz}"),
+                OperationType::NetworkConnect(dest) => format!("NET_CONNECT:{dest}"),
+                OperationType::RegistryModify(key) => format!("REG_MOD:{key}"),
+                OperationType::KernelApi { opcode, api, target_pid, size, status } => {
+                    format!("KERNEL_API:{opcode}:{api}:target={target_pid}:size={size}:status={status}")
+                }
+                OperationType::DriverLoad(path) => format!("DRIVER_LOAD:{path}"),
+            })
+            .collect();
+
+        let mut entropy_samples: Vec<f64> = api_tracker.operation_sequence.iter()
+            .filter_map(|op| match op {
+                OperationType::FileWrite(_, entropy) => Some(*entropy),
+                _ => None,
+            })
+            .collect();
+        if entropy_samples.is_empty() && precord.ops_written > 0 {
+            entropy_samples.push(precord.entropy_written / precord.ops_written as f64);
+        }
+
+        let mut dlls: HashSet<String> = api_tracker.dlls_loaded.iter().cloned().collect();
+        for dll in &executable_telemetry.imported_dlls {
+            dlls.insert(dll.clone());
+        }
+
         let api_call_sequence: Vec<(String, String)> = api_tracker.api_sequence.iter()
             .map(|call| (call.name.clone(), format!("{:?}", call.category)))
             .collect();
@@ -244,11 +336,171 @@ impl MLCollector {
         RawBehaviorData {
             all_apis_used,
             file_paths_accessed,
-            dlls_loaded: api_tracker.dlls_loaded.iter().cloned().collect(),
-            operation_sequence: vec![], // Could be populated from operation_sequence
+            dlls_loaded: dlls.into_iter().collect(),
+            operation_sequence,
             api_call_sequence,
-            entropy_samples: vec![], // Could collect entropy values over time
+            entropy_samples,
+            kernel_event_log: api_tracker.kernel_event_log.clone(),
+            irp_opcode_counts: api_tracker.kernel_opcode_counts(),
+            loaded_kernel_drivers: api_tracker.kernel_operations.loaded_kernel_drivers.iter().cloned().collect(),
+            executable_telemetry,
         }
+    }
+
+    fn get_executable_telemetry(&mut self, precord: &ProcessRecord) -> ExecutableTelemetry {
+        let exe_path = precord.exepath.to_string_lossy().to_string();
+        if let Some(cached) = self.executable_cache.get(&exe_path) {
+            return cached.clone();
+        }
+
+        let mut telemetry = ExecutableTelemetry {
+            executable_path: exe_path.clone(),
+            ..ExecutableTelemetry::default()
+        };
+        let path = precord.exepath.as_path();
+        telemetry.path_exists = path.exists();
+
+        if telemetry.path_exists {
+            if let Ok(meta) = std::fs::metadata(path) {
+                telemetry.file_size_bytes = meta.len();
+                telemetry.file_created_unix = meta.created().ok().and_then(Self::system_time_to_unix);
+                telemetry.file_modified_unix = meta.modified().ok().and_then(Self::system_time_to_unix);
+            }
+
+            if let Ok(bin) = std::fs::read(path) {
+                telemetry.md5 = Some(Self::compute_md5(&bin));
+                telemetry.sha256 = Some(Self::compute_sha256(&bin));
+                telemetry.binary_entropy = Some(Self::compute_entropy(&bin));
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                let sig = verify_signature(path);
+                telemetry.is_signed = Some(sig.is_signed);
+                telemetry.is_trusted_signed = Some(sig.is_trusted);
+                telemetry.signer_name = sig.signer_name;
+            }
+
+            match inspect_pe(path) {
+                Ok(static_features) => {
+                    telemetry.is_pe_file = true;
+                    telemetry.section_count = static_features.section_table_len;
+                    telemetry.import_count = static_features.imports.len();
+                    telemetry.has_debug_symbols = static_features.has_dbg_symbols;
+
+                    let mut dlls = HashSet::new();
+                    let mut api_entries = Vec::with_capacity(static_features.imports.len().min(4096));
+                    let mut suspicious_hits = HashSet::new();
+                    for imp in static_features.imports {
+                        let dll = imp.lib.trim().to_ascii_lowercase();
+                        if !dll.is_empty() {
+                            dlls.insert(dll.clone());
+                        }
+                        let api = imp.import.trim();
+                        if !api.is_empty() {
+                            if self.is_malapi_import(api) {
+                                suspicious_hits.insert(api.to_string());
+                            }
+                            if dll.is_empty() {
+                                if api_entries.len() < 4096 {
+                                    api_entries.push(api.to_string());
+                                }
+                            } else {
+                                if api_entries.len() < 4096 {
+                                    api_entries.push(format!("{dll}!{api}"));
+                                }
+                            }
+                        }
+                    }
+
+                    telemetry.imported_dll_count = dlls.len();
+                    telemetry.imported_api_count = telemetry.import_count;
+                    telemetry.imported_apis_truncated = telemetry.import_count > api_entries.len();
+                    telemetry.imported_dlls = dlls.clone().into_iter().collect();
+                    telemetry.imported_apis = api_entries;
+                    telemetry.suspicious_import_hits = suspicious_hits.into_iter().collect();
+                    telemetry.has_network_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!Internet", "!WinHttp", "!WSA", "!socket", "!connect", "!Dns", "!Http"]));
+                    telemetry.has_process_injection_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!VirtualAllocEx", "!WriteProcessMemory", "!CreateRemoteThread", "!NtWriteVirtualMemory", "!NtCreateThreadEx"]));
+                    telemetry.has_crypto_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!Crypt", "!BCrypt", "!NCrypt", "!RtlEncrypt"]));
+                    telemetry.has_persistence_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!RegSetValue", "!RegCreateKey", "!CreateService", "!StartService", "!SchTasks", "!TaskScheduler"]));
+                    telemetry.has_anti_analysis_imports = telemetry.imported_apis.iter().any(|v| Self::contains_any(v, &["!IsDebuggerPresent", "!CheckRemoteDebuggerPresent", "!NtQueryInformationProcess", "!OutputDebugString"]));
+                }
+                Err(e) => {
+                    telemetry.parse_error = Some(e.to_string());
+                }
+            }
+        } else {
+            telemetry.parse_error = Some("Executable path does not exist".to_string());
+        }
+
+        self.executable_cache.insert(exe_path, telemetry.clone());
+        telemetry
+    }
+
+    fn system_time_to_unix(t: SystemTime) -> Option<u64> {
+        t.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
+    }
+
+    fn compute_md5(data: &[u8]) -> String {
+        let mut h = Md5::new();
+        h.update(data);
+        format!("{:x}", h.finalize())
+    }
+
+    fn compute_sha256(data: &[u8]) -> String {
+        let mut h = Sha256::new();
+        h.update(data);
+        format!("{:x}", h.finalize())
+    }
+
+    fn compute_entropy(data: &[u8]) -> f64 {
+        if data.is_empty() {
+            return 0.0;
+        }
+        let mut freq = [0usize; 256];
+        for b in data {
+            freq[*b as usize] += 1;
+        }
+        let len = data.len() as f64;
+        let mut entropy = 0.0f64;
+        for &count in &freq {
+            if count == 0 {
+                continue;
+            }
+            let p = count as f64 / len;
+            entropy -= p * p.log2();
+        }
+        entropy
+    }
+
+    fn is_malapi_import(&self, api: &str) -> bool {
+        self.malapi_api_set.contains(&api.to_ascii_lowercase())
+    }
+
+    fn load_malapi_api_set() -> HashSet<String> {
+        let path = Path::new("./models/malapi.json");
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return HashSet::new();
+        };
+
+        let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&content) else {
+            return HashSet::new();
+        };
+
+        let mut set = HashSet::new();
+        for apis in map.values() {
+            for api in apis {
+                let v = api.trim().to_ascii_lowercase();
+                if !v.is_empty() {
+                    set.insert(v);
+                }
+            }
+        }
+        set
+    }
+
+    fn contains_any(value: &str, needles: &[&str]) -> bool {
+        needles.iter().any(|n| value.contains(n))
     }
 
     /// Get total number of samples
@@ -348,6 +600,7 @@ impl MLCollector {
     pub fn clear(&mut self) {
         self.malicious_samples.clear();
         self.benign_samples.clear();
+        self.executable_cache.clear();
     }
 
     /// Export separate files for malicious and benign
@@ -542,3 +795,9 @@ pub struct MLDataset {
     pub total_malicious: usize,
     pub total_benign: usize,
 }
+
+
+
+
+
+

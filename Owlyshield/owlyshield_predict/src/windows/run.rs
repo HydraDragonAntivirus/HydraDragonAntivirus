@@ -14,6 +14,7 @@ use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
+use crate::shared_def::IrpMajorOp;
 
 pub fn run() {
     Logging::init();
@@ -30,6 +31,7 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
+    register_default_kernel_hooks(&driver);
 
     let mut vecnew: Vec<u8> = Vec::with_capacity(65536);
 
@@ -266,11 +268,24 @@ pub fn run() {
                             if op < 32 { opcode_counts[op] += 1; }
                             total_msgs += 1;
                             
-                            // Log every kernel event from the driver (no opcode filter).
+                                                        // Log every kernel event from the driver (no opcode filter).
+                            let irp = IrpMajorOp::from_byte(iomsg.irp_op);
+                            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                            let api_name = iomsg.ntdll_event_info.object_name.clone();
+                            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                            let api_name = String::new();
+
                             Logging::info(&format!(
-                                "[DIAG] KERNEL EVENT RECEIVED: opcode={} pid={} gid={} path={}",
-                                op, iomsg.pid, iomsg.gid, &iomsg.filepathstr
+                                "[DIAG] KERNEL EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} api=\"{}\"",
+                                irp, op, iomsg.pid, iomsg.gid, &iomsg.filepathstr, api_name
                             ));
+
+                            if matches!(irp, IrpMajorOp::IrpNtLoadDriver) {
+                                Logging::alert(&format!(
+                                    "[KERNEL-WATCH] Driver change event detected: pid={} gid={} path={} api=\"{}\"",
+                                    iomsg.pid, iomsg.gid, iomsg.filepathstr, api_name
+                                ));
+                            }
                             
                             if tx_iomsgs.send(iomsg).is_err() {
                                 println!("Cannot send iomsg");
@@ -320,3 +335,34 @@ pub fn run() {
         }
     }
 }
+
+
+
+fn register_default_kernel_hooks(driver: &Driver) {
+    let hooks: [(&str, &str); 14] = [
+        ("ntdll.dll", "NtWriteVirtualMemory"),
+        ("ntdll.dll", "NtAllocateVirtualMemory"),
+        ("ntdll.dll", "NtProtectVirtualMemory"),
+        ("ntdll.dll", "NtCreateThreadEx"),
+        ("ntdll.dll", "NtQueueApcThread"),
+        ("ntdll.dll", "NtSetContextThread"),
+        ("ntdll.dll", "NtCreateSection"),
+        ("ntdll.dll", "NtMapViewOfSection"),
+        ("ntdll.dll", "NtDeleteFile"),
+        ("ntdll.dll", "NtLoadDriver"),
+        ("ntdll.dll", "NtOpenProcess"),
+        ("kernel32.dll", "LoadLibraryA"),
+        ("kernel32.dll", "LoadLibraryW"),
+        ("kernelbase.dll", "CreateRemoteThreadEx"),
+    ];
+
+    for (module, function) in hooks {
+        if let Err(e) = driver.add_hook_target(module, function, 23) {
+            Logging::warning(&format!(
+                "[KERNEL-WATCH] Hook registration failed for {}!{}: {}",
+                module, function, e
+            ));
+        }
+    }
+}
+

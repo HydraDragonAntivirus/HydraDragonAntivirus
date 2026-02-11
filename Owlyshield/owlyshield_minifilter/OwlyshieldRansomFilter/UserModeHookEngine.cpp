@@ -108,6 +108,16 @@ VOID ApplyGlobalHooksToAll()
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
     ExAcquireFastMutex(&g_ConfigMutex);
+
+    // Idempotent add: skip duplicates instead of consuming hook slots.
+    for (ULONG i = 0; i < g_CustomHookCount; i++) {
+        if (_wcsicmp(g_GlobalCustomHooks[i].ModuleName, Config->ModuleName) == 0 &&
+            _stricmp(g_GlobalCustomHooks[i].FunctionName, Config->FunctionName) == 0) {
+            ExReleaseFastMutex(&g_ConfigMutex);
+            return STATUS_SUCCESS;
+        }
+    }
+
     if (g_CustomHookCount >= MAX_CUSTOM_HOOKS) {
         ExReleaseFastMutex(&g_ConfigMutex);
         return STATUS_INSUFFICIENT_RESOURCES;
