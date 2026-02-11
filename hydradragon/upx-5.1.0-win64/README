@@ -8,7 +8,7 @@
 
 
                     The Ultimate Packer for eXecutables
-   Copyright (c) 1996-2025 Markus Oberhumer, Laszlo Molnar & John Reiser
+   Copyright (c) 1996-2026 Markus Oberhumer, Laszlo Molnar & John Reiser
                            https://upx.github.io
 
 
@@ -61,16 +61,15 @@ SHORT DOCUMENTATION
 'upx program.exe' will compress a program or DLL. For best compression
 results try 'upx --best program.exe' or 'upx --brute program.exe'.
 
-Please see the file UPX.DOC for the full documentation. The files
-NEWS and BUGS also contain various tidbits of information.
+Please see the file doc/upx-doc.txt for the full documentation. The files
+NEWS and doc/BUGS.txt also contain various tidbits of information, as
+does the output of 'upx --help'.
 
 
 THE FUTURE
 ==========
 
   - Stay up-to-date with ongoing OS and executable format changes
-
-  - RISC-V 64 for Linux
 
   - ARM64 for Windows (help wanted)
 
@@ -85,13 +84,13 @@ THE FUTURE
 COPYRIGHT
 =========
 
-Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
-Copyright (C) 1996-2025 Laszlo Molnar
-Copyright (C) 2000-2025 John F. Reiser
+Copyright (C) 1996-2026 Markus Franz Xaver Johannes Oberhumer
+Copyright (C) 1996-2026 Laszlo Molnar
+Copyright (C) 2000-2026 John F. Reiser
 
 UPX is distributed with full source code under the terms of the
 GNU General Public License v2+; either under the pure GPLv2+ (see
-the file COPYING), or (at your option) under the GPLv+2 with special
+the file COPYING), or (at your option) under the GPLv2+ with special
 exceptions and restrictions granting the free usage for all binaries
 including commercial programs (see the file LICENSE).
 

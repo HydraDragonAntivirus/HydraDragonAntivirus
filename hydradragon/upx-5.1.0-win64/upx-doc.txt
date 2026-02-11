@@ -6,7 +6,7 @@ SYNOPSIS
 
 ABSTRACT
                         The Ultimate Packer for eXecutables
-       Copyright (c) 1996-2025 Markus Oberhumer, Laszlo Molnar & John Reiser
+       Copyright (c) 1996-2026 Markus Oberhumer, Laszlo Molnar & John Reiser
                                https://upx.github.io
 
     UPX is a portable, extendable, high-performance executable packer for
@@ -816,11 +816,11 @@ AUTHORS
      John F. Reiser <jreiser@BitWagon.com>
 
 COPYRIGHT
-    Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+    Copyright (C) 1996-2026 Markus Franz Xaver Johannes Oberhumer
 
-    Copyright (C) 1996-2025 Laszlo Molnar
+    Copyright (C) 1996-2026 Laszlo Molnar
 
-    Copyright (C) 2000-2025 John F. Reiser
+    Copyright (C) 2000-2026 John F. Reiser
 
     UPX is distributed with full source code under the terms of the GNU
     General Public License v2+; either under the pure GPLv2+ (see the file
