@@ -569,34 +569,3 @@ class PyInstArchive:
                     continue
 
             logger.info(f"[+] Successfully extracted {len(toc)} PYZ files")
-
-def main():
-    parser = argparse.ArgumentParser(description="PyInstaller Extractor NG")
-    parser.add_argument("filename", help="Path to the file to extract")
-    parser.add_argument(
-        "-d",
-        "--one-dir",
-        help="One directory mode, extracts the pyz in the same directory as the executable",
-        action="store_true",
-    )
-    args = parser.parse_args()
-    arch = PyInstArchive(args.filename)
-    if arch.open():
-        if arch.checkFile():
-            if arch.getCArchiveInfo():
-                arch.parseTOC()
-                arch.extractFiles(args.one_dir)
-                arch.close()
-                print(
-                    "[+] Successfully extracted pyinstaller archive: {0}".format(
-                        args.filename
-                    )
-                )
-                print("")
-                print(
-                    "You can now use a python decompiler on the pyc files within the extracted directory"
-                )
-                sys.exit(0)
-
-        arch.close()
-    sys.exit(1)
