@@ -28,10 +28,8 @@ Samples:
 from .hydra_logger import logger
 
 import os
-import sys
 import zlib
 import struct
-import argparse
 import re
 import marshal
 import pefile
