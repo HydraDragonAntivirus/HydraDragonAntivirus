@@ -1650,7 +1650,7 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn collect_imported_apis_for_pid(&self, pid: u32) -> Vec<String> {
+        fn collect_imported_apis_for_pid(&mut self, pid: u32) -> Vec<String> {
             let mut imported = Vec::new();
             let Some(gid) = self.find_gid_by_pid(pid) else {
                 return imported;
@@ -1687,7 +1687,7 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn collect_dynamic_hook_api_targets(&self, pid: u32) -> Vec<String> {
+        fn collect_dynamic_hook_api_targets(&mut self, pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
 
@@ -1737,7 +1737,7 @@ pub mod worker_instance {
                 let mut failed_count = 0;
                 let mut wildcard_count = 0;
 
-                for api_spec in monitored_apis {
+                for api_spec in &monitored_apis {
                     if self.is_api_already_registered(&api_spec) {
                         already_registered_count += 1;
                         continue;
