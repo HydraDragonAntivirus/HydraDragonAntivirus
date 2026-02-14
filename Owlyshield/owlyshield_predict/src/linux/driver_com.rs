@@ -31,6 +31,7 @@ impl IOMessage {
             runtime_features: RuntimeFeatures {
                 exepath: l_drivermsg.exepath.clone().into(),
                 exe_still_exists: true,
+                command_line: String::new(),
             },
             file_size: l_drivermsg.fsize,
             time: SystemTime::now(),

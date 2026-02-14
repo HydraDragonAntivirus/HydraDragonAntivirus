@@ -210,6 +210,7 @@ typedef struct _DRIVER_MESSAGE
     UNICODE_STRING filePath;
     ULONGLONG Gid;
     ULONG ParentPid;
+    WCHAR CommandLine[MAX_FILE_NAME_LENGTH];
     ULONG AttackerPID;
     ULONGLONG AttackerGid;
 

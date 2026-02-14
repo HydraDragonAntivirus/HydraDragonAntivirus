@@ -160,6 +160,8 @@ pub struct ProcessRecord {
     pub extensions_written: ExtensionsCount,
     /// Path to the exe of the main process (the root)
     pub exepath: PathBuf,
+    /// Process command line (captured from kernel process-create notification when available)
+    pub command_line: String,
     /// Process exe file still exists (father)?
     pub exe_exists: bool,
     /// Process execution state (Running, Suspended, Killed...)
@@ -303,6 +305,7 @@ impl ProcessRecord {
             extensions_read: ExtensionsCount::new(),
             extensions_written: ExtensionsCount::new(),
             exepath,
+            command_line: String::new(),
             exe_exists: true,
             process_state: ProcessState::Running,
             is_malicious: false,
@@ -392,6 +395,7 @@ impl ProcessRecord {
             extensions_read: ExtensionsCount::new(),
             extensions_written: ExtensionsCount::new(),
             exepath,
+            command_line: iomsg.runtime_features.command_line.clone(),
             exe_exists: true,
             process_state: ProcessState::Running,
             is_malicious: false,
@@ -571,6 +575,9 @@ impl ProcessRecord {
         self.driver_msg_count += 1;
         self.pids.insert(iomsg.pid.into());
         self.exe_exists = iomsg.runtime_features.exe_still_exists;
+        if !iomsg.runtime_features.command_line.trim().is_empty() {
+            self.command_line = iomsg.runtime_features.command_line.clone();
+        }
         if let Some(parent) = Path::new(&iomsg.filepathstr).parent() {
             if parent.is_dir() {
                 self.dirs_content.insert(parent.to_path_buf(), &iomsg);

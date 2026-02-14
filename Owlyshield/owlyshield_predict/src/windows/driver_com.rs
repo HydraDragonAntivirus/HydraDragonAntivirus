@@ -393,6 +393,8 @@ pub struct CDriverMsg {
     pub gid: c_ulonglong,
     /// Parent PID of the process
     pub parent_pid: c_ulong,
+    /// Process command line captured at process creation (if available)
+    pub command_line: [wchar_t; 520],
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: PID of attacker process (0 if not applicable)
     pub attacker_pid: c_ulong,
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
@@ -512,6 +514,13 @@ impl ReplyIrp {
 
 impl IOMessage {
     pub fn from_driver_msg(c_drivermsg: &CDriverMsg) -> IOMessage {
+        let command_line = if c_drivermsg.command_line[0] != 0 {
+            let len = c_drivermsg.command_line.iter().position(|&c| c == 0).unwrap_or(520);
+            String::from_utf16_lossy(&c_drivermsg.command_line[..len])
+        } else {
+            String::new()
+        };
+
         IOMessage {
             extension: std::ffi::OsString::from_wide(c_drivermsg.extension.split(|&v| v == 0).next().unwrap()).to_string_lossy().into() ,//String::from_utf16_lossy(&c_drivermsg.extension),
             file_id_id: FileId::from(c_drivermsg.file_id.FileId.Identifier),
@@ -531,7 +540,11 @@ impl IOMessage {
             attacker_gid: c_drivermsg.attacker_gid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             ntdll_event_info: c_drivermsg.ntdll_event_info.to_ntdll_event_info(),
-            runtime_features: RuntimeFeatures::new(),
+            runtime_features: RuntimeFeatures {
+                exepath: PathBuf::new(),
+                exe_still_exists: true,
+                command_line,
+            },
             file_size: match PathBuf::from(
                 &c_drivermsg.filepath.as_string_ext(c_drivermsg.extension),
             )

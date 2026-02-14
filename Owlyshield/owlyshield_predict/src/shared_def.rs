@@ -316,6 +316,7 @@ impl Default for IOMessage {
 pub struct RuntimeFeatures {
     pub exepath: PathBuf,
     pub exe_still_exists: bool,
+    pub command_line: String,
 }
 
 impl RuntimeFeatures {
@@ -323,6 +324,7 @@ impl RuntimeFeatures {
         RuntimeFeatures {
             exepath: PathBuf::new(),
             exe_still_exists: true,
+            command_line: String::new(),
         }
     }
 }

@@ -1084,6 +1084,7 @@ pub struct ProcessBehaviorState {
     pub extension_match_detected: bool,
     pub network_activity_detected: bool,
     pub parent_name: String,
+    pub command_line: String,
     
     pub pid: u32,
     pub exe_path: PathBuf,
@@ -1127,6 +1128,7 @@ impl ProcessBehaviorState {
         state.exe_path = exe_path;
         state.app_name = app_name;
         state.parent_name = "unknown".to_string();
+        state.command_line = String::new();
         state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
         state.detected_apis = HashSet::new();
@@ -1919,6 +1921,9 @@ impl BehaviorEngine {
             }
 
             let mut s = ProcessBehaviorState::new(msg.pid as u32, resolved_exepath, resolved_appname);
+            if !msg.runtime_features.command_line.trim().is_empty() {
+                s.command_line = msg.runtime_features.command_line.to_lowercase();
+            }
                         
             let parent_pid = msg.parent_pid as u32;
             let mut parent_found = false;
@@ -1977,6 +1982,9 @@ impl BehaviorEngine {
         
         let state = self.process_states.get_mut(&gid).unwrap();
         let pid = state.pid;
+        if state.command_line.is_empty() && !msg.runtime_features.command_line.trim().is_empty() {
+            state.command_line = msg.runtime_features.command_line.to_lowercase();
+        }
 
         if self.rules.iter().any(|r| r.debug) {
             Logging::debug(&format!(
@@ -2460,6 +2468,25 @@ impl BehaviorEngine {
                             Logging::info(&format!(
                                 "[BehaviorEngine] Condition '{}' - Parent process match for PID {}: {}",
                                 cond_name, state.pid, parent_lc
+                            ));
+                        }
+                    }
+                }
+
+                if !matched && (!cond_group.cmdline_keywords.is_empty() || !cond_group.cmdline_patterns.is_empty()) {
+                    let cmdline_lc = state.command_line.to_lowercase();
+                    if !cmdline_lc.is_empty() {
+                        let keyword_hit = cond_group.cmdline_keywords.iter().any(|kw| {
+                            Self::matches_pattern_internal(&self.regex_cache, kw, &cmdline_lc)
+                        });
+                        let pattern_hit = cond_group.cmdline_patterns.iter().any(|pat| {
+                            Self::matches_pattern_internal(&self.regex_cache, &pat.pattern, &cmdline_lc)
+                        });
+                        if keyword_hit || pattern_hit {
+                            matched = true;
+                            Logging::info(&format!(
+                                "[BehaviorEngine] Condition '{}' - Command line match for PID {}: {}",
+                                cond_name, state.pid, cmdline_lc
                             ));
                         }
                     }

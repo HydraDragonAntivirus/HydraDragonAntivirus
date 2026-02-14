@@ -100,12 +100,12 @@ NTSTATUS GetFileNameInfo(_In_ PCFLT_RELATED_OBJECTS FltObjects, PUNICODE_STRING 
 // copy extension info from FILE_NAME_INFORMATION class to null terminated wchar string
 VOID CopyExtension(PWCHAR dest, PFLT_FILE_NAME_INFORMATION nameInfo);
 
-// AddRemProcessRoutine is the function hooked to the processes creation and exit.
-// When a new process enter we add it to parent gid if there is any.
-// if parent doesnt have a gid and both are system process, new process isnt recorded
-// else we create a new gid for process
-
-_IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create);
+// Process creation/termination callback with extended process-create metadata (command line, image path, etc.).
+VOID AddRemProcessRoutineEx(
+    _Inout_ PEPROCESS Process,
+    _In_ HANDLE ProcessId,
+    _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
+);
 
 // Process and quarantine functions
 NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name);

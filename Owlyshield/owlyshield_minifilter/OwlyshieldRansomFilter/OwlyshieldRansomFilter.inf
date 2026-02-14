@@ -34,12 +34,12 @@ AddService          = %ServiceName%,,MiniFilter.Service
 ;; Default uninstall sections
 ;;
 
-[DefaultUninstall.ntamd64]
-LegacyUninstall = 1
-DelFiles   = MiniFilter.DriverFiles.Del
+; [DefaultUninstall.ntamd64]
+; LegacyUninstall = 1
+; DelFiles   = MiniFilter.DriverFiles.Del
 
-[DefaultUninstall.ntamd64.Services]
-DelService = %ServiceName%,0x200      ;Ensure service is stopped before deleting
+; [DefaultUninstall.ntamd64.Services]
+; DelService = %ServiceName%,0x200      ;Ensure service is stopped before deleting
 
 ;
 ; Services Section

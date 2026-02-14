@@ -271,7 +271,29 @@ pub fn run() {
                                                         // Log every kernel event from the driver (no opcode filter).
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            let api_name = iomsg.ntdll_event_info.object_name.clone();
+                            let api_name = {
+                                let from_payload = iomsg.ntdll_event_info.object_name.trim().to_string();
+                                if !from_payload.is_empty() {
+                                    from_payload
+                                } else {
+                                    match iomsg.irp_op {
+                                        12 => "NtWriteVirtualMemory".to_string(),
+                                        13 => "NtAllocateVirtualMemory".to_string(),
+                                        14 => "NtProtectVirtualMemory".to_string(),
+                                        15 => "NtCreateThreadEx".to_string(),
+                                        16 => "NtQueueApcThread".to_string(),
+                                        17 => "NtSetContextThread".to_string(),
+                                        18 => "NtCreateSection".to_string(),
+                                        19 => "NtMapViewOfSection".to_string(),
+                                        20 => "NtDeleteFile".to_string(),
+                                        21 => "NtLoadDriver".to_string(),
+                                        22 => "NtOpenProcess".to_string(),
+                                        23 => "GenericApiCall".to_string(),
+                                        op if op > 23 => format!("DynamicApiEvent({op})"),
+                                        _ => String::new(),
+                                    }
+                                }
+                            };
                             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                             let api_name = String::new();
 

@@ -265,7 +265,7 @@ Return Value:
     // **NEW: Enumerate existing processes on driver load**
     EnumerateExistingProcesses();
 
-    status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutine, FALSE);
+    status = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, FALSE);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! FSFilter: Failed to register process notify routine: %#010x\n", status);
@@ -609,7 +609,7 @@ Return Value:
     }
 
     // Unregister Process Notify
-    PsSetCreateProcessNotifyRoutine(AddRemProcessRoutine, TRUE);
+    PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
 
     // Close Communication
     if (commHandle) {
@@ -2025,8 +2025,12 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
 // new code process recording
 _Use_decl_annotations_
-VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
+VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
+    UNREFERENCED_PARAMETER(Process);
+    BOOLEAN Create = (CreateInfo != NULL);
+    HANDLE ParentId = Create ? CreateInfo->ParentProcessId : 0;
+
     // FIX: Add early safety check for commHandle
     if (commHandle == NULL || commHandle->CommClosed)
         return;
@@ -2119,6 +2123,17 @@ VOID AddRemProcessRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
                 newEntry->filePath.Length = copyLen;
                 newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
                 newEntry->filePath.Buffer = newEntry->Buffer;
+            }
+
+            if (CreateInfo &&
+                CreateInfo->CommandLine &&
+                CreateInfo->CommandLine->Buffer &&
+                CreateInfo->CommandLine->Length > 0) {
+                USHORT cmdCopyLen = (CreateInfo->CommandLine->Length < MAX_FILE_NAME_SIZE)
+                    ? CreateInfo->CommandLine->Length
+                    : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                RtlCopyMemory(newItem->CommandLine, CreateInfo->CommandLine->Buffer, cmdCopyLen);
+                newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
             }
 
             if (!driverData->AddIrpMessage(newEntry)) {
