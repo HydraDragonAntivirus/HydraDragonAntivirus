@@ -1743,8 +1743,7 @@ pub mod worker_instance {
                         continue;
                     }
 
-                    // Use generic dynamic event id so we are not limited by usermode event-id slots.
-                    let event_id = 23u8;
+                    let event_id = self.resolve_or_allocate_dynamic_event_id(api_spec);
                     let (module, function) = if let Some(idx) = api_spec.find('!') {
                         // Explicit module!function format
                         (
@@ -1759,10 +1758,11 @@ pub mod worker_instance {
                     };
                     
                     // Driver-side MESSAGE_ADD_HOOK is global today (not truly PID-scoped),
-                    // so register once globally to avoid exhausting hook slots.
+                    // so register once globally to avoid duplicate hooks.
                     match driver.add_hook_target(&module, &function, event_id as u32) {
                         Ok(_) => {
                             self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
+                            self.dynamic_hook_event_map.insert(event_id, api_spec.to_string());
                             if module == "*" {
                                 Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL wildcard hook (trigger PID {}, event {}): *!{}", pid, event_id, function));
                             } else {
