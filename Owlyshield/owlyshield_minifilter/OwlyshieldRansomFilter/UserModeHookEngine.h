@@ -3,7 +3,7 @@ Module Name:
     UserModeHookEngine.h
 Abstract:
     User-mode ntdll.dll hooking engine.
-    Fixed for redefinition errors and missing exports.
+    Fixed for complete NtDeviceIoControlFile parameter passing.
 Environment:
     Kernel mode driver
 --*/
@@ -15,8 +15,8 @@ Environment:
 // It contains PEPROCESS/PETHREAD definitions.
 // Do not include ntddk.h or windef.h alongside it if they conflict.
 // -------------------------------------------------------------------------
-#include <ntifs.h>
 #include "..\SharedDefs\SharedDefs.h"
+#include <ntifs.h>
 
 //
 // -------------------------------------------------------------------------
@@ -191,41 +191,27 @@ typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
 extern PPS_GET_PROCESS_PEB fnPsGetProcessPeb;
 
 // ZwProtectVirtualMemory is exported by ntoskrnl (Zw version)
-typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(
-    _In_ HANDLE ProcessHandle,
-    _Inout_ PVOID *BaseAddress,
-    _Inout_ PSIZE_T RegionSize,
-    _In_ ULONG NewProtect,
-    _Out_ PULONG OldProtect);
+typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                    _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
+                                                    _Out_ PULONG OldProtect);
 extern PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory;
 
 // ZwAllocateVirtualMemory is exported by ntoskrnl (Zw version)
-typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(
-    _In_ HANDLE ProcessHandle,
-    _Inout_ PVOID *BaseAddress,
-    _In_ ULONG_PTR ZeroBits,
-    _Inout_ PSIZE_T RegionSize,
-    _In_ ULONG AllocationType,
-    _In_ ULONG Protect);
+typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                     _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
+                                                     _In_ ULONG AllocationType, _In_ ULONG Protect);
 extern PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory;
 
 // ZwDuplicateObject is exported by ntoskrnl (Zw version)
-typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(
-    _In_ HANDLE SourceProcessHandle,
-    _In_ HANDLE SourceHandle,
-    _In_ HANDLE TargetProcessHandle,
-    _Out_ PHANDLE TargetHandle,
-    _In_ ACCESS_MASK DesiredAccess,
-    _In_ ULONG HandleAttributes,
-    _In_ ULONG Options);
+typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
+                                              _In_ HANDLE TargetProcessHandle, _Out_ PHANDLE TargetHandle,
+                                              _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
+                                              _In_ ULONG Options);
 extern PZW_DUPLICATE_OBJECT fnZwDuplicateObject;
 
 // FIX: Declare Free prototype
-typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(
-    _In_ HANDLE ProcessHandle,
-    _Inout_ PVOID *BaseAddress,
-    _Inout_ PSIZE_T RegionSize,
-    _In_ ULONG FreeType);
+typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                 _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 
 //
@@ -235,13 +221,14 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 
 #define MAX_HOOKED_PROCESSES 512
 #define USERMODE_HOOK_SIZE 14
-#define MAX_CUSTOM_HOOKS 8192  // Increased to 8k for comprehensive API monitoring
+#define MAX_CUSTOM_HOOKS 8192 // Increased to 8k for comprehensive API monitoring
 
 extern HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 extern ULONG g_CustomHookCount;
 extern FAST_MUTEX g_ConfigMutex;
 
-typedef struct _HOOK_DEF {
+typedef struct _HOOK_DEF
+{
     PVOID Address;
     UCHAR OriginalBytes[USERMODE_HOOK_SIZE];
     BOOLEAN IsHooked;
@@ -253,7 +240,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     PEPROCESS ProcessObject;
     BOOLEAN IsHooked;
     // Generic: No single base. We find base per hook if needed.
-    // PVOID NtdllBase; 
+    // PVOID NtdllBase;
     // SIZE_T NtdllSize;
 
     // Hooked Functions
@@ -262,7 +249,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     HOOK_DEF NtProtectVirtualMemory;
     HOOK_DEF NtCreateThreadEx;
     HOOK_DEF NtMapViewOfSection;
-    
+
     // Dynamic Hooks (Dynamically Allocated - sized to MAX_CUSTOM_HOOKS)
     PHOOK_DEF CustomHooks;
 

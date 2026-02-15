@@ -1842,6 +1842,50 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
     return status;
 }
 
+NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *CommandLine)
+{
+    ULONG retLength = 0;
+    ULONG pniSize = 1024;
+    PUNICODE_STRING pni = NULL;
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+    QUERY_INFO_PROCESS localZwQueryInformationProcess = ZwQueryInformationProcess;
+    if (localZwQueryInformationProcess == NULL)
+    {
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    do
+    {
+        pni = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_NON_PAGED, pniSize, 'RW');
+        if (pni == NULL)
+        {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        // ProcessCommandLineInformation = 60
+        status = localZwQueryInformationProcess(ProcessHandle, (PROCESSINFOCLASS)60, pni, pniSize, &retLength);
+        if (!NT_SUCCESS(status))
+        {
+            ExFreePoolWithTag(pni, 'RW');
+            pni = NULL;
+            if (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL)
+            {
+                pniSize *= 2;
+                continue;
+            }
+        }
+    } while (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL);
+
+    if (NT_SUCCESS(status) && pni != NULL)
+    {
+        *CommandLine = pni;
+    }
+
+    return status;
+}
+
 //
 // ** NEW FUNCTION TO DELETE A FILE **
 // This helper function deletes a file given its path.
@@ -2035,7 +2079,6 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 }
 
 // new code process recording
-_Use_decl_annotations_
 static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create, PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
     // FIX: Add early safety check for commHandle
@@ -2083,6 +2126,7 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         PUNICODE_STRING procName = NULL;
         PUNICODE_STRING parentName = NULL;
+        PUNICODE_STRING procCmdLine = NULL;
 
         hr = GetProcessNameByHandle(procHandleParent, &parentName);
         if (!NT_SUCCESS(hr))
@@ -2105,6 +2149,12 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         }
 
         DbgPrint("!!! FSFilter: New Process, parent: %wZ. Pid: %d\n", parentName, (ULONG)(ULONG_PTR)ParentId);
+
+        // In legacy callback path, command line is not provided by CreateInfo.
+        // Best-effort fallback: query ProcessCommandLineInformation directly.
+        if (CreateInfo == NULL) {
+            (VOID)GetProcessCommandLineByHandle(procHandleProcess, &procCmdLine);
+        }
 
         ZwClose(procHandleParent);
         ZwClose(procHandleProcess);
@@ -2141,6 +2191,14 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
                     : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
                 RtlCopyMemory(newItem->CommandLine, CreateInfo->CommandLine->Buffer, cmdCopyLen);
                 newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
+            } else if (procCmdLine != NULL &&
+                       procCmdLine->Buffer != NULL &&
+                       procCmdLine->Length > 0) {
+                USHORT cmdCopyLen = (procCmdLine->Length < MAX_FILE_NAME_SIZE)
+                    ? procCmdLine->Length
+                    : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+                RtlCopyMemory(newItem->CommandLine, procCmdLine->Buffer, cmdCopyLen);
+                newItem->CommandLine[cmdCopyLen / sizeof(WCHAR)] = L'\0';
             }
 
             if (!driverData->AddIrpMessage(newEntry)) {
@@ -2150,6 +2208,8 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         if (parentName != NULL)
             ExFreePoolWithTag(parentName, 'RW');
+        if (procCmdLine != NULL)
+            ExFreePoolWithTag(procCmdLine, 'RW');
         // Note: procName is managed by RecordNewProcess, don't free it here
     }
     else

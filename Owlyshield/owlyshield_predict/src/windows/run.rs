@@ -298,8 +298,14 @@ pub fn run() {
                             let api_name = String::new();
 
                             Logging::info(&format!(
-                                "[DIAG] KERNEL EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} api=\"{}\"",
-                                irp, op, iomsg.pid, iomsg.gid, &iomsg.filepathstr, api_name
+                                "[DIAG] KERNEL EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} api=\"{}\" cmd=\"{}\"",
+                                irp,
+                                op,
+                                iomsg.pid,
+                                iomsg.gid,
+                                &iomsg.filepathstr,
+                                api_name,
+                                iomsg.runtime_features.command_line
                             ));
 
                             if matches!(irp, IrpMajorOp::IrpNtLoadDriver) {

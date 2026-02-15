@@ -18,6 +18,24 @@ Environment :
 // Note: This header is included after fltKernel.h in kernel mode
 // and after windows.h in user mode, so types are already defined
 //
+// Some translation units include this header before platform headers.
+// Make required base types available in both kernel and user mode.
+#ifndef WINDOWS_IGNORE_PACKING_MISMATCH
+#define WINDOWS_IGNORE_PACKING_MISMATCH
+#define OWLYSHIELD_UNDEF_WINDOWS_IGNORE_PACKING_MISMATCH
+#endif
+
+#ifdef _KERNEL_MODE
+#include <ntifs.h>
+#else
+#include <Windows.h>
+#include <winioctl.h>
+#endif
+
+#ifdef OWLYSHIELD_UNDEF_WINDOWS_IGNORE_PACKING_MISMATCH
+#undef WINDOWS_IGNORE_PACKING_MISMATCH
+#undef OWLYSHIELD_UNDEF_WINDOWS_IGNORE_PACKING_MISMATCH
+#endif
 
 //
 //  Name of port used to communicate

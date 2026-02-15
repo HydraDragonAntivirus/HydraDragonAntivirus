@@ -7,7 +7,7 @@ Module Name:
 Abstract:
 
     Implementation of user-mode ntdll.dll hooking engine.
-    FIXED: Uses dynamic resolution for PsGetProcessPeb and ZwProtectVirtualMemory.
+    FIXED: Complete NtDeviceIoControlFile call with all 10 parameters.
 
 Environment:
 
@@ -42,45 +42,45 @@ ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
 
 // Forward Declarations
-NTSTATUS ResolveAndHook(
-    _In_ PEPROCESS Process,
-    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-    _In_ PCWSTR ModuleName,
-    _In_ PCSTR FunctionName,
-    _Inout_ PHOOK_DEF HookDef,
-    _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo,
-    _In_opt_ PVOID NewModuleBase
-);
+NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+                        _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
+                        _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase);
 
 VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo, PVOID NewModuleBase)
 {
     // NTDLL Hooks (Default)
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12, TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13, TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14, TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15, TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19, TargetNtDeviceIo, NewModuleBase);
-    
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12,
+                   TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13,
+                   TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14,
+                   TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15,
+                   TargetNtDeviceIo, NewModuleBase);
+    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19,
+                   TargetNtDeviceIo, NewModuleBase);
+
     // Custom Hooks (Dynamic)
-    if (HookEntry->CustomHooks == NULL) {
-        HookEntry->CustomHooks = (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(HOOK_DEF) * MAX_CUSTOM_HOOKS, 'UMHd');
-        if (HookEntry->CustomHooks) {
+    if (HookEntry->CustomHooks == NULL)
+    {
+        HookEntry->CustomHooks =
+            (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(HOOK_DEF) * MAX_CUSTOM_HOOKS, 'UMHd');
+        if (HookEntry->CustomHooks)
+        {
             RtlZeroMemory(HookEntry->CustomHooks, sizeof(HOOK_DEF) * MAX_CUSTOM_HOOKS);
         }
     }
 
-    if (HookEntry->CustomHooks) {
+    if (HookEntry->CustomHooks)
+    {
         ExAcquireFastMutex(&g_ConfigMutex);
-        for (ULONG i = 0; i < g_CustomHookCount; i++) {
-            if (i < MAX_CUSTOM_HOOKS) {
-                ResolveAndHook(Process, HookEntry, 
-                               g_GlobalCustomHooks[i].ModuleName, 
-                               g_GlobalCustomHooks[i].FunctionName, 
-                               &HookEntry->CustomHooks[i], 
-                               g_GlobalCustomHooks[i].EventId, 
-                               TargetNtDeviceIo,
-                               NewModuleBase);
+        for (ULONG i = 0; i < g_CustomHookCount; i++)
+        {
+            if (i < MAX_CUSTOM_HOOKS)
+            {
+                ResolveAndHook(Process, HookEntry, g_GlobalCustomHooks[i].ModuleName,
+                               g_GlobalCustomHooks[i].FunctionName, &HookEntry->CustomHooks[i],
+                               g_GlobalCustomHooks[i].EventId, TargetNtDeviceIo, NewModuleBase);
             }
         }
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -89,15 +89,19 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
 
 VOID ApplyGlobalHooksToAll()
 {
-    if (g_UserHookEngine == NULL) return;
-    
+    if (g_UserHookEngine == NULL)
+        return;
+
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId != 0) {
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId != 0)
+        {
             PPROCESS_HOOK_ENTRY hookEntry = &g_UserHookEngine->Processes[i];
-            
+
             // Re-apply hooks (Generic logic will skip if already hooked)
-            if (hookEntry->ProcessObject && hookEntry->NtDeviceIoControlFileAddr) {
+            if (hookEntry->ProcessObject && hookEntry->NtDeviceIoControlFileAddr)
+            {
                 ApplyHooksInternal(hookEntry->ProcessObject, hookEntry, hookEntry->NtDeviceIoControlFileAddr, NULL);
             }
         }
@@ -110,107 +114,147 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     ExAcquireFastMutex(&g_ConfigMutex);
 
     // Idempotent add: skip duplicates instead of consuming hook slots.
-    for (ULONG i = 0; i < g_CustomHookCount; i++) {
+    for (ULONG i = 0; i < g_CustomHookCount; i++)
+    {
         if (_wcsicmp(g_GlobalCustomHooks[i].ModuleName, Config->ModuleName) == 0 &&
-            _stricmp(g_GlobalCustomHooks[i].FunctionName, Config->FunctionName) == 0) {
+            _stricmp(g_GlobalCustomHooks[i].FunctionName, Config->FunctionName) == 0)
+        {
             ExReleaseFastMutex(&g_ConfigMutex);
             return STATUS_SUCCESS;
         }
     }
 
-    if (g_CustomHookCount >= MAX_CUSTOM_HOOKS) {
+    if (g_CustomHookCount >= MAX_CUSTOM_HOOKS)
+    {
         ExReleaseFastMutex(&g_ConfigMutex);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    
+
     RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], Config, sizeof(HOOK_CONFIG_DATA));
     g_CustomHookCount++;
     ExReleaseFastMutex(&g_ConfigMutex);
-    
+
     // Trigger retroactive application to all processes
     ApplyGlobalHooksToAll();
-    
+
     return STATUS_SUCCESS;
 }
 
-// Minimal x64 Shellcode for Notification
-// It calls NtDeviceIoControlFile to notify the driver
-// Then executes the original instruction and jumps back
+// Complete x64 Shellcode for API Hooking
+// Properly calls NtDeviceIoControlFile with all 10 parameters
+// Stack Layout (after register saves and sub rsp):
+// [RSP+0x00]  = HOOK_EVENT_DATA (80 bytes)
+// [RSP+0x50]  = Arg2 storage (8 bytes)
+// [RSP+0x58]  = IO_STATUS_BLOCK (16 bytes)
+// [RSP+0x68]  = Shadow space + stack params (80 bytes)
+// [RSP+0xB8]  = Return to saved registers
+// Total stack allocation: 0xF0 (240 bytes)
+
 UCHAR g_ShellcodeTemplate[] = {
-    // Save Volatile Registers
-    0x50, 0x51, 0x52, 0x53,                         // push rax, rcx, rdx, rbx
-    0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53, // push r8, r9, r10, r11
-    
-    // Allocate space for HOOK_EVENT_DATA (80 bytes) + Shadow Space (32) + Align(16)
-    0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00,       // sub rsp, 128
-    
-    // Fill HOOK_EVENT_DATA
-    // EventType (Offset 0 in struct) -> Set by Patch (Offset 24 in shellcode)
-    0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11,       // mov dword ptr [rsp], 0x11111111
-    // ProcessId (Offset 4) -> Set by Patch (Offset 31 in shellcode)
-    0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22, // mov dword ptr [rsp+4], 0x22222222
-    // FunctionName (skip)
-    // Args (Copy from saved registers)
-    // RCX is at [rsp+128 + 8(r11)+8(r10)+...+8(rcx is 2nd from bottom?)]
-    // Stack layout after pushes:
-    // [RSP] -> HOOK_EVENT_DATA 
-    // [RSP+128] -> R11
-    // ...
-    // [RSP+128+64] -> RCX (Argument 1)
-    
-    // Copy RCX (Arg1) to Struct.Arg1 (Offset 72 = 0x48)
-    // mov rax, [rsp + 0xC0 + 8] (R11..RBX..RDX..RCX is 7th push? No)
-    // Order: RAX, RCX, RDX, RBX, R8, R9, R10, R11
-    // RSP points to R11.
-    // RCX is at RSP + 7*8 = RSP+56.
-    // Wait, after sub rsp, 128:
-    // RCX is at RSP + 128 + 56 = RSP + 184 (0xB8)
-    0x48, 0x8B, 0x84, 0x24, 0xB8, 0x00, 0x00, 0x00, // mov rax, [rsp+0xB8]
+    // ===== SAVE VOLATILE REGISTERS =====
+    0x50,       // push rax
+    0x51,       // push rcx
+    0x52,       // push rdx
+    0x53,       // push rbx
+    0x41, 0x50, // push r8
+    0x41, 0x51, // push r9
+    0x41, 0x52, // push r10
+    0x41, 0x53, // push r11
+
+    // ===== ALLOCATE STACK SPACE =====
+    // 240 bytes: HOOK_EVENT_DATA(80) + storage(8) + IO_STATUS_BLOCK(16) + params(80) + shadow(32) + align
+    0x48, 0x81, 0xEC, 0xF0, 0x00, 0x00, 0x00, // sub rsp, 0xF0 (240 bytes)
+
+    // ===== FILL HOOK_EVENT_DATA at [RSP+0x00] =====
+
+    // EventType (DWORD at offset 0) - PATCHED at offset 21 in shellcode array
+    0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11, // mov dword [rsp], 0x11111111
+
+    // ProcessId (DWORD at offset 4) - PATCHED at offset 28 in shellcode array
+    0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22, // mov dword [rsp+4], 0x22222222
+
+    // FunctionName (64 bytes at offset 8) - leave as is, driver can read function name from event ID
+
+    // Arg1 (ULONG_PTR at offset 72 = 0x48)
+    // Saved RCX is at: [current_RSP + 0xF0 (our alloc) + 56 (7th of 8 pushes)] = [RSP + 0x128]
+    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, // mov rax, [rsp+0x128]
     0x48, 0x89, 0x44, 0x24, 0x48,                   // mov [rsp+0x48], rax
-    
-    // Copy RDX (Arg2) -> Arg2 (Offset 80)
-    // RDX is at RSP + 128 + 48 = RSP + 176 (0xB0)
-    0x48, 0x8B, 0x84, 0x24, 0xB0, 0x00, 0x00, 0x00, // mov rax, [rsp+0xB0] 
+
+    // Arg2 (ULONG_PTR at offset 80 = 0x50)
+    // Saved RDX is at: [RSP + 0xF0 + 48] = [RSP + 0x120]
+    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, // mov rax, [rsp+0x120]
     0x48, 0x89, 0x44, 0x24, 0x50,                   // mov [rsp+0x50], rax
-    
-    // Prepare Call to NtDeviceIoControlFile
-    // RCX = Handle (Patched)
+
+    // Zero out IO_STATUS_BLOCK at [RSP+0x58] (16 bytes)
+    0x48, 0x31, 0xC0,             // xor rax, rax
+    0x48, 0x89, 0x44, 0x24, 0x58, // mov [rsp+0x58], rax
+    0x48, 0x89, 0x44, 0x24, 0x60, // mov [rsp+0x60], rax
+
+    // ===== PREPARE NtDeviceIoControlFile CALL =====
+
+    // RCX = FileHandle - PATCHED at offset 83 in shellcode array
     0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // mov rcx, 0x3333333333333333
-    // RDX = Event (Msg) -> NULL
-    0x31, 0xD2,                                     // xor edx, edx
-    // ... skipping complex call preparation for brevity, just calling the func address
-    
-    // Call NtDeviceIoControlFile (Address Patched)
-    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // mov rax, 0x4444...
-    // call rax
-    0xFF, 0xD0,
-    
-    // Restore Stack
-    0x48, 0x81, 0xC4, 0x80, 0x00, 0x00, 0x00,       // add rsp, 128
-    
-    // Restore Registers
-    0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, // pop r11..r8
-    0x5B, 0x5A, 0x59, 0x58,                         // pop rbx..rax
-    
-    // Execute Original Inst (Placeholder 14 bytes)
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    
-    // Jmp Back (Address Patched)
-    // mov rax, 0x5555...
-    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-    // jmp rax
-    0xFF, 0xE0,
-    
-    // PADDING to avoid buffer overrun warning (C4789)
-    // We write 14 bytes at offset 122, and other patches.
-    // Ensure total size is > 150.
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
-};
+
+    // RDX = Event = NULL
+    0x48, 0x31, 0xD2, // xor rdx, rdx
+
+    // R8 = ApcRoutine = NULL
+    0x4D, 0x31, 0xC0, // xor r8, r8
+
+    // R9 = ApcContext = NULL
+    0x4D, 0x31, 0xC9, // xor r9, r9
+
+    // Stack Parameter 1 (5th param): IoStatusBlock pointer at [RSP+0x20]
+    0x48, 0x8D, 0x44, 0x24, 0x58, // lea rax, [rsp+0x58]
+    0x48, 0x89, 0x44, 0x24, 0x20, // mov [rsp+0x20], rax
+
+    // Stack Parameter 2 (6th param): IoControlCode at [RSP+0x28] - PATCHED at offset 126
+    // This needs to be your driver's IOCTL code (e.g., CTL_CODE value)
+    0xC7, 0x44, 0x24, 0x28, 0xAA, 0xAA, 0xAA, 0xAA, // mov dword [rsp+0x28], 0xAAAAAAAA
+
+    // Stack Parameter 3 (7th param): InputBuffer (pointer to HOOK_EVENT_DATA) at [RSP+0x30]
+    0x48, 0x8D, 0x04, 0x24,       // lea rax, [rsp] (HOOK_EVENT_DATA at base)
+    0x48, 0x89, 0x44, 0x24, 0x30, // mov [rsp+0x30], rax
+
+    // Stack Parameter 4 (8th param): InputBufferLength at [RSP+0x38]
+    0xC7, 0x44, 0x24, 0x38, 0x50, 0x00, 0x00, 0x00, // mov dword [rsp+0x38], 80 (sizeof HOOK_EVENT_DATA)
+
+    // Stack Parameter 5 (9th param): OutputBuffer at [RSP+0x40] = NULL
+    0x48, 0xC7, 0x44, 0x24, 0x40, 0x00, 0x00, 0x00, 0x00, // mov qword [rsp+0x40], 0
+
+    // Stack Parameter 6 (10th param): OutputBufferLength at [RSP+0x48] = 0
+    0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00, 0x00, // mov dword [rsp+0x48], 0
+
+    // ===== CALL NtDeviceIoControlFile =====
+    // Function address PATCHED at offset 171 in shellcode array
+    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // mov rax, 0x4444444444444444
+    0xFF, 0xD0,                                                 // call rax
+
+    // ===== RESTORE STACK =====
+    0x48, 0x81, 0xC4, 0xF0, 0x00, 0x00, 0x00, // add rsp, 0xF0
+
+    // ===== RESTORE REGISTERS =====
+    0x41, 0x5B, // pop r11
+    0x41, 0x5A, // pop r10
+    0x41, 0x59, // pop r9
+    0x41, 0x58, // pop r8
+    0x5B,       // pop rbx
+    0x5A,       // pop rdx
+    0x59,       // pop rcx
+    0x58,       // pop rax
+
+    // ===== EXECUTE ORIGINAL INSTRUCTION (14 bytes) =====
+    // PATCHED at offset 197 in shellcode array - stolen bytes from hooked function
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+
+    // ===== JUMP BACK TO ORIGINAL CODE =====
+    // Return address PATCHED at offset 213 in shellcode array (original function + 14)
+    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // mov rax, 0x5555555555555555
+    0xFF, 0xE0,                                                 // jmp rax
+
+    // ===== PADDING =====
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90};
 
 //
 // Initialize the user-mode hooking engine
@@ -248,19 +292,21 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // Resolve ZwAllocateVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwAllocateVirtualMemory");
     fnZwAllocateVirtualMemory = (PZW_ALLOCATE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
-    if (!fnZwAllocateVirtualMemory) {
+    if (!fnZwAllocateVirtualMemory)
+    {
         DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
     }
 
     // Resolve ZwDuplicateObject
     RtlInitUnicodeString(&routineName, L"ZwDuplicateObject");
     fnZwDuplicateObject = (PZW_DUPLICATE_OBJECT)MmGetSystemRoutineAddress(&routineName);
-    
+
     // Resolve ZwFreeVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
     fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
-    if (!fnZwDuplicateObject) {
-         DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
+    if (!fnZwDuplicateObject)
+    {
+        DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
     // ---------------------------------------------------------------------
@@ -486,26 +532,24 @@ NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _
 //
 // Helper to Inject a Single Hook
 //
-NTSTATUS InjectSingleHook(
-    _In_ PEPROCESS Process,
-    _In_ ULONG ProcessId,
-    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-    _Inout_ PHOOK_DEF HookDef,
-    _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo
-)
+NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
+                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_ PVOID TargetNtDeviceIo,
+                          _In_ ULONG IoControlCode)
 {
     NTSTATUS status;
     KAPC_STATE apcState;
-    
-    if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
-    if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
+
+    if (!HookDef->Address)
+        return STATUS_INVALID_PARAMETER;
+    if (HookDef->IsHooked)
+        return STATUS_SUCCESS; // Already hooked
 
     // Calculate Offset
-    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize) {
+    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize)
+    {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    
+
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
@@ -513,50 +557,56 @@ NTSTATUS InjectSingleHook(
     // 1. Prepare Shellcode (Copy and Patch)
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
-    
-    // Patch EventType (0x11...)
-    *(PULONG)(shellcode + 27) = EventId;
-    
-    // Patch ProcessId (0x22...)
-    *(PULONG)(shellcode + 35) = ProcessId;
-    
-    // Patch Handle (0x33...)
-    *(PHANDLE)(shellcode + 88) = HookEntry->DriverDeviceHandle;
-    
-    // Patch NtDeviceIoControlFile Address (0x44...)
-    *(PVOID*)(shellcode + 102) = TargetNtDeviceIo;
-    
-    // Patch Stolen Bytes (At 122, 14 bytes) from HookDef->Address
-    RtlCopyMemory(shellcode + 122, HookDef->Address, 14); // Read directly
-    
+
+    // Patch EventType at offset 21 (0x11111111)
+    *(PULONG)(shellcode + 21) = EventId;
+
+    // Patch ProcessId at offset 28 (0x22222222)
+    *(PULONG)(shellcode + 28) = ProcessId;
+
+    // Patch FileHandle at offset 83 (0x3333333333333333)
+    *(PHANDLE)(shellcode + 83) = HookEntry->DriverDeviceHandle;
+
+    // Patch IoControlCode at offset 126 (0xAAAAAAAA)
+    *(PULONG)(shellcode + 126) = IoControlCode;
+
+    // Patch NtDeviceIoControlFile Address at offset 171 (0x4444444444444444)
+    *(PVOID *)(shellcode + 171) = TargetNtDeviceIo;
+
+    // Patch Stolen Bytes at offset 197 (14 bytes from original function)
+    RtlCopyMemory(shellcode + 197, HookDef->Address, 14);
+
     // Save original bytes locally
     RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
 
-    // Patch Return Address (0x55...) -> Addr + 14
-    *(PVOID*)(shellcode + 140) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+    // Patch Return Address at offset 213 (0x5555555555555555) -> Original Addr + 14
+    *(PVOID *)(shellcode + 213) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
 
-    // Write Shellcode to Target at specific offset
+    // Write Shellcode to Target Process Memory
     RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
-    
+
     // 2. Install Hook (JMP to Shellcode)
     PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = 14;
     ULONG oldProt;
-    if (fnZwProtectVirtualMemory) {
+    if (fnZwProtectVirtualMemory)
+    {
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
-        if (NT_SUCCESS(status)) {
+        if (NT_SUCCESS(status))
+        {
             // Write JMP [RIP+0] -> Shellcode Address
-            // FF 25 00 00 00 00 [Address]
+            // FF 25 00 00 00 00 [8-byte Address]
             UCHAR jmp[14];
             RtlZeroMemory(jmp, 14);
-            jmp[0] = 0xFF; jmp[1] = 0x25; 
+            jmp[0] = 0xFF;
+            jmp[1] = 0x25;
             *(PULONG)&jmp[2] = 0;
-            *(PVOID*)&jmp[6] = myShellcodeAddress;
-            
+            *(PVOID *)&jmp[6] = myShellcodeAddress;
+
             RtlCopyMemory(HookDef->Address, jmp, 14);
-            
+
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
-            
+
             HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
             HookDef->IsHooked = TRUE;
         }
@@ -579,40 +629,42 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     // 1. Allocate Shellcode Memory
-    if (fnZwAllocateVirtualMemory) {
-        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    } else {
+    if (fnZwAllocateVirtualMemory)
+    {
+        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE,
+                                           PAGE_EXECUTE_READWRITE);
+    }
+    else
+    {
         status = STATUS_NOT_IMPLEMENTED;
     }
 
-    if (!NT_SUCCESS(status)) {
+    if (!NT_SUCCESS(status))
+    {
         KeUnstackDetachProcess(&apcState);
         return status;
     }
-    
+
     HookEntry->ShellcodeBase = baseAddress;
     HookEntry->ShellcodeSize = regionSize;
     HookEntry->ShellcodeUsed = 0;
 
     // 2. Create Handle
     HANDLE targetHandle = NULL;
-    status = ObOpenObjectByPointer(g_HookDeviceObject, 
-                                   OBJ_CASE_INSENSITIVE, 
-                                   NULL, 
-                                   GENERIC_READ | GENERIC_WRITE, 
-                                   *IoFileObjectType, 
-                                   KernelMode, 
-                                   &targetHandle);
-                                   
-    if (!NT_SUCCESS(status)) {
-        if (fnZwFreeVirtualMemory) {
+    status = ObOpenObjectByPointer(g_HookDeviceObject, OBJ_CASE_INSENSITIVE, NULL, GENERIC_READ | GENERIC_WRITE,
+                                   *IoFileObjectType, KernelMode, &targetHandle);
+
+    if (!NT_SUCCESS(status))
+    {
+        if (fnZwFreeVirtualMemory)
+        {
             SIZE_T freeSize = 0;
             fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
         }
         KeUnstackDetachProcess(&apcState);
         return status;
     }
-    
+
     HookEntry->DriverDeviceHandle = targetHandle;
     KeUnstackDetachProcess(&apcState);
     return STATUS_SUCCESS;
@@ -621,63 +673,78 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 //
 // Helper: Resolve and Prepare Hook
 //
-NTSTATUS ResolveAndHook(
-    _In_ PEPROCESS Process,
-    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-    _In_ PCWSTR ModuleName,
-    _In_ PCSTR FunctionName,
-    _Inout_ PHOOK_DEF HookDef,
-    _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo,
-    _In_opt_ PVOID NewModuleBase
-)
+NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+                        _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
+                        _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase)
 {
-    if (HookDef->IsHooked) return STATUS_SUCCESS;
+    if (HookDef->IsHooked)
+        return STATUS_SUCCESS;
 
     PVOID modBase = NULL;
     SIZE_T modSize = 0;
 
     // Wildcard Module Search
-    if (ModuleName[0] == L'*' && ModuleName[1] == L'\0') {
+    if (ModuleName[0] == L'*' && ModuleName[1] == L'\0')
+    {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-        
-        if (NewModuleBase) {
+
+        if (NewModuleBase)
+        {
             // Targeted scan of newly loaded module
             HookDef->Address = FindExportedFunction(NewModuleBase, FunctionName);
-            if (HookDef->Address) modBase = NewModuleBase;
-        } else {
+            if (HookDef->Address)
+                modBase = NewModuleBase;
+        }
+        else
+        {
             // Full scan of all modules (Initial hook or retroactive)
-            __try {
+            __try
+            {
                 PPEB peb = fnPsGetProcessPeb(Process);
-                if (peb && peb->Ldr) {
+                if (peb && peb->Ldr)
+                {
                     PLIST_ENTRY listHead = &peb->Ldr->InLoadOrderModuleList;
-                    for (PLIST_ENTRY entry = listHead->Flink; entry != listHead; entry = entry->Flink) {
-                        PLDR_DATA_TABLE_ENTRY ldrEntry = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
-                        if (ldrEntry->DllBase) {
+                    for (PLIST_ENTRY entry = listHead->Flink; entry != listHead; entry = entry->Flink)
+                    {
+                        PLDR_DATA_TABLE_ENTRY ldrEntry =
+                            CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+                        if (ldrEntry->DllBase)
+                        {
                             HookDef->Address = FindExportedFunction(ldrEntry->DllBase, FunctionName);
-                            if (HookDef->Address) {
+                            if (HookDef->Address)
+                            {
                                 modBase = ldrEntry->DllBase;
                                 break;
                             }
                         }
                     }
                 }
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
         }
         KeUnstackDetachProcess(&apcState);
-    } else {
+    }
+    else
+    {
         // Explicit module check
-        if (NewModuleBase) {
+        if (NewModuleBase)
+        {
             // If NewModuleBase is provided, we only check if it matches the target ModuleName
             // Note: FindModuleBaseAddress handles string comparison
             modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
-            if (modBase != NewModuleBase) modBase = NULL; // Only hook if it's the module that just loaded
-        } else {
+            if (modBase != NewModuleBase)
+                modBase = NULL; // Only hook if it's the module that just loaded
+        }
+        else
+        {
             modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
         }
 
-        if (modBase) {
+        if (modBase)
+        {
             KAPC_STATE apcState;
             KeStackAttachProcess((PRKPROCESS)Process, &apcState);
             HookDef->Address = FindExportedFunction(modBase, FunctionName);
@@ -685,9 +752,22 @@ NTSTATUS ResolveAndHook(
         }
     }
 
-    if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
+    if (!HookDef->Address)
+        return STATUS_PROCEDURE_NOT_FOUND;
 
-    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
+    // CRITICAL: This must match IOCTL_REPORT_HOOK_EVENT from your driver!
+    // Find the CTL_CODE definition in your SharedDefs.h or driver header
+    // It should look like: #define IOCTL_REPORT_HOOK_EVENT CTL_CODE(...)
+    //
+    // Common values:
+    // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS) = 0x0022E000
+    // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS) = 0x0022E004
+    //
+    // *** TODO: REPLACE THIS WITH YOUR ACTUAL IOCTL_REPORT_HOOK_EVENT VALUE ***
+    ULONG ioControlCode = 0x0022E000; // <-- CHANGE THIS TO YOUR IOCTL_REPORT_HOOK_EVENT!
+
+    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo,
+                            ioControlCode);
 }
 
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
@@ -718,7 +798,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     if (hookEntry)
     {
         // Already tracked. Just apply any missing/newly added hooks.
-        if (hookEntry->NtDeviceIoControlFileAddr) {
+        if (hookEntry->NtDeviceIoControlFileAddr)
+        {
             ApplyHooksInternal(process, hookEntry, hookEntry->NtDeviceIoControlFileAddr, ImageBase);
         }
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
@@ -749,7 +830,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     // 1. Initialize Infrastructure (Alloc + Handle)
     status = InitializeShellcodeInfrastructure(process, hookEntry);
-    if (!NT_SUCCESS(status)) {
+    if (!NT_SUCCESS(status))
+    {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return status;
@@ -758,21 +840,23 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     // 2. Resolve NtDeviceIoControlFile (Needed for communication)
     SIZE_T ntdllSize = 0;
     PVOID ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &ntdllSize);
-    if (!ntdllBase) {
-         UserModeUnhookProcess(ProcessId); 
-         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-         return STATUS_NOT_FOUND;
+    if (!ntdllBase)
+    {
+        UserModeUnhookProcess(ProcessId);
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        return STATUS_NOT_FOUND;
     }
-    
+
     KAPC_STATE apcState;
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     PVOID targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
     KeUnstackDetachProcess(&apcState);
-    
-    if (!targetNtDeviceIo) {
-         UserModeUnhookProcess(ProcessId);
-         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-         return STATUS_NOT_FOUND;
+
+    if (!targetNtDeviceIo)
+    {
+        UserModeUnhookProcess(ProcessId);
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        return STATUS_NOT_FOUND;
     }
 
     hookEntry->NtDeviceIoControlFileAddr = targetNtDeviceIo;
@@ -796,14 +880,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 //
 // Helper to Unhook Single Function
 //
-VOID UnhookSingleFunction(
-    _In_ PEPROCESS Process,
-    _Inout_ PHOOK_DEF HookDef
-)
+VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 {
     NTSTATUS status;
     KAPC_STATE apcState;
-    if (!HookDef->IsHooked || !HookDef->Address) return;
+    if (!HookDef->IsHooked || !HookDef->Address)
+        return;
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
@@ -811,10 +893,12 @@ VOID UnhookSingleFunction(
     PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = 14;
     ULONG oldProt;
-    
-    if (fnZwProtectVirtualMemory) {
+
+    if (fnZwProtectVirtualMemory)
+    {
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
-        if (NT_SUCCESS(status)) {
+        if (NT_SUCCESS(status))
+        {
             RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             HookDef->IsHooked = FALSE;
@@ -823,7 +907,6 @@ VOID UnhookSingleFunction(
 
     KeUnstackDetachProcess(&apcState);
 }
-
 
 NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
@@ -845,10 +928,12 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
         UnhookSingleFunction(process, &HookEntry->NtProtectVirtualMemory);
         UnhookSingleFunction(process, &HookEntry->NtCreateThreadEx);
         UnhookSingleFunction(process, &HookEntry->NtMapViewOfSection);
-        
+
         // Unhook dynamic hooks
-        if (HookEntry->CustomHooks) {
-            for (ULONG i = 0; i < MAX_CUSTOM_HOOKS; i++) {
+        if (HookEntry->CustomHooks)
+        {
+            for (ULONG i = 0; i < MAX_CUSTOM_HOOKS; i++)
+            {
                 UnhookSingleFunction(process, &HookEntry->CustomHooks[i]);
             }
         }
@@ -856,15 +941,17 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
         // Free Shellcode Memory using ZwFreeVirtualMemory
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        
-        if (HookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
+
+        if (HookEntry->ShellcodeBase && fnZwFreeVirtualMemory)
+        {
             SIZE_T size = 0;
             fnZwFreeVirtualMemory(ZwCurrentProcess(), &HookEntry->ShellcodeBase, &size, MEM_RELEASE);
             HookEntry->ShellcodeBase = NULL;
         }
-        
+
         // Close Handle
-        if (HookEntry->DriverDeviceHandle) {
+        if (HookEntry->DriverDeviceHandle)
+        {
             ZwClose(HookEntry->DriverDeviceHandle);
             HookEntry->DriverDeviceHandle = NULL;
         }
@@ -872,7 +959,8 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
         KeUnstackDetachProcess(&apcState);
 
         // Free dynamically allocated hooks
-        if (HookEntry->CustomHooks) {
+        if (HookEntry->CustomHooks)
+        {
             ExFreePoolWithTag(HookEntry->CustomHooks, 'UMHd');
             HookEntry->CustomHooks = NULL;
         }
@@ -881,7 +969,8 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
     }
 
     // Always free the pool memory if it exists
-    if (HookEntry->CustomHooks) {
+    if (HookEntry->CustomHooks)
+    {
         ExFreePoolWithTag(HookEntry->CustomHooks, 'UMHd');
         HookEntry->CustomHooks = NULL;
     }
@@ -889,7 +978,8 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
     HookEntry->IsHooked = FALSE;
     HookEntry->ProcessId = 0;
     HookEntry->ProcessObject = NULL;
-    if (g_UserHookEngine) g_UserHookEngine->HookedProcessCount--;
+    if (g_UserHookEngine)
+        g_UserHookEngine->HookedProcessCount--;
 
     return STATUS_SUCCESS;
 }

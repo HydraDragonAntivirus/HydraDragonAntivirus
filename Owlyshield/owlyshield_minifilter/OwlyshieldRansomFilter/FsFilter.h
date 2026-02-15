@@ -115,6 +115,7 @@ _IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutineLegacy(
 
 // Process and quarantine functions
 NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name);
+NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *CommandLine);
 NTSTATUS DeleteFileByPath(PUNICODE_STRING FilePath);
 NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath);
 
