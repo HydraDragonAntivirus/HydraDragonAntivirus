@@ -68,6 +68,7 @@ NTSTATUS HookDeviceCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 
 PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
+static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 
 //
 //  Constant FLT_REGISTRATION structure for our filter.
@@ -268,12 +269,18 @@ Return Value:
     status = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, FALSE);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to register process notify routine: %#010x\n", status);
-        CommClose();
-        FltUnregisterFilter(driverData->getFilter());
-        delete driverData;
-        delete commHandle;
-        return status;
+        DbgPrint("!!! FSFilter: PsSetCreateProcessNotifyRoutineEx failed: %#010x, falling back to legacy callback.\n", status);
+        status = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, FALSE);
+        if (!NT_SUCCESS(status))
+        {
+            DbgPrint("!!! FSFilter: Failed to register any process notify routine: %#010x\n", status);
+            CommClose();
+            FltUnregisterFilter(driverData->getFilter());
+            delete driverData;
+            delete commHandle;
+            return status;
+        }
+        g_UseLegacyProcessNotify = TRUE;
     }
 
     DbgPrint("loaded scanner successfully");
@@ -609,7 +616,11 @@ Return Value:
     }
 
     // Unregister Process Notify
-    PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
+    if (g_UseLegacyProcessNotify) {
+        PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, TRUE);
+    } else {
+        PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
+    }
 
     // Close Communication
     if (commHandle) {
@@ -2025,12 +2036,8 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
 // new code process recording
 _Use_decl_annotations_
-VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
+static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create, PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
-    UNREFERENCED_PARAMETER(Process);
-    BOOLEAN Create = (CreateInfo != NULL);
-    HANDLE ParentId = Create ? CreateInfo->ParentProcessId : 0;
-
     // FIX: Add early safety check for commHandle
     if (commHandle == NULL || commHandle->CommClosed)
         return;
@@ -2166,6 +2173,21 @@ VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTI
 
         driverData->RemoveProcess((ULONG)(ULONG_PTR)ProcessId);
     }
+}
+
+_Use_decl_annotations_
+VOID AddRemProcessRoutineEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
+{
+    UNREFERENCED_PARAMETER(Process);
+    BOOLEAN isCreate = (CreateInfo != NULL);
+    HANDLE parentId = isCreate ? CreateInfo->ParentProcessId : 0;
+    AddRemProcessRoutineCore(parentId, ProcessId, isCreate, CreateInfo);
+}
+
+_Use_decl_annotations_
+VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
+{
+    AddRemProcessRoutineCore(ParentId, ProcessId, Create, NULL);
 }
 
 // ====================================================================

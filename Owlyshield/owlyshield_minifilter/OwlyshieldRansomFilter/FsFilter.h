@@ -107,6 +107,12 @@ VOID AddRemProcessRoutineEx(
     _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
 );
 
+_IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutineLegacy(
+    _In_ HANDLE ParentId,
+    _In_ HANDLE ProcessId,
+    _In_ BOOLEAN Create
+);
+
 // Process and quarantine functions
 NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name);
 NTSTATUS DeleteFileByPath(PUNICODE_STRING FilePath);

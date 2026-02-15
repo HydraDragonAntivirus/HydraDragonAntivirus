@@ -21,7 +21,8 @@ See the [LICENSE](./LICENSE) file for more information.
 ## MEGA IMPORTANT AND !!!WARNING!!!
 - This program assumes the PC is in a clean state and is not subject to post-infection.
 - This project doesn't replace your daily AV and this project not an AV.
-- This project believes that achieving 99% detection rate, even if it takes hours, is better than achieving 90% detection rate within seconds. It focuses on looking toward the future rather than being stuck in the past or present.
+- This project believes that achieving 99% detection rate, even if it takes hours, is better than achieving 90% detection rate within seconds. It focuses on looking toward the future rather than being stuck in the past or present. It doesn't mean this project has 99% detection rate but his philosophy like that.
+- It's for people learn to how malware analysis platforms works.
 - It's very experimental program and you need to be careful.
 - I made very dumb choices in past. It damaged my project but now I improving it.
 - We are not going to detect too old samples. See here: https://blog.clamav.net/2025/12/clamav-signature-retirement.html
@@ -208,6 +209,11 @@ See the [LICENSE](./LICENSE) file for more information.
 **Other related things?**
 - I used yarGen to create machinelearning.yar.
 
+**Why you make this open source? Isn't security by obscurity better?**
+- If I don't make this project open source then I can't use other open source tools and it will make him shit like other too new and unknown closed source AVs. If you able to protect your source like Kaspersky (only leaked once from 2008 version, other leaks are fake also latest version has anti tamper protection from kernel so it's protects his source well.) but not like others Bitdefender (API + signatures solveable) Norton (Leaked his source once) Malwarebytes (leaked his source four times) Zemana (Cloud solveable and C# but currently his cloud is down) Windows Defender (DefenderYARA converted rules to YARA) and many other bad examples... in short if you able to protect your source code then why not to make closed source right? For extra security you can do that.
+
+So I'm not againist closed source if you able to protect source code without false alarms from other AVs. But since I want to make better with open source tools and want open source community support I made them open source. That's of course have huge disadvantages and advantages. But I can't spend my time to create everything from scratch and protect my source code well withotu false alarms, it will take forever.
+ 
 **How many repositories did you look at for this project?**
 - For YARA and website signatures, I looked at many projects-possibly more than 1,000.
 
