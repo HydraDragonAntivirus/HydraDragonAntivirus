@@ -160,7 +160,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 // Complete x64 Shellcode for API Hooking
 // Properly calls NtDeviceIoControlFile with all 10 parameters
 // Stack Layout (after register saves and sub rsp):
-// [RSP+0x00]  = HOOK_EVENT_DATA (80 bytes)
+// [RSP+0x00]  = HOOK_EVENT_DATA (88 bytes)
 // [RSP+0x50]  = Arg2 storage (8 bytes)
 // [RSP+0x58]  = IO_STATUS_BLOCK (16 bytes)
 // [RSP+0x68]  = Shadow space + stack params (80 bytes)
@@ -259,7 +259,7 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x89, 0x44, 0x24, 0x30, // mov [rsp+0x30], rax
 
     // Stack Parameter 4 (8th param): InputBufferLength at [RSP+0x38]
-    0xC7, 0x44, 0x24, 0x38, 0x50, 0x00, 0x00, 0x00, // mov dword [rsp+0x38], 80 (sizeof HOOK_EVENT_DATA)
+    0xC7, 0x44, 0x24, 0x38, 0x58, 0x00, 0x00, 0x00, // mov dword [rsp+0x38], 88 (sizeof HOOK_EVENT_DATA)
 
     // Stack Parameter 5 (9th param): OutputBuffer at [RSP+0x40] = NULL
     0x48, 0xC7, 0x44, 0x24, 0x40, 0x00, 0x00, 0x00, 0x00, // mov qword [rsp+0x40], 0

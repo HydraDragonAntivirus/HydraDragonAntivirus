@@ -19,6 +19,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** (A
 See the [LICENSE](./LICENSE) file for more information.
 
 ## MEGA IMPORTANT AND !!!WARNING!!!
+- False positives are pretty common in this project.
 - This program assumes the PC is in a clean state and is not subject to post-infection.
 - This project doesn't replace your daily AV and this project not an AV.
 - This project believes that achieving 99% detection rate, even if it takes hours, is better than achieving 90% detection rate within seconds. It focuses on looking toward the future rather than being stuck in the past or present. It doesn't mean this project has 99% detection rate but his philosophy like that.

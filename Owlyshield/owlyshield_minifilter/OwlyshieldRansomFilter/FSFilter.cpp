@@ -2297,16 +2297,32 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 PCWSTR incomingWideName = NULL;
                 PVOID genericArg = NULL;
                 WCHAR convertedIncomingName[64] = {0};
-
-                if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA)) {
+    
+                if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
+                {
                     PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
                     eventType = eventData->EventType;
                     processId = eventData->ProcessId;
                     genericArg = (PVOID)eventData->Arg2;
-                    if (eventData->FunctionName[0] != L'\0') {
-                        incomingWideName = eventData->FunctionName;
+
+                    // Convert ANSI FunctionName to WCHAR
+                    if (eventData->FunctionName[0] != '\0')
+                    {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+                        {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
                     }
-                } else {
+                }
+                else
+                {
                     PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
                     eventType = eventData80->EventType;
                     processId = eventData80->ProcessId;

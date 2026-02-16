@@ -40,7 +40,7 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 typedef struct _HOOK_EVENT_DATA {
     ULONG EventType;
     ULONG ProcessId;
-    WCHAR FunctionName[64];
+    CHAR FunctionName[64];
     // Generic arguments storage (up to 4 arguments for now to keep it simple)
     ULONG_PTR Arg1;
     ULONG_PTR Arg2;
