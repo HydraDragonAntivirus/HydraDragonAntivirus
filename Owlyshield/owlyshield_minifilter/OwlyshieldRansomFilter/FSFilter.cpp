@@ -2278,19 +2278,103 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
     NTSTATUS status = STATUS_SUCCESS;
     ULONG bytesWritten = 0;
+
+    typedef struct _HOOK_EVENT_DATA_WIRE80 {
+        ULONG EventType;
+        ULONG ProcessId;
+        CHAR FunctionName[64];
+        ULONG_PTR Arg1;
+    } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
     
     if (irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_REPORT_HOOK_EVENT)
     {
-        if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
+        if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA_WIRE80))
         {
-            PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)Irp->AssociatedIrp.SystemBuffer;
-            if (eventData) {
+            PVOID rawBuffer = Irp->AssociatedIrp.SystemBuffer;
+            if (rawBuffer) {
+                ULONG eventType = 0;
+                ULONG processId = 0;
+                PCWSTR incomingWideName = NULL;
+                PVOID genericArg = NULL;
+                WCHAR convertedIncomingName[64] = {0};
+
+                if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA)) {
+                    PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
+                    eventType = eventData->EventType;
+                    processId = eventData->ProcessId;
+                    genericArg = (PVOID)eventData->Arg2;
+                    if (eventData->FunctionName[0] != L'\0') {
+                        incomingWideName = eventData->FunctionName;
+                    }
+                } else {
+                    PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
+                    eventType = eventData80->EventType;
+                    processId = eventData80->ProcessId;
+                    genericArg = (PVOID)eventData80->Arg1;
+                    if (eventData80->FunctionName[0] != '\0') {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData80->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
+                    }
+                }
+
+                WCHAR resolvedFunctionName[64] = {0};
+                PCWSTR functionName = NULL;
+
+                if (incomingWideName && incomingWideName[0] != L'\0') {
+                    functionName = incomingWideName;
+                } else {
+                    BOOLEAN mapped = FALSE;
+                    ExAcquireFastMutex(&g_ConfigMutex);
+                    for (ULONG i = 0; i < g_CustomHookCount; i++) {
+                        if (g_GlobalCustomHooks[i].EventId == eventType) {
+                            ANSI_STRING asFunc;
+                            UNICODE_STRING usFunc;
+                            RtlInitAnsiString(&asFunc, g_GlobalCustomHooks[i].FunctionName);
+                            usFunc.Buffer = resolvedFunctionName;
+                            usFunc.Length = 0;
+                            usFunc.MaximumLength = sizeof(resolvedFunctionName);
+                            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                                resolvedFunctionName[(RTL_NUMBER_OF(resolvedFunctionName) - 1)] = L'\0';
+                                functionName = resolvedFunctionName;
+                                mapped = TRUE;
+                            }
+                            break;
+                        }
+                    }
+                    ExReleaseFastMutex(&g_ConfigMutex);
+
+                    if (!mapped) {
+                        switch (eventType) {
+                        case IRP_NT_WRITE_VIRTUAL_MEMORY: functionName = L"NtWriteVirtualMemory"; break;
+                        case IRP_NT_ALLOCATE_VIRTUAL_MEMORY: functionName = L"NtAllocateVirtualMemory"; break;
+                        case IRP_NT_PROTECT_VIRTUAL_MEMORY: functionName = L"NtProtectVirtualMemory"; break;
+                        case IRP_NT_CREATE_THREAD: functionName = L"NtCreateThreadEx"; break;
+                        case IRP_NT_QUEUE_APC: functionName = L"NtQueueApcThread"; break;
+                        case IRP_NT_SET_CONTEXT: functionName = L"NtSetContextThread"; break;
+                        case IRP_NT_CREATE_SECTION: functionName = L"NtCreateSection"; break;
+                        case IRP_NT_MAP_SECTION: functionName = L"NtMapViewOfSection"; break;
+                        case IRP_NT_DELETE_FILE: functionName = L"NtDeleteFile"; break;
+                        case IRP_NT_LOAD_DRIVER: functionName = L"NtLoadDriver"; break;
+                        case IRP_NT_OPEN_PROCESS: functionName = L"NtOpenProcess"; break;
+                        default: functionName = L"GenericApiCall"; break;
+                        }
+                    }
+                }
+
                 // Log event using existing mechanism
-                DbgPrint("FSFilter: Hook Event from PID %lu: Type=%lu\n", 
-                    eventData->ProcessId, eventData->EventType);
+                DbgPrint("FSFilter: Hook Event from PID %lu: Type=%lu Name=%ws\n", 
+                    processId, eventType, functionName ? functionName : L"");
                 
                 // Pass Arg2 (BaseAddress) as Generic Data Pointer and FunctionName
-                OnKernelApiEvent(eventData->EventType, eventData->ProcessId, eventData->ProcessId, eventData->FunctionName, (PVOID)eventData->Arg2);
+                OnKernelApiEvent(eventType, processId, processId, functionName, genericArg);
             }
         }
         else {

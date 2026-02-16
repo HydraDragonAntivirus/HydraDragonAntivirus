@@ -1357,6 +1357,15 @@ pub mod worker_instance {
             // Register or update process record based on kernel event
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
+
+            // Backfill command line for events that don't carry it (e.g., kernel API hook events).
+            if iomsg.runtime_features.command_line.trim().is_empty() {
+                if let Some(precord) = self.process_records.get_precord_by_gid(tracking_key) {
+                    if !precord.command_line.trim().is_empty() {
+                        iomsg.runtime_features.command_line = precord.command_line.clone();
+                    }
+                }
+            }
             
             // Register dynamic hooks for the new process before borrowing precord
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

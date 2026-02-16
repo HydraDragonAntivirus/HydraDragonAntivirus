@@ -15,8 +15,8 @@ Environment:
 // It contains PEPROCESS/PETHREAD definitions.
 // Do not include ntddk.h or windef.h alongside it if they conflict.
 // -------------------------------------------------------------------------
-#include "..\SharedDefs\SharedDefs.h"
 #include <ntifs.h>
+#include "..\SharedDefs\SharedDefs.h"
 
 //
 // -------------------------------------------------------------------------

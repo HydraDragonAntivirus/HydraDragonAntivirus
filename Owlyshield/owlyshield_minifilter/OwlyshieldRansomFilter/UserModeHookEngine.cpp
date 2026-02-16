@@ -48,17 +48,28 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
 
 VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo, PVOID NewModuleBase)
 {
+    NTSTATUS st = STATUS_SUCCESS;
+
     // NTDLL Hooks (Default)
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12,
-                   TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13,
-                   TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14,
-                   TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15,
-                   TargetNtDeviceIo, NewModuleBase);
-    ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19,
-                   TargetNtDeviceIo, NewModuleBase);
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12,
+                        TargetNtDeviceIo, NewModuleBase);
+    DbgPrint("UserModeHook: PID %lu hook NtWriteVirtualMemory (id=12) -> 0x%08X\n", HookEntry->ProcessId, st);
+
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13,
+                        TargetNtDeviceIo, NewModuleBase);
+    DbgPrint("UserModeHook: PID %lu hook NtAllocateVirtualMemory (id=13) -> 0x%08X\n", HookEntry->ProcessId, st);
+
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14,
+                        TargetNtDeviceIo, NewModuleBase);
+    DbgPrint("UserModeHook: PID %lu hook NtProtectVirtualMemory (id=14) -> 0x%08X\n", HookEntry->ProcessId, st);
+
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15,
+                        TargetNtDeviceIo, NewModuleBase);
+    DbgPrint("UserModeHook: PID %lu hook NtCreateThreadEx (id=15) -> 0x%08X\n", HookEntry->ProcessId, st);
+
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19,
+                        TargetNtDeviceIo, NewModuleBase);
+    DbgPrint("UserModeHook: PID %lu hook NtMapViewOfSection (id=19) -> 0x%08X\n", HookEntry->ProcessId, st);
 
     // Custom Hooks (Dynamic)
     if (HookEntry->CustomHooks == NULL)
@@ -78,9 +89,15 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
         {
             if (i < MAX_CUSTOM_HOOKS)
             {
-                ResolveAndHook(Process, HookEntry, g_GlobalCustomHooks[i].ModuleName,
-                               g_GlobalCustomHooks[i].FunctionName, &HookEntry->CustomHooks[i],
-                               g_GlobalCustomHooks[i].EventId, TargetNtDeviceIo, NewModuleBase);
+                st = ResolveAndHook(Process, HookEntry, g_GlobalCustomHooks[i].ModuleName,
+                                    g_GlobalCustomHooks[i].FunctionName, &HookEntry->CustomHooks[i],
+                                    g_GlobalCustomHooks[i].EventId, TargetNtDeviceIo, NewModuleBase);
+                DbgPrint("UserModeHook: PID %lu hook %ws!%s (id=%lu) -> 0x%08X\n",
+                    HookEntry->ProcessId,
+                    g_GlobalCustomHooks[i].ModuleName,
+                    g_GlobalCustomHooks[i].FunctionName,
+                    g_GlobalCustomHooks[i].EventId,
+                    st);
             }
         }
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -173,7 +190,32 @@ UCHAR g_ShellcodeTemplate[] = {
     // ProcessId (DWORD at offset 4) - PATCHED at offset 28 in shellcode array
     0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22, // mov dword [rsp+4], 0x22222222
 
-    // FunctionName (64 bytes at offset 8) - leave as is, driver can read function name from event ID
+    // FunctionName (64 bytes at offset 8): 8 x qword stores.
+    // Immediates are patched by InjectSingleHook from the target API name.
+    // [rsp+0x08]
+    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+    0x48, 0x89, 0x44, 0x24, 0x08,
+    // [rsp+0x10]
+    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77,
+    0x48, 0x89, 0x44, 0x24, 0x10,
+    // [rsp+0x18]
+    0x48, 0xB8, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,
+    0x48, 0x89, 0x44, 0x24, 0x18,
+    // [rsp+0x20]
+    0x48, 0xB8, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99,
+    0x48, 0x89, 0x44, 0x24, 0x20,
+    // [rsp+0x28]
+    0x48, 0xB8, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
+    0x48, 0x89, 0x44, 0x24, 0x28,
+    // [rsp+0x30]
+    0x48, 0xB8, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC,
+    0x48, 0x89, 0x44, 0x24, 0x30,
+    // [rsp+0x38]
+    0x48, 0xB8, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD,
+    0x48, 0x89, 0x44, 0x24, 0x38,
+    // [rsp+0x40]
+    0x48, 0xB8, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE,
+    0x48, 0x89, 0x44, 0x24, 0x40,
 
     // Arg1 (ULONG_PTR at offset 72 = 0x48)
     // Saved RCX is at: [current_RSP + 0xF0 (our alloc) + 56 (7th of 8 pushes)] = [RSP + 0x128]
@@ -533,7 +575,7 @@ NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _
 // Helper to Inject a Single Hook
 //
 NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_ PVOID TargetNtDeviceIo,
+                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_opt_ PCSTR FunctionName, _In_ PVOID TargetNtDeviceIo,
                           _In_ ULONG IoControlCode)
 {
     NTSTATUS status;
@@ -558,29 +600,58 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
+    // Safety checks for patch markers in the template.
+    if (*(PULONG)(shellcode + 21) != 0x11111111 ||
+        *(PULONG)(shellcode + 28) != 0x22222222 ||
+        *(PULONGLONG)(shellcode + 203) != 0x3333333333333333ULL ||
+        *(PULONG)(shellcode + 246) != 0xAAAAAAAA ||
+        *(PULONGLONG)(shellcode + 291) != 0x4444444444444444ULL ||
+        *(PULONGLONG)(shellcode + 333) != 0x5555555555555555ULL) {
+        KeUnstackDetachProcess(&apcState);
+        return STATUS_INVALID_IMAGE_FORMAT;
+    }
+
     // Patch EventType at offset 21 (0x11111111)
     *(PULONG)(shellcode + 21) = EventId;
 
     // Patch ProcessId at offset 28 (0x22222222)
     *(PULONG)(shellcode + 28) = ProcessId;
 
-    // Patch FileHandle at offset 83 (0x3333333333333333)
-    *(PHANDLE)(shellcode + 83) = HookEntry->DriverDeviceHandle;
+    // Patch FunctionName in payload region (8x8 bytes, ANSI).
+    // FunctionName immediates start at these offsets.
+    const ULONG fnImmOffsets[8] = {34, 49, 64, 79, 94, 109, 124, 139};
+    CHAR fnBuf[64];
+    RtlZeroMemory(fnBuf, sizeof(fnBuf));
+    if (FunctionName != NULL) {
+        SIZE_T i = 0;
+        for (; i < (sizeof(fnBuf) - 1) && FunctionName[i] != '\0'; i++) {
+            fnBuf[i] = FunctionName[i];
+        }
+    }
+    for (ULONG i = 0; i < RTL_NUMBER_OF(fnImmOffsets); i++) {
+        ULONGLONG chunk = 0;
+        RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
+        *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
+    }
 
-    // Patch IoControlCode at offset 126 (0xAAAAAAAA)
-    *(PULONG)(shellcode + 126) = IoControlCode;
+    // Offsets after FunctionName writer block (+120 bytes vs old template).
+    // Patch FileHandle at offset 203 (0x3333333333333333)
+    *(PHANDLE)(shellcode + 203) = HookEntry->DriverDeviceHandle;
 
-    // Patch NtDeviceIoControlFile Address at offset 171 (0x4444444444444444)
-    *(PVOID *)(shellcode + 171) = TargetNtDeviceIo;
+    // Patch IoControlCode at offset 246 (0xAAAAAAAA)
+    *(PULONG)(shellcode + 246) = IoControlCode;
 
-    // Patch Stolen Bytes at offset 197 (14 bytes from original function)
-    RtlCopyMemory(shellcode + 197, HookDef->Address, 14);
+    // Patch NtDeviceIoControlFile Address at offset 291 (0x4444444444444444)
+    *(PVOID *)(shellcode + 291) = TargetNtDeviceIo;
+
+    // Patch Stolen Bytes at offset 317 (14 bytes from original function)
+    RtlCopyMemory(shellcode + 317, HookDef->Address, 14);
 
     // Save original bytes locally
     RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
 
-    // Patch Return Address at offset 213 (0x5555555555555555) -> Original Addr + 14
-    *(PVOID *)(shellcode + 213) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+    // Patch Return Address at offset 333 (0x5555555555555555) -> Original Addr + 14
+    *(PVOID *)(shellcode + 333) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
 
     // Write Shellcode to Target Process Memory
     RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
@@ -755,18 +826,9 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
     if (!HookDef->Address)
         return STATUS_PROCEDURE_NOT_FOUND;
 
-    // CRITICAL: This must match IOCTL_REPORT_HOOK_EVENT from your driver!
-    // Find the CTL_CODE definition in your SharedDefs.h or driver header
-    // It should look like: #define IOCTL_REPORT_HOOK_EVENT CTL_CODE(...)
-    //
-    // Common values:
-    // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS) = 0x0022E000
-    // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS) = 0x0022E004
-    //
-    // *** TODO: REPLACE THIS WITH YOUR ACTUAL IOCTL_REPORT_HOOK_EVENT VALUE ***
-    ULONG ioControlCode = 0x0022E000; // <-- CHANGE THIS TO YOUR IOCTL_REPORT_HOOK_EVENT!
+    ULONG ioControlCode = (ULONG)IOCTL_REPORT_HOOK_EVENT;
 
-    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo,
+    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, FunctionName, TargetNtDeviceIo,
                             ioControlCode);
 }
 
