@@ -601,25 +601,23 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
     // Safety checks for patch markers in the template.
-    if (*(PULONG)(shellcode + 21) != 0x11111111 ||
-        *(PULONG)(shellcode + 28) != 0x22222222 ||
-        *(PULONGLONG)(shellcode + 203) != 0x3333333333333333ULL ||
-        *(PULONG)(shellcode + 246) != 0xAAAAAAAA ||
-        *(PULONGLONG)(shellcode + 291) != 0x4444444444444444ULL ||
-        *(PULONGLONG)(shellcode + 333) != 0x5555555555555555ULL) {
+    if (*(PULONG)(shellcode + 22) != 0x11111111 ||
+        *(PULONG)(shellcode + 30) != 0x22222222 ||
+        *(PULONGLONG)(shellcode + 195) != 0x3333333333333333ULL ||
+        *(PULONG)(shellcode + 226) != 0xAAAAAAAA ||
+        *(PULONGLONG)(shellcode + 266) != 0x4444444444444444ULL ||
+        *(PULONGLONG)(shellcode + 311) != 0x5555555555555555ULL) {
         KeUnstackDetachProcess(&apcState);
         return STATUS_INVALID_IMAGE_FORMAT;
     }
 
-    // Patch EventType at offset 21 (0x11111111)
-    *(PULONG)(shellcode + 21) = EventId;
-
-    // Patch ProcessId at offset 28 (0x22222222)
-    *(PULONG)(shellcode + 28) = ProcessId;
+    // NEW (CORRECT):
+    *(PULONG)(shellcode + 22) = EventId;
+    *(PULONG)(shellcode + 30) = ProcessId;
 
     // Patch FunctionName in payload region (8x8 bytes, ANSI).
     // FunctionName immediates start at these offsets.
-    const ULONG fnImmOffsets[8] = {34, 49, 64, 79, 94, 109, 124, 139};
+    const ULONG fnImmOffsets[8] = {36, 51, 66, 81, 96, 111, 126, 141};
     CHAR fnBuf[64];
     RtlZeroMemory(fnBuf, sizeof(fnBuf));
     if (FunctionName != NULL) {
@@ -634,24 +632,23 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
     }
 
-    // Offsets after FunctionName writer block (+120 bytes vs old template).
-    // Patch FileHandle at offset 203 (0x3333333333333333)
-    *(PHANDLE)(shellcode + 203) = HookEntry->DriverDeviceHandle;
+    // Patch FileHandle at offset 195
+    *(PHANDLE)(shellcode + 195) = HookEntry->DriverDeviceHandle;
 
-    // Patch IoControlCode at offset 246 (0xAAAAAAAA)
-    *(PULONG)(shellcode + 246) = IoControlCode;
+    // Patch IoControlCode at offset 226
+    *(PULONG)(shellcode + 226) = IoControlCode;
 
-    // Patch NtDeviceIoControlFile Address at offset 291 (0x4444444444444444)
-    *(PVOID *)(shellcode + 291) = TargetNtDeviceIo;
+    // Patch NtDeviceIoControlFile Address at offset 266
+    *(PVOID *)(shellcode + 266) = TargetNtDeviceIo;
 
-    // Patch Stolen Bytes at offset 317 (14 bytes from original function)
-    RtlCopyMemory(shellcode + 317, HookDef->Address, 14);
+    // Patch Stolen Bytes at offset 295 (14 bytes from original function)
+    RtlCopyMemory(shellcode + 295, HookDef->Address, 14);
 
-    // Save original bytes locally
+    // Save original bytes locally (for unhooking later)
     RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
 
-    // Patch Return Address at offset 333 (0x5555555555555555) -> Original Addr + 14
-    *(PVOID *)(shellcode + 333) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+    // Patch Return Address at offset 311 -> Original Addr + 14
+    *(PVOID *)(shellcode + 311) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
 
     // Write Shellcode to Target Process Memory
     RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
