@@ -472,9 +472,12 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
 
     if (isExecutable)
     {
+        NTSTATUS hookStatus;
         DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ - Triggering hook engine\n",
                  (ULONG)(ULONG_PTR)ProcessId, FullImageName);
-        UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase);
+        hookStatus = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase);
+        DbgPrint("!!! FSFilter: UserModeHookProcess(pid=%lu, imageBase=%p) -> 0x%08X\n",
+                 (ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase, hookStatus);
     }
 }
 
@@ -559,7 +562,10 @@ VOID EnumerateExistingProcesses(VOID)
                             }
                             
                             // PROACTIVE: Hook existing process now (Full scan)
-                            UserModeHookProcess(pidNum, NULL);
+                            {
+                                NTSTATUS hookStatus = UserModeHookProcess(pidNum, NULL);
+                                DbgPrint("!!! FSFilter: UserModeHookProcess(existing pid=%lu) -> 0x%08X\n", pidNum, hookStatus);
+                            }
                         }
                     }
 

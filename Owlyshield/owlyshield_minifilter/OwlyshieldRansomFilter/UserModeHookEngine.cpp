@@ -831,12 +831,18 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     PEPROCESS process = NULL;
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
 
-    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+    DbgPrint("UserModeHook: UserModeHookProcess enter PID=%lu ImageBase=%p\n", ProcessId, ImageBase);
+
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized) {
+        DbgPrint("UserModeHook: engine not initialized for PID %lu\n", ProcessId);
         return STATUS_DEVICE_NOT_READY;
+    }
 
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (!NT_SUCCESS(status))
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("UserModeHook: PsLookupProcessByProcessId failed PID=%lu status=0x%08X\n", ProcessId, status);
         return status;
+    }
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
@@ -874,6 +880,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     if (hookEntry == NULL)
     {
+        DbgPrint("UserModeHook: no free hook slot for PID %lu\n", ProcessId);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -887,6 +894,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     status = InitializeShellcodeInfrastructure(process, hookEntry);
     if (!NT_SUCCESS(status))
     {
+        DbgPrint("UserModeHook: InitializeShellcodeInfrastructure failed PID=%lu status=0x%08X\n", ProcessId, status);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return status;
@@ -897,6 +905,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     PVOID ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &ntdllSize);
     if (!ntdllBase)
     {
+        DbgPrint("UserModeHook: FindModuleBaseAddress(ntdll.dll) failed PID=%lu\n", ProcessId);
         UserModeUnhookProcess(ProcessId);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
@@ -909,6 +918,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     if (!targetNtDeviceIo)
     {
+        DbgPrint("UserModeHook: FindExportedFunction(NtDeviceIoControlFile) failed PID=%lu\n", ProcessId);
         UserModeUnhookProcess(ProcessId);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
