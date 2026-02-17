@@ -774,14 +774,25 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     HookEntry->ShellcodeUsed = 8;  // Reserve first 8 bytes for busy flag
     RtlZeroMemory(baseAddress, 8); // Zero the flag
 
-    // 2. Create Handle
+    // 2. Create per-process device handle used by shellcode NtDeviceIoControlFile calls.
+    // Open by name inside the attached process context so the handle lives in that process handle table.
     HANDLE targetHandle = NULL;
-    status = ObOpenObjectByPointer(g_HookDeviceObject, OBJ_CASE_INSENSITIVE, NULL, GENERIC_READ | GENERIC_WRITE,
-                                   *IoFileObjectType, KernelMode, &targetHandle);
+    UNICODE_STRING hookDevicePath;
+    OBJECT_ATTRIBUTES objAttr;
+    IO_STATUS_BLOCK ioStatus;
+
+    RtlInitUnicodeString(&hookDevicePath, L"\\??\\OwlyshieldHook");
+    InitializeObjectAttributes(&objAttr, &hookDevicePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+
+    status = ZwCreateFile(&targetHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_NON_DIRECTORY_FILE,
+                          NULL, 0);
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("UserModeHook: ObOpenObjectByPointer failed PID=%lu status=0x%08X\n", pid, status);
+        DbgPrint("UserModeHook: ZwCreateFile(\\\\??\\\\OwlyshieldHook) failed PID=%lu status=0x%08X iosb=0x%08X\n",
+                 pid, status, ioStatus.Status);
         if (fnZwFreeVirtualMemory)
         {
             SIZE_T freeSize = 0;
