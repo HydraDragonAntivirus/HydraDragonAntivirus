@@ -403,11 +403,11 @@ VOID ThreadCreationCallback(
         ULONGLONG targetGid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &targetFound);
         
         if (sourceFound || targetFound) {
-            // Log to usermode via IRP_KERNEL_CREATE_THREAD
+            // Log to usermode via dedicated remote-thread callback opcode
             PIRP_ENTRY newEntry = new IRP_ENTRY();
             if (newEntry != NULL) {
                 PDRIVER_MESSAGE newItem = &newEntry->data;
-                newItem->IRP_OP = IRP_KERNEL_CREATE_THREAD; // 15
+                newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD; // 12
                 
                 // Attribute to the attacker (source process)
                 if (sourceFound) {
@@ -422,7 +422,7 @@ VOID ThreadCreationCallback(
                 newItem->AttackerGid = sourceFound ? sourceGid : 0;
                 
                 // Fill in kernel event info
-                newItem->KernelEventInfo.EventType = IRP_KERNEL_CREATE_THREAD;
+                newItem->KernelEventInfo.EventType = IRP_KERNEL_REMOTE_THREAD;
                 newItem->KernelEventInfo.SourceProcessId = (ULONG)(ULONG_PTR)currentPid;
                 newItem->KernelEventInfo.TargetProcessId = (ULONG)(ULONG_PTR)ProcessId;
                 KeQuerySystemTimePrecise((PLARGE_INTEGER)&newItem->KernelEventInfo.Timestamp);
@@ -2379,6 +2379,7 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                         case IRP_NT_MAP_SECTION: functionName = L"NtMapViewOfSection"; break;
                         case IRP_NT_DELETE_FILE: functionName = L"NtDeleteFile"; break;
                         case IRP_NT_LOAD_DRIVER: functionName = L"NtLoadDriver"; break;
+                        case IRP_KERNEL_REMOTE_THREAD: functionName = L"KernelRemoteThread"; break;
                         case IRP_NT_OPEN_PROCESS: functionName = L"NtOpenProcess"; break;
                         default: functionName = L"GenericApiCall"; break;
                         }

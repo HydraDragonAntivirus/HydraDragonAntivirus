@@ -765,7 +765,7 @@ pub mod worker_instance {
     impl<'a> Worker<'a> {
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        const DYNAMIC_HOOK_EVENT_ID_START: u8 = 24;
+        const DYNAMIC_HOOK_EVENT_ID_START: u8 = 25;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         const DYNAMIC_HOOK_EVENT_ID_END: u8 = 239;
 
@@ -1342,8 +1342,8 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(api_name) = self.dynamic_hook_event_map.get(&iomsg.irp_op).cloned() {
-                    iomsg.irp_op = 23;
-                    iomsg.ntdll_event_info.event_type = 23;
+                    iomsg.irp_op = 24;
+                    iomsg.ntdll_event_info.event_type = 24;
                     if iomsg.ntdll_event_info.object_name.trim().is_empty() {
                         iomsg.ntdll_event_info.object_name = api_name;
                     }

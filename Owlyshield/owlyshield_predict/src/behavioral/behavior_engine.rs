@@ -201,12 +201,15 @@ impl IrpStatistics {
                 self.nt_load_driver_count += 1;
                 self.record_ntdll_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
             },
+            IrpMajorOp::IrpKernelRemoteThread => {
+                self.record_ntdll_api_operation(rec, irp_op, "Kernel callback - Remote thread creation");
+            },
             IrpMajorOp::IrpNtOpenProcess => {
                 self.nt_open_process_count += 1;
                 self.record_ntdll_api_operation(rec, irp_op, "NtOpenProcess - Process access");
             },
             
-            // Generic API Hook (Event ID 23) - Dynamic hooks from behavior rules
+            // Generic API Hook (Event ID 24) - Dynamic hooks from behavior rules
             IrpMajorOp::IrpNtGenericApiCall => {
                 self.nt_generic_api_events += 1;
                 // The function name is in the record
@@ -1177,7 +1180,7 @@ impl ProcessBehaviorState {
         self.irp_stats.record_operation(&rec);
         
         match irp_op {
-            12 => {  // IRP_NT_WRITE_VIRTUAL_MEMORY
+            13 => {  // IRP_NT_WRITE_VIRTUAL_MEMORY
                 self.nt_write_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1221,7 +1224,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            13 => {  // IRP_NT_ALLOCATE_VIRTUAL_MEMORY
+            14 => {  // IRP_NT_ALLOCATE_VIRTUAL_MEMORY
                 self.nt_allocate_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1259,7 +1262,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            14 => {  // IRP_NT_PROTECT_VIRTUAL_MEMORY
+            15 => {  // IRP_NT_PROTECT_VIRTUAL_MEMORY
                 self.nt_protect_virtual_memory_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1301,7 +1304,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            15 => {  // IRP_NT_CREATE_THREAD
+            16 => {  // IRP_NT_CREATE_THREAD
                 self.nt_create_thread_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1331,7 +1334,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            16 => {  // IRP_NT_QUEUE_APC
+            17 => {  // IRP_NT_QUEUE_APC
                 self.nt_queue_apc_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1361,7 +1364,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            17 => {  // IRP_NT_SET_CONTEXT
+            18 => {  // IRP_NT_SET_CONTEXT
                 self.nt_set_context_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1391,7 +1394,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            18 => {  // IRP_NT_CREATE_SECTION
+            19 => {  // IRP_NT_CREATE_SECTION
                 self.nt_create_section_events += 1;
                 
                 Logging::info(&format!(
@@ -1401,7 +1404,7 @@ impl ProcessBehaviorState {
                 ));
             },
             
-            19 => {  // IRP_NT_MAP_SECTION
+            20 => {  // IRP_NT_MAP_SECTION
                 self.nt_map_section_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1430,7 +1433,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            20 => {  // IRP_NT_DELETE_FILE
+            21 => {  // IRP_NT_DELETE_FILE
                 self.nt_delete_file_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1460,7 +1463,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            21 => {  // IRP_NT_LOAD_DRIVER
+            22 => {  // IRP_NT_LOAD_DRIVER
                 self.nt_load_driver_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1490,7 +1493,42 @@ impl ProcessBehaviorState {
                 }
             },
             
-            22 => {  // IRP_NT_OPEN_PROCESS
+            12 => {  // IRP_KERNEL_REMOTE_THREAD
+                self.nt_create_thread_events += 1;
+                
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    let source_pid = if msg.ntdll_event_info.source_process_id != 0 {
+                        msg.ntdll_event_info.source_process_id
+                    } else {
+                        msg.attacker_pid
+                    };
+                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
+                        msg.ntdll_event_info.target_process_id
+                    } else {
+                        msg.pid
+                    };
+
+                    Logging::info(&format!(
+                        "[KERNEL CALLBACK] Remote thread create - Source: {}, Target: {}, StartRoutine: 0x{:X}, Count: {}",
+                        source_pid,
+                        target_pid,
+                        msg.ntdll_event_info.thread_start_routine as usize,
+                        self.nt_create_thread_events
+                    ));
+                }
+                
+                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+                {
+                    Logging::info(&format!(
+                        "[KERNEL CALLBACK] Remote thread create - PID: {}, Count: {}",
+                        msg.pid,
+                        self.nt_create_thread_events
+                    ));
+                }
+            },
+
+            23 => {  // IRP_NT_OPEN_PROCESS
                 self.nt_open_process_events += 1;
                 
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1520,7 +1558,7 @@ impl ProcessBehaviorState {
                 }
             },
             
-            23 => { // IRP_NT_GENERIC_API_CALL
+            24 => { // IRP_NT_GENERIC_API_CALL
                 self.nt_generic_api_events += 1;
                 self.detected_apis.insert(msg.ntdll_event_info.object_name.clone());
                 self.all_apis_called.insert(msg.ntdll_event_info.object_name.clone());
@@ -1537,7 +1575,7 @@ impl ProcessBehaviorState {
         }
 
         // Increment total Ntdll events counter and log injection pattern detection
-        if irp_op >= 12 && irp_op <= 22 {
+        if irp_op >= 12 && irp_op <= 24 {
             self.ntdll_events_total += 1;
             
             // Check for injection indicators after each Nt API event

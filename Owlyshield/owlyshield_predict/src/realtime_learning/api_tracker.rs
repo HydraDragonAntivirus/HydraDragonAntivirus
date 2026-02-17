@@ -341,6 +341,7 @@ impl ApiTracker {
             | IrpMajorOp::IrpNtMapSection
             | IrpMajorOp::IrpNtDeleteFile
             | IrpMajorOp::IrpNtLoadDriver
+            | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpNtOpenProcess
             | IrpMajorOp::IrpNtGenericApiCall => {
                 self.record_kernel_api_event(msg, irp_op);
@@ -404,6 +405,10 @@ impl ApiTracker {
                 self.kernel_operations.create_thread += 1;
                 self.process_operations.threads_created += 1;
             }
+            IrpMajorOp::IrpKernelRemoteThread => {
+                self.kernel_operations.create_thread += 1;
+                self.process_operations.threads_created += 1;
+            }
             IrpMajorOp::IrpNtQueueApc => self.kernel_operations.queue_apc += 1,
             IrpMajorOp::IrpNtSetContext => self.kernel_operations.set_context += 1,
             IrpMajorOp::IrpNtCreateSection => self.kernel_operations.create_section += 1,
@@ -456,6 +461,7 @@ impl ApiTracker {
             | IrpMajorOp::IrpNtAllocateVirtualMemory
             | IrpMajorOp::IrpNtProtectVirtualMemory
             | IrpMajorOp::IrpNtCreateThread
+            | IrpMajorOp::IrpKernelRemoteThread
             | IrpMajorOp::IrpNtQueueApc
             | IrpMajorOp::IrpNtSetContext
             | IrpMajorOp::IrpNtCreateSection
@@ -677,6 +683,7 @@ impl ApiTracker {
             ("IrpNtAllocateVirtualMemory".to_string(), self.kernel_operations.allocate_virtual_memory),
             ("IrpNtProtectVirtualMemory".to_string(), self.kernel_operations.protect_virtual_memory),
             ("IrpNtCreateThread".to_string(), self.kernel_operations.create_thread),
+            ("IrpKernelRemoteThread".to_string(), self.kernel_operations.create_thread),
             ("IrpNtQueueApc".to_string(), self.kernel_operations.queue_apc),
             ("IrpNtSetContext".to_string(), self.kernel_operations.set_context),
             ("IrpNtCreateSection".to_string(), self.kernel_operations.create_section),

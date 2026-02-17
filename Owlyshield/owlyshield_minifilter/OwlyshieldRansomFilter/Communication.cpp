@@ -409,7 +409,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         RtlUnicodeStringToAnsiString(&asFunc, &usFunc, FALSE);
         
         config.EventId = (ULONG)message->gid; // Use PID/GID field for EventID
-        if (config.EventId == 0) config.EventId = 23; // Default Generic
+        if (config.EventId == 0) config.EventId = 24; // Default Generic
         
         return AddCustomHook(&config);
     }

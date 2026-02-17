@@ -51,25 +51,25 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     NTSTATUS st = STATUS_SUCCESS;
 
     // NTDLL Hooks (Default)
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 12,
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory, 13,
                         TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtWriteVirtualMemory (id=12) -> 0x%08X\n", HookEntry->ProcessId, st);
+    DbgPrint("UserModeHook: PID %lu hook NtWriteVirtualMemory (id=13) -> 0x%08X\n", HookEntry->ProcessId, st);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 13,
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 14,
                         TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtAllocateVirtualMemory (id=13) -> 0x%08X\n", HookEntry->ProcessId, st);
+    DbgPrint("UserModeHook: PID %lu hook NtAllocateVirtualMemory (id=14) -> 0x%08X\n", HookEntry->ProcessId, st);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 14,
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 15,
                         TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtProtectVirtualMemory (id=14) -> 0x%08X\n", HookEntry->ProcessId, st);
+    DbgPrint("UserModeHook: PID %lu hook NtProtectVirtualMemory (id=15) -> 0x%08X\n", HookEntry->ProcessId, st);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 15,
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateThreadEx", &HookEntry->NtCreateThreadEx, 16,
                         TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtCreateThreadEx (id=15) -> 0x%08X\n", HookEntry->ProcessId, st);
+    DbgPrint("UserModeHook: PID %lu hook NtCreateThreadEx (id=16) -> 0x%08X\n", HookEntry->ProcessId, st);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 19,
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 20,
                         TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtMapViewOfSection (id=19) -> 0x%08X\n", HookEntry->ProcessId, st);
+    DbgPrint("UserModeHook: PID %lu hook NtMapViewOfSection (id=20) -> 0x%08X\n", HookEntry->ProcessId, st);
 
     // Custom Hooks (Dynamic)
     if (HookEntry->CustomHooks == NULL)

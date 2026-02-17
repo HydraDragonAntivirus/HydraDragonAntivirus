@@ -89,6 +89,8 @@ pub enum IrpMajorOp {
     IrpProcessExit,
     /// Process handle opened for access (OB callback)
     IrpProcessHandleOpen,
+    /// Kernel thread-create callback (cross-process only)
+    IrpKernelRemoteThread,
     
     // --------------------------------------------------------------------------------
     // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
@@ -143,19 +145,20 @@ impl IrpMajorOp {
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
             
-            // NTDLL Hooks
-            12 => IrpMajorOp::IrpNtWriteVirtualMemory,
-            13 => IrpMajorOp::IrpNtAllocateVirtualMemory,
-            14 => IrpMajorOp::IrpNtProtectVirtualMemory,
-            15 => IrpMajorOp::IrpNtCreateThread,
-            16 => IrpMajorOp::IrpNtQueueApc,
-            17 => IrpMajorOp::IrpNtSetContext,
-            18 => IrpMajorOp::IrpNtCreateSection,
-            19 => IrpMajorOp::IrpNtMapSection,
-            20 => IrpMajorOp::IrpNtDeleteFile,
-            21 => IrpMajorOp::IrpNtLoadDriver,
-            22 => IrpMajorOp::IrpNtOpenProcess,
-            23 => IrpMajorOp::IrpNtGenericApiCall,
+            // Kernel callback + NTDLL hooks
+            12 => IrpMajorOp::IrpKernelRemoteThread,
+            13 => IrpMajorOp::IrpNtWriteVirtualMemory,
+            14 => IrpMajorOp::IrpNtAllocateVirtualMemory,
+            15 => IrpMajorOp::IrpNtProtectVirtualMemory,
+            16 => IrpMajorOp::IrpNtCreateThread,
+            17 => IrpMajorOp::IrpNtQueueApc,
+            18 => IrpMajorOp::IrpNtSetContext,
+            19 => IrpMajorOp::IrpNtCreateSection,
+            20 => IrpMajorOp::IrpNtMapSection,
+            21 => IrpMajorOp::IrpNtDeleteFile,
+            22 => IrpMajorOp::IrpNtLoadDriver,
+            23 => IrpMajorOp::IrpNtOpenProcess,
+            24 => IrpMajorOp::IrpNtGenericApiCall,
             
             _ => IrpMajorOp::IrpNone,
         }

@@ -633,9 +633,9 @@ NTSTATUS OnThreadCreation(
     newItem->Gid = targetGid;
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = IRP_KERNEL_CREATE_THREAD;
+    newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD;
 
-    newItem->KernelEventInfo.EventType = IRP_KERNEL_CREATE_THREAD;
+    newItem->KernelEventInfo.EventType = IRP_KERNEL_REMOTE_THREAD;
     newItem->KernelEventInfo.SourceProcessId = SourcePid;
     newItem->KernelEventInfo.TargetProcessId = TargetPid;
     newItem->KernelEventInfo.ThreadStartRoutine = StartRoutine;
