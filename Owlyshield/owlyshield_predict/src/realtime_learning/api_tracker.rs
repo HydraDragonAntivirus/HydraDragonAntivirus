@@ -368,7 +368,11 @@ impl ApiTracker {
         self.kernel_operations.total_kernel_events += 1;
 
         let op_name = format!("{:?}", op);
-        let api_name = self.resolve_api_name(msg, &op_name);
+        let api_name = if matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
+            String::new()
+        } else {
+            self.resolve_api_name(msg, &op_name)
+        };
         if !matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
             let category = self.api_category_from_kernel_op(&op, &api_name);
             self.track_api_call(api_name.clone(), category, Some(msg.filepathstr.clone()));
