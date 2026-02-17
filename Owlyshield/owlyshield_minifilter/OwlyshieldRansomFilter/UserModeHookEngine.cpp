@@ -597,7 +597,16 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         KeUnstackDetachProcess(&apcState);
         return STATUS_ACCESS_VIOLATION;
     }
-    RtlCopyMemory(gatewayAddress, gateway, sizeof(gateway));
+    __try
+    {
+        RtlCopyMemory(gatewayAddress, gateway, sizeof(gateway));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        KeUnstackDetachProcess(&apcState);
+        DbgPrint("UserModeHook: gateway write failed PID=%lu EventId=%lu\n", ProcessId, EventId);
+        return STATUS_ACCESS_VIOLATION;
+    }
 
     // 2. Prepare shellcode
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
@@ -651,7 +660,16 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     *(PVOID *)(shellcode + 383) = gatewayAddress;
 
     // Write shellcode
-    RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+    __try
+    {
+        RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        KeUnstackDetachProcess(&apcState);
+        DbgPrint("UserModeHook: shellcode write failed PID=%lu EventId=%lu\n", ProcessId, EventId);
+        return STATUS_ACCESS_VIOLATION;
+    }
 
     // 3. Install hook (JMP to shellcode)
     PVOID pageAddr = HookDef->Address;
@@ -674,8 +692,17 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         HookEntry->ShellcodeUsed += totalSize;
         HookDef->IsHooked = TRUE;
     }
+    else
+    {
+        DbgPrint("UserModeHook: ZwProtectVirtualMemory failed PID=%lu EventId=%lu status=0x%08X target=%p\n",
+                 ProcessId, EventId, status, HookDef->Address);
+    }
 
     KeUnstackDetachProcess(&apcState);
+    if (!NT_SUCCESS(status))
+        return status;
+    if (!HookDef->IsHooked)
+        return STATUS_UNSUCCESSFUL;
     return STATUS_SUCCESS;
 }
 
@@ -688,6 +715,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     KAPC_STATE apcState;
     PVOID baseAddress = NULL;
     SIZE_T regionSize = 4096 * 2; // 2 Pages to be safe
+    ULONG pid = HandleToULong(PsGetProcessId(Process));
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
@@ -704,6 +732,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
     if (!NT_SUCCESS(status))
     {
+        DbgPrint("UserModeHook: ZwAllocateVirtualMemory failed PID=%lu status=0x%08X protect=RWX\n", pid, status);
+        if (status == (NTSTATUS)0xC0000604) {
+            DbgPrint("UserModeHook: PID %lu appears to block dynamic executable memory (ACG/DynamicCode policy)\n", pid);
+        }
         KeUnstackDetachProcess(&apcState);
         return status;
     }
@@ -720,6 +752,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
     if (!NT_SUCCESS(status))
     {
+        DbgPrint("UserModeHook: ObOpenObjectByPointer failed PID=%lu status=0x%08X\n", pid, status);
         if (fnZwFreeVirtualMemory)
         {
             SIZE_T freeSize = 0;

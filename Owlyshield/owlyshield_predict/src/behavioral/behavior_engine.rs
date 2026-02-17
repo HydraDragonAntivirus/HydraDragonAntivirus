@@ -201,9 +201,7 @@ impl IrpStatistics {
                 self.nt_load_driver_count += 1;
                 self.record_ntdll_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
             },
-            IrpMajorOp::IrpKernelRemoteThread => {
-                self.record_ntdll_api_operation(rec, irp_op, "Kernel callback - Remote thread creation");
-            },
+            IrpMajorOp::IrpKernelRemoteThread => {},
             IrpMajorOp::IrpNtOpenProcess => {
                 self.nt_open_process_count += 1;
                 self.record_ntdll_api_operation(rec, irp_op, "NtOpenProcess - Process access");

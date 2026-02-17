@@ -369,9 +369,10 @@ impl ApiTracker {
 
         let op_name = format!("{:?}", op);
         let api_name = self.resolve_api_name(msg, &op_name);
-        let category = self.api_category_from_kernel_op(&op, &api_name);
-
-        self.track_api_call(api_name.clone(), category, Some(msg.filepathstr.clone()));
+        if !matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
+            let category = self.api_category_from_kernel_op(&op, &api_name);
+            self.track_api_call(api_name.clone(), category, Some(msg.filepathstr.clone()));
+        }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let (target_pid, mem_size, status) = (

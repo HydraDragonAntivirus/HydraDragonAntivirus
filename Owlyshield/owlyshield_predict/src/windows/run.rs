@@ -277,7 +277,7 @@ pub fn run() {
                                     from_payload
                                 } else {
                                     match iomsg.irp_op {
-                                        12 => "KernelRemoteThread".to_string(),
+                                        12 => String::new(),
                                         13 => "NtWriteVirtualMemory".to_string(),
                                         14 => "NtAllocateVirtualMemory".to_string(),
                                         15 => "NtProtectVirtualMemory".to_string(),
