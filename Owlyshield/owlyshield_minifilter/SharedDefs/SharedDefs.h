@@ -41,11 +41,9 @@ typedef struct _HOOK_EVENT_DATA {
     ULONG EventType;
     ULONG ProcessId;
     CHAR FunctionName[64];
-    // Generic arguments storage (up to 4 arguments for now to keep it simple)
+    // Generic arguments storage (up to 2 arguments)
     ULONG_PTR Arg1;
     ULONG_PTR Arg2;
-    ULONG_PTR Arg3;
-    ULONG_PTR Arg4;
 } HOOK_EVENT_DATA, *PHOOK_EVENT_DATA;
 
 #define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR))

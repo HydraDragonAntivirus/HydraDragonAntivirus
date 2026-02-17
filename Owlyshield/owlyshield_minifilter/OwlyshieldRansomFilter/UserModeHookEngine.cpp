@@ -1,4 +1,4 @@
-/*++
+﻿/*++
 
 Module Name:
 
@@ -168,7 +168,20 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 // Total stack allocation: 0xF0 (240 bytes)
 
 UCHAR g_ShellcodeTemplate[] = {
-    // ===== SAVE VOLATILE REGISTERS =====
+    // ===== RE-ENTRANCY GUARD =====
+    // [0] Check busy flag (FLAG_ADDR patched at offset 3)
+    0x50,                                                       // push rax
+    0x48, 0xA1, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, [FLAG_ADDR]
+    0x48, 0x85, 0xC0,                                           // test rax, rax
+    0x0F, 0x85, 0x68, 0x01, 0x00, 0x00,                         // jnz SKIP (-> offset 380)
+    // [20] Not busy - pop rax, set flag=1 (FLAG_ADDR patched at offset 24)
+    0x58,                                                       // pop rax
+    0x50,                                                       // push rax
+    0x48, 0xB8, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, FLAG_ADDR
+    0x48, 0xC7, 0x00, 0x01, 0x00, 0x00, 0x00,                   // mov qword [rax], 1
+    0x58,                                                       // pop rax
+
+    // ===== SAVE VOLATILE REGISTERS (offset 40) =====
     0x50,       // push rax
     0x51,       // push rcx
     0x52,       // push rdx
@@ -179,124 +192,70 @@ UCHAR g_ShellcodeTemplate[] = {
     0x41, 0x53, // push r11
 
     // ===== ALLOCATE STACK SPACE =====
-    // 240 bytes: HOOK_EVENT_DATA(80) + storage(8) + IO_STATUS_BLOCK(16) + params(80) + shadow(32) + align
-    0x48, 0x81, 0xEC, 0xF0, 0x00, 0x00, 0x00, // sub rsp, 0xF0 (240 bytes)
+    0x48, 0x81, 0xEC, 0xF0, 0x00, 0x00, 0x00, // sub rsp, 0xF0
 
-    // ===== FILL HOOK_EVENT_DATA at [RSP+0x00] =====
+    // ===== FILL HOOK_EVENT_DATA =====
+    // EventType PATCHED at offset 62
+    0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11,
+    // ProcessId PATCHED at offset 70
+    0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22,
+    // FunctionName 8x qwords (imm offsets: 76,91,106,121,136,151,166,181)
+    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24, 0x08, 0x48, 0xB8, 0x77, 0x77,
+    0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x48, 0x89, 0x44, 0x24, 0x10, 0x48, 0xB8, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,
+    0x88, 0x88, 0x48, 0x89, 0x44, 0x24, 0x18, 0x48, 0xB8, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x48, 0x89,
+    0x44, 0x24, 0x20, 0x48, 0xB8, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0x48, 0x89, 0x44, 0x24, 0x28, 0x48,
+    0xB8, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0x48, 0x89, 0x44, 0x24, 0x30, 0x48, 0xB8, 0xCD, 0xCD, 0xCD,
+    0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0x48, 0x89, 0x44, 0x24, 0x38, 0x48, 0xB8, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE,
+    0xDE, 0x48, 0x89, 0x44, 0x24, 0x40,
+    // Arg1 = RCX
+    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, 0x48, 0x89, 0x44, 0x24, 0x48,
+    // Arg2 = RDX
+    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, 0x48, 0x89, 0x44, 0x24, 0x50,
+    // Zero IO_STATUS_BLOCK
+    0x48, 0x31, 0xC0, 0x48, 0x89, 0x44, 0x24, 0x58, 0x48, 0x89, 0x44, 0x24, 0x60,
 
-    // EventType (DWORD at offset 0) - PATCHED at offset 21 in shellcode array
-    0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11, // mov dword [rsp], 0x11111111
+    // ===== PREPARE NtDeviceIoControlFile =====
+    // FileHandle PATCHED at offset 235
+    0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x48, 0x31, 0xD2, // xor rdx, rdx
+    0x4D, 0x31, 0xC0,                                                             // xor r8, r8
+    0x4D, 0x31, 0xC9,                                                             // xor r9, r9
+    0x48, 0x8D, 0x44, 0x24, 0x58, 0x48, 0x89, 0x44, 0x24, 0x20,                   // IoStatusBlock
+    // IoControlCode PATCHED at offset 266
+    0xC7, 0x44, 0x24, 0x28, 0xAA, 0xAA, 0xAA, 0xAA,
+    // InputBuffer
+    0x48, 0x8D, 0x04, 0x24, 0x48, 0x89, 0x44, 0x24, 0x30,
+    // InputBufferLength = 88
+    0xC7, 0x44, 0x24, 0x38, 0x58, 0x00, 0x00, 0x00,
+    // OutputBuffer = NULL
+    0x48, 0xC7, 0x44, 0x24, 0x40, 0x00, 0x00, 0x00, 0x00,
+    // OutputBufferLength = 0
+    0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00, 0x00,
+    // NtDeviceIoControlFile PATCHED at offset 306
+    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, // call rax
 
-    // ProcessId (DWORD at offset 4) - PATCHED at offset 28 in shellcode array
-    0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22, // mov dword [rsp+4], 0x22222222
+    // ===== CLEAR BUSY FLAG (FLAG_ADDR patched at offset 319) =====
+    0x50,                                                       // push rax
+    0x48, 0xB8, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, FLAG_ADDR
+    0x48, 0xC7, 0x00, 0x00, 0x00, 0x00, 0x00,                   // mov qword [rax], 0
+    0x58,                                                       // pop rax
 
-    // FunctionName (64 bytes at offset 8): 8 x qword stores.
-    // Immediates are patched by InjectSingleHook from the target API name.
-    // [rsp+0x08]
-    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x48, 0x89, 0x44, 0x24, 0x08,
-    // [rsp+0x10]
-    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77,
-    0x48, 0x89, 0x44, 0x24, 0x10,
-    // [rsp+0x18]
-    0x48, 0xB8, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,
-    0x48, 0x89, 0x44, 0x24, 0x18,
-    // [rsp+0x20]
-    0x48, 0xB8, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99,
-    0x48, 0x89, 0x44, 0x24, 0x20,
-    // [rsp+0x28]
-    0x48, 0xB8, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
-    0x48, 0x89, 0x44, 0x24, 0x28,
-    // [rsp+0x30]
-    0x48, 0xB8, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC,
-    0x48, 0x89, 0x44, 0x24, 0x30,
-    // [rsp+0x38]
-    0x48, 0xB8, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD,
-    0x48, 0x89, 0x44, 0x24, 0x38,
-    // [rsp+0x40]
-    0x48, 0xB8, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE,
-    0x48, 0x89, 0x44, 0x24, 0x40,
-
-    // Arg1 (ULONG_PTR at offset 72 = 0x48)
-    // Saved RCX is at: [current_RSP + 0xF0 (our alloc) + 56 (7th of 8 pushes)] = [RSP + 0x128]
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, // mov rax, [rsp+0x128]
-    0x48, 0x89, 0x44, 0x24, 0x48,                   // mov [rsp+0x48], rax
-
-    // Arg2 (ULONG_PTR at offset 80 = 0x50)
-    // Saved RDX is at: [RSP + 0xF0 + 48] = [RSP + 0x120]
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, // mov rax, [rsp+0x120]
-    0x48, 0x89, 0x44, 0x24, 0x50,                   // mov [rsp+0x50], rax
-
-    // Zero out IO_STATUS_BLOCK at [RSP+0x58] (16 bytes)
-    0x48, 0x31, 0xC0,             // xor rax, rax
-    0x48, 0x89, 0x44, 0x24, 0x58, // mov [rsp+0x58], rax
-    0x48, 0x89, 0x44, 0x24, 0x60, // mov [rsp+0x60], rax
-
-    // ===== PREPARE NtDeviceIoControlFile CALL =====
-
-    // RCX = FileHandle - PATCHED at offset 83 in shellcode array
-    0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // mov rcx, 0x3333333333333333
-
-    // RDX = Event = NULL
-    0x48, 0x31, 0xD2, // xor rdx, rdx
-
-    // R8 = ApcRoutine = NULL
-    0x4D, 0x31, 0xC0, // xor r8, r8
-
-    // R9 = ApcContext = NULL
-    0x4D, 0x31, 0xC9, // xor r9, r9
-
-    // Stack Parameter 1 (5th param): IoStatusBlock pointer at [RSP+0x20]
-    0x48, 0x8D, 0x44, 0x24, 0x58, // lea rax, [rsp+0x58]
-    0x48, 0x89, 0x44, 0x24, 0x20, // mov [rsp+0x20], rax
-
-    // Stack Parameter 2 (6th param): IoControlCode at [RSP+0x28] - PATCHED at offset 126
-    // This needs to be your driver's IOCTL code (e.g., CTL_CODE value)
-    0xC7, 0x44, 0x24, 0x28, 0xAA, 0xAA, 0xAA, 0xAA, // mov dword [rsp+0x28], 0xAAAAAAAA
-
-    // Stack Parameter 3 (7th param): InputBuffer (pointer to HOOK_EVENT_DATA) at [RSP+0x30]
-    0x48, 0x8D, 0x04, 0x24,       // lea rax, [rsp] (HOOK_EVENT_DATA at base)
-    0x48, 0x89, 0x44, 0x24, 0x30, // mov [rsp+0x30], rax
-
-    // Stack Parameter 4 (8th param): InputBufferLength at [RSP+0x38]
-    0xC7, 0x44, 0x24, 0x38, 0x58, 0x00, 0x00, 0x00, // mov dword [rsp+0x38], 88 (sizeof HOOK_EVENT_DATA)
-
-    // Stack Parameter 5 (9th param): OutputBuffer at [RSP+0x40] = NULL
-    0x48, 0xC7, 0x44, 0x24, 0x40, 0x00, 0x00, 0x00, 0x00, // mov qword [rsp+0x40], 0
-
-    // Stack Parameter 6 (10th param): OutputBufferLength at [RSP+0x48] = 0
-    0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00, 0x00, // mov dword [rsp+0x48], 0
-
-    // ===== CALL NtDeviceIoControlFile =====
-    // Function address PATCHED at offset 171 in shellcode array
-    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // mov rax, 0x4444444444444444
-    0xFF, 0xD0,                                                 // call rax
-
-    // ===== RESTORE STACK =====
+    // ===== RESTORE STACK + REGISTERS =====
     0x48, 0x81, 0xC4, 0xF0, 0x00, 0x00, 0x00, // add rsp, 0xF0
+    0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5B, 0x5A, 0x59, 0x58,
 
-    // ===== RESTORE REGISTERS =====
-    0x41, 0x5B, // pop r11
-    0x41, 0x5A, // pop r10
-    0x41, 0x59, // pop r9
-    0x41, 0x58, // pop r8
-    0x5B,       // pop rbx
-    0x5A,       // pop rdx
-    0x59,       // pop rcx
-    0x58,       // pop rax
-
-    // ===== EXECUTE ORIGINAL INSTRUCTION (14 bytes) =====
-    // PATCHED at offset 197 in shellcode array - stolen bytes from hooked function
+    // ===== STOLEN BYTES (14 NOPs) at offset 354 =====
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ===== JUMP BACK TO ORIGINAL CODE =====
-    // Return address PATCHED at offset 213 in shellcode array (original function + 14)
-    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // mov rax, 0x5555555555555555
+    // ===== JUMP TO GATEWAY (0x5555 PATCHED at offset 370) =====
+    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xE0,
+
+    // ===== SKIP TARGET: busy path (0xBBBB PATCHED at offset 383) =====
+    0x58,                                                       // pop rax (undo push at [0])
+    0x48, 0xB8, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // mov rax, GATEWAY_ADDR
     0xFF, 0xE0,                                                 // jmp rax
 
     // ===== PADDING =====
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90};
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
 
 //
 // Initialize the user-mode hooking engine
@@ -571,12 +530,9 @@ NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _
 // Hook a specific process
 //
 
-//
-// Helper to Inject a Single Hook
-//
 NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_opt_ PCSTR FunctionName, _In_ PVOID TargetNtDeviceIo,
-                          _In_ ULONG IoControlCode)
+                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_opt_ PCSTR FunctionName,
+                          _In_ PVOID TargetNtDeviceIo, _In_ ULONG IoControlCode)
 {
     NTSTATUS status;
     KAPC_STATE apcState;
@@ -584,100 +540,113 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     if (!HookDef->Address)
         return STATUS_INVALID_PARAMETER;
     if (HookDef->IsHooked)
-        return STATUS_SUCCESS; // Already hooked
+        return STATUS_SUCCESS;
 
-    // Calculate Offset
-    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize)
-    {
+    SIZE_T totalSize = sizeof(g_ShellcodeTemplate) + 64;
+    if (HookEntry->ShellcodeUsed + totalSize > HookEntry->ShellcodeSize)
         return STATUS_INSUFFICIENT_RESOURCES;
-    }
 
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
+    PVOID gatewayAddress = (PVOID)((ULONG_PTR)myShellcodeAddress + sizeof(g_ShellcodeTemplate));
+    PVOID flagAddr = HookEntry->ShellcodeBase; // First 8 bytes = busy flag
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // 1. Prepare Shellcode (Copy and Patch)
+    // 1. Create gateway trampoline
+    UCHAR gateway[64];
+    RtlZeroMemory(gateway, sizeof(gateway));
+    __try
+    {
+        ProbeForRead(HookDef->Address, 14, 1);
+        RtlCopyMemory(gateway, HookDef->Address, 14);
+        RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
+        gateway[14] = 0x48;
+        gateway[15] = 0xB8;
+        *(PVOID *)(gateway + 16) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+        gateway[24] = 0xFF;
+        gateway[25] = 0xE0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        KeUnstackDetachProcess(&apcState);
+        return STATUS_ACCESS_VIOLATION;
+    }
+    RtlCopyMemory(gatewayAddress, gateway, sizeof(gateway));
+
+    // 2. Prepare shellcode
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
-    // Safety checks for patch markers in the template.
-    if (*(PULONG)(shellcode + 22) != 0x11111111 ||
-        *(PULONG)(shellcode + 30) != 0x22222222 ||
-        *(PULONGLONG)(shellcode + 195) != 0x3333333333333333ULL ||
-        *(PULONG)(shellcode + 226) != 0xAAAAAAAA ||
-        *(PULONGLONG)(shellcode + 266) != 0x4444444444444444ULL ||
-        *(PULONGLONG)(shellcode + 311) != 0x5555555555555555ULL) {
+    // Safety checks
+    if (*(PULONG)(shellcode + 62) != 0x11111111 || *(PULONG)(shellcode + 70) != 0x22222222 ||
+        *(PULONGLONG)(shellcode + 235) != 0x3333333333333333ULL || *(PULONG)(shellcode + 266) != 0xAAAAAAAA ||
+        *(PULONGLONG)(shellcode + 306) != 0x4444444444444444ULL ||
+        *(PULONGLONG)(shellcode + 370) != 0x5555555555555555ULL)
+    {
         KeUnstackDetachProcess(&apcState);
         return STATUS_INVALID_IMAGE_FORMAT;
     }
 
-    // NEW (CORRECT):
-    *(PULONG)(shellcode + 22) = EventId;
-    *(PULONG)(shellcode + 30) = ProcessId;
+    // Patch FLAG_ADDR (3 locations: check, set, clear)
+    *(PVOID *)(shellcode + 3) = flagAddr;
+    *(PVOID *)(shellcode + 24) = flagAddr;
+    *(PVOID *)(shellcode + 319) = flagAddr;
 
-    // Patch FunctionName in payload region (8x8 bytes, ANSI).
-    // FunctionName immediates start at these offsets.
-    const ULONG fnImmOffsets[8] = {36, 51, 66, 81, 96, 111, 126, 141};
+    // Patch EventType and ProcessId
+    *(PULONG)(shellcode + 62) = EventId;
+    *(PULONG)(shellcode + 70) = ProcessId;
+
+    // Patch FunctionName
+    const ULONG fnImmOffsets[8] = {76, 91, 106, 121, 136, 151, 166, 181};
     CHAR fnBuf[64];
     RtlZeroMemory(fnBuf, sizeof(fnBuf));
-    if (FunctionName != NULL) {
-        SIZE_T i = 0;
-        for (; i < (sizeof(fnBuf) - 1) && FunctionName[i] != '\0'; i++) {
+    if (FunctionName != NULL)
+    {
+        for (SIZE_T i = 0; i < 63 && FunctionName[i] != '\0'; i++)
             fnBuf[i] = FunctionName[i];
-        }
     }
-    for (ULONG i = 0; i < RTL_NUMBER_OF(fnImmOffsets); i++) {
+    for (ULONG i = 0; i < 8; i++)
+    {
         ULONGLONG chunk = 0;
         RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
         *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
     }
 
-    // Patch FileHandle at offset 195
-    *(PHANDLE)(shellcode + 195) = HookEntry->DriverDeviceHandle;
+    // Patch FileHandle, IoControlCode, NtDeviceIo address
+    *(PHANDLE)(shellcode + 235) = HookEntry->DriverDeviceHandle;
+    *(PULONG)(shellcode + 266) = IoControlCode;
+    *(PVOID *)(shellcode + 306) = TargetNtDeviceIo;
 
-    // Patch IoControlCode at offset 226
-    *(PULONG)(shellcode + 226) = IoControlCode;
+    // NOP sled (gateway handles real execution)
+    RtlFillMemory(shellcode + 354, 14, 0x90);
 
-    // Patch NtDeviceIoControlFile Address at offset 266
-    *(PVOID *)(shellcode + 266) = TargetNtDeviceIo;
+    // Patch gateway address for BOTH normal and busy (skip) paths
+    *(PVOID *)(shellcode + 370) = gatewayAddress;
+    *(PVOID *)(shellcode + 383) = gatewayAddress;
 
-    // Patch Stolen Bytes at offset 295 (14 bytes from original function)
-    RtlCopyMemory(shellcode + 295, HookDef->Address, 14);
-
-    // Save original bytes locally (for unhooking later)
-    RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
-
-    // Patch Return Address at offset 311 -> Original Addr + 14
-    *(PVOID *)(shellcode + 311) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
-
-    // Write Shellcode to Target Process Memory
+    // Write shellcode
     RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
 
-    // 2. Install Hook (JMP to Shellcode)
+    // 3. Install hook (JMP to shellcode)
     PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = 14;
     ULONG oldProt;
-    if (fnZwProtectVirtualMemory)
+
+    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+    if (NT_SUCCESS(status))
     {
-        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
-        if (NT_SUCCESS(status))
-        {
-            // Write JMP [RIP+0] -> Shellcode Address
-            // FF 25 00 00 00 00 [8-byte Address]
-            UCHAR jmp[14];
-            RtlZeroMemory(jmp, 14);
-            jmp[0] = 0xFF;
-            jmp[1] = 0x25;
-            *(PULONG)&jmp[2] = 0;
-            *(PVOID *)&jmp[6] = myShellcodeAddress;
+        UCHAR jmp[14];
+        RtlZeroMemory(jmp, 14);
+        jmp[0] = 0xFF;
+        jmp[1] = 0x25;
+        *(PULONG)&jmp[2] = 0;
+        *(PVOID *)&jmp[6] = myShellcodeAddress;
 
-            RtlCopyMemory(HookDef->Address, jmp, 14);
+        RtlCopyMemory(HookDef->Address, jmp, 14);
+        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
-            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
-
-            HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
-            HookDef->IsHooked = TRUE;
-        }
+        HookEntry->ShellcodeUsed += totalSize;
+        HookDef->IsHooked = TRUE;
     }
 
     KeUnstackDetachProcess(&apcState);
@@ -715,7 +684,8 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
     HookEntry->ShellcodeBase = baseAddress;
     HookEntry->ShellcodeSize = regionSize;
-    HookEntry->ShellcodeUsed = 0;
+    HookEntry->ShellcodeUsed = 8;  // Reserve first 8 bytes for busy flag
+    RtlZeroMemory(baseAddress, 8); // Zero the flag
 
     // 2. Create Handle
     HANDLE targetHandle = NULL;
