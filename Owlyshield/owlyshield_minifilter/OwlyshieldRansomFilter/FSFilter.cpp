@@ -263,9 +263,6 @@ Return Value:
         return STATUS_UNSUCCESSFUL;
     }
 
-    // **NEW: Enumerate existing processes on driver load**
-    EnumerateExistingProcesses();
-
     status = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, FALSE);
     if (!NT_SUCCESS(status))
     {
@@ -321,6 +318,8 @@ Return Value:
     {
         DbgPrint("!!! FSFilter: User-mode hook engine initialized successfully\n");
         DbgPrint("!!! FSFilter: Will hook ntdll.dll in each monitored process\n");
+        DbgPrint("!!! FSFilter: Enumerating existing processes for initial hook pass\n");
+        EnumerateExistingProcesses();
     }
 
     // 2. Register thread creation callback

@@ -46,6 +46,35 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                         _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase);
 
+static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
+{
+    if (HookEntry == NULL)
+        return;
+
+    if (HookEntry->DriverDeviceHandle)
+    {
+        ZwClose(HookEntry->DriverDeviceHandle);
+        HookEntry->DriverDeviceHandle = NULL;
+    }
+
+    if (Process != NULL && HookEntry->ShellcodeBase && fnZwFreeVirtualMemory)
+    {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+        SIZE_T freeSize = 0;
+        fnZwFreeVirtualMemory(ZwCurrentProcess(), &HookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+        KeUnstackDetachProcess(&apcState);
+    }
+
+    if (HookEntry->CustomHooks)
+    {
+        ExFreePoolWithTag(HookEntry->CustomHooks, 'UMHd');
+        HookEntry->CustomHooks = NULL;
+    }
+
+    RtlZeroMemory(HookEntry, sizeof(PROCESS_HOOK_ENTRY));
+}
+
 VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo, PVOID NewModuleBase)
 {
     NTSTATUS st = STATUS_SUCCESS;
@@ -879,17 +908,17 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
-    // Check if already being monitored
+    // Check if already tracked
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId)
         {
             hookEntry = &g_UserHookEngine->Processes[i];
             break;
         }
     }
 
-    if (hookEntry)
+    if (hookEntry && hookEntry->IsHooked)
     {
         // Already tracked. Just apply any missing/newly added hooks.
         if (hookEntry->NtDeviceIoControlFileAddr)
@@ -901,13 +930,22 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
         return STATUS_SUCCESS;
     }
 
-    // Find free slot
-    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    // Retry path for previously failed/partial slot.
+    if (hookEntry && !hookEntry->IsHooked)
     {
-        if (!g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == 0)
+        CleanupPartialHookEntry(process, hookEntry);
+    }
+
+    // Find free slot if process did not already have one
+    if (hookEntry == NULL)
+    {
+        for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
         {
-            hookEntry = &g_UserHookEngine->Processes[i];
-            break;
+            if (!g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == 0)
+            {
+                hookEntry = &g_UserHookEngine->Processes[i];
+                break;
+            }
         }
     }
 
@@ -928,6 +966,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     if (!NT_SUCCESS(status))
     {
         DbgPrint("UserModeHook: InitializeShellcodeInfrastructure failed PID=%lu status=0x%08X\n", ProcessId, status);
+        CleanupPartialHookEntry(process, hookEntry);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return status;
@@ -939,8 +978,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     if (!ntdllBase)
     {
         DbgPrint("UserModeHook: FindModuleBaseAddress(ntdll.dll) failed PID=%lu\n", ProcessId);
-        UserModeUnhookProcess(ProcessId);
+        CleanupPartialHookEntry(process, hookEntry);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
         return STATUS_NOT_FOUND;
     }
 
@@ -952,8 +992,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     if (!targetNtDeviceIo)
     {
         DbgPrint("UserModeHook: FindExportedFunction(NtDeviceIoControlFile) failed PID=%lu\n", ProcessId);
-        UserModeUnhookProcess(ProcessId);
+        CleanupPartialHookEntry(process, hookEntry);
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
         return STATUS_NOT_FOUND;
     }
 
