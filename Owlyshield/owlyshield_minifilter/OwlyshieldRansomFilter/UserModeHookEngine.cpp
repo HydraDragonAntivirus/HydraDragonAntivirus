@@ -46,6 +46,54 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                         _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase);
 
+static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferSize) const UCHAR* Buffer,
+                                _In_ SIZE_T BufferSize,
+                                _In_reads_bytes_(PatternSize) const UCHAR* Pattern,
+                                _In_ SIZE_T PatternSize,
+                                _In_ SIZE_T StartOffset)
+{
+    if (Buffer == NULL || Pattern == NULL || PatternSize == 0 || BufferSize < PatternSize || StartOffset >= BufferSize)
+        return (SIZE_T)-1;
+
+    const SIZE_T maxStart = BufferSize - PatternSize;
+    if (StartOffset > maxStart)
+        return (SIZE_T)-1;
+
+    for (SIZE_T i = StartOffset; i <= maxStart; i++)
+    {
+        const UCHAR* current = Buffer + i;
+        if (RtlCompareMemory(current, Pattern, PatternSize) == PatternSize)
+            return i;
+    }
+
+    return (SIZE_T)-1;
+}
+
+static SIZE_T FindNopRunOffset(_In_reads_bytes_(BufferSize) const UCHAR* Buffer,
+                               _In_ SIZE_T BufferSize,
+                               _In_ SIZE_T RunLength)
+{
+    if (Buffer == NULL || RunLength == 0 || BufferSize < RunLength)
+        return (SIZE_T)-1;
+
+    const SIZE_T maxStart = BufferSize - RunLength;
+    for (SIZE_T i = 0; i <= maxStart; i++)
+    {
+        const UCHAR* runStart = Buffer + i;
+        SIZE_T j = 0;
+        for (; j < RunLength; j++)
+        {
+            if (runStart[j] != 0x90)
+                break;
+        }
+
+        if (j == RunLength)
+            return i;
+    }
+
+    return (SIZE_T)-1;
+}
+
 static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     if (HookEntry == NULL)
@@ -244,13 +292,13 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 
 // Complete x64 Shellcode for API Hooking
 // Properly calls NtDeviceIoControlFile with all 10 parameters
-// Stack Layout (after register saves and sub rsp):
-// [RSP+0x00]  = HOOK_EVENT_DATA (88 bytes)
-// [RSP+0x50]  = Arg2 storage (8 bytes)
-// [RSP+0x58]  = IO_STATUS_BLOCK (16 bytes)
-// [RSP+0x68]  = Shadow space + stack params (80 bytes)
-// [RSP+0xB8]  = Return to saved registers
-// Total stack allocation: 0xF0 (240 bytes)
+// Stack Layout (steady-state after `sub rsp, 0xF0`):
+// [RSP+0x00]  = HOOK_EVENT_DATA (88 bytes, built here first)
+// [RSP+0x58]  = IO_STATUS_BLOCK scratch (16 bytes)
+// Before calling NtDeviceIoControlFile we do `sub rsp, 0x60`:
+// [new RSP+0x00] = shadow space, [new RSP+0x20..0x48] = args 5..10
+// InputBuffer points to [new RSP+0x60] (original HOOK_EVENT_DATA), so shadow space cannot corrupt it.
+// Total steady allocation: 0xF0, temporary call frame: +0x60.
 
 UCHAR g_ShellcodeTemplate[] = {
     // ===== STACK ALIGNMENT FIX (4 bytes: 0-3) =====
@@ -261,7 +309,7 @@ UCHAR g_ShellcodeTemplate[] = {
     0x50,  // push rax
     0x48, 0xA1, 0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE, // mov rax, [FLAG_ADDR]
     0x48, 0x85, 0xC0,                                     // test rax, rax
-    0x0F, 0x85, 0x6C, 0x01, 0x00, 0x00,                   // jnz SKIP (-> offset 388, was 384+4)
+    0x0F, 0x85, 0x6C, 0x01, 0x00, 0x00,                   // jnz SKIP (patched dynamically)
     // [24] Not busy - pop rax, set flag=1 (FLAG_ADDR patched at offset 28)
     0x58,                                                 // pop rax
     0x50,                                                 // push rax
@@ -283,11 +331,11 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x81, 0xEC, 0xF0, 0x00, 0x00, 0x00, // sub rsp, 0xF0
 
     // ===== FILL HOOK_EVENT_DATA =====
-    // EventType PATCHED at offset 66 (was 62)
+    // EventType marker (patched by marker search)
     0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId PATCHED at offset 74 (was 70)
+    // ProcessId marker (patched by marker search)
     0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22,
-    // FunctionName 8x qwords (imm offsets: 80,95,110,125,140,155,170,185 - all +4)
+    // FunctionName markers: 8 qwords (0x66..0xDE repeating bytes per chunk)
     0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24, 0x08,
     0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x48, 0x89, 0x44, 0x24, 0x10,
     0x48, 0xB8, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x48, 0x89, 0x44, 0x24, 0x18,
@@ -300,31 +348,35 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, 0x48, 0x89, 0x44, 0x24, 0x48,
     // Arg2 = RDX
     0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, 0x48, 0x89, 0x44, 0x24, 0x50,
-    // Zero IO_STATUS_BLOCK
+    // Zero IO_STATUS_BLOCK scratch area
     0x48, 0x31, 0xC0, 0x48, 0x89, 0x44, 0x24, 0x58, 0x48, 0x89, 0x44, 0x24, 0x60,
+    // Move call frame below HOOK_EVENT_DATA so shadow space cannot overwrite event payload
+    0x48, 0x83, 0xEC, 0x60, // sub rsp, 0x60
 
     // ===== PREPARE NtDeviceIoControlFile =====
-    // FileHandle PATCHED at offset 239 (was 235)
+    // FileHandle PATCHED by marker search
     0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
     0x48, 0x31, 0xD2, // xor rdx, rdx
     0x4D, 0x31, 0xC0, // xor r8, r8
     0x4D, 0x31, 0xC9, // xor r9, r9
-    0x48, 0x8D, 0x44, 0x24, 0x58, 0x48, 0x89, 0x44, 0x24, 0x20,
-    // IoControlCode PATCHED at offset 270 (was 266)
+    // IoStatusBlock = [old rsp + 0x58] => [new rsp + 0xB8]
+    0x48, 0x8D, 0x84, 0x24, 0xB8, 0x00, 0x00, 0x00, 0x48, 0x89, 0x44, 0x24, 0x20,
+    // IoControlCode PATCHED by marker search
     0xC7, 0x44, 0x24, 0x28, 0xAA, 0xAA, 0xAA, 0xAA,
-    // InputBuffer
-    0x48, 0x8D, 0x04, 0x24, 0x48, 0x89, 0x44, 0x24, 0x30,
+    // InputBuffer = [old rsp] => [new rsp + 0x60]
+    0x48, 0x8D, 0x44, 0x24, 0x60, 0x48, 0x89, 0x44, 0x24, 0x30,
     // InputBufferLength = 88
     0xC7, 0x44, 0x24, 0x38, 0x58, 0x00, 0x00, 0x00,
     // OutputBuffer = NULL
     0x48, 0xC7, 0x44, 0x24, 0x40, 0x00, 0x00, 0x00, 0x00,
     // OutputBufferLength = 0
     0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00, 0x00,
-    // NtDeviceIoControlFile PATCHED at offset 310 (was 306)
+    // NtDeviceIoControlFile PATCHED by marker search
     0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
     0xFF, 0xD0, // call rax
+    0x48, 0x83, 0xC4, 0x60, // add rsp, 0x60
 
-    // ===== CLEAR BUSY FLAG (FLAG_ADDR patched at offset 323, was 319) =====
+    // ===== CLEAR BUSY FLAG (FLAG_ADDR patched by marker search) =====
     0x50,
     0x48, 0xB8, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE,
     0x48, 0xC7, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -337,14 +389,14 @@ UCHAR g_ShellcodeTemplate[] = {
     // ===== UNDO ALIGNMENT (4 bytes) =====
     0x48, 0x83, 0xC4, 0x08,  // add rsp, 8 (undo initial alignment)
 
-    // ===== STOLEN BYTES (16 NOPs) at offset 358 (was 354) =====
+    // ===== STOLEN BYTES SLOT (16 NOPs, replaced with gateway trampoline) =====
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ===== JUMP TO GATEWAY at offset 374 (was 372) =====
+    // ===== JUMP TO GATEWAY (address marker patched by marker search) =====
     0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
     0xFF, 0xE0,
 
-    // ===== SKIP TARGET: busy path at offset 386 (was 385) =====
+    // ===== SKIP TARGET: busy path (gateway marker patched by marker search) =====
     0x58,  // pop rax (undo push at offset 4)
     0x48, 0x83, 0xC4, 0x08,  // add rsp, 8 (undo initial alignment)
     0x48, 0xB8, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
@@ -683,29 +735,103 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
-    // Safety checks - ALL OFFSETS +1
-        if (*(PULONG)(shellcode + 67) != 0x11111111 ||                 // was 66
-            *(PULONG)(shellcode + 75) != 0x22222222 ||                 // was 74
-            *(PULONGLONG)(shellcode + 240) != 0x3333333333333333ULL || // was 239
-            *(PULONG)(shellcode + 271) != 0xAAAAAAAA ||                // was 270
-            *(PULONGLONG)(shellcode + 311) != 0x4444444444444444ULL || // was 310
-            *(PULONGLONG)(shellcode + 382) != 0x5555555555555555ULL)   // was 374
+    const SIZE_T kNotFound = (SIZE_T)-1;
+    const UCHAR markerEvent[4] = {0x11, 0x11, 0x11, 0x11};
+    const UCHAR markerPid[4] = {0x22, 0x22, 0x22, 0x22};
+    const UCHAR markerFileHandle[8] = {0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
+    const UCHAR markerIoctl[4] = {0xAA, 0xAA, 0xAA, 0xAA};
+    const UCHAR markerNtDeviceIo[8] = {0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
+    const UCHAR markerGatewayNormal[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+    const UCHAR markerGatewaySkip[8] = {0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB};
+    const UCHAR markerFlag[8] = {0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE};
+    const UCHAR markerJnz[2] = {0x0F, 0x85};
+    const UCHAR markerBusyPath[7] = {0x58, 0x48, 0x83, 0xC4, 0x08, 0x48, 0xB8};
+    const UCHAR fnMarkerBytes[8] = {0x66, 0x77, 0x88, 0x99, 0xAB, 0xBC, 0xCD, 0xDE};
+
+    SIZE_T offEvent = FindPatternOffset(shellcode, sizeof(shellcode), markerEvent, sizeof(markerEvent), 0);
+    SIZE_T offPid = FindPatternOffset(shellcode, sizeof(shellcode), markerPid, sizeof(markerPid), 0);
+    SIZE_T offFileHandle = FindPatternOffset(shellcode, sizeof(shellcode), markerFileHandle, sizeof(markerFileHandle), 0);
+    SIZE_T offIoctl = FindPatternOffset(shellcode, sizeof(shellcode), markerIoctl, sizeof(markerIoctl), 0);
+    SIZE_T offNtDeviceIo =
+        FindPatternOffset(shellcode, sizeof(shellcode), markerNtDeviceIo, sizeof(markerNtDeviceIo), 0);
+    SIZE_T offGatewayNormal =
+        FindPatternOffset(shellcode, sizeof(shellcode), markerGatewayNormal, sizeof(markerGatewayNormal), 0);
+    SIZE_T offGatewaySkip = FindPatternOffset(shellcode, sizeof(shellcode), markerGatewaySkip, sizeof(markerGatewaySkip), 0);
+    SIZE_T offFlag0 = FindPatternOffset(shellcode, sizeof(shellcode), markerFlag, sizeof(markerFlag), 0);
+    SIZE_T offFlag1 =
+        (offFlag0 != kNotFound)
+            ? FindPatternOffset(shellcode, sizeof(shellcode), markerFlag, sizeof(markerFlag), offFlag0 + 1)
+            : kNotFound;
+    SIZE_T offFlag2 =
+        (offFlag1 != kNotFound)
+            ? FindPatternOffset(shellcode, sizeof(shellcode), markerFlag, sizeof(markerFlag), offFlag1 + 1)
+            : kNotFound;
+    SIZE_T offNopSled = FindNopRunOffset(shellcode, sizeof(shellcode), 16);
+    SIZE_T offJnz = FindPatternOffset(shellcode, sizeof(shellcode), markerJnz, sizeof(markerJnz), 0);
+    SIZE_T offBusyPath = FindPatternOffset(shellcode, sizeof(shellcode), markerBusyPath, sizeof(markerBusyPath), 0);
+
+    SIZE_T fnImmOffsets[8] = {kNotFound};
+    for (ULONG i = 0; i < RTL_NUMBER_OF(fnMarkerBytes); i++)
     {
+        UCHAR marker[8];
+        RtlFillMemory(marker, sizeof(marker), fnMarkerBytes[i]);
+        fnImmOffsets[i] = FindPatternOffset(shellcode, sizeof(shellcode), marker, sizeof(marker), 0);
+    }
+
+    BOOLEAN markersOk = (offEvent != kNotFound && offPid != kNotFound && offFileHandle != kNotFound &&
+                         offIoctl != kNotFound && offNtDeviceIo != kNotFound && offGatewayNormal != kNotFound &&
+                         offGatewaySkip != kNotFound && offFlag0 != kNotFound && offFlag1 != kNotFound &&
+                         offFlag2 != kNotFound && offNopSled != kNotFound && offJnz != kNotFound &&
+                         offBusyPath != kNotFound && (offJnz + 6) <= sizeof(shellcode) && offBusyPath > (offJnz + 6));
+
+    if (markersOk)
+    {
+        for (ULONG i = 0; i < RTL_NUMBER_OF(fnImmOffsets); i++)
+        {
+            if (fnImmOffsets[i] == kNotFound)
+            {
+                markersOk = FALSE;
+                break;
+            }
+        }
+    }
+
+    if (!markersOk)
+    {
+        DbgPrint("UserModeHook: shellcode marker mismatch PID=%lu EventId=%lu evt=%Iu pid=%Iu fh=%Iu ioctl=%Iu "
+                 "ntdio=%Iu gw=%Iu gwSkip=%Iu flag0=%Iu flag1=%Iu flag2=%Iu nop=%Iu jnz=%Iu busy=%Iu\n",
+                 ProcessId,
+                 EventId,
+                 offEvent,
+                 offPid,
+                 offFileHandle,
+                 offIoctl,
+                 offNtDeviceIo,
+                 offGatewayNormal,
+                 offGatewaySkip,
+                 offFlag0,
+                 offFlag1,
+                 offFlag2,
+                 offNopSled,
+                 offJnz,
+                 offBusyPath);
         KeUnstackDetachProcess(&apcState);
         return STATUS_INVALID_IMAGE_FORMAT;
     }
 
-    // Patch FLAG_ADDR (these might be OK, verify separately)
-    *(PVOID *)(shellcode + 7) = flagAddr;
-    *(PVOID *)(shellcode + 28) = flagAddr;
-    *(PVOID *)(shellcode + 323) = flagAddr;
+    // Patch re-entrancy guard + release address placeholders
+    *(PVOID *)(shellcode + offFlag0) = flagAddr;
+    *(PVOID *)(shellcode + offFlag1) = flagAddr;
+    *(PVOID *)(shellcode + offFlag2) = flagAddr;
+
+    // Patch busy-path branch target relative displacement
+    *(PLONG)(shellcode + offJnz + 2) = (LONG)(offBusyPath - (offJnz + 6));
 
     // Patch EventType and ProcessId
-    *(PULONG)(shellcode + 67) = EventId;   // was 66
-    *(PULONG)(shellcode + 75) = ProcessId; // was 74
+    *(PULONG)(shellcode + offEvent) = EventId;
+    *(PULONG)(shellcode + offPid) = ProcessId;
 
-    // Patch FunctionName (+1 to all)
-    const ULONG fnImmOffsets[8] = {81, 96, 111, 126, 141, 156, 171, 186}; // was 80,95,110...
+    // Patch FunctionName markers
 
     CHAR fnBuf[64];
     RtlZeroMemory(fnBuf, sizeof(fnBuf));
@@ -722,16 +848,14 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     }
 
     // Patch FileHandle, IoControlCode, NtDeviceIo
-    *(PHANDLE)(shellcode + 240) = HookEntry->DriverDeviceHandle; // was 239
-    *(PULONG)(shellcode + 271) = IoControlCode;                  // was 270
-    *(PVOID *)(shellcode + 311) = TargetNtDeviceIo;              // was 310
-
-    // NOP sled (verify this offset too)
-    RtlFillMemory(shellcode + 358, 16, 0x90);
+    *(PHANDLE)(shellcode + offFileHandle) = HookEntry->DriverDeviceHandle;
+    *(PULONG)(shellcode + offIoctl) = IoControlCode;
+    *(PVOID *)(shellcode + offNtDeviceIo) = TargetNtDeviceIo;
 
     // Patch gateway addresses
-    *(PVOID *)(shellcode + 382) = gatewayAddress; // was 374 (normal path)
-    *(PVOID *)(shellcode + 393) = gatewayAddress; // skip path
+    RtlCopyMemory(shellcode + offNopSled, gateway, 16);
+    *(PVOID *)(shellcode + offGatewayNormal) = gatewayAddress;
+    *(PVOID *)(shellcode + offGatewaySkip) = gatewayAddress;
 
     // Write shellcode
     __try
