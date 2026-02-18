@@ -702,7 +702,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 
     // 3. Install hook (JMP to shellcode)
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = 14;
+    SIZE_T pageSize = 16;
     ULONG oldProt;
 
     status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
@@ -1067,7 +1067,7 @@ VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 
     // Restore Original Bytes
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = 14;
+    SIZE_T pageSize = 16;
     ULONG oldProt;
 
     if (fnZwProtectVirtualMemory)
