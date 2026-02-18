@@ -748,14 +748,17 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
     if (NT_SUCCESS(status))
     {
-        UCHAR jmp[14];
-        RtlZeroMemory(jmp, 14);
+        UCHAR jmp[16]; // 16 bytes
+        RtlZeroMemory(jmp, 16);
         jmp[0] = 0xFF;
         jmp[1] = 0x25;
         *(PULONG)&jmp[2] = 0;
         *(PVOID *)&jmp[6] = myShellcodeAddress;
+        jmp[14] = 0x90; // NOP
+        jmp[15] = 0x90; // NOP
 
-        RtlCopyMemory(HookDef->Address, jmp, 14);
+        RtlCopyMemory(HookDef->Address, jmp, 16); // 16 bytes
+
         fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
         HookEntry->ShellcodeUsed += totalSize;
