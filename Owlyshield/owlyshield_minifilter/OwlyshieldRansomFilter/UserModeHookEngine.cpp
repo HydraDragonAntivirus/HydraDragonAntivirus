@@ -707,6 +707,20 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     // Patch FunctionName (+1 to all)
     const ULONG fnImmOffsets[8] = {81, 96, 111, 126, 141, 156, 171, 186}; // was 80,95,110...
 
+    CHAR fnBuf[64];
+    RtlZeroMemory(fnBuf, sizeof(fnBuf));
+    if (FunctionName != NULL)
+    {
+        for (SIZE_T i = 0; i < 63 && FunctionName[i] != '\0'; i++)
+            fnBuf[i] = FunctionName[i];
+    }
+    for (ULONG i = 0; i < 8; i++)
+    {
+        ULONGLONG chunk = 0;
+        RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
+        *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
+    }
+
     // Patch FileHandle, IoControlCode, NtDeviceIo
     *(PHANDLE)(shellcode + 240) = HookEntry->DriverDeviceHandle; // was 239
     *(PULONG)(shellcode + 271) = IoControlCode;                  // was 270
