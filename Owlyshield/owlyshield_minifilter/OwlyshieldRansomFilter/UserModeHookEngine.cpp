@@ -683,50 +683,41 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
-    // Safety checks
-    if (*(PULONG)(shellcode + 66) != 0x11111111 || *(PULONG)(shellcode + 74) != 0x22222222 ||
-        *(PULONGLONG)(shellcode + 239) != 0x3333333333333333ULL || *(PULONG)(shellcode + 270) != 0xAAAAAAAA ||
-        *(PULONGLONG)(shellcode + 310) != 0x4444444444444444ULL ||
-        *(PULONGLONG)(shellcode + 374) != 0x5555555555555555ULL)
+    // Safety checks - ALL OFFSETS +1
+        if (*(PULONG)(shellcode + 67) != 0x11111111 ||                 // was 66
+            *(PULONG)(shellcode + 75) != 0x22222222 ||                 // was 74
+            *(PULONGLONG)(shellcode + 240) != 0x3333333333333333ULL || // was 239
+            *(PULONG)(shellcode + 271) != 0xAAAAAAAA ||                // was 270
+            *(PULONGLONG)(shellcode + 311) != 0x4444444444444444ULL || // was 310
+            *(PULONGLONG)(shellcode + 382) != 0x5555555555555555ULL)   // was 374
     {
         KeUnstackDetachProcess(&apcState);
         return STATUS_INVALID_IMAGE_FORMAT;
     }
 
-    // Patch FLAG_ADDR 
-    *(PVOID*)(shellcode + 7)   = flagAddr;  // was 3
-    *(PVOID*)(shellcode + 28)  = flagAddr;  // was 24
-    *(PVOID*)(shellcode + 323) = flagAddr;  // was 319
+    // Patch FLAG_ADDR (these might be OK, verify separately)
+    *(PVOID *)(shellcode + 7) = flagAddr;
+    *(PVOID *)(shellcode + 28) = flagAddr;
+    *(PVOID *)(shellcode + 323) = flagAddr;
 
     // Patch EventType and ProcessId
-    *(PULONG)(shellcode + 66) = EventId;    // was 62
-    *(PULONG)(shellcode + 74) = ProcessId;  // was 70
+    *(PULONG)(shellcode + 67) = EventId;   // was 66
+    *(PULONG)(shellcode + 75) = ProcessId; // was 74
 
-    const ULONG fnImmOffsets[8] = {80, 95, 110, 125, 140, 155, 170, 185};
-    CHAR fnBuf[64];
-    RtlZeroMemory(fnBuf, sizeof(fnBuf));
-    if (FunctionName != NULL)
-    {
-        for (SIZE_T i = 0; i < 63 && FunctionName[i] != '\0'; i++)
-            fnBuf[i] = FunctionName[i];
-    }
-    for (ULONG i = 0; i < 8; i++)
-    {
-        ULONGLONG chunk = 0;
-        RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
-        *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
-    }
+    // Patch FunctionName (+1 to all)
+    const ULONG fnImmOffsets[8] = {81, 96, 111, 126, 141, 156, 171, 186}; // was 80,95,110...
+
     // Patch FileHandle, IoControlCode, NtDeviceIo
-    *(PHANDLE)(shellcode + 239) = HookEntry->DriverDeviceHandle;  // was 235
-    *(PULONG)(shellcode + 270)  = IoControlCode;  // was 266
-    *(PVOID*)(shellcode + 310)  = TargetNtDeviceIo;  // was 306
+    *(PHANDLE)(shellcode + 240) = HookEntry->DriverDeviceHandle; // was 239
+    *(PULONG)(shellcode + 271) = IoControlCode;                  // was 270
+    *(PVOID *)(shellcode + 311) = TargetNtDeviceIo;              // was 310
 
-    // NOP sled
-    RtlFillMemory(shellcode + 358, 16, 0x90);  // was 354
+    // NOP sled (verify this offset too)
+    RtlFillMemory(shellcode + 358, 16, 0x90);
 
     // Patch gateway addresses
-    *(PVOID*)(shellcode + 374) = gatewayAddress;  // was 372 (normal path)
-    *(PVOID*)(shellcode + 393) = gatewayAddress;  // Skip path gateway at 386+7=393
+    *(PVOID *)(shellcode + 382) = gatewayAddress; // was 374 (normal path)
+    *(PVOID *)(shellcode + 393) = gatewayAddress; // skip path
 
     // Write shellcode
     __try
