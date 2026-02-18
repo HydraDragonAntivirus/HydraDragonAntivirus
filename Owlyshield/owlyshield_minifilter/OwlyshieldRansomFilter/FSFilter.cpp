@@ -2349,30 +2349,30 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 WCHAR resolvedFunctionName[64] = {0};
                 PCWSTR functionName = NULL;
 
-                if (incomingWideName && incomingWideName[0] != L'\0') {
-                    functionName = incomingWideName;
-                } else {
-                    BOOLEAN mapped = FALSE;
-                    ExAcquireFastMutex(&g_ConfigMutex);
-                    for (ULONG i = 0; i < g_CustomHookCount; i++) {
-                        if (g_GlobalCustomHooks[i].EventId == eventType) {
-                            ANSI_STRING asFunc;
-                            UNICODE_STRING usFunc;
-                            RtlInitAnsiString(&asFunc, g_GlobalCustomHooks[i].FunctionName);
-                            usFunc.Buffer = resolvedFunctionName;
-                            usFunc.Length = 0;
-                            usFunc.MaximumLength = sizeof(resolvedFunctionName);
-                            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
-                                resolvedFunctionName[(RTL_NUMBER_OF(resolvedFunctionName) - 1)] = L'\0';
-                                functionName = resolvedFunctionName;
-                                mapped = TRUE;
-                            }
-                            break;
+                BOOLEAN mapped = FALSE;
+                ExAcquireFastMutex(&g_ConfigMutex);
+                for (ULONG i = 0; i < g_CustomHookCount; i++) {
+                    if (g_GlobalCustomHooks[i].EventId == eventType) {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, g_GlobalCustomHooks[i].FunctionName);
+                        usFunc.Buffer = resolvedFunctionName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(resolvedFunctionName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                            resolvedFunctionName[(RTL_NUMBER_OF(resolvedFunctionName) - 1)] = L'\0';
+                            functionName = resolvedFunctionName;
+                            mapped = TRUE;
                         }
+                        break;
                     }
-                    ExReleaseFastMutex(&g_ConfigMutex);
+                }
+                ExReleaseFastMutex(&g_ConfigMutex);
 
-                    if (!mapped) {
+                if (!mapped) {
+                    if (incomingWideName && incomingWideName[0] != L'\0') {
+                        functionName = incomingWideName;
+                    } else {
                         switch (eventType) {
                         case IRP_NT_WRITE_VIRTUAL_MEMORY: functionName = L"NtWriteVirtualMemory"; break;
                         case IRP_NT_ALLOCATE_VIRTUAL_MEMORY: functionName = L"NtAllocateVirtualMemory"; break;

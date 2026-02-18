@@ -468,9 +468,10 @@ NTSTATUS OnKernelApiEvent(
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
     ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
 
-    // Keep dynamic generic API events even when process GID tracking is not yet established.
-    // User mode can recover correlation from PID and normalize to a synthetic GID.
-    if (!sourceFound && !targetFound && EventType != IRP_NT_GENERIC_API_CALL)
+    // Keep user-mode hook events (built-in + dynamic custom EventIds) even when
+    // process GID tracking is not yet established. User mode can recover by PID.
+    const BOOLEAN isUserHookEvent = (EventType >= IRP_NT_WRITE_VIRTUAL_MEMORY);
+    if (!sourceFound && !targetFound && !isUserHookEvent)
         return STATUS_SUCCESS;
 
     PIRP_ENTRY newEntry = new IRP_ENTRY();
