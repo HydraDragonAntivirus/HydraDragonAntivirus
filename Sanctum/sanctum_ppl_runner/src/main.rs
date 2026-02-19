@@ -1,9 +1,6 @@
 //! A service runner for the Protected Process Lite Antimalware which allows us to interact with ETW:TI
 
 use std::{
-    env, // Added env
-    mem::{size_of, size_of_val},
-    path::PathBuf, // Added PathBuf
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
     time::Duration,
@@ -17,10 +14,10 @@ use windows::{
         System::{
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
             Services::{
-                RegisterServiceCtrlHandlerW, SERVICE_CONTROL_STOP, SERVICE_RUNNING,
-                SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE,
-                SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW,
-                SERVICE_WIN32_OWN_PROCESS, SetServiceStatus, StartServiceCtrlDispatcherW,
+                RegisterServiceCtrlHandlerW, SERVICE_RUNNING, SERVICE_START_PENDING,
+                SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE,
+                SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS, SetServiceStatus,
+                StartServiceCtrlDispatcherW,
             },
             Threading::{
                 CREATE_PROTECTED_PROCESS, CreateProcessW, EXTENDED_STARTUPINFO_PRESENT,
@@ -75,50 +72,8 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
             start_threat_intel_trace();
         });
 
-        // Get ProgramFiles path from environment variable
-        let program_files_path = env::var("ProgramW6432")
-            .or_else(|_| env::var("ProgramFiles"))
-            .unwrap_or_else(|_| {
-                event_log(
-                    "Neither ProgramW6432 nor ProgramFiles environment variable found. Falling back to C:\\Program Files.",
-                    EVENTLOG_ERROR_TYPE,
-                    EventID::GeneralError,
-                );
-                "C:\\Program Files".to_string()
-            });
-
-        // Construct path for HydraDragonLauncher.exe
-        let mut hydra_dragon_path_buf = PathBuf::from(&program_files_path);
-        hydra_dragon_path_buf.push("HydraDragonAntivirus");
-        hydra_dragon_path_buf.push("HydraDragonAntivirusLauncher.exe");
-
-        if let Some(hydra_dragon_path) = hydra_dragon_path_buf.to_str() {
-            spawn_child_ppl_process(hydra_dragon_path);
-        } else {
-            event_log(
-                "Invalid path for HydraDragonAntivirusLauncher.exe. Skipping.",
-                EVENTLOG_ERROR_TYPE,
-                EventID::GeneralError,
-            );
-        }
-
-        // Construct path for owlyshield_ransom.exe
-        let mut owlyshield_path_buf = PathBuf::from(&program_files_path);
-        owlyshield_path_buf.push("HydraDragonAntivirus");
-        owlyshield_path_buf.push("hydradragon");
-        owlyshield_path_buf.push("Owlyshield");
-        owlyshield_path_buf.push("Owlyshield Service");
-        owlyshield_path_buf.push("owlyshield_ransom.exe");
-
-        if let Some(owlyshield_path) = owlyshield_path_buf.to_str() {
-            spawn_child_ppl_process(owlyshield_path);
-        } else {
-            event_log(
-                "Invalid path for owlyshield_ransom.exe. Skipping.",
-                EVENTLOG_ERROR_TYPE,
-                EventID::GeneralError,
-            );
-        }
+        // spawn child PPL - n.b. this is no longer used.
+        // spawn_child_ppl_process();
 
         // event loop
         while !SERVICE_STOP.load(Ordering::SeqCst) {
@@ -134,30 +89,27 @@ fn run_service(h_status: SERVICE_STATUS_HANDLE) {
 /// **Note** The child process MUST be signed with the ELAM certificate, and any DLLs it relies upon must either
 /// be signed correctly by Microsoft including the pagehashes in the signature, or signed by the ELAM certificate used
 /// to sign this, and the child process.
-fn spawn_child_ppl_process(process_to_run: &str) {
+fn spawn_child_ppl_process() {
     let mut startup_info = STARTUPINFOEXW::default();
     startup_info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
-
     let mut attribute_size_list: usize = 0;
+
     let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut attribute_size_list) };
 
     if attribute_size_list == 0 {
         event_log(
-            &format!(
-                "Error initialising thread attribute list for {}",
-                process_to_run
-            ),
+            "Error initialising thread attribute list",
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        return;
+        std::process::exit(1);
     }
 
     let mut attribute_list_mem = vec![0u8; attribute_size_list];
     startup_info.lpAttributeList =
         LPPROC_THREAD_ATTRIBUTE_LIST(attribute_list_mem.as_mut_ptr() as *mut _);
 
-    if let Err(e) = unsafe {
+    if let Err(_) = unsafe {
         InitializeProcThreadAttributeList(
             Some(startup_info.lpAttributeList),
             1,
@@ -166,14 +118,11 @@ fn spawn_child_ppl_process(process_to_run: &str) {
         )
     } {
         event_log(
-            &format!(
-                "Error initialising thread attribute list for {}: {}",
-                process_to_run, e
-            ),
+            "Error initialising thread attribute list",
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        return;
+        std::process::exit(1);
     }
 
     // update protection level to be the same as the PPL service
@@ -190,20 +139,20 @@ fn spawn_child_ppl_process(process_to_run: &str) {
         )
     } {
         event_log(
-            &format!(
-                "Error UpdateProcThreadAttribute for {}: {}",
-                process_to_run, e
-            ),
+            &format!("Error UpdateProcThreadAttribute, {}", e),
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        return;
+        std::process::exit(1);
     }
 
     // start the process
     let mut process_info = PROCESS_INFORMATION::default();
-    let mut path: Vec<u16> = process_to_run.encode_utf16().collect();
-    path.push(0);
+    // todo update this
+    let path: Vec<u16> = r"C:\Users\flux\AppData\Roaming\Sanctum\etw_consumer.exe"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     if let Err(e) = unsafe {
         CreateProcessW(
@@ -221,18 +170,17 @@ fn spawn_child_ppl_process(process_to_run: &str) {
     } {
         event_log(
             &format!(
-                "Error starting child PPL process via CreateProcessW for {}: {}",
-                process_to_run, e
+                "Error calling starting child PPL process via CreateProcessW, {}",
+                e
             ),
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        // Don't exit the whole service if one process fails to start
-        return;
+        std::process::exit(1);
     }
 
     event_log(
-        &format!("SanctumPPLRunner started child process: {}", process_to_run),
+        "SanctumPPLRunner started child process.",
         EVENTLOG_SUCCESS,
         EventID::Info,
     );

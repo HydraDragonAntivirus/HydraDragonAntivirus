@@ -8,13 +8,7 @@ use crate::{
     utils::log::{Log, LogLevel},
 };
 
-use super::ipc_etw_consumer::run_ipc_for_etw;
 use super::ipc_injected_dll::run_ipc_for_injected_dll;
-use serde_json::to_vec;
-use shared_no_std::ghost_hunting::NtFunction;
-use shared_std::constants::PIPE_FIREWALL_TELEMETRY;
-use tokio::io::AsyncWriteExt;
-use tokio::net::windows::named_pipe::ServerOptions;
 
 /// The core struct contains information on the core of the usermode engine where decisions are being made, and directly communicates
 /// with the kernel.
@@ -71,64 +65,11 @@ impl Core {
             run_ipc_for_injected_dll(tx).await;
         });
 
-        // Start the IPC server for the ETW consumer
-        let (etw_tx, mut etw_rx) = mpsc::channel(1000);
-        tokio::spawn(async {
-            run_ipc_for_etw(etw_tx).await;
-        });
-
-        // Relay channel for Firewall
-        let (fw_tx, mut fw_rx) = mpsc::channel(100);
-
-        // Start Firewall Telemetry Server
-        tokio::spawn(async move {
-            println!("[Sanctum] Firewall Telemetry Relay starting...");
-            loop {
-                let mut server = match ServerOptions::new()
-                    .first_pipe_instance(false) // Allow more than just the very first one
-                    .max_instances(10)
-                    .create(PIPE_FIREWALL_TELEMETRY)
-                {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("[Sanctum] Failed to create telemetry pipe: {}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                };
-
-                println!("[Sanctum] Waiting for Firewall to connect to telemetry pipe...");
-                if server.connect().await.is_ok() {
-                    println!("[Sanctum] Firewall connected to telemetry! Streaming events...");
-                    while let Some(msg) = fw_rx.recv().await {
-                        if let Ok(data) = to_vec(&msg) {
-                            if let Err(e) = server.write_all(&data).await {
-                                println!("[Sanctum] Firewall disconnected: {}", e);
-                                break; // connection broken
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
         //
         // Enter the polling & decision making loop, this here is the core / engine of the usermode engine.
         // todo: we need to actually inspect what these params are doing and if they are malicious.
         //
         loop {
-            // See if there is a message from the ETW consumer
-            if let Ok(rx) = etw_rx.try_recv() {
-                // If it's a network event, relay it to the firewall
-                if let NtFunction::NetworkActivity(_) = &rx.data {
-                    println!("[Sanctum] Relaying Network Event to Firewall...");
-                    let _ = fw_tx.try_send(rx.clone());
-                }
-
-                let mut mtx = driver_manager.lock().await;
-                mtx.ioctl_syscall_event(rx);
-            }
-
             // See if there is a message from the injected DLL
             if let Ok(rx) = rx.try_recv() {
                 let mut mtx = driver_manager.lock().await;

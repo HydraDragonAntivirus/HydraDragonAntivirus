@@ -36,15 +36,6 @@ pub struct Engine;
 impl Engine {
     /// Start the engine
     pub async fn start() -> Result<(), Box<dyn std::error::Error>> {
-        // Initialize PPL Service PID for ETW verification
-        if let Ok(pid) = get_ppl_svc_pid() {
-            unsafe { PPL_SERVICE_PID = pid };
-            println!("[Sanctum] Trusted PPL Service PID: {}", pid);
-        } else {
-            eprintln!(
-                "[Sanctum] WARNING: Could not find sanctum_ppl_runner. ETW telemetry may be rejected."
-            );
-        }
 
         //
         // Start by instantiating the elements we will be using in the engine.

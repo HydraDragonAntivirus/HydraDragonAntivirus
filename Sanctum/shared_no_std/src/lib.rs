@@ -2,8 +2,6 @@
 
 #![no_std]
 
-extern crate alloc;
-
 pub mod constants;
 pub mod driver_ipc;
 pub mod ghost_hunting;

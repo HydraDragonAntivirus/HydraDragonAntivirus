@@ -1,4 +1,3 @@
-use alloc::string::String;
 use core::arch::x86_64::_MM_HINT_NTA;
 
 use serde::{Deserialize, Serialize};
@@ -71,7 +70,6 @@ pub enum NtFunction {
     NtWriteVirtualMemory(NtWriteVirtualMemoryData),
     NtAllocateVirtualMemory(NtAllocateVirtualMemoryData),
     NtCreateThreadEx(NtCreateThreadExData),
-    NetworkActivity(NetworkActivityData),
 }
 
 impl NtFunction {
@@ -80,7 +78,6 @@ impl NtFunction {
     pub const M_NT_WRITE_VM: u64 = 1 << 1;
     pub const M_NT_ALLOC_VM: u64 = 1 << 2;
     pub const M_CREATE_THREAD_EX: u64 = 1 << 3;
-    pub const M_NETWORK_ACTIVITY: u64 = 1 << 4;
 
     pub fn as_mask(&self) -> u64 {
         let m = match self {
@@ -89,7 +86,6 @@ impl NtFunction {
             NtFunction::NtWriteVirtualMemory(_) => Self::M_NT_WRITE_VM,
             NtFunction::NtAllocateVirtualMemory(_) => Self::M_NT_ALLOC_VM,
             NtFunction::NtCreateThreadEx(_) => Self::M_CREATE_THREAD_EX,
-            NtFunction::NetworkActivity(_) => Self::M_NETWORK_ACTIVITY,
         };
 
         m
@@ -127,29 +123,4 @@ pub struct NtCreateThreadExData {
     pub target_pid: u32,
     pub start_routine: usize,
     pub argument: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub enum NetworkActivityData {
-    Http(HttpActivity),
-    WinINet(WinINetActivity),
-}
-
-impl Default for NetworkActivityData {
-    fn default() -> Self {
-        NetworkActivityData::Http(HttpActivity::default())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
-pub struct HttpActivity {
-    pub url: String,
-    pub method: String,
-    pub user_agent: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
-pub struct WinINetActivity {
-    pub url: String,
-    pub server: String,
 }

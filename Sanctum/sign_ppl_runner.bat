@@ -2,7 +2,7 @@
 setlocal
 
 :: paths
-set SERVICE_BINARY=target\debug\sanctum_ppl_runner.exe
+set SERVICE_BINARY=target\release\sanctum_ppl_runner.exe
 set PFX_FILE=driver\sanctum.pfx
 set PFX_PASSWORD=password
 

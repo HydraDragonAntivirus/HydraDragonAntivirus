@@ -6,9 +6,7 @@ use crate::{
     ipc::send_etw_info_ipc,
     logging::{EventID, event_log},
 };
-use shared_no_std::ghost_hunting::{
-    HttpActivity, NetworkActivityData, NtFunction, Syscall, WinINetActivity,
-};
+use shared_no_std::ghost_hunting::{NtFunction, Syscall};
 use windows::{
     Win32::{
         Foundation::{ERROR_SUCCESS, GetLastError, MAX_PATH, STATUS_SUCCESS},
@@ -17,14 +15,13 @@ use windows::{
                 CONTROLTRACE_HANDLE, CloseTrace, EVENT_CONTROL_CODE_ENABLE_PROVIDER, EVENT_HEADER,
                 EVENT_RECORD, EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES,
                 EVENT_TRACE_REAL_TIME_MODE, EnableTraceEx2, OpenTraceW,
-                PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
-                PROPERTY_DATA_DESCRIPTOR, ProcessTrace, StartTraceW, StopTraceW, TRACE_EVENT_INFO,
-                TRACE_LEVEL_VERBOSE, TdhGetEventInformation, TdhGetProperty,
+                PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME, ProcessTrace,
+                StartTraceW, StopTraceW, TRACE_EVENT_INFO, TRACE_LEVEL_VERBOSE,
+                TdhGetEventInformation,
             },
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
             ProcessStatus::GetProcessImageFileNameW,
             Threading::{OpenProcess, PROCESS_ALL_ACCESS},
-            Time::FileTimeToSystemTime,
         },
     },
     core::{PCWSTR, PWSTR},
@@ -50,14 +47,6 @@ const KERNEL_THREATINT_TASK_WRITEVM: u16 = 7;
 const KERNEL_THREATINT_TASK_SUSPENDRESUME_THREAD: u16 = 8;
 const KERNEL_THREATINT_TASK_SUSPENDRESUME_PROCESS: u16 = 9;
 const KERNEL_THREATINT_TASK_DRIVER_DEVICE: u16 = 10;
-
-/// The GUID for Microsoft-Windows-HttpService. dd5ef90a-6398-47a4-ad34-4d35d2e7171b
-const HTTP_SERVICE_GUID: windows::core::GUID =
-    windows::core::GUID::from_u128(0xdd5ef90a_6398_47a4_ad34_4d35d2e7171b);
-
-/// The GUID for Microsoft-Windows-WinINet. 43d1a55c-76d6-4f7e-995c-97171f3603f8
-const WININET_GUID: windows::core::GUID =
-    windows::core::GUID::from_u128(0x43d1a55c_76d6_4f7e_995c_97171f3603f8);
 
 // Keyword masks for ETW:TI
 const KERNEL_THREATINT_KEYWORD_ALLOCVM_LOCAL: u64 = 0x1;
@@ -200,34 +189,6 @@ fn register_ti_session() {
         stop_trace(handle, session_name, properties);
         std::process::exit(1);
     }
-
-    // Enable HttpService Provider
-    let _ = unsafe {
-        EnableTraceEx2(
-            handle,
-            &HTTP_SERVICE_GUID,
-            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
-            TRACE_LEVEL_VERBOSE as _,
-            0xFFFFFFFFFFFFFFFF,
-            0,
-            0,
-            None,
-        )
-    };
-
-    // Enable WinINet Provider
-    let _ = unsafe {
-        EnableTraceEx2(
-            handle,
-            &WININET_GUID,
-            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
-            TRACE_LEVEL_VERBOSE as _,
-            0xFFFFFFFFFFFFFFFF,
-            0,
-            0,
-            None,
-        )
-    };
 
     event_log(
         "Successfully started trace for ETW:TI.",
@@ -438,116 +399,6 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
             );
         }
     }
-
-    // --- Network ETW Handling ---
-    if event_header.ProviderId == HTTP_SERVICE_GUID {
-        // Event ID 1: Request Start
-        if descriptor_id == 1 {
-            if let Some(url) = extract_string_property(record, "Url") {
-                let method =
-                    extract_string_property(record, "Method").unwrap_or_else(|| "GET".to_string());
-
-                event_log(
-                    &format!("[ETW] Captured HTTP URL from PID {}: {}", pid, url),
-                    EVENTLOG_INFORMATION_TYPE,
-                    EventID::Info,
-                );
-
-                let activity = NetworkActivityData::Http(HttpActivity {
-                    url,
-                    method,
-                    user_agent: "SanctumGhost".to_string(),
-                });
-
-                send_etw_info_ipc(Syscall {
-                    pid: pid,
-                    source:
-                        shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook,
-                    data: NtFunction::NetworkActivity(activity),
-                });
-            }
-        }
-    } else if event_header.ProviderId == WININET_GUID {
-        if let Some(url) = extract_string_property(record, "Url") {
-            event_log(
-                &format!("[ETW] Captured WinINet URL from PID {}: {}", pid, url),
-                EVENTLOG_INFORMATION_TYPE,
-                EventID::Info,
-            );
-
-            let activity = NetworkActivityData::WinINet(WinINetActivity {
-                url,
-                server: "Unknown".to_string(),
-            });
-
-            send_etw_info_ipc(Syscall {
-                pid: pid,
-                source: shared_no_std::ghost_hunting::SyscallEventSource::EventSourceSyscallHook,
-                data: NtFunction::NetworkActivity(activity),
-            });
-        }
-    }
-}
-
-/// Helper function to extract a string property from an ETW record by name.
-unsafe fn extract_string_property(record: *mut EVENT_RECORD, name: &str) -> Option<String> {
-    let mut buffer_size: u32 = 0;
-
-    // 1. Get the size of the event information
-    // Signature: TdhGetEventInformation(event, context, buffer, buffersize)
-    unsafe {
-        let _ = TdhGetEventInformation(record, None, None, &mut buffer_size);
-        if buffer_size == 0 {
-            return None;
-        }
-
-        let mut buffer = vec![0u8; buffer_size as usize];
-        let info = buffer.as_mut_ptr() as *mut TRACE_EVENT_INFO;
-
-        if TdhGetEventInformation(record, None, Some(info), &mut buffer_size) != 0 {
-            return None;
-        }
-
-        let info_ref = &*info;
-        let property_count = info_ref.TopLevelPropertyCount;
-
-        // The EventPropertyInfoArray is at the end of the struct
-        let property_array_ptr = info_ref.EventPropertyInfoArray.as_ptr();
-        let property_array =
-            std::slice::from_raw_parts(property_array_ptr, property_count as usize);
-
-        for prop in property_array {
-            let prop_name_ptr = (info as usize + prop.NameOffset as usize) as *const u16;
-            let prop_name = PWSTR(prop_name_ptr as *mut _).to_string().ok()?;
-
-            if prop_name == name {
-                let mut data_buffer = vec![0u8; 4096];
-                let mut descriptor = PROPERTY_DATA_DESCRIPTOR {
-                    PropertyName: (info as usize + prop.NameOffset as usize) as u64,
-                    ArrayIndex: u32::MAX,
-                    ..Default::default()
-                };
-
-                // Signature: TdhGetProperty(pevent, context, descriptors, buffer)
-                let status = TdhGetProperty(record, None, &[descriptor], &mut data_buffer);
-
-                if status == 0 {
-                    // Convert UTF-16 and trim nulls
-                    let u16_data = std::slice::from_raw_parts(
-                        data_buffer.as_ptr() as *const u16,
-                        data_buffer.len() / 2,
-                    );
-                    let s = String::from_utf16_lossy(u16_data);
-                    let trimmed = s.split('\0').next().unwrap_or("").to_string();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed);
-                    }
-                }
-            }
-        }
-    }
-
-    None
 }
 
 /// Get the process image as a string for a given pid
