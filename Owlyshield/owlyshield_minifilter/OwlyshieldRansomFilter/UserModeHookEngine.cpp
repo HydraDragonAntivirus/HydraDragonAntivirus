@@ -298,16 +298,16 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x81, 0xC4, 0xF0, 0x00, 0x00, 0x00, // add rsp, 0xF0
     0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5B, 0x5A, 0x59, 0x58,
 
-    // ===== STOLEN BYTES (16 NOPs) at offset 354 =====
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    // ===== STOLEN BYTES (14 NOPs) at offset 354 =====
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ===== JUMP TO GATEWAY (0x5555 PATCHED at NEW offset 372) =====
+    // ===== JUMP TO GATEWAY (0x5555 PATCHED at offset 370) =====
     0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xE0,
 
-    // ===== SKIP TARGET: busy path (0xBBBB PATCHED at NEW offset 385) =====
-    0x58,
-    0x48, 0xB8, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-    0xFF, 0xE0, // jmp rax
+    // ===== SKIP TARGET: busy path (0xBBBB PATCHED at offset 383) =====
+    0x58,                                                       // pop rax (undo push at [0])
+    0x48, 0xB8, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // mov rax, GATEWAY_ADDR
+    0xFF, 0xE0,                                                 // jmp rax
 
     // ===== PADDING =====
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
@@ -645,7 +645,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     if (*(PULONG)(shellcode + 62) != 0x11111111 || *(PULONG)(shellcode + 70) != 0x22222222 ||
         *(PULONGLONG)(shellcode + 235) != 0x3333333333333333ULL || *(PULONG)(shellcode + 266) != 0xAAAAAAAA ||
         *(PULONGLONG)(shellcode + 306) != 0x4444444444444444ULL ||
-        *(PULONGLONG)(shellcode + 372) != 0x5555555555555555ULL)
+        *(PULONGLONG)(shellcode + 370) != 0x5555555555555555ULL)
     {
         KeUnstackDetachProcess(&apcState);
         return STATUS_INVALID_IMAGE_FORMAT;
@@ -685,8 +685,8 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     RtlFillMemory(shellcode + 354, 14, 0x90);
 
     // Patch gateway address for BOTH normal and busy (skip) paths
-    *(PVOID*)(shellcode + 372) = gatewayAddress;  // Jump to gateway (normal path) 
-    *(PVOID*)(shellcode + 385) = gatewayAddress;  // Jump to gateway (busy path)
+    *(PVOID *)(shellcode + 370) = gatewayAddress;
+    *(PVOID *)(shellcode + 383) = gatewayAddress;
 
     // Write shellcode
     __try
