@@ -654,14 +654,12 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
 
     // Safety checks
-    if (*(PULONG)(shellcode + 66) != 0x11111111 || *(PULONG)(shellcode + 74) != 0x22222222 ||
-        *(PULONGLONG)(shellcode + 239) != 0x3333333333333333ULL || *(PULONG)(shellcode + 270) != 0xAAAAAAAA ||
-        *(PULONGLONG)(shellcode + 310) != 0x4444444444444444ULL ||
-        *(PULONGLONG)(shellcode + 374) != 0x5555555555555555ULL)
-    {
-        KeUnstackDetachProcess(&apcState);
-        return STATUS_INVALID_IMAGE_FORMAT;
-    }
+    if (*(PULONG)(shellcode + 66)  != 0x11111111 ||  // was 62
+        *(PULONG)(shellcode + 74)  != 0x22222222 ||  // was 70
+        *(PULONGLONG)(shellcode + 239) != 0x3333333333333333ULL ||  // was 235
+        *(PULONG)(shellcode + 270) != 0xAAAAAAAA ||  // was 266
+        *(PULONGLONG)(shellcode + 310) != 0x4444444444444444ULL ||  // was 306
+        *(PULONGLONG)(shellcode + 374) != 0x5555555555555555ULL) {  // was 372
 
     // Patch FLAG_ADDR 
     *(PVOID*)(shellcode + 7)   = flagAddr;  // was 3
@@ -672,20 +670,9 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     *(PULONG)(shellcode + 66) = EventId;    // was 62
     *(PULONG)(shellcode + 74) = ProcessId;  // was 70
 
-    const ULONG fnImmOffsets[8] = {80, 95, 110, 125, 140, 155, 170, 185};
-    CHAR fnBuf[64];
-    RtlZeroMemory(fnBuf, sizeof(fnBuf));
-    if (FunctionName != NULL)
-    {
-        for (SIZE_T i = 0; i < 63 && FunctionName[i] != '\0'; i++)
-            fnBuf[i] = FunctionName[i];
-    }
-    for (ULONG i = 0; i < 8; i++)
-    {
-        ULONGLONG chunk = 0;
-        RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
-        *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
-    }
+    // Patch FunctionName
+    const ULONG fnImmOffsets[8] = {80, 95, 110, 125, 140, 155, 170, 185};  // was 76,91,106...
+
     // Patch FileHandle, IoControlCode, NtDeviceIo
     *(PHANDLE)(shellcode + 239) = HookEntry->DriverDeviceHandle;  // was 235
     *(PULONG)(shellcode + 270)  = IoControlCode;  // was 266
@@ -696,7 +683,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 
     // Patch gateway addresses
     *(PVOID*)(shellcode + 374) = gatewayAddress;  // was 372 (normal path)
-    *(PVOID*)(shellcode + 393) = gatewayAddress;  // Skip path gateway at 386+7=393
+    *(PVOID*)(shellcode + 391) = gatewayAddress;  // was 385 (busy path)
 
     // Write shellcode
     __try
