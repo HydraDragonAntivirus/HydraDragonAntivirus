@@ -778,55 +778,29 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     // 2. Create per-process device handle used by shellcode NtDeviceIoControlFile calls.
     // Open by name inside the attached process context so the handle lives in that process handle table.
     HANDLE targetHandle = NULL;
-    UNICODE_STRING hookDevicePathDos;
-    UNICODE_STRING hookDevicePathNt;
+    UNICODE_STRING hookDevicePath;
     OBJECT_ATTRIBUTES objAttr;
     IO_STATUS_BLOCK ioStatus;
 
-    RtlInitUnicodeString(&hookDevicePathDos, L"\\DosDevices\\OwlyshieldHook");
-    RtlInitUnicodeString(&hookDevicePathNt, L"\\Device\\OwlyshieldHook");
+    RtlInitUnicodeString(&hookDevicePath, L"\\??\\OwlyshieldHook");
+    InitializeObjectAttributes(&objAttr, &hookDevicePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
-    InitializeObjectAttributes(&objAttr, &hookDevicePathDos, OBJ_CASE_INSENSITIVE, NULL, NULL);
-    status = ZwCreateFile(&targetHandle,
-                          FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                          &objAttr,
-                          &ioStatus,
-                          NULL,
-                          FILE_ATTRIBUTE_NORMAL,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE,
-                          FILE_OPEN,
-                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                          NULL,
-                          0);
+    status = ZwCreateFile(&targetHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_NON_DIRECTORY_FILE,
+                          NULL, 0);
 
     if (!NT_SUCCESS(status))
     {
-        InitializeObjectAttributes(&objAttr, &hookDevicePathNt, OBJ_CASE_INSENSITIVE, NULL, NULL);
-        RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-        status = ZwCreateFile(&targetHandle,
-                              FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                              &objAttr,
-                              &ioStatus,
-                              NULL,
-                              FILE_ATTRIBUTE_NORMAL,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE,
-                              FILE_OPEN,
-                              FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                              NULL,
-                              0);
-        if (!NT_SUCCESS(status))
+        DbgPrint("UserModeHook: ZwCreateFile(\\\\??\\\\OwlyshieldHook) failed PID=%lu status=0x%08X iosb=0x%08X\n",
+                 pid, status, ioStatus.Status);
+        if (fnZwFreeVirtualMemory)
         {
-            DbgPrint("UserModeHook: ZwCreateFile hook device failed PID=%lu status=0x%08X iosb=0x%08X\n",
-                     pid, status, ioStatus.Status);
-            if (fnZwFreeVirtualMemory)
-            {
-                SIZE_T freeSize = 0;
-                fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
-            }
-            KeUnstackDetachProcess(&apcState);
-            return status;
+            SIZE_T freeSize = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
         }
+        KeUnstackDetachProcess(&apcState);
+        return status;
     }
 
     HookEntry->DriverDeviceHandle = targetHandle;
