@@ -51,9 +51,24 @@ static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS
     if (HookEntry == NULL)
         return;
 
-    if (HookEntry->DriverDeviceHandle)
+    // DriverDeviceHandle lives in the TARGET process's handle table.
+    // Must be closed while attached, or via ZwDuplicateObject DUPLICATE_CLOSE_SOURCE.
+    if (HookEntry->DriverDeviceHandle && Process != NULL)
     {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         ZwClose(HookEntry->DriverDeviceHandle);
+        KeUnstackDetachProcess(&apcState);
+        HookEntry->DriverDeviceHandle = NULL;
+    }
+    else if (HookEntry->DriverDeviceHandle && Process == NULL)
+    {
+        // No process pointer — use DUPLICATE_CLOSE_SOURCE to close
+        // the handle in the target without needing to attach.
+        // We need the target process handle for this. If Process is
+        // NULL we've lost the reference — just zero it and accept the
+        // handle leak for this rare edge case.
+        DbgPrint("UserModeHook: CleanupPartial — cannot close target handle, process ref lost\n");
         HookEntry->DriverDeviceHandle = NULL;
     }
 
@@ -64,6 +79,7 @@ static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS
         SIZE_T freeSize = 0;
         fnZwFreeVirtualMemory(ZwCurrentProcess(), &HookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
         KeUnstackDetachProcess(&apcState);
+        HookEntry->ShellcodeBase = NULL;
     }
 
     if (HookEntry->CustomHooks)
@@ -747,65 +763,145 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     SIZE_T regionSize = 4096 * 2; // 2 Pages to be safe
     ULONG pid = HandleToULong(PsGetProcessId(Process));
 
+    // ---------------------------------------------------------------
+    // 1. Allocate shellcode memory inside target process
+    // ---------------------------------------------------------------
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // 1. Allocate Shellcode Memory
     if (fnZwAllocateVirtualMemory)
     {
-        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE,
-                                           PAGE_EXECUTE_READWRITE);
+        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
+                                           MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     }
     else
     {
         status = STATUS_NOT_IMPLEMENTED;
     }
 
+    if (NT_SUCCESS(status))
+    {
+        __try { RtlZeroMemory(baseAddress, 8); }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    KeUnstackDetachProcess(&apcState);
+
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("UserModeHook: ZwAllocateVirtualMemory failed PID=%lu status=0x%08X protect=RWX\n", pid, status);
-        if (status == (NTSTATUS)0xC0000604) {
-            DbgPrint("UserModeHook: PID %lu appears to block dynamic executable memory (ACG/DynamicCode policy)\n", pid);
-        }
-        KeUnstackDetachProcess(&apcState);
+        DbgPrint("UserModeHook: ZwAllocateVirtualMemory failed PID=%lu status=0x%08X\n", pid, status);
+        if (status == (NTSTATUS)0xC0000604)
+            DbgPrint("UserModeHook: PID %lu has ACG/DynamicCode policy active\n", pid);
         return status;
     }
 
-    HookEntry->ShellcodeBase = baseAddress;
-    HookEntry->ShellcodeSize = regionSize;
-    HookEntry->ShellcodeUsed = 8;  // Reserve first 8 bytes for busy flag
-    RtlZeroMemory(baseAddress, 8); // Zero the flag
+    HookEntry->ShellcodeBase  = baseAddress;
+    HookEntry->ShellcodeSize  = regionSize;
+    HookEntry->ShellcodeUsed  = 8; // first 8 bytes = busy flag
 
-    // 2. Create per-process device handle used by shellcode NtDeviceIoControlFile calls.
-    // Open by name inside the attached process context so the handle lives in that process handle table.
-    HANDLE targetHandle = NULL;
-    UNICODE_STRING hookDevicePath;
+    // ---------------------------------------------------------------
+    // 2. Open device handle in OUR context (never while attached).
+    //    ZwCreateFile sends an IRP that completes via APC. If called
+    //    while attached to another process, that APC fires inside the
+    //    victim's thread — corrupting it and causing a crash/BSOD if
+    //    the victim is a critical process (csrss, lsass, etc.).
+    // ---------------------------------------------------------------
+    HANDLE driverHandle = NULL;
+    UNICODE_STRING devicePath;
     OBJECT_ATTRIBUTES objAttr;
     IO_STATUS_BLOCK ioStatus;
 
-    RtlInitUnicodeString(&hookDevicePath, L"\\??\\OwlyshieldHook");
-    InitializeObjectAttributes(&objAttr, &hookDevicePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    RtlInitUnicodeString(&devicePath, L"\\Device\\OwlyshieldHook");
+    InitializeObjectAttributes(&objAttr, &devicePath,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
-    status = ZwCreateFile(&targetHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
-                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_NON_DIRECTORY_FILE,
+    // No attachment here — runs safely in driver/System process context
+    status = ZwCreateFile(&driverHandle,
+                          GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+                          &objAttr, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_NORMAL,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          FILE_OPEN,
+                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
                           NULL, 0);
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("UserModeHook: ZwCreateFile(\\\\??\\\\OwlyshieldHook) failed PID=%lu status=0x%08X iosb=0x%08X\n",
+        DbgPrint("UserModeHook: ZwCreateFile failed PID=%lu status=0x%08X iosb=0x%08X\n",
                  pid, status, ioStatus.Status);
-        if (fnZwFreeVirtualMemory)
-        {
-            SIZE_T freeSize = 0;
-            fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
-        }
-        KeUnstackDetachProcess(&apcState);
-        return status;
+        goto cleanup_alloc;
+    }
+
+    // ---------------------------------------------------------------
+    // 3. Get a kernel handle to the target process so we can call
+    //    ZwDuplicateObject with it as the destination.
+    // ---------------------------------------------------------------
+    HANDLE targetProcessHandle = NULL;
+    status = ObOpenObjectByPointer(Process,
+                                   OBJ_KERNEL_HANDLE,
+                                   NULL,
+                                   PROCESS_DUP_HANDLE,
+                                   *PsProcessType,
+                                   KernelMode,
+                                   &targetProcessHandle);
+
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("UserModeHook: ObOpenObjectByPointer failed PID=%lu status=0x%08X\n", pid, status);
+        ZwClose(driverHandle);
+        goto cleanup_alloc;
+    }
+
+    // ---------------------------------------------------------------
+    // 4. Duplicate the handle into the target process's handle table.
+    //    The resulting targetHandle value is valid inside that process
+    //    and is what the injected shellcode will pass to
+    //    NtDeviceIoControlFile.
+    // ---------------------------------------------------------------
+    if (!fnZwDuplicateObject)
+    {
+        DbgPrint("UserModeHook: ZwDuplicateObject not resolved\n");
+        status = STATUS_PROCEDURE_NOT_FOUND;
+        ZwClose(driverHandle);
+        ZwClose(targetProcessHandle);
+        goto cleanup_alloc;
+    }
+
+    HANDLE targetHandle = NULL;
+    status = fnZwDuplicateObject(
+        ZwCurrentProcess(),                         // source process  (us)
+        driverHandle,                               // source handle
+        targetProcessHandle,                        // destination process (victim)
+        &targetHandle,                              // new handle — valid inside victim
+        GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+        0,
+        0);
+
+    ZwClose(driverHandle);
+    ZwClose(targetProcessHandle);
+
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("UserModeHook: ZwDuplicateObject failed PID=%lu status=0x%08X\n", pid, status);
+        goto cleanup_alloc;
     }
 
     HookEntry->DriverDeviceHandle = targetHandle;
-    KeUnstackDetachProcess(&apcState);
+    DbgPrint("UserModeHook: infrastructure ready PID=%lu shellcode=%p handle=%p\n",
+             pid, baseAddress, targetHandle);
     return STATUS_SUCCESS;
+
+cleanup_alloc:
+    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+    if (fnZwFreeVirtualMemory)
+    {
+        SIZE_T freeSize = 0;
+        fnZwFreeVirtualMemory(ZwCurrentProcess(), &HookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+    }
+    KeUnstackDetachProcess(&apcState);
+    HookEntry->ShellcodeBase = NULL;
+    return status;
 }
 
 //
