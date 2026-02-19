@@ -62,14 +62,12 @@ Environment:
 
 // Declare PsGetProcessImageFileName (not exported in all headers)
 extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
-extern "C" NTKERNELAPI NTSTATUS NTAPI MmCopyVirtualMemory(
-    _In_ PEPROCESS FromProcess,
-    _In_ PVOID FromAddress,
-    _In_ PEPROCESS ToProcess,
-    _Out_writes_bytes_(BufferSize) PVOID ToAddress,
+extern "C" NTSYSAPI NTSTATUS NTAPI ZwReadVirtualMemory(
+    _In_ HANDLE ProcessHandle,
+    _In_ PVOID BaseAddress,
+    _Out_writes_bytes_(BufferSize) PVOID Buffer,
     _In_ SIZE_T BufferSize,
-    _In_ KPROCESSOR_MODE PreviousMode,
-    _Out_ PSIZE_T NumberOfBytesCopied
+    _Out_opt_ PSIZE_T NumberOfBytesRead
 );
 
 // Forward declaration for helper function
@@ -87,7 +85,7 @@ static VOID DrainAssemblyScanQueue(VOID);
 static VOID ProcessAssemblyScanTask(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ ACCESS_MASK ReasonMask);
 static ULONG DetectAssemblySignatureFlags(_In_reads_bytes_(BufferSize) const UCHAR* Buffer, _In_ SIZE_T BufferSize);
 static NTSTATUS CopyProcessBytesSafe(
-    _In_ PEPROCESS SourceProcess,
+    _In_ HANDLE ProcessHandle,
     _In_ PVOID SourceAddress,
     _Out_writes_bytes_(DestinationSize) PUCHAR Destination,
     _In_ SIZE_T DestinationSize,
@@ -456,27 +454,19 @@ static VOID DrainAssemblyScanQueue(VOID)
 }
 
 static NTSTATUS CopyProcessBytesSafe(
-    _In_ PEPROCESS SourceProcess,
+    _In_ HANDLE ProcessHandle,
     _In_ PVOID SourceAddress,
     _Out_writes_bytes_(DestinationSize) PUCHAR Destination,
     _In_ SIZE_T DestinationSize,
     _Out_ PSIZE_T BytesCopied
 )
 {
-    if (SourceProcess == NULL || Destination == NULL || BytesCopied == NULL || DestinationSize == 0) {
+    if (Destination == NULL || BytesCopied == NULL || DestinationSize == 0) {
         return STATUS_INVALID_PARAMETER;
     }
 
     *BytesCopied = 0;
-    return MmCopyVirtualMemory(
-        SourceProcess,
-        SourceAddress,
-        PsGetCurrentProcess(),
-        Destination,
-        DestinationSize,
-        KernelMode,
-        BytesCopied
-    );
+    return ZwReadVirtualMemory(ProcessHandle, SourceAddress, Destination, DestinationSize, BytesCopied);
 }
 
 static ULONG DetectAssemblySignatureFlags(_In_reads_bytes_(BufferSize) const UCHAR* Buffer, _In_ SIZE_T BufferSize)
@@ -542,7 +532,6 @@ static BOOLEAN IsExecutableProtectionMask(ULONG Protect)
 static VOID ProcessAssemblyScanTask(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ ACCESS_MASK ReasonMask)
 {
     HANDLE processHandle = NULL;
-    PEPROCESS targetProcess = NULL;
     OBJECT_ATTRIBUTES objAttrs;
     CLIENT_ID cid;
     NTSTATUS status;
@@ -568,22 +557,6 @@ static VOID ProcessAssemblyScanTask(_In_ ULONG SourcePid, _In_ ULONG TargetPid, 
             L"kernel.generic_api",
             &aux
         );
-        return;
-    }
-
-    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)TargetPid, &targetProcess);
-    if (!NT_SUCCESS(status)) {
-        KERNEL_API_EVENT_AUX aux = { 0 };
-        aux.AccessMask = ReasonMask;
-        aux.OperationStatus = status;
-        (VOID)OnKernelApiEvent(
-            IRP_NT_GENERIC_API_CALL,
-            SourcePid,
-            TargetPid,
-            L"kernel.generic_api",
-            &aux
-        );
-        ZwClose(processHandle);
         return;
     }
 
@@ -636,7 +609,7 @@ static VOID ProcessAssemblyScanTask(_In_ ULONG SourcePid, _In_ ULONG TargetPid, 
                 suspicious = TRUE;
             }
 
-            if (NT_SUCCESS(CopyProcessBytesSafe(targetProcess, mbi.BaseAddress, sample, sizeof(sample), &bytesRead)) &&
+            if (NT_SUCCESS(CopyProcessBytesSafe(processHandle, mbi.BaseAddress, sample, sizeof(sample), &bytesRead)) &&
                 bytesRead > 0) {
                 signatureFlags |= DetectAssemblySignatureFlags(sample, bytesRead);
                 if (signatureFlags != 0) {
@@ -666,9 +639,6 @@ static VOID ProcessAssemblyScanTask(_In_ ULONG SourcePid, _In_ ULONG TargetPid, 
         queryAddress = (PVOID)nextAddressValue;
     }
 
-    if (targetProcess != NULL) {
-        ObDereferenceObject(targetProcess);
-    }
     ZwClose(processHandle);
 }
 

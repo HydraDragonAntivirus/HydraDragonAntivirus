@@ -2288,66 +2288,6 @@ NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     return STATUS_SUCCESS;
 }
 
-static ULONG NormalizeHookEventType(_In_ ULONG RawEventType)
-{
-    if (RawEventType == IRP_NT_GENERIC_API_CALL || RawEventType == IRP_NT_GENERIC_ASSEMBLY_EVENT) {
-        return RawEventType;
-    }
-
-    // Backward compatibility for older user-mode senders that emitted
-    // expanded Nt-style opcodes directly (15..24).
-    if (RawEventType >= 15 && RawEventType <= 20) {
-        return IRP_NT_GENERIC_ASSEMBLY_EVENT;
-    }
-    if (RawEventType >= 21 && RawEventType <= 24) {
-        return IRP_NT_GENERIC_API_CALL;
-    }
-
-    return IRP_NT_GENERIC_API_CALL;
-}
-
-static PCWSTR ConvertHookFunctionNameToWide(
-    _In_reads_(64) const CHAR* IncomingAnsiName,
-    _Out_writes_(64) WCHAR* ConvertedWideName
-)
-{
-    if (IncomingAnsiName == NULL || ConvertedWideName == NULL) {
-        return NULL;
-    }
-
-    ConvertedWideName[0] = L'\0';
-
-    // The wire format is a fixed CHAR[64] that may not be null-terminated.
-    SIZE_T ansiLen = 0;
-    while (ansiLen < 64 && IncomingAnsiName[ansiLen] != '\0') {
-        ansiLen++;
-    }
-    if (ansiLen == 0) {
-        return NULL;
-    }
-
-    CHAR safeAnsiName[65] = { 0 };
-    RtlCopyMemory(safeAnsiName, IncomingAnsiName, ansiLen);
-    safeAnsiName[ansiLen] = '\0';
-
-    ANSI_STRING asFunc = { 0 };
-    UNICODE_STRING usFunc = { 0 };
-    asFunc.Buffer = safeAnsiName;
-    asFunc.Length = (USHORT)ansiLen;
-    asFunc.MaximumLength = (USHORT)(ansiLen + 1);
-    usFunc.Buffer = ConvertedWideName;
-    usFunc.Length = 0;
-    usFunc.MaximumLength = sizeof(WCHAR) * 64;
-
-    if (!NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
-        ConvertedWideName[0] = L'\0';
-        return NULL;
-    }
-
-    ConvertedWideName[63] = L'\0';
-    return ConvertedWideName;
-}
-
 NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -2368,60 +2308,68 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         {
             PVOID rawBuffer = Irp->AssociatedIrp.SystemBuffer;
             if (rawBuffer) {
-                ULONG rawEventType = 0;
-                ULONG eventType = IRP_NT_GENERIC_API_CALL;
+                ULONG eventType = 0;
                 ULONG processId = 0;
                 PCWSTR incomingWideName = NULL;
-                const CHAR* incomingAnsiName = NULL;
-                ULONG_PTR rawArg1 = 0;
-                ULONG_PTR rawArg2 = 0;
+                PVOID genericArg = NULL;
                 WCHAR convertedIncomingName[64] = {0};
     
                 if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
                 {
                     PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
-                    rawEventType = eventData->EventType;
+                    eventType = eventData->EventType;
                     processId = eventData->ProcessId;
-                    incomingAnsiName = eventData->FunctionName;
-                    rawArg1 = eventData->Arg1;
-                    rawArg2 = eventData->Arg2;
+                    genericArg = (PVOID)eventData->Arg2;
+
+                    // Convert ANSI FunctionName to WCHAR
+                    if (eventData->FunctionName[0] != '\0')
+                    {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+                        {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
+                    }
                 }
                 else
                 {
                     PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
-                    rawEventType = eventData80->EventType;
+                    eventType = eventData80->EventType;
                     processId = eventData80->ProcessId;
-                    incomingAnsiName = eventData80->FunctionName;
-                    rawArg1 = eventData80->Arg1;
+                    genericArg = (PVOID)eventData80->Arg1;
+                    if (eventData80->FunctionName[0] != '\0') {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData80->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
+                    }
                 }
 
-                incomingWideName = ConvertHookFunctionNameToWide(incomingAnsiName, convertedIncomingName);
-                eventType = NormalizeHookEventType(rawEventType);
-
-                PCWSTR functionName = (eventType == IRP_NT_GENERIC_ASSEMBLY_EVENT)
-                    ? L"kernel.generic_assembly"
-                    : L"kernel.generic_api";
+                ULONG rawEventType = eventType;
+                PCWSTR functionName = L"GenericApiCall";
+                eventType = IRP_NT_GENERIC_API_CALL;
                 if (incomingWideName && incomingWideName[0] != L'\0') {
                     functionName = incomingWideName;
                 }
 
-                KERNEL_API_EVENT_AUX aux = { 0 };
-                aux.OperationStatus = STATUS_SUCCESS;
-                // Preserve the numeric argument payload without dereferencing any user-mode pointer.
-                if (rawArg2 != 0) {
-                    aux.MemoryAddress = (PVOID)rawArg2;
-                } else if (rawArg1 != 0) {
-                    aux.MemoryAddress = (PVOID)rawArg1;
-                }
-                aux.IsExecutableMemory = (eventType == IRP_NT_GENERIC_ASSEMBLY_EVENT) ? TRUE : FALSE;
-
-                DbgPrint("FSFilter: Hook Event from PID %lu: RawType=%lu Type=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n", 
-                    processId, rawEventType, eventType, functionName ? functionName : L"", (PVOID)rawArg1, (PVOID)rawArg2);
-
-                status = OnKernelApiEvent(eventType, processId, processId, functionName, &aux);
-            }
-            else {
-                status = STATUS_INVALID_PARAMETER;
+                // Log event using existing mechanism
+                DbgPrint("FSFilter: Hook Event from PID %lu: RawType=%lu Type=%lu Name=%ws\n", 
+                    processId, rawEventType, eventType, functionName ? functionName : L"");
+                
+                // Pass Arg2 (BaseAddress) as Generic Data Pointer and FunctionName
+                OnKernelApiEvent(eventType, processId, processId, functionName, genericArg);
             }
         }
         else {

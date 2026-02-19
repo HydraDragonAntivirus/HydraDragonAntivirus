@@ -81,8 +81,23 @@ pub struct IrpStatistics {
     pub process_handle_open_count: u64,
     pub process_terminate_attempt_count: u64,
     
-    // Generic kernel API events
-    pub generic_api_events: u64,
+    // Kernel API semantics - code injection/manipulation
+    pub nt_write_virtual_memory_count: u64,
+    pub nt_allocate_virtual_memory_count: u64,
+    pub nt_protect_virtual_memory_count: u64,
+    pub nt_create_thread_count: u64,
+    pub nt_queue_apc_count: u64,
+    pub nt_set_context_count: u64,
+    
+    // Kernel API semantics - file/section
+    pub nt_create_section_count: u64,
+    pub nt_map_section_count: u64,
+    pub nt_delete_file_count: u64,
+    
+    // Kernel API semantics - system
+    pub nt_load_driver_count: u64,
+    pub nt_open_process_count: u64,
+    pub nt_generic_api_events: u64,  // Generic API calls from dynamic hooks
     
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -152,10 +167,52 @@ impl IrpStatistics {
 
         if Self::is_kernel_api_record(rec, irp_op) {
             let api_name = Self::infer_kernel_signature_name(rec);
+            let semantics = Self::classify_kernel_semantics(rec, &api_name);
 
-            self.generic_api_events += 1;
+            self.nt_generic_api_events += 1;
             self.all_apis_called.insert(api_name.clone());
-            let details = format!("Kernel API signature: {}", api_name);
+
+            if semantics.contains("write_memory") {
+                self.nt_write_virtual_memory_count += 1;
+            }
+            if semantics.contains("allocate_memory") {
+                self.nt_allocate_virtual_memory_count += 1;
+            }
+            if semantics.contains("protect_memory") {
+                self.nt_protect_virtual_memory_count += 1;
+            }
+            if semantics.contains("create_thread") {
+                self.nt_create_thread_count += 1;
+            }
+            if semantics.contains("queue_apc") {
+                self.nt_queue_apc_count += 1;
+            }
+            if semantics.contains("set_context") {
+                self.nt_set_context_count += 1;
+            }
+            if semantics.contains("create_section") {
+                self.nt_create_section_count += 1;
+            }
+            if semantics.contains("map_section") {
+                self.nt_map_section_count += 1;
+            }
+            if semantics.contains("delete_file") {
+                self.nt_delete_file_count += 1;
+            }
+            if semantics.contains("load_driver") {
+                self.nt_load_driver_count += 1;
+            }
+            if semantics.contains("open_process") {
+                self.nt_open_process_count += 1;
+            }
+
+            let mut semantic_list: Vec<&str> = semantics.into_iter().collect();
+            semantic_list.sort_unstable();
+            let details = if semantic_list.is_empty() {
+                format!("Kernel API signature: {}", api_name)
+            } else {
+                format!("Kernel API signature: {} [{}]", api_name, semantic_list.join(","))
+            };
             self.record_kernel_api_operation(rec, IrpMajorOp::IrpGenericApiCall, &details);
         }
         
@@ -235,9 +292,81 @@ impl IrpStatistics {
             IrpMajorOp::IrpKernelRemoteThread
                 | IrpMajorOp::IrpGenericAssemblyEvent
                 | IrpMajorOp::IrpGenericApiCall
-        ) || matches!(rec.irp_type, 12 | 13 | 14)
+        ) || rec.irp_type >= 12
+            || !rec.function_name.trim().is_empty()
+            || rec.memory_address != 0
+            || rec.memory_protection != 0
+            || rec.thread_start_routine != 0
+            || rec.thread_handle != 0
+            || rec.access_mask != 0
     }
 
+    fn classify_kernel_semantics(rec: &IrpOperationRecord, api_name: &str) -> HashSet<&'static str> {
+        let mut semantics = HashSet::new();
+        let api = api_name.to_ascii_lowercase();
+
+        if api.contains("write") && api.contains("memory") {
+            semantics.insert("write_memory");
+        }
+        if (api.contains("alloc") || api.contains("reserve")) && api.contains("memory") {
+            semantics.insert("allocate_memory");
+        }
+        if (api.contains("protect") || api.contains("permission"))
+            && (api.contains("memory") || api.contains("page"))
+        {
+            semantics.insert("protect_memory");
+        }
+        if api.contains("thread") && (api.contains("create") || api.contains("start")) {
+            semantics.insert("create_thread");
+        }
+        if api.contains("queueapc") {
+            semantics.insert("queue_apc");
+        }
+        if api.contains("setcontext") {
+            semantics.insert("set_context");
+        }
+        if api.contains("section") && api.contains("create") {
+            semantics.insert("create_section");
+        }
+        if api.contains("section") && (api.contains("map") || api.contains("view")) {
+            semantics.insert("map_section");
+        }
+        if api.contains("delete") && api.contains("file") {
+            semantics.insert("delete_file");
+        }
+        if api.contains("driver") && (api.contains("load") || api.contains("register")) {
+            semantics.insert("load_driver");
+        }
+        if api.contains("process")
+            && (api.contains("open") || api.contains("handle") || api.contains("access"))
+        {
+            semantics.insert("open_process");
+        }
+
+        // Field-based fallback when an API name is missing or obfuscated.
+        if rec.memory_protection != 0 {
+            semantics.insert("protect_memory");
+        }
+        if rec.thread_start_routine != 0 {
+            if !semantics.contains("queue_apc") && !semantics.contains("set_context") {
+                semantics.insert("create_thread");
+            }
+        }
+        if rec.access_mask != 0 && rec.target_pid != 0 {
+            semantics.insert("open_process");
+        }
+        if rec.memory_address != 0 && rec.bytes_transferred > 0 {
+            if !semantics.contains("protect_memory")
+                && !semantics.contains("create_section")
+                && !semantics.contains("map_section")
+            {
+                semantics.insert("write_memory");
+            }
+        }
+
+        semantics
+    }
+    
     /// Record detailed kernel API operation for forensics and analysis
     fn record_kernel_api_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
         let operation = KernelApiOperation {
@@ -275,8 +404,46 @@ impl IrpStatistics {
             "process_exit" => self.process_exit_count,
             "process_handle_open" => self.process_handle_open_count,
             "process_terminate_attempt" => self.process_terminate_attempt_count,
+            // Updated mappings for generic kernel API semantics
+            "nt_write_virtual_memory" => self.nt_write_virtual_memory_count,
+            "nt_allocate_virtual_memory" => self.nt_allocate_virtual_memory_count,
+            "nt_protect_virtual_memory" => self.nt_protect_virtual_memory_count,
+            "nt_create_thread" => self.nt_create_thread_count,
+            "nt_queue_apc" => self.nt_queue_apc_count,
+            "nt_set_context" => self.nt_set_context_count,
+            "nt_create_section" => self.nt_create_section_count,
+            "nt_map_section" => self.nt_map_section_count,
+            "nt_delete_file" => self.nt_delete_file_count,
+            "nt_load_driver" => self.nt_load_driver_count,
+            "nt_open_process" => self.nt_open_process_count,
             _ => 0,
         }
+    }
+    
+    /// Get total count of all injection-related kernel API calls
+    pub fn get_injection_api_count(&self) -> u64 {
+        self.nt_write_virtual_memory_count +
+        self.nt_allocate_virtual_memory_count +
+        self.nt_protect_virtual_memory_count +
+        self.nt_create_thread_count +
+        self.nt_queue_apc_count +
+        self.nt_set_context_count +
+        self.nt_create_section_count +
+        self.nt_map_section_count
+    }
+    
+    /// Check if process shows signs of code injection behavior
+    pub fn has_injection_indicators(&self) -> bool {
+        // Multiple different injection techniques used
+        let technique_count = 
+            (if self.nt_write_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_allocate_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_protect_virtual_memory_count > 0 { 1 } else { 0 }) +
+            (if self.nt_create_thread_count > 0 { 1 } else { 0 }) +
+            (if self.nt_queue_apc_count > 0 { 1 } else { 0 });
+        
+        // Suspicious if using 3+ different injection techniques
+        technique_count >= 3 || self.get_injection_api_count() > 10
     }
 }
 
@@ -631,11 +798,33 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
     
-    // Generic kernel event bucket tracking fields.
+    // UPDATED: Nt-level API hook event tracking
     #[serde(default)]
-    pub detect_generic_api: bool,
+    pub nt_write_memory_apis: Vec<String>,
     #[serde(default)]
-    pub detect_generic_assembly: bool,
+    pub nt_thread_creation_apis: Vec<String>,
+    #[serde(default)]
+    pub nt_apc_injection_apis: Vec<String>,
+    #[serde(default)]
+    pub nt_section_apis: Vec<String>,
+    #[serde(default)]
+    pub nt_memory_protection_apis: Vec<String>,
+    #[serde(default)]
+    pub nt_process_access_apis: Vec<String>,
+    #[serde(default)]
+    pub nt_driver_loading_apis: Vec<String>,
+    #[serde(default)]
+    pub detect_nt_write_memory: bool,
+    #[serde(default)]
+    pub detect_nt_thread_creation: bool,
+    #[serde(default)]
+    pub detect_nt_apc_injection: bool,
+    #[serde(default)]
+    pub detect_nt_section_mapping: bool,
+    #[serde(default)]
+    pub detect_nt_memory_protection: bool,
+    #[serde(default)]
+    pub detect_nt_process_access: bool,
     #[serde(default)]
     pub kernel_event_threshold: usize,
     
@@ -901,6 +1090,14 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
             
+            // UPDATED: Expand Nt-level event tracking fields
+            expand_vec(&mut cond_group.nt_write_memory_apis);
+            expand_vec(&mut cond_group.nt_thread_creation_apis);
+            expand_vec(&mut cond_group.nt_apc_injection_apis);
+            expand_vec(&mut cond_group.nt_section_apis);
+            expand_vec(&mut cond_group.nt_memory_protection_apis);
+            expand_vec(&mut cond_group.nt_process_access_apis);
+            expand_vec(&mut cond_group.nt_driver_loading_apis);
         }
 
         for stage in &mut self.stages {
@@ -1034,9 +1231,19 @@ pub struct ProcessBehaviorState {
     pub network_apis_called: HashSet<String>,
     pub all_apis_called: HashSet<String>,
     
-    // Generic kernel event tracking
-    pub generic_api_events: u32,
-    pub generic_assembly_events: u32,
+    // UPDATED: Nt-level API hooking event tracking
+    pub nt_write_virtual_memory_events: u32,
+    pub nt_allocate_virtual_memory_events: u32,
+    pub nt_protect_virtual_memory_events: u32,
+    pub nt_create_thread_events: u32,
+    pub nt_queue_apc_events: u32,
+    pub nt_set_context_events: u32,
+    pub nt_create_section_events: u32,
+    pub nt_map_section_events: u32,
+    pub nt_delete_file_events: u32,
+    pub nt_load_driver_events: u32,
+    pub nt_open_process_events: u32,
+    pub nt_generic_api_events: u32,
     pub kernel_events_total: u32,
 }
 
@@ -1061,15 +1268,25 @@ impl ProcessBehaviorState {
         state.network_apis_called = HashSet::new();
         state.all_apis_called = HashSet::new();
         
-        // Initialize kernel event counters
-        state.generic_api_events = 0;
-        state.generic_assembly_events = 0;
+        // UPDATED: Initialize Nt event counters
+        state.nt_write_virtual_memory_events = 0;
+        state.nt_allocate_virtual_memory_events = 0;
+        state.nt_protect_virtual_memory_events = 0;
+        state.nt_create_thread_events = 0;
+        state.nt_queue_apc_events = 0;
+        state.nt_set_context_events = 0;
+        state.nt_create_section_events = 0;
+        state.nt_map_section_events = 0;
+        state.nt_delete_file_events = 0;
+        state.nt_load_driver_events = 0;
+        state.nt_open_process_events = 0;
+        state.nt_generic_api_events = 0;
         state.kernel_events_total = 0;
         
         state
     }
     
-    /// Record IRP operation with full context and track kernel hook events
+    /// Record IRP operation with full context and track Nt events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
         let source_pid = if msg.kernel_event_info.source_process_id != 0 {
             msg.kernel_event_info.source_process_id
@@ -1102,19 +1319,55 @@ impl ProcessBehaviorState {
         
         if Self::is_kernel_hook_event(msg, irp_op) {
             self.kernel_events_total += 1;
-            let op = IrpMajorOp::from_byte(irp_op);
-            let event_type = msg.kernel_event_info.event_type as u8;
-            if matches!(op, IrpMajorOp::IrpGenericApiCall) || event_type == 13 {
-                self.generic_api_events += 1;
-            }
-            if matches!(op, IrpMajorOp::IrpGenericAssemblyEvent) || event_type == 14 {
-                self.generic_assembly_events += 1;
-            }
+            self.nt_generic_api_events += 1;
 
             if !resolved_api_name.is_empty() {
                 self.detected_apis.insert(resolved_api_name.clone());
                 self.all_apis_called.insert(resolved_api_name.clone());
             }
+
+            let semantics = Self::classify_kernel_semantics(&resolved_api_name, msg);
+            if semantics.contains("write_memory") {
+                self.nt_write_virtual_memory_events += 1;
+            }
+            if semantics.contains("allocate_memory") {
+                self.nt_allocate_virtual_memory_events += 1;
+            }
+            if semantics.contains("protect_memory") {
+                self.nt_protect_virtual_memory_events += 1;
+            }
+            if semantics.contains("create_thread") {
+                self.nt_create_thread_events += 1;
+            }
+            if semantics.contains("queue_apc") {
+                self.nt_queue_apc_events += 1;
+            }
+            if semantics.contains("set_context") {
+                self.nt_set_context_events += 1;
+            }
+            if semantics.contains("create_section") {
+                self.nt_create_section_events += 1;
+            }
+            if semantics.contains("map_section") {
+                self.nt_map_section_events += 1;
+            }
+            if semantics.contains("delete_file") {
+                self.nt_delete_file_events += 1;
+            }
+            if semantics.contains("load_driver") {
+                self.nt_load_driver_events += 1;
+            }
+            if semantics.contains("open_process") {
+                self.nt_open_process_events += 1;
+            }
+
+            let mut semantic_list: Vec<&str> = semantics.into_iter().collect();
+            semantic_list.sort_unstable();
+            let semantic_text = if semantic_list.is_empty() {
+                "generic".to_string()
+            } else {
+                semantic_list.join(",")
+            };
 
             let api_display = if resolved_api_name.is_empty() {
                 "kernel_sig:unknown"
@@ -1122,13 +1375,27 @@ impl ProcessBehaviorState {
                 &resolved_api_name
             };
             Logging::info(&format!(
-                "[KERNEL API] {} - PID: {}, Source: {}, Target: {}, Status: 0x{:X}",
+                "[KERNEL API] {} - PID: {}, Source: {}, Target: {}, Semantics: {}, Status: 0x{:X}",
                 api_display,
                 msg.pid,
                 source_pid,
                 target_pid,
+                semantic_text,
                 msg.kernel_event_info.operation_status as u32
             ));
+
+            if self.irp_stats.has_injection_indicators() {
+                Logging::warning(&format!(
+                    "[INJECTION DETECTED] PID {} shows multiple injection techniques - Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Total injection APIs: {}",
+                    msg.pid,
+                    self.irp_stats.nt_write_virtual_memory_count,
+                    self.irp_stats.nt_allocate_virtual_memory_count,
+                    self.irp_stats.nt_protect_virtual_memory_count,
+                    self.irp_stats.nt_create_thread_count,
+                    self.irp_stats.nt_queue_apc_count,
+                    self.irp_stats.get_injection_api_count()
+                ));
+            }
         }
         
         // Use incremental drain to prevent blocking: remove 10% when hitting 10k
@@ -1191,7 +1458,82 @@ impl ProcessBehaviorState {
     }
 
     fn is_kernel_hook_event(msg: &IOMessage, irp_op: u8) -> bool {
-        matches!(irp_op, 12 | 13 | 14) || matches!(msg.kernel_event_info.event_type as u8, 12 | 13 | 14)
+        irp_op >= 12
+            || msg.kernel_event_info.event_type >= 12
+            || !msg.kernel_event_info.object_name.trim().is_empty()
+            || msg.kernel_event_info.memory_address != 0
+            || msg.kernel_event_info.memory_size != 0
+            || msg.kernel_event_info.memory_protection != 0
+            || msg.kernel_event_info.thread_handle != 0
+            || msg.kernel_event_info.thread_start_routine != 0
+            || msg.kernel_event_info.target_process_id != 0
+            || msg.kernel_event_info.access_mask != 0
+    }
+
+    fn classify_kernel_semantics(api_name: &str, msg: &IOMessage) -> HashSet<&'static str> {
+        let mut semantics = HashSet::new();
+        let api = api_name.to_ascii_lowercase();
+
+        if api.contains("write") && api.contains("memory") {
+            semantics.insert("write_memory");
+        }
+        if (api.contains("alloc") || api.contains("reserve")) && api.contains("memory") {
+            semantics.insert("allocate_memory");
+        }
+        if (api.contains("protect") || api.contains("permission"))
+            && (api.contains("memory") || api.contains("page"))
+        {
+            semantics.insert("protect_memory");
+        }
+        if api.contains("thread") && (api.contains("create") || api.contains("start")) {
+            semantics.insert("create_thread");
+        }
+        if api.contains("queueapc") {
+            semantics.insert("queue_apc");
+        }
+        if api.contains("setcontext") {
+            semantics.insert("set_context");
+        }
+        if api.contains("section") && api.contains("create") {
+            semantics.insert("create_section");
+        }
+        if api.contains("section") && (api.contains("map") || api.contains("view")) {
+            semantics.insert("map_section");
+        }
+        if api.contains("delete") && api.contains("file") {
+            semantics.insert("delete_file");
+        }
+        if api.contains("driver") && (api.contains("load") || api.contains("register")) {
+            semantics.insert("load_driver");
+        }
+        if api.contains("process")
+            && (api.contains("open") || api.contains("handle") || api.contains("access"))
+        {
+            semantics.insert("open_process");
+        }
+
+        // Fallback field-level semantic inference for stripped/unknown API names.
+        if msg.kernel_event_info.memory_protection != 0 {
+            semantics.insert("protect_memory");
+        }
+        if msg.kernel_event_info.thread_start_routine != 0 {
+            if !semantics.contains("queue_apc") && !semantics.contains("set_context") {
+                semantics.insert("create_thread");
+            }
+        }
+        if msg.kernel_event_info.access_mask != 0 && msg.kernel_event_info.target_process_id != 0 {
+            semantics.insert("open_process");
+        }
+        if msg.kernel_event_info.memory_address != 0
+            && msg.kernel_event_info.memory_size != 0
+            && !semantics.contains("protect_memory")
+            && !semantics.contains("create_section")
+            && !semantics.contains("map_section")
+        {
+            semantics.insert("write_memory");
+        }
+
+        semantics
     }
 
     //// TODO: Use Firewall instead of guessing dll loads for better accuracy and coverage of network activity, but this can be a useful heuristic in the meantime
@@ -1506,7 +1848,7 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
-    // API detection from kernel hook events
+    // API DETECTION FROM NTDLL HOOK EVENTS
     // ==========================================================================
     
     /// Get actual detected APIs from ntdll hooks
@@ -2200,23 +2542,55 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // Generic kernel event bucket conditions (opcode 13 / 14).
-                if !matched && cond_group.detect_generic_api && state.generic_api_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                // UPDATED: Nt event tracking conditions
+                if !matched && cond_group.detect_nt_write_memory && state.nt_write_virtual_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - generic_api bucket detected for PID {}: {} events",
-                        cond_name, state.pid, state.generic_api_events
+                        "[BehaviorEngine] Condition '{}' - write_memory semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_write_virtual_memory_events
                     ));
                 }
-
-                if !matched && cond_group.detect_generic_assembly && state.generic_assembly_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                
+                if !matched && cond_group.detect_nt_thread_creation && state.nt_create_thread_events >= cond_group.kernel_event_threshold.max(1) as u32 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - generic_assembly bucket detected for PID {}: {} events",
-                        cond_name, state.pid, state.generic_assembly_events
+                        "[BehaviorEngine] Condition '{}' - create_thread semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_create_thread_events
                     ));
                 }
-
+                
+                if !matched && cond_group.detect_nt_apc_injection && state.nt_queue_apc_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - queue_apc semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_queue_apc_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_nt_section_mapping && (state.nt_create_section_events + state.nt_map_section_events) >= cond_group.kernel_event_threshold.max(1) as u32 {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - section semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_create_section_events + state.nt_map_section_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_nt_memory_protection && state.nt_protect_virtual_memory_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - protect_memory semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_protect_virtual_memory_events
+                    ));
+                }
+                
+                if !matched && cond_group.detect_nt_process_access && state.nt_open_process_events >= cond_group.kernel_event_threshold.max(1) as u32 {
+                    matched = true;
+                    Logging::info(&format!(
+                        "[BehaviorEngine] Condition '{}' - open_process semantic detected for PID {}: {} events",
+                        cond_name, state.pid, state.nt_open_process_events
+                    ));
+                }
+                
                 if matched {
                     let match_key = if !filepath.is_empty() {
                         filepath.to_string()
@@ -2821,7 +3195,7 @@ impl BehaviorEngine {
     }
     
     /// NT-BASED network activity detection
-    /// Detects network activity through observed indicators:
+    /// Detects network activity through Nt-observed indicators:
     /// - DLL loads of network modules (ws2_32.dll, winhttp.dll, wininet.dll)
     /// - File operations on URL cache, cookies, network config
     /// - network_apis_called flag from DLL monitoring
@@ -2878,12 +3252,28 @@ impl BehaviorEngine {
             // Log kernel API activity summary if any events detected
             if state.kernel_events_total > 0 {
                 Logging::info(&format!(
-                    "[KERNEL API SUMMARY] PID {} ({}) - Total events: {}, GenericAPI: {}, GenericASM: {}",
+                    "[KERNEL API SUMMARY] PID {} ({}) - Total events: {}, Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Context: {}, Section: {}, Map: {}, DelFile: {}, Driver: {}, OpenProc: {}",
                     pid, app_name,
                     state.kernel_events_total,
-                    state.generic_api_events,
-                    state.generic_assembly_events
+                    state.nt_write_virtual_memory_events,
+                    state.nt_allocate_virtual_memory_events,
+                    state.nt_protect_virtual_memory_events,
+                    state.nt_create_thread_events,
+                    state.nt_queue_apc_events,
+                    state.nt_set_context_events,
+                    state.nt_create_section_events,
+                    state.nt_map_section_events,
+                    state.nt_delete_file_events,
+                    state.nt_load_driver_events,
+                    state.nt_open_process_events
                 ));
+                
+                if state.irp_stats.has_injection_indicators() {
+                    Logging::warning(&format!(
+                        "[INJECTION PATTERN] PID {} ({}) shows code injection behavior pattern - Total injection APIs: {}",
+                        pid, app_name, state.irp_stats.get_injection_api_count()
+                    ));
+                }
             }
 
             for rule in &self.rules {
