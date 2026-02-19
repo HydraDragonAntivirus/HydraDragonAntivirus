@@ -248,13 +248,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     HOOK_DEF NtAllocateVirtualMemory;
     HOOK_DEF NtProtectVirtualMemory;
     HOOK_DEF NtCreateThreadEx;
-    HOOK_DEF NtQueueApcThread;
-    HOOK_DEF NtSetContextThread;
-    HOOK_DEF NtCreateSection;
     HOOK_DEF NtMapViewOfSection;
-    HOOK_DEF NtDeleteFile;
-    HOOK_DEF NtLoadDriver;
-    HOOK_DEF NtOpenProcess;
 
     // Dynamic Hooks (Dynamically Allocated - sized to MAX_CUSTOM_HOOKS)
     PHOOK_DEF CustomHooks;

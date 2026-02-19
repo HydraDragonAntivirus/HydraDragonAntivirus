@@ -121,40 +121,10 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     DbgPrint("UserModeHook: PID %lu hook NtCreateThreadEx (id=16) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtCreateThreadEx", &HookEntry->NtCreateThreadEx);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtQueueApcThread", &HookEntry->NtQueueApcThread, 17,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtQueueApcThread (id=17) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtQueueApcThread", &HookEntry->NtQueueApcThread);
-
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtSetContextThread", &HookEntry->NtSetContextThread, 18,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtSetContextThread (id=18) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtSetContextThread", &HookEntry->NtSetContextThread);
-
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtCreateSection", &HookEntry->NtCreateSection, 19,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtCreateSection (id=19) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtCreateSection", &HookEntry->NtCreateSection);
-
     st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtMapViewOfSection", &HookEntry->NtMapViewOfSection, 20,
                         TargetNtDeviceIo, NewModuleBase);
     DbgPrint("UserModeHook: PID %lu hook NtMapViewOfSection (id=20) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtMapViewOfSection", &HookEntry->NtMapViewOfSection);
-
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtDeleteFile", &HookEntry->NtDeleteFile, 21,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtDeleteFile (id=21) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtDeleteFile", &HookEntry->NtDeleteFile);
-
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtLoadDriver", &HookEntry->NtLoadDriver, 22,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtLoadDriver (id=22) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtLoadDriver", &HookEntry->NtLoadDriver);
-
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtOpenProcess", &HookEntry->NtOpenProcess, 23,
-                        TargetNtDeviceIo, NewModuleBase);
-    DbgPrint("UserModeHook: PID %lu hook NtOpenProcess (id=23) -> 0x%08X\n", HookEntry->ProcessId, st);
-    dump_hook_bytes("NtOpenProcess", &HookEntry->NtOpenProcess);
 
     // Custom Hooks (Dynamic)
     if (HookEntry->CustomHooks == NULL)
@@ -953,41 +923,6 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
             HookDef->Address = FindExportedFunction(modBase, FunctionName);
             KeUnstackDetachProcess(&apcState);
         }
-
-        // Generic fallback: if explicit module resolution failed during full scan,
-        // locate the function export across loaded modules.
-        if (!HookDef->Address && !NewModuleBase)
-        {
-            KAPC_STATE apcState;
-            KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-            __try
-            {
-                PPEB peb = fnPsGetProcessPeb(Process);
-                if (peb && peb->Ldr)
-                {
-                    PLIST_ENTRY listHead = &peb->Ldr->InLoadOrderModuleList;
-                    for (PLIST_ENTRY entry = listHead->Flink; entry != listHead; entry = entry->Flink)
-                    {
-                        PLDR_DATA_TABLE_ENTRY ldrEntry =
-                            CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
-                        if (ldrEntry->DllBase)
-                        {
-                            PVOID addr = FindExportedFunction(ldrEntry->DllBase, FunctionName);
-                            if (addr)
-                            {
-                                modBase = ldrEntry->DllBase;
-                                HookDef->Address = addr;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-            KeUnstackDetachProcess(&apcState);
-        }
     }
 
     if (!HookDef->Address)
@@ -1178,13 +1113,7 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
         UnhookSingleFunction(process, &HookEntry->NtAllocateVirtualMemory);
         UnhookSingleFunction(process, &HookEntry->NtProtectVirtualMemory);
         UnhookSingleFunction(process, &HookEntry->NtCreateThreadEx);
-        UnhookSingleFunction(process, &HookEntry->NtQueueApcThread);
-        UnhookSingleFunction(process, &HookEntry->NtSetContextThread);
-        UnhookSingleFunction(process, &HookEntry->NtCreateSection);
         UnhookSingleFunction(process, &HookEntry->NtMapViewOfSection);
-        UnhookSingleFunction(process, &HookEntry->NtDeleteFile);
-        UnhookSingleFunction(process, &HookEntry->NtLoadDriver);
-        UnhookSingleFunction(process, &HookEntry->NtOpenProcess);
 
         // Unhook dynamic hooks
         if (HookEntry->CustomHooks)
