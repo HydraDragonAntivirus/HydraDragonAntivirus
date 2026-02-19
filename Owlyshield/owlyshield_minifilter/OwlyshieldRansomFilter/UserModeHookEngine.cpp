@@ -46,14 +46,14 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                         _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase);
 
-static BOOLEAN IsExpectedNtSyscallStub(_In_ PVOID Address)
+static BOOLEAN ExtractNtSyscallId(_In_ PVOID Address, _Out_ PULONG SyscallId)
 {
-    // x64 ntdll Nt* syscall stub:
-    // 4C 8B D1             mov r10, rcx
-    // B8 xx xx xx xx       mov eax, imm32
-    // 0F 05                syscall
-    // C3                   ret
-    UCHAR b[11] = {0};
+    // Accept the canonical Nt preamble:
+    // 4C 8B D1 B8 <imm32>
+    UCHAR b[8] = {0};
+    if (SyscallId == NULL)
+        return FALSE;
+
     __try
     {
         ProbeForRead(Address, sizeof(b), 1);
@@ -68,8 +68,8 @@ static BOOLEAN IsExpectedNtSyscallStub(_In_ PVOID Address)
         return FALSE;
     if (b[3] != 0xB8)
         return FALSE;
-    if (b[8] != 0x0F || b[9] != 0x05 || b[10] != 0xC3)
-        return FALSE;
+
+    *SyscallId = *(PULONG)(b + 4);
     return TRUE;
 }
 
@@ -634,8 +634,9 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // Safety gate: this trampoline only supports canonical x64 ntdll Nt* syscall stubs.
-    if (!IsExpectedNtSyscallStub(HookDef->Address))
+    ULONG syscallId = 0;
+    // Safety gate: only patch canonical x64 Nt preamble (mov r10,rcx; mov eax,imm32).
+    if (!ExtractNtSyscallId(HookDef->Address, &syscallId))
     {
         KeUnstackDetachProcess(&apcState);
         DbgPrint("UserModeHook: unsupported prologue PID=%lu EventId=%lu target=%p\n", ProcessId, EventId, HookDef->Address);
@@ -648,12 +649,18 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     RtlZeroMemory(gateway, sizeof(gateway));
     __try
     {
-        UCHAR stub[11] = {0};
         ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
         RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
-        ProbeForRead(HookDef->Address, sizeof(stub), 1);
-        RtlCopyMemory(stub, HookDef->Address, sizeof(stub));
-        RtlCopyMemory(gateway, stub, sizeof(stub));
+
+        // Synthetic syscall gateway using extracted syscall number.
+        gateway[0] = 0x4C; // mov r10, rcx
+        gateway[1] = 0x8B;
+        gateway[2] = 0xD1;
+        gateway[3] = 0xB8; // mov eax, imm32
+        *(PULONG)(gateway + 4) = syscallId;
+        gateway[8] = 0x0F; // syscall
+        gateway[9] = 0x05;
+        gateway[10] = 0xC3; // ret
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
