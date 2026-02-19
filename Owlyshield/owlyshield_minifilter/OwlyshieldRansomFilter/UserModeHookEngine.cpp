@@ -46,33 +46,6 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
                         _In_ PVOID TargetNtDeviceIo, _In_opt_ PVOID NewModuleBase);
 
-static BOOLEAN IsExpectedNtSyscallStub(_In_ PVOID Address)
-{
-    // x64 ntdll Nt* syscall stub:
-    // 4C 8B D1             mov r10, rcx
-    // B8 xx xx xx xx       mov eax, imm32
-    // 0F 05                syscall
-    // C3                   ret
-    UCHAR b[11] = {0};
-    __try
-    {
-        ProbeForRead(Address, sizeof(b), 1);
-        RtlCopyMemory(b, Address, sizeof(b));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return FALSE;
-    }
-
-    if (b[0] != 0x4C || b[1] != 0x8B || b[2] != 0xD1)
-        return FALSE;
-    if (b[3] != 0xB8)
-        return FALSE;
-    if (b[8] != 0x0F || b[9] != 0x05 || b[10] != 0xC3)
-        return FALSE;
-    return TRUE;
-}
-
 static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     if (HookEntry == NULL)
@@ -634,26 +607,19 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // Safety gate: this trampoline only supports canonical x64 ntdll Nt* syscall stubs.
-    if (!IsExpectedNtSyscallStub(HookDef->Address))
-    {
-        KeUnstackDetachProcess(&apcState);
-        DbgPrint("UserModeHook: unsupported prologue PID=%lu EventId=%lu target=%p\n", ProcessId, EventId, HookDef->Address);
-        return STATUS_NOT_SUPPORTED;
-    }
-
-    // 1. Create gateway trampoline.
-    // Rebuild canonical syscall stub instead of executing arbitrary "stolen bytes".
+    // 1. Create gateway trampoline
     UCHAR gateway[64];
     RtlZeroMemory(gateway, sizeof(gateway));
     __try
     {
-        UCHAR stub[11] = {0};
-        ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
-        RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
-        ProbeForRead(HookDef->Address, sizeof(stub), 1);
-        RtlCopyMemory(stub, HookDef->Address, sizeof(stub));
-        RtlCopyMemory(gateway, stub, sizeof(stub));
+        ProbeForRead(HookDef->Address, 16, 1);
+        RtlCopyMemory(gateway, HookDef->Address, 16);
+        RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 16);
+        gateway[16] = 0x48;
+        gateway[17] = 0xB8;
+        *(PVOID*)(gateway + 18) = (PVOID)((ULONG_PTR)HookDef->Address + 16);
+        gateway[26] = 0xFF;
+        gateway[27] = 0xE0;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -716,7 +682,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     *(PVOID *)(shellcode + 306) = TargetNtDeviceIo;
 
     // NOP sled (gateway handles real execution)
-    RtlFillMemory(shellcode + 354, USERMODE_HOOK_SIZE, 0x90);
+    RtlFillMemory(shellcode + 354, 16, 0x90);
 
     // Patch gateway address for BOTH normal and busy (skip) paths
     *(PVOID *)(shellcode + 370) = gatewayAddress;
@@ -736,19 +702,21 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 
     // 3. Install hook (JMP to shellcode)
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = USERMODE_HOOK_SIZE;
+    SIZE_T pageSize = 14;
     ULONG oldProt;
 
     status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
     if (NT_SUCCESS(status))
     {
-        UCHAR jmp[USERMODE_HOOK_SIZE];
-        RtlZeroMemory(jmp, USERMODE_HOOK_SIZE);
+        UCHAR jmp[16];
+        RtlZeroMemory(jmp, 16);
         jmp[0] = 0xFF;
         jmp[1] = 0x25;
         *(PULONG)&jmp[2] = 0;
         *(PVOID*)&jmp[6] = myShellcodeAddress;
-        RtlCopyMemory(HookDef->Address, jmp, USERMODE_HOOK_SIZE);
+        jmp[14] = 0x90;
+        jmp[15] = 0x90;
+        RtlCopyMemory(HookDef->Address, jmp, 16);
         fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
         HookEntry->ShellcodeUsed += totalSize;
@@ -1100,7 +1068,7 @@ VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 
     // Restore Original Bytes
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = USERMODE_HOOK_SIZE;
+    SIZE_T pageSize = 14;
     ULONG oldProt;
 
     if (fnZwProtectVirtualMemory)
@@ -1108,7 +1076,7 @@ VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
         if (NT_SUCCESS(status))
         {
-            RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, USERMODE_HOOK_SIZE);
+            RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 16);
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             HookDef->IsHooked = FALSE;
         }
