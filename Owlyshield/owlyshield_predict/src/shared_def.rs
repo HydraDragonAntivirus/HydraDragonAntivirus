@@ -60,7 +60,7 @@ pub enum DriverComMessageType {
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IrpMajorOp {
     /// Nothing happened
     IrpNone,
@@ -91,42 +91,11 @@ pub enum IrpMajorOp {
     IrpProcessHandleOpen,
     /// Kernel thread-create callback (cross-process only)
     IrpKernelRemoteThread,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
-    // --------------------------------------------------------------------------------
-    /// NtWriteVirtualMemory - code injection attempt
-    IrpNtWriteVirtualMemory,
-    /// NtAllocateVirtualMemory - memory allocation
-    IrpNtAllocateVirtualMemory,
-    /// NtProtectVirtualMemory - DEP bypass attempt
-    IrpNtProtectVirtualMemory,
-    /// NtCreateThreadEx - remote thread creation
-    IrpNtCreateThread,
-    /// NtQueueApcThread - APC injection
-    IrpNtQueueApc,
-    /// NtSetContextThread - thread context manipulation
-    IrpNtSetContext,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - File/Section manipulation
-    // --------------------------------------------------------------------------------
-    /// NtCreateSection - section creation
-    IrpNtCreateSection,
-    /// NtMapViewOfSection - section mapping
-    IrpNtMapSection,
-    /// NtDeleteFile - file deletion
-    IrpNtDeleteFile,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Driver/System operations
-    // --------------------------------------------------------------------------------
-    /// NtLoadDriver - driver loading
-    IrpNtLoadDriver,
-    /// NtOpenProcess - process access
-    IrpNtOpenProcess,
-    /// Generic API call (dynamic hook)
-    IrpNtGenericApiCall,
+
+    /// Generic API call telemetry (kernel opcode 13)
+    IrpGenericApiCall,
+    /// Generic assembly-level telemetry (kernel opcode 14)
+    IrpGenericAssemblyEvent,
 }
 
 impl IrpMajorOp {
@@ -147,18 +116,10 @@ impl IrpMajorOp {
             
             // Kernel callback + NTDLL hooks
             12 => IrpMajorOp::IrpKernelRemoteThread,
-            13 => IrpMajorOp::IrpNtWriteVirtualMemory,
-            14 => IrpMajorOp::IrpNtAllocateVirtualMemory,
-            15 => IrpMajorOp::IrpNtProtectVirtualMemory,
-            16 => IrpMajorOp::IrpNtCreateThread,
-            17 => IrpMajorOp::IrpNtQueueApc,
-            18 => IrpMajorOp::IrpNtSetContext,
-            19 => IrpMajorOp::IrpNtCreateSection,
-            20 => IrpMajorOp::IrpNtMapSection,
-            21 => IrpMajorOp::IrpNtDeleteFile,
-            22 => IrpMajorOp::IrpNtLoadDriver,
-            23 => IrpMajorOp::IrpNtOpenProcess,
-            24 => IrpMajorOp::IrpNtGenericApiCall,
+            // Collapsed generic model:
+            // 13 => generic api, 14 => generic assembly.
+            13 => IrpMajorOp::IrpGenericApiCall,
+            14 => IrpMajorOp::IrpGenericAssemblyEvent,
             
             _ => IrpMajorOp::IrpNone,
         }
@@ -229,7 +190,7 @@ impl FileId {
 /// Matches NTDLL_EVENT_INFO from SharedDefs.h
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[repr(C)]
-pub struct NtdllEventInfo {
+pub struct KernelEventInfo {
     pub event_type: u32,           // IRP_MAJOR_OP type
     pub timestamp: u64,            // Event timestamp
     pub source_process_id: u32,    // Process initiating the operation
@@ -278,9 +239,9 @@ pub struct IOMessage {
     /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub attacker_gid: u64,
-    /// NEW: Ntdll API hook event details (matches NTDLL_EVENT_INFO from SharedDefs.h)
+    /// Generic kernel API/assembly event details (matches NTDLL_EVENT_INFO from SharedDefs.h)
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    pub ntdll_event_info: NtdllEventInfo,
+    pub kernel_event_info: KernelEventInfo,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
     pub time: SystemTime,
@@ -306,7 +267,7 @@ impl Default for IOMessage {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: 0,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            ntdll_event_info: NtdllEventInfo::default(),
+            kernel_event_info: KernelEventInfo::default(),
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,
             time: SystemTime::now(),

@@ -43,9 +43,6 @@
     <ClCompile Include="ProcessProtection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UserModeHookEngine.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="FsFilter.rc">
@@ -81,9 +78,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelHookEngine.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="UserModeHookEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

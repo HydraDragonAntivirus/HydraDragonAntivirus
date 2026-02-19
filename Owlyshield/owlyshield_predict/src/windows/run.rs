@@ -31,7 +31,6 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
-    register_default_kernel_hooks(&driver);
 
     let mut vecnew: Vec<u8> = Vec::with_capacity(65536);
 
@@ -271,30 +270,7 @@ pub fn run() {
                                                         // Log every kernel event from the driver (no opcode filter).
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            let api_name = {
-                                let from_payload = iomsg.ntdll_event_info.object_name.trim().to_string();
-                                if !from_payload.is_empty() {
-                                    from_payload
-                                } else {
-                                    match iomsg.irp_op {
-                                        12 => String::new(),
-                                        13 => "NtWriteVirtualMemory".to_string(),
-                                        14 => "NtAllocateVirtualMemory".to_string(),
-                                        15 => "NtProtectVirtualMemory".to_string(),
-                                        16 => "NtCreateThreadEx".to_string(),
-                                        17 => "NtQueueApcThread".to_string(),
-                                        18 => "NtSetContextThread".to_string(),
-                                        19 => "NtCreateSection".to_string(),
-                                        20 => "NtMapViewOfSection".to_string(),
-                                        21 => "NtDeleteFile".to_string(),
-                                        22 => "NtLoadDriver".to_string(),
-                                        23 => "NtOpenProcess".to_string(),
-                                        24 => "GenericApiCall".to_string(),
-                                        op if op > 24 => format!("DynamicApiEvent({op})"),
-                                        _ => String::new(),
-                                    }
-                                }
-                            };
+                            let api_name = infer_kernel_api_signature(&iomsg);
                             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                             let api_name = String::new();
 
@@ -309,7 +285,7 @@ pub fn run() {
                                 iomsg.runtime_features.command_line
                             ));
 
-                            if matches!(irp, IrpMajorOp::IrpNtLoadDriver) {
+                            if is_driver_change_event(&iomsg, &api_name) {
                                 Logging::alert(&format!(
                                     "[KERNEL-WATCH] Driver change event detected: pid={} gid={} path={} api=\"{}\"",
                                     iomsg.pid, iomsg.gid, iomsg.filepathstr, api_name
@@ -337,24 +313,17 @@ pub fn run() {
             // DIAGNOSTIC: Print opcode distribution every 10 seconds
             if last_diag.elapsed() >= std::time::Duration::from_secs(10) {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
-                let names = [
-                    "None","Read","Write","SetInfo","Create","Cleanup","Registry",
-                    "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen",
-                    "KrnRemoteThread","KrnWriteMem","KrnAllocMem","KrnProtectMem",
-                    "KrnCreateThread","KrnQueueApc","KrnSetCtx","KrnCreateSec",
-                    "KrnMapSec","KrnDeleteFile","KrnLoadDrv","KrnOpenProc","KrnGenericApi"
-                ];
-                for i in 0..25 {
+                for i in 0..opcode_counts.len() {
                     if opcode_counts[i] > 0 {
-                        summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
+                        summary.push_str(&format!("op{}={} ", i, opcode_counts[i]));
                     }
                 }
                 Logging::info(&summary);
                 
                 // Check specifically for kernel hook events
-                let kernel_total: u64 = opcode_counts[12..=24].iter().sum();
+                let kernel_total: u64 = opcode_counts[12..].iter().sum();
                 if kernel_total == 0 {
-                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes 12-24) received from driver!");
+                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes >=12) received from driver!");
                 }
                 
                 opcode_counts = [0; 32];
@@ -367,31 +336,71 @@ pub fn run() {
 
 
 
-fn register_default_kernel_hooks(driver: &Driver) {
-    let hooks: [(&str, &str); 14] = [
-        ("ntdll.dll", "NtWriteVirtualMemory"),
-        ("ntdll.dll", "NtAllocateVirtualMemory"),
-        ("ntdll.dll", "NtProtectVirtualMemory"),
-        ("ntdll.dll", "NtCreateThreadEx"),
-        ("ntdll.dll", "NtQueueApcThread"),
-        ("ntdll.dll", "NtSetContextThread"),
-        ("ntdll.dll", "NtCreateSection"),
-        ("ntdll.dll", "NtMapViewOfSection"),
-        ("ntdll.dll", "NtDeleteFile"),
-        ("ntdll.dll", "NtLoadDriver"),
-        ("ntdll.dll", "NtOpenProcess"),
-        ("kernel32.dll", "LoadLibraryA"),
-        ("kernel32.dll", "LoadLibraryW"),
-        ("kernelbase.dll", "CreateRemoteThreadEx"),
-    ];
-
-    for (module, function) in hooks {
-        if let Err(e) = driver.add_hook_target(module, function, 24) {
-            Logging::warning(&format!(
-                "[KERNEL-WATCH] Hook registration failed for {}!{}: {}",
-                module, function, e
-            ));
-        }
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn normalize_kernel_api_name(raw: &str) -> String {
+    let mut value = raw.trim().to_lowercase();
+    if value.is_empty() {
+        return value;
     }
+    if let Some(idx) = value.rfind('!') {
+        let (module_part, function_part) = value.split_at(idx);
+        let function_name = function_part.trim_start_matches('!');
+        let module_name = module_part.rsplit(['\\', '/']).next().unwrap_or(module_part);
+        value = format!("{}!{}", module_name, function_name);
+    }
+    value
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn infer_kernel_api_signature(iomsg: &IOMessage) -> String {
+    let normalized = normalize_kernel_api_name(&iomsg.kernel_event_info.object_name);
+    if !normalized.is_empty() {
+        return normalized;
+    }
+
+    let mut tags = Vec::new();
+    if iomsg.kernel_event_info.memory_address != 0 {
+        tags.push("mem_addr");
+    }
+    if iomsg.kernel_event_info.memory_size != 0 {
+        tags.push("mem_size");
+    }
+    if iomsg.kernel_event_info.memory_protection != 0 {
+        tags.push("mem_protect");
+    }
+    if iomsg.kernel_event_info.thread_start_routine != 0 {
+        tags.push("thread_start");
+    }
+    if iomsg.kernel_event_info.thread_handle != 0 {
+        tags.push("thread_handle");
+    }
+    if iomsg.kernel_event_info.access_mask != 0 {
+        tags.push("access_mask");
+    }
+    if iomsg.kernel_event_info.target_process_id != 0 {
+        tags.push("target_pid");
+    }
+
+    if tags.is_empty() {
+        String::new()
+    } else {
+        format!("kernel_sig:{}", tags.join("+"))
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn is_driver_change_event(iomsg: &IOMessage, api_name: &str) -> bool {
+    let api = api_name.to_ascii_lowercase();
+    if api.contains("loaddriver") || api.contains("driverload") {
+        return true;
+    }
+
+    let path = iomsg.filepathstr.to_ascii_lowercase();
+    path.ends_with(".sys") || path.contains("\\drivers\\")
+}
+
+#[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+fn is_driver_change_event(_iomsg: &IOMessage, _api_name: &str) -> bool {
+    false
 }
 

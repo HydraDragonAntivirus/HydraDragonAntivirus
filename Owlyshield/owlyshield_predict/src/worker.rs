@@ -845,6 +845,80 @@ pub mod worker_instance {
             }
         }
 
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn normalize_kernel_api_name(raw: &str) -> String {
+            let mut value = raw.trim().to_lowercase();
+            if value.is_empty() {
+                return value;
+            }
+            if let Some(idx) = value.rfind('!') {
+                let (module_part, function_part) = value.split_at(idx);
+                let function_name = function_part.trim_start_matches('!');
+                let module_name = module_part.rsplit(['\\', '/']).next().unwrap_or(module_part);
+                value = format!("{}!{}", module_name, function_name);
+            }
+            value
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn infer_kernel_api_signature(iomsg: &IOMessage) -> String {
+            let normalized = Self::normalize_kernel_api_name(&iomsg.kernel_event_info.object_name);
+            if !normalized.is_empty() {
+                return normalized;
+            }
+
+            let mut tags = Vec::new();
+            if iomsg.kernel_event_info.memory_address != 0 {
+                tags.push("mem_addr");
+            }
+            if iomsg.kernel_event_info.memory_size != 0 {
+                tags.push("mem_size");
+            }
+            if iomsg.kernel_event_info.memory_protection != 0 {
+                tags.push("mem_protect");
+            }
+            if iomsg.kernel_event_info.thread_start_routine != 0 {
+                tags.push("thread_start");
+            }
+            if iomsg.kernel_event_info.thread_handle != 0 {
+                tags.push("thread_handle");
+            }
+            if iomsg.kernel_event_info.access_mask != 0 {
+                tags.push("access_mask");
+            }
+            if iomsg.kernel_event_info.target_process_id != 0 {
+                tags.push("target_pid");
+            }
+
+            if tags.is_empty() {
+                String::new()
+            } else {
+                format!("kernel_sig:{}", tags.join("+"))
+            }
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn ensure_kernel_api_signature(&self, iomsg: &mut IOMessage) {
+            let is_kernel_hook_like = iomsg.irp_op >= 12
+                || iomsg.kernel_event_info.event_type >= 12
+                || !iomsg.kernel_event_info.object_name.trim().is_empty()
+                || iomsg.kernel_event_info.memory_address != 0
+                || iomsg.kernel_event_info.memory_size != 0
+                || iomsg.kernel_event_info.memory_protection != 0
+                || iomsg.kernel_event_info.thread_handle != 0
+                || iomsg.kernel_event_info.thread_start_routine != 0
+                || iomsg.kernel_event_info.target_process_id != 0
+                || iomsg.kernel_event_info.access_mask != 0;
+            if !is_kernel_hook_like {
+                return;
+            }
+
+            let inferred = Self::infer_kernel_api_signature(iomsg);
+            if !inferred.is_empty() {
+                iomsg.kernel_event_info.object_name = inferred;
+            }
+        }
+
         pub fn new(config: &'a Config, #[cfg(all(target_os = "windows", feature = "behavior_engine"))] app_settings: AppSettings) -> Worker<'a> {
             Worker {
                 whitelist: None,
@@ -1342,12 +1416,13 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(api_name) = self.dynamic_hook_event_map.get(&iomsg.irp_op).cloned() {
-                    iomsg.irp_op = 24;
-                    iomsg.ntdll_event_info.event_type = 24;
-                    if iomsg.ntdll_event_info.object_name.trim().is_empty() {
-                        iomsg.ntdll_event_info.object_name = api_name;
+                    iomsg.irp_op = 13;
+                    iomsg.kernel_event_info.event_type = 13;
+                    if iomsg.kernel_event_info.object_name.trim().is_empty() {
+                        iomsg.kernel_event_info.object_name = api_name;
                     }
                 }
+                self.ensure_kernel_api_signature(iomsg);
             }
 
             let irp_op = IrpMajorOp::from_byte(iomsg.irp_op);

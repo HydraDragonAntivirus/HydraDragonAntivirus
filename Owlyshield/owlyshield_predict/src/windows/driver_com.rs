@@ -24,7 +24,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    NtdllEventInfo, // AMENDED: Fix typo
+    KernelEventInfo, // AMENDED: Fix typo
 };
 
 pub type BufPath = [wchar_t; 520];
@@ -349,7 +349,7 @@ pub struct UnicodeString {
     pub buffer: *const wchar_t,
 }
 
-/// NEW: C-compatible representation of ntdll_event_info from the driver
+/// NEW: C-compatible representation of kernel_event_info from the driver
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CKernelEventInfo {
@@ -400,7 +400,7 @@ pub struct CDriverMsg {
     /// For IRP_PROCESS_TERMINATE_ATTEMPT: GID of attacker process (0 if not tracked)
     pub attacker_gid: c_ulonglong,
     /// NEW: NtDLL event information for API hook operations
-    pub ntdll_event_info: CKernelEventInfo,
+    pub kernel_event_info: CKernelEventInfo,
     /// null (0x0) when there is no [`IOMessage`] remaining
     pub next: *const CDriverMsg,
 }
@@ -436,8 +436,8 @@ impl UnicodeString {
 }
 
 impl CKernelEventInfo {
-    /// Convert C kernel event info to Rust NtdllEventInfo
-    pub fn to_ntdll_event_info(&self) -> NtdllEventInfo { // AMENDED: Fix return type
+    /// Convert C kernel event info to Rust KernelEventInfo
+    pub fn to_kernel_event_info(&self) -> KernelEventInfo { // AMENDED: Fix return type
         let object_name = if self.object_name[0] != 0 {
             let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
             String::from_utf16_lossy(&self.object_name[..len])
@@ -445,7 +445,7 @@ impl CKernelEventInfo {
             String::new()
         };
         
-        NtdllEventInfo { // AMENDED: Fix struct construction
+        KernelEventInfo { // AMENDED: Fix struct construction
             event_type: self.event_type,
             timestamp: self.timestamp,
             source_process_id: self.source_process_id,
@@ -539,7 +539,7 @@ impl IOMessage {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             attacker_gid: c_drivermsg.attacker_gid,
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            ntdll_event_info: c_drivermsg.ntdll_event_info.to_ntdll_event_info(),
+            kernel_event_info: c_drivermsg.kernel_event_info.to_kernel_event_info(),
             runtime_features: RuntimeFeatures {
                 exepath: PathBuf::new(),
                 exe_still_exists: true,

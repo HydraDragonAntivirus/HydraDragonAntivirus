@@ -1,6 +1,5 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "UserModeHookEngine.h"
 
 NTSTATUS InitCommData(
 
@@ -383,35 +382,8 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     // NEW: Add Generic Hook Config
     else if (message->type == MESSAGE_ADD_HOOK)
     {
-        DbgPrint("!!! FS : MESSAGE_ADD_HOOK received\n");
-        // We need to cast input buffer to specialized struct? No, sender sends raw data?
-        // Ah, COM_MESSAGE is the header. The payload might be larger or we reuse path?
-        // Let's assume sending HOOK_CONFIG within COM_MESSAGE is tricky if size differs.
-        // Or we just add "MESSAGE_ADD_HOOK" to `COM_MESSAGE_TYPE` and use `path` / `quarantine_path` for Module/Function?
-        // Let's use `path` for ModuleName and `quarantine_path` for FunctionName (casted to WCHAR but it is CHAR). 
-        // Wait, FunctionName is CHAR. `quarantine_path` is WCHAR.
-        // Let's assume we copy convert.
-        
-        HOOK_CONFIG_DATA config;
-        RtlZeroMemory(&config, sizeof(config));
-        
-        // Copy Module Name (path)
-        RtlCopyMemory(config.ModuleName, message->path, min(sizeof(config.ModuleName), sizeof(message->path)));
-        
-        // Copy Function Name (quarantine_path converted to char?)
-        // HACK: Use `quarantine_path` as Wide Function Name and convert in `AddCustomHook`? 
-        // Or just convert here.
-        UNICODE_STRING usFunc;
-        RtlInitUnicodeString(&usFunc, message->quarantine_path);
-        ANSI_STRING asFunc;
-        asFunc.Buffer = config.FunctionName;
-        asFunc.MaximumLength = sizeof(config.FunctionName);
-        RtlUnicodeStringToAnsiString(&asFunc, &usFunc, FALSE);
-        
-        config.EventId = (ULONG)message->gid; // Use PID/GID field for EventID
-        if (config.EventId == 0) config.EventId = 24; // Default Generic
-        
-        return AddCustomHook(&config);
+        DbgPrint("!!! FS : MESSAGE_ADD_HOOK ignored (kernel-first mode)\n");
+        return STATUS_NOT_SUPPORTED;
     }
 
     return STATUS_INTERNAL_ERROR;

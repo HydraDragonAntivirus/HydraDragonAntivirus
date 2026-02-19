@@ -70,7 +70,6 @@
     <ClCompile Include="KernelCommon.cpp" />
     <ClCompile Include="KernelString.cpp" />
     <ClCompile Include="ShanonEntropy.cpp" />
-    <ClCompile Include="UserModeHookEngine.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
     <ClCompile Include="FSFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
@@ -409,7 +408,6 @@
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />
-    <ClInclude Include="UserModeHookEngine.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

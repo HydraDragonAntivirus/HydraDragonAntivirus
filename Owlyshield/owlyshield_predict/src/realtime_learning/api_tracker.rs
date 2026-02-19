@@ -89,6 +89,8 @@ pub struct ProcessOperationStats {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KernelOperationStats {
     pub total_kernel_events: usize,
+    pub opcode_counts: HashMap<String, usize>,
+    pub semantic_counts: HashMap<String, usize>,
     pub write_virtual_memory: usize,
     pub allocate_virtual_memory: usize,
     pub protect_virtual_memory: usize,
@@ -319,8 +321,8 @@ impl ApiTracker {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
                     self.operation_sequence.push(OperationType::ProcessHandleOpen {
-                        source_pid: msg.ntdll_event_info.source_process_id,
-                        target_pid: msg.ntdll_event_info.target_process_id,
+                        source_pid: msg.kernel_event_info.source_process_id,
+                        target_pid: msg.kernel_event_info.target_process_id,
                     });
                 }
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
@@ -331,22 +333,11 @@ impl ApiTracker {
                     });
                 }
             }
-            IrpMajorOp::IrpNtWriteVirtualMemory
-            | IrpMajorOp::IrpNtAllocateVirtualMemory
-            | IrpMajorOp::IrpNtProtectVirtualMemory
-            | IrpMajorOp::IrpNtCreateThread
-            | IrpMajorOp::IrpNtQueueApc
-            | IrpMajorOp::IrpNtSetContext
-            | IrpMajorOp::IrpNtCreateSection
-            | IrpMajorOp::IrpNtMapSection
-            | IrpMajorOp::IrpNtDeleteFile
-            | IrpMajorOp::IrpNtLoadDriver
-            | IrpMajorOp::IrpKernelRemoteThread
-            | IrpMajorOp::IrpNtOpenProcess
-            | IrpMajorOp::IrpNtGenericApiCall => {
-                self.record_kernel_api_event(msg, irp_op);
+            _ => {
+                if Self::is_kernel_hook_like(msg, irp_op) {
+                    self.record_kernel_api_event(msg, irp_op);
+                }
             }
-            _ => {}
         }
 
         if self.file_operations.files_written + self.file_operations.files_deleted > 100 {
@@ -364,25 +355,173 @@ impl ApiTracker {
         }
     }
 
+    fn is_kernel_hook_like(msg: &IOMessage, op: IrpMajorOp) -> bool {
+        if msg.irp_op >= 12 {
+            return true;
+        }
+        matches!(
+            op,
+            IrpMajorOp::IrpKernelRemoteThread
+                | IrpMajorOp::IrpGenericAssemblyEvent
+                | IrpMajorOp::IrpGenericApiCall
+        )
+    }
+
+    fn normalize_kernel_api_name(raw: &str) -> String {
+        let mut value = raw.trim().to_lowercase();
+        if value.is_empty() {
+            return value;
+        }
+        if let Some(idx) = value.rfind('!') {
+            let (module_part, function_part) = value.split_at(idx);
+            let function_name = function_part.trim_start_matches('!');
+            let module_name = module_part.rsplit(['\\', '/']).next().unwrap_or(module_part);
+            value = format!("{}!{}", module_name, function_name);
+        }
+        value
+    }
+
+    fn infer_kernel_api_signature(msg: &IOMessage) -> String {
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        {
+            let normalized = Self::normalize_kernel_api_name(&msg.kernel_event_info.object_name);
+            if !normalized.is_empty() {
+                return normalized;
+            }
+
+            let mut tags = Vec::new();
+            if msg.kernel_event_info.memory_address != 0 {
+                tags.push("mem_addr");
+            }
+            if msg.kernel_event_info.memory_size != 0 {
+                tags.push("mem_size");
+            }
+            if msg.kernel_event_info.memory_protection != 0 {
+                tags.push("mem_protect");
+            }
+            if msg.kernel_event_info.thread_start_routine != 0 {
+                tags.push("thread_start");
+            }
+            if msg.kernel_event_info.thread_handle != 0 {
+                tags.push("thread_handle");
+            }
+            if msg.kernel_event_info.access_mask != 0 {
+                tags.push("access_mask");
+            }
+            if msg.kernel_event_info.target_process_id != 0 {
+                tags.push("target_pid");
+            }
+
+            if tags.is_empty() {
+                String::new()
+            } else {
+                format!("kernel_sig:{}", tags.join("+"))
+            }
+        }
+        #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+        {
+            String::new()
+        }
+    }
+
+    fn classify_kernel_semantics(api_name: &str, msg: &IOMessage) -> HashSet<&'static str> {
+        let mut semantics = HashSet::new();
+        let api = api_name.to_ascii_lowercase();
+
+        if api.contains("write") && api.contains("memory") {
+            semantics.insert("write_memory");
+        }
+        if (api.contains("alloc") || api.contains("reserve")) && api.contains("memory") {
+            semantics.insert("allocate_memory");
+        }
+        if (api.contains("protect") || api.contains("permission"))
+            && (api.contains("memory") || api.contains("page"))
+        {
+            semantics.insert("protect_memory");
+        }
+        if api.contains("thread") && (api.contains("create") || api.contains("start")) {
+            semantics.insert("create_thread");
+        }
+        if api.contains("queueapc") {
+            semantics.insert("queue_apc");
+        }
+        if api.contains("setcontext") {
+            semantics.insert("set_context");
+        }
+        if api.contains("section") && api.contains("create") {
+            semantics.insert("create_section");
+        }
+        if api.contains("section") && (api.contains("map") || api.contains("view")) {
+            semantics.insert("map_section");
+        }
+        if api.contains("delete") && api.contains("file") {
+            semantics.insert("delete_file");
+        }
+        if api.contains("driver") && (api.contains("load") || api.contains("register")) {
+            semantics.insert("load_driver");
+        }
+        if api.contains("process")
+            && (api.contains("open") || api.contains("handle") || api.contains("access"))
+        {
+            semantics.insert("open_process");
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        {
+            if msg.kernel_event_info.memory_protection != 0 {
+                semantics.insert("protect_memory");
+            }
+            if msg.kernel_event_info.thread_start_routine != 0 {
+                if !semantics.contains("queue_apc") && !semantics.contains("set_context") {
+                    semantics.insert("create_thread");
+                }
+            }
+            if msg.kernel_event_info.access_mask != 0 && msg.kernel_event_info.target_process_id != 0 {
+                semantics.insert("open_process");
+            }
+            if msg.kernel_event_info.memory_address != 0
+                && msg.kernel_event_info.memory_size != 0
+                && !semantics.contains("protect_memory")
+                && !semantics.contains("create_section")
+                && !semantics.contains("map_section")
+            {
+                semantics.insert("write_memory");
+            }
+        }
+
+        semantics
+    }
+
     fn record_kernel_api_event(&mut self, msg: &IOMessage, op: IrpMajorOp) {
         self.kernel_operations.total_kernel_events += 1;
 
-        let op_name = format!("{:?}", op);
-        let api_name = if matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
-            String::new()
-        } else {
-            self.resolve_api_name(msg, &op_name)
-        };
-        if !matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
-            let category = self.api_category_from_kernel_op(&op, &api_name);
+        let op_name = format!("opcode_{}", msg.irp_op);
+        *self
+            .kernel_operations
+            .opcode_counts
+            .entry(op_name.clone())
+            .or_insert(0) += 1;
+
+        let api_name = self.resolve_api_name(msg, &op_name);
+        let semantics = Self::classify_kernel_semantics(&api_name, msg);
+        for semantic in &semantics {
+            *self
+                .kernel_operations
+                .semantic_counts
+                .entry((*semantic).to_string())
+                .or_insert(0) += 1;
+        }
+
+        if !api_name.is_empty() {
+            let category = self.api_category_from_kernel_semantics(&api_name, &semantics);
             self.track_api_call(api_name.clone(), category, Some(msg.filepathstr.clone()));
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let (target_pid, mem_size, status) = (
-            msg.ntdll_event_info.target_process_id,
-            msg.ntdll_event_info.memory_size as u64,
-            msg.ntdll_event_info.operation_status,
+            msg.kernel_event_info.target_process_id,
+            msg.kernel_event_info.memory_size as u64,
+            msg.kernel_event_info.operation_status,
         );
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let (target_pid, mem_size, status) = (msg.pid, 0u64, 0i32);
@@ -395,61 +534,74 @@ impl ApiTracker {
             status,
         });
 
-        match op {
-            IrpMajorOp::IrpNtWriteVirtualMemory => {
-                self.kernel_operations.write_virtual_memory += 1;
-                self.process_operations.processes_injected += 1;
-            }
-            IrpMajorOp::IrpNtAllocateVirtualMemory => {
-                self.kernel_operations.allocate_virtual_memory += 1;
-                self.process_operations.memory_allocated += mem_size;
-                self.operation_sequence.push(OperationType::MemoryAllocate(mem_size));
-            }
-            IrpMajorOp::IrpNtProtectVirtualMemory => self.kernel_operations.protect_virtual_memory += 1,
-            IrpMajorOp::IrpNtCreateThread => {
-                self.kernel_operations.create_thread += 1;
-                self.process_operations.threads_created += 1;
-            }
-            IrpMajorOp::IrpKernelRemoteThread => {
-                self.kernel_operations.create_thread += 1;
-                self.process_operations.threads_created += 1;
-            }
-            IrpMajorOp::IrpNtQueueApc => self.kernel_operations.queue_apc += 1,
-            IrpMajorOp::IrpNtSetContext => self.kernel_operations.set_context += 1,
-            IrpMajorOp::IrpNtCreateSection => self.kernel_operations.create_section += 1,
-            IrpMajorOp::IrpNtMapSection => self.kernel_operations.map_section += 1,
-            IrpMajorOp::IrpNtDeleteFile => {
-                self.kernel_operations.delete_file += 1;
-                self.file_operations.files_deleted += 1;
-            }
-            IrpMajorOp::IrpNtLoadDriver => {
-                self.kernel_operations.load_driver += 1;
-                let driver_path = if !msg.filepathstr.trim().is_empty() {
-                    msg.filepathstr.clone()
-                } else {
-                    api_name.clone()
-                };
-                self.kernel_operations.loaded_kernel_drivers.insert(driver_path.clone());
-                self.operation_sequence.push(OperationType::DriverLoad(driver_path));
-            }
-            IrpMajorOp::IrpNtOpenProcess => self.kernel_operations.open_process += 1,
-            IrpMajorOp::IrpNtGenericApiCall => self.kernel_operations.generic_api_call += 1,
-            _ => {}
+        if semantics.contains("write_memory") {
+            self.kernel_operations.write_virtual_memory += 1;
+            self.process_operations.processes_injected += 1;
+        }
+        if semantics.contains("allocate_memory") {
+            self.kernel_operations.allocate_virtual_memory += 1;
+            self.process_operations.memory_allocated += mem_size;
+            self.operation_sequence.push(OperationType::MemoryAllocate(mem_size));
+        }
+        if semantics.contains("protect_memory") {
+            self.kernel_operations.protect_virtual_memory += 1;
+        }
+        if semantics.contains("create_thread") {
+            self.kernel_operations.create_thread += 1;
+            self.process_operations.threads_created += 1;
+        }
+        if semantics.contains("queue_apc") {
+            self.kernel_operations.queue_apc += 1;
+        }
+        if semantics.contains("set_context") {
+            self.kernel_operations.set_context += 1;
+        }
+        if semantics.contains("create_section") {
+            self.kernel_operations.create_section += 1;
+        }
+        if semantics.contains("map_section") {
+            self.kernel_operations.map_section += 1;
+        }
+        if semantics.contains("delete_file") {
+            self.kernel_operations.delete_file += 1;
+            self.file_operations.files_deleted += 1;
+        }
+        if semantics.contains("load_driver") {
+            self.kernel_operations.load_driver += 1;
+            let driver_path = if !msg.filepathstr.trim().is_empty() {
+                msg.filepathstr.clone()
+            } else {
+                api_name.clone()
+            };
+            self.kernel_operations.loaded_kernel_drivers.insert(driver_path.clone());
+            self.operation_sequence.push(OperationType::DriverLoad(driver_path));
+        }
+        if semantics.contains("open_process") {
+            self.kernel_operations.open_process += 1;
+        }
+        if semantics.is_empty() || matches!(op, IrpMajorOp::IrpGenericApiCall) {
+            self.kernel_operations.generic_api_call += 1;
         }
 
+        let mut semantic_list: Vec<&str> = semantics.into_iter().collect();
+        semantic_list.sort_unstable();
         self.append_kernel_log(format!(
-            "op={} api={} pid={} gid={} target_pid={} size={} path={}",
-            op_name, api_name, msg.pid, msg.gid, target_pid, mem_size, msg.filepathstr
+            "op={} api={} pid={} gid={} target_pid={} size={} sem=[{}] path={}",
+            op_name,
+            api_name,
+            msg.pid,
+            msg.gid,
+            target_pid,
+            mem_size,
+            semantic_list.join(","),
+            msg.filepathstr
         ));
     }
 
     fn resolve_api_name(&self, msg: &IOMessage, fallback: &str) -> String {
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        {
-            let api = msg.ntdll_event_info.object_name.trim();
-            if !api.is_empty() {
-                return api.to_string();
-            }
+        let inferred = Self::infer_kernel_api_signature(msg);
+        if !inferred.is_empty() {
+            return inferred;
         }
         if !msg.filepathstr.trim().is_empty() {
             return msg.filepathstr.clone();
@@ -457,27 +609,31 @@ impl ApiTracker {
         fallback.to_string()
     }
 
-    fn api_category_from_kernel_op(&self, op: &IrpMajorOp, api_name: &str) -> ApiCategory {
+    fn api_category_from_kernel_semantics(&self, api_name: &str, semantics: &HashSet<&'static str>) -> ApiCategory {
         if Self::is_internet_api(api_name) {
             return ApiCategory::Internet;
         }
-        match op {
-            IrpMajorOp::IrpNtWriteVirtualMemory
-            | IrpMajorOp::IrpNtAllocateVirtualMemory
-            | IrpMajorOp::IrpNtProtectVirtualMemory
-            | IrpMajorOp::IrpNtCreateThread
-            | IrpMajorOp::IrpKernelRemoteThread
-            | IrpMajorOp::IrpNtQueueApc
-            | IrpMajorOp::IrpNtSetContext
-            | IrpMajorOp::IrpNtCreateSection
-            | IrpMajorOp::IrpNtMapSection => ApiCategory::Injection,
-            IrpMajorOp::IrpNtDeleteFile => ApiCategory::Ransomware,
-            IrpMajorOp::IrpNtLoadDriver | IrpMajorOp::IrpNtOpenProcess | IrpMajorOp::IrpNtGenericApiCall => {
-                ApiCategory::Helper
-            }
-            IrpMajorOp::IrpProcessHandleOpen | IrpMajorOp::IrpProcessTerminateAttempt => ApiCategory::Enumeration,
-            _ => ApiCategory::Unknown,
+        if semantics.contains("write_memory")
+            || semantics.contains("allocate_memory")
+            || semantics.contains("protect_memory")
+            || semantics.contains("create_thread")
+            || semantics.contains("queue_apc")
+            || semantics.contains("set_context")
+            || semantics.contains("create_section")
+            || semantics.contains("map_section")
+        {
+            return ApiCategory::Injection;
         }
+        if semantics.contains("delete_file") {
+            return ApiCategory::Ransomware;
+        }
+        if semantics.contains("open_process") {
+            return ApiCategory::Enumeration;
+        }
+        if semantics.contains("load_driver") {
+            return ApiCategory::Helper;
+        }
+        ApiCategory::Unknown
     }
 
     fn append_kernel_log(&mut self, line: String) {
@@ -683,26 +839,19 @@ impl ApiTracker {
     }
 
     pub fn kernel_opcode_counts(&self) -> HashMap<String, usize> {
-        HashMap::from([
-            ("IrpNtWriteVirtualMemory".to_string(), self.kernel_operations.write_virtual_memory),
-            ("IrpNtAllocateVirtualMemory".to_string(), self.kernel_operations.allocate_virtual_memory),
-            ("IrpNtProtectVirtualMemory".to_string(), self.kernel_operations.protect_virtual_memory),
-            ("IrpNtCreateThread".to_string(), self.kernel_operations.create_thread),
-            ("IrpKernelRemoteThread".to_string(), self.kernel_operations.create_thread),
-            ("IrpNtQueueApc".to_string(), self.kernel_operations.queue_apc),
-            ("IrpNtSetContext".to_string(), self.kernel_operations.set_context),
-            ("IrpNtCreateSection".to_string(), self.kernel_operations.create_section),
-            ("IrpNtMapSection".to_string(), self.kernel_operations.map_section),
-            ("IrpNtDeleteFile".to_string(), self.kernel_operations.delete_file),
-            ("IrpNtLoadDriver".to_string(), self.kernel_operations.load_driver),
-            ("IrpNtOpenProcess".to_string(), self.kernel_operations.open_process),
-            ("IrpNtGenericApiCall".to_string(), self.kernel_operations.generic_api_call),
-            ("IrpProcessHandleOpen".to_string(), self.kernel_operations.process_handle_open),
-            (
-                "IrpProcessTerminateAttempt".to_string(),
-                self.kernel_operations.process_terminate_attempt,
-            ),
-            ("TotalKernelEvents".to_string(), self.kernel_operations.total_kernel_events),
-        ])
+        let mut counts = self.kernel_operations.opcode_counts.clone();
+        counts.insert(
+            "IrpProcessHandleOpen".to_string(),
+            self.kernel_operations.process_handle_open,
+        );
+        counts.insert(
+            "IrpProcessTerminateAttempt".to_string(),
+            self.kernel_operations.process_terminate_attempt,
+        );
+        counts.insert(
+            "TotalKernelEvents".to_string(),
+            self.kernel_operations.total_kernel_events,
+        );
+        counts
     }
 }

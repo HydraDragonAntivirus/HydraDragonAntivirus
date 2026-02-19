@@ -91,32 +91,34 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     }
 }
 
-unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
+fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     // HCRYPTMSG is *mut c_void in older windows-rs
     let mut msg_handle: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut store_handle: HCERTSTORE = HCERTSTORE::default();
     let mut context_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
     // Retrieve Certificate Store from file
-    let query_res = CryptQueryObject(
-        CERT_QUERY_OBJECT_FILE,
-        path_wide.as_ptr() as *const _,
-        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-        CERT_QUERY_FORMAT_FLAG_BINARY,
-        0,
-        None, // pdwMsgAndCertEncodingType
-        None, // pdwContentType
-        None, // pdwFormatType
-        Some(&mut store_handle),
-        Some(&mut msg_handle),
-        Some(&mut context_ptr as *mut _ as *mut *mut std::ffi::c_void),
-    );
+    let query_res = unsafe {
+        CryptQueryObject(
+            CERT_QUERY_OBJECT_FILE,
+            path_wide.as_ptr() as *const _,
+            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+            CERT_QUERY_FORMAT_FLAG_BINARY,
+            0,
+            None, // pdwMsgAndCertEncodingType
+            None, // pdwContentType
+            None, // pdwFormatType
+            Some(&mut store_handle),
+            Some(&mut msg_handle),
+            Some(&mut context_ptr as *mut _ as *mut *mut std::ffi::c_void),
+        )
+    };
 
     if query_res.as_bool() {
         let p_cert_context;
         
         // Get the first certificate: Start with None.
-        p_cert_context = CertEnumCertificatesInStore(store_handle, None);
+        p_cert_context = unsafe { CertEnumCertificatesInStore(store_handle, None) };
         
         if !p_cert_context.is_null() {
             // Extract Name
@@ -124,13 +126,15 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
             
             // CertGetNameStringW(context, type, flags, typeparam, string_ptr) -> len
             // Windows-rs 0.48 uses Option<&mut [u16]> for the buffer and handles length internally.
-            let chars_written = CertGetNameStringW(
-                p_cert_context,
-                CERT_NAME_SIMPLE_DISPLAY_TYPE,
-                0,
-                None,
-                Some(&mut name_buf),
-            );
+            let chars_written = unsafe {
+                CertGetNameStringW(
+                    p_cert_context,
+                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0,
+                    None,
+                    Some(&mut name_buf),
+                )
+            };
 
             let result = if chars_written > 1 {
                 let len = (chars_written - 1) as usize;
@@ -141,15 +145,19 @@ unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
             };
 
             // Free context.
-            CertFreeCertificateContext(Some(p_cert_context));
-            let _ = CertCloseStore(store_handle, 0);
-            let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
+            unsafe {
+                CertFreeCertificateContext(Some(p_cert_context));
+                let _ = CertCloseStore(store_handle, 0);
+                let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
+            }
             
             return result;
         }
 
-        let _ = CertCloseStore(store_handle, 0);
-        let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
+        unsafe {
+            let _ = CertCloseStore(store_handle, 0);
+            let _ = CryptMsgClose(Some(msg_handle as *const std::ffi::c_void));
+        }
     }
     
     Err(())

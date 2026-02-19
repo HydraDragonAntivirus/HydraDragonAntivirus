@@ -28,6 +28,17 @@ Environment:
 #include <fltKernel.h>
 #include <ntddk.h>
 
+typedef struct _KERNEL_API_EVENT_AUX {
+    PVOID MemoryAddress;
+    SIZE_T MemorySize;
+    ULONG MemoryProtection;
+    BOOLEAN IsExecutableMemory;
+    HANDLE ThreadHandle;
+    PVOID ThreadStartRoutine;
+    ACCESS_MASK AccessMask;
+    NTSTATUS OperationStatus;
+} KERNEL_API_EVENT_AUX, *PKERNEL_API_EVENT_AUX;
+
 // ===================================================================
 // Process Creation/Termination/Exit Callbacks
 // ===================================================================
@@ -116,6 +127,14 @@ NTSTATUS OnSectionOperation(
     _In_ ULONG TargetPid,
     _In_opt_ PCWSTR SectionName,
     _In_ UCHAR OperationType  // Create or Map
+);
+
+// Queue a passive-level kernel scan of executable memory in a target process.
+// Emits generic API telemetry (opcode 13) and generic assembly telemetry (opcode 14).
+NTSTATUS QueueAssemblyMemoryScan(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ ACCESS_MASK ReasonMask
 );
 
 #endif // PROCESS_PROTECTION_H
