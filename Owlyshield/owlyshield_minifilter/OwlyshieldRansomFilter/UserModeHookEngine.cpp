@@ -97,26 +97,23 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     auto dump_hook_bytes = [&](PCSTR hookName, PHOOK_DEF hookDef) {
         UCHAR bytes[6] = {0};
 
-        if (hookDef == NULL || hookDef->Address == NULL)
-        {
+        if (hookDef == NULL || hookDef->Address == NULL) {
             DbgPrint("UserModeHook: %s address is NULL\n", hookName);
             return;
         }
 
         KAPC_STATE vs;
         KeStackAttachProcess((PRKPROCESS)Process, &vs);
-        __try
-        {
+        __try {
             RtlCopyMemory(bytes, hookDef->Address, sizeof(bytes));
         }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
+        __except (EXCEPTION_EXECUTE_HANDLER) {
             RtlZeroMemory(bytes, sizeof(bytes));
         }
         KeUnstackDetachProcess(&vs);
 
-        DbgPrint("UserModeHook: %s bytes: %02X %02X %02X %02X %02X %02X\n", hookName, bytes[0], bytes[1], bytes[2],
-                 bytes[3], bytes[4], bytes[5]);
+        DbgPrint("UserModeHook: %s bytes: %02X %02X %02X %02X %02X %02X\n",
+            hookName, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
     };
 
     // NTDLL Hooks (Default)
@@ -125,13 +122,13 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     DbgPrint("UserModeHook: PID %lu hook NtWriteVirtualMemory (id=13) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory",
-                        &HookEntry->NtAllocateVirtualMemory, 14, TargetNtDeviceIo, NewModuleBase);
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 14,
+                        TargetNtDeviceIo, NewModuleBase);
     DbgPrint("UserModeHook: PID %lu hook NtAllocateVirtualMemory (id=14) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory,
-                        15, TargetNtDeviceIo, NewModuleBase);
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 15,
+                        TargetNtDeviceIo, NewModuleBase);
     DbgPrint("UserModeHook: PID %lu hook NtProtectVirtualMemory (id=15) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory);
 
@@ -166,9 +163,12 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
                 st = ResolveAndHook(Process, HookEntry, g_GlobalCustomHooks[i].ModuleName,
                                     g_GlobalCustomHooks[i].FunctionName, &HookEntry->CustomHooks[i],
                                     g_GlobalCustomHooks[i].EventId, TargetNtDeviceIo, NewModuleBase);
-                DbgPrint("UserModeHook: PID %lu hook %ws!%s (id=%lu) -> 0x%08X\n", HookEntry->ProcessId,
-                         g_GlobalCustomHooks[i].ModuleName, g_GlobalCustomHooks[i].FunctionName,
-                         g_GlobalCustomHooks[i].EventId, st);
+                DbgPrint("UserModeHook: PID %lu hook %ws!%s (id=%lu) -> 0x%08X\n",
+                    HookEntry->ProcessId,
+                    g_GlobalCustomHooks[i].ModuleName,
+                    g_GlobalCustomHooks[i].FunctionName,
+                    g_GlobalCustomHooks[i].EventId,
+                    st);
             }
         }
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -633,7 +633,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 16);
         gateway[16] = 0x48;
         gateway[17] = 0xB8;
-        *(PVOID *)(gateway + 18) = (PVOID)((ULONG_PTR)HookDef->Address + 16);
+        *(PVOID*)(gateway + 18) = (PVOID)((ULONG_PTR)HookDef->Address + 16);
         gateway[26] = 0xFF;
         gateway[27] = 0xE0;
     }
@@ -729,7 +729,7 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         jmp[0] = 0xFF;
         jmp[1] = 0x25;
         *(PULONG)&jmp[2] = 0;
-        *(PVOID *)&jmp[6] = myShellcodeAddress;
+        *(PVOID*)&jmp[6] = myShellcodeAddress;
         jmp[14] = 0x90;
         jmp[15] = 0x90;
         RtlCopyMemory(HookDef->Address, jmp, 16);
@@ -740,8 +740,8 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     }
     else
     {
-        DbgPrint("UserModeHook: ZwProtectVirtualMemory failed PID=%lu EventId=%lu status=0x%08X target=%p\n", ProcessId,
-                 EventId, status, HookDef->Address);
+        DbgPrint("UserModeHook: ZwProtectVirtualMemory failed PID=%lu EventId=%lu status=0x%08X target=%p\n",
+                 ProcessId, EventId, status, HookDef->Address);
     }
 
     KeUnstackDetachProcess(&apcState);
@@ -757,31 +757,21 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
-    // Declare ALL locals at the top of the function.
-    // C++ (and MSVC C2362) forbids a goto from jumping over a variable initialization.
-    // Putting every declaration here before any goto avoids this entirely.
     NTSTATUS status;
     KAPC_STATE apcState;
     PVOID baseAddress = NULL;
-    SIZE_T regionSize = 4096 * 2;
+    SIZE_T regionSize = 4096 * 2; // 2 Pages to be safe
     ULONG pid = HandleToULong(PsGetProcessId(Process));
-    HANDLE driverHandle = NULL;
-    HANDLE targetProcessHandle = NULL;
-    HANDLE targetHandle = NULL;
-    UNICODE_STRING devicePath;
-    OBJECT_ATTRIBUTES objAttr;
-    IO_STATUS_BLOCK ioStatus;
 
     // ---------------------------------------------------------------
-    // 1. Allocate shellcode memory inside the target process.
-    //    ZwAllocateVirtualMemory is safe while attached.
+    // 1. Allocate shellcode memory inside target process
     // ---------------------------------------------------------------
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     if (fnZwAllocateVirtualMemory)
     {
-        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE,
-                                           PAGE_EXECUTE_READWRITE);
+        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
+                                           MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     }
     else
     {
@@ -790,13 +780,8 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
     if (NT_SUCCESS(status))
     {
-        __try
-        {
-            RtlZeroMemory(baseAddress, 8);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
+        __try { RtlZeroMemory(baseAddress, 8); }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 
     KeUnstackDetachProcess(&apcState);
@@ -809,35 +794,56 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         return status;
     }
 
-    HookEntry->ShellcodeBase = baseAddress;
-    HookEntry->ShellcodeSize = regionSize;
-    HookEntry->ShellcodeUsed = 8; // first 8 bytes = busy flag
+    HookEntry->ShellcodeBase  = baseAddress;
+    HookEntry->ShellcodeSize  = regionSize;
+    HookEntry->ShellcodeUsed  = 8; // first 8 bytes = busy flag
 
     // ---------------------------------------------------------------
     // 2. Open device handle in OUR context (never while attached).
-    //    ZwCreateFile sends an IRP that completes via APC. Calling it
-    //    while attached fires that APC inside the victim's thread —
-    //    corrupting it and causing CRITICAL_PROCESS_DIED if the victim
-    //    is csrss, lsass, etc.
+    //    ZwCreateFile sends an IRP that completes via APC. If called
+    //    while attached to another process, that APC fires inside the
+    //    victim's thread — corrupting it and causing a crash/BSOD if
+    //    the victim is a critical process (csrss, lsass, etc.).
     // ---------------------------------------------------------------
+    HANDLE driverHandle = NULL;
+    UNICODE_STRING devicePath;
+    OBJECT_ATTRIBUTES objAttr;
+    IO_STATUS_BLOCK ioStatus;
+
     RtlInitUnicodeString(&devicePath, L"\\Device\\OwlyshieldHook");
-    InitializeObjectAttributes(&objAttr, &devicePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    InitializeObjectAttributes(&objAttr, &devicePath,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
-    status = ZwCreateFile(&driverHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
-                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
-                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+    // No attachment here — runs safely in driver/System process context
+    status = ZwCreateFile(&driverHandle,
+                          GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+                          &objAttr, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_NORMAL,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          FILE_OPEN,
+                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                          NULL, 0);
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("UserModeHook: ZwCreateFile failed PID=%lu status=0x%08X iosb=0x%08X\n", pid, status, ioStatus.Status);
+        DbgPrint("UserModeHook: ZwCreateFile failed PID=%lu status=0x%08X iosb=0x%08X\n",
+                 pid, status, ioStatus.Status);
         goto cleanup_alloc;
     }
 
     // ---------------------------------------------------------------
-    // 3. Get a kernel handle to the target process for ZwDuplicateObject.
+    // 3. Get a kernel handle to the target process so we can call
+    //    ZwDuplicateObject with it as the destination.
     // ---------------------------------------------------------------
-    status = ObOpenObjectByPointer(Process, OBJ_KERNEL_HANDLE, NULL, PROCESS_DUP_HANDLE, *PsProcessType, KernelMode,
+    HANDLE targetProcessHandle = NULL;
+    status = ObOpenObjectByPointer(Process,
+                                   OBJ_KERNEL_HANDLE,
+                                   NULL,
+                                   PROCESS_DUP_HANDLE,
+                                   *PsProcessType,
+                                   KernelMode,
                                    &targetProcessHandle);
 
     if (!NT_SUCCESS(status))
@@ -849,8 +855,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
     // ---------------------------------------------------------------
     // 4. Duplicate the handle into the target process's handle table.
-    //    targetHandle is valid inside the victim and is what the
-    //    injected shellcode will pass to NtDeviceIoControlFile.
+    //    The resulting targetHandle value is valid inside that process
+    //    and is what the injected shellcode will pass to
+    //    NtDeviceIoControlFile.
     // ---------------------------------------------------------------
     if (!fnZwDuplicateObject)
     {
@@ -861,11 +868,15 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         goto cleanup_alloc;
     }
 
-    status = fnZwDuplicateObject(ZwCurrentProcess(),  // source process (us)
-                                 driverHandle,        // source handle
-                                 targetProcessHandle, // destination process (victim)
-                                 &targetHandle,       // new handle — valid inside victim
-                                 GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, 0, 0);
+    HANDLE targetHandle = NULL;
+    status = fnZwDuplicateObject(
+        ZwCurrentProcess(),                         // source process  (us)
+        driverHandle,                               // source handle
+        targetProcessHandle,                        // destination process (victim)
+        &targetHandle,                              // new handle — valid inside victim
+        GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+        0,
+        0);
 
     ZwClose(driverHandle);
     ZwClose(targetProcessHandle);
@@ -877,7 +888,8 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
 
     HookEntry->DriverDeviceHandle = targetHandle;
-    DbgPrint("UserModeHook: infrastructure ready PID=%lu shellcode=%p handle=%p\n", pid, baseAddress, targetHandle);
+    DbgPrint("UserModeHook: infrastructure ready PID=%lu shellcode=%p handle=%p\n",
+             pid, baseAddress, targetHandle);
     return STATUS_SUCCESS;
 
 cleanup_alloc:
@@ -991,15 +1003,13 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     DbgPrint("UserModeHook: UserModeHookProcess enter PID=%lu ImageBase=%p\n", ProcessId, ImageBase);
 
-    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
-    {
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized) {
         DbgPrint("UserModeHook: engine not initialized for PID %lu\n", ProcessId);
         return STATUS_DEVICE_NOT_READY;
     }
 
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (!NT_SUCCESS(status))
-    {
+    if (!NT_SUCCESS(status)) {
         DbgPrint("UserModeHook: PsLookupProcessByProcessId failed PID=%lu status=0x%08X\n", ProcessId, status);
         return status;
     }
