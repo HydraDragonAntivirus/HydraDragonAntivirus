@@ -1,0 +1,60 @@
+name: HydraDragonFirewall Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --manifest-path hydradragonfirewall/Cargo.toml --release --locked
+
+      - name: Prepare release bundle
+        run: |
+          $bundleDir = "hydradragonfirewall/target/release/hydradragonfirewall-windows-x64"
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+
+          Copy-Item "hydradragonfirewall/target/release/hydradragonfirewall.exe" $bundleDir -Force
+          Copy-Item "windivert-bin/WinDivert.dll" $bundleDir -Force
+          Copy-Item "windivert-bin/WinDivert64.sys" $bundleDir -Force
+          Copy-Item "hydradragonfirewall/rules.yaml" $bundleDir -Force
+
+          $zipPath = "hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip"
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path "$bundleDir/*" -DestinationPath $zipPath -CompressionLevel Optimal
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydradragonfirewall-windows-x64
+          path: hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
