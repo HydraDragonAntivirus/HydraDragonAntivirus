@@ -3,8 +3,19 @@ name: Firewall
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      update_lockfiles:
+        description: "Update Rust lockfiles and open PR"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
 
 defaults:
   run:
@@ -14,14 +25,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  build-and-release:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfiles != 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Set up WinDivert
         shell: pwsh
         run: |
@@ -33,3 +48,88 @@ jobs:
 
       - name: Cargo check (firewall)
         run: cargo check
+
+      - name: Cargo build release (firewall)
+        run: cargo build --release --locked
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $releaseDir = "target/release"
+          $bundleDir = "$releaseDir/hydradragonfirewall-windows-x64"
+          $zipPath = "$releaseDir/hydradragonfirewall-windows-x64.zip"
+
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          Copy-Item "$releaseDir/hydradragonfirewall.exe" $bundleDir -Force
+          Copy-Item "../windivert-bin/WinDivert.dll" $bundleDir -Force
+          Copy-Item "../windivert-bin/WinDivert64.sys" $bundleDir -Force
+          Copy-Item "rules.yaml" $bundleDir -Force
+
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path "$bundleDir/*" -DestinationPath $zipPath -CompressionLevel Optimal
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydradragonfirewall-windows-x64
+          path: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Publish pre-release test build
+        if: github.ref == 'refs/heads/main'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: firewall-test
+          name: Firewall Test Build
+          prerelease: true
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+          body: "Automated pre-release test build from `${{ github.sha }}`."
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+
+  update-lockfiles:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.update_lockfiles == 'true' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Update lockfiles
+        shell: pwsh
+        run: |
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/windivert-rust-master/Cargo.toml
+
+      - name: Commit and push lockfile updates
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add HydraDragonFirewall/hydradragonfirewall/Cargo.lock
+          git add HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock
+          git add HydraDragonFirewall/windivert-rust-master/Cargo.lock
+          if (git diff --cached --quiet) {
+            Write-Host "No lockfile changes to commit."
+            exit 0
+          }
+          git commit -m "chore(deps): update firewall rust lockfiles"
+          git push origin "HEAD:${{ github.ref_name }}"

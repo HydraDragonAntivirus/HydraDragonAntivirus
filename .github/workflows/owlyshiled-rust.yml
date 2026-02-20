@@ -5,6 +5,13 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      update_lockfile:
+        description: "Update Owlyshield lockfile and open PR"
+        required: false
+        default: false
+        type: boolean
     
 defaults:
   run:
@@ -15,6 +22,7 @@ env:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.update_lockfile != 'true' }}
 
     runs-on: windows-latest
 
@@ -24,3 +32,33 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  update-lockfile:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.update_lockfile == 'true' }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
+    - name: Update Owlyshield lockfile
+      shell: pwsh
+      run: cargo update --manifest-path Owlyshield/owlyshield_predict/Cargo.toml
+    - name: Commit and push lockfile update
+      shell: pwsh
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add Owlyshield/owlyshield_predict/Cargo.lock
+        if (git diff --cached --quiet) {
+          Write-Host "No lockfile changes to commit."
+          exit 0
+        }
+        git commit -m "chore(deps): update owlyshield rust lockfile"
+        git push origin "HEAD:${{ github.ref_name }}"
