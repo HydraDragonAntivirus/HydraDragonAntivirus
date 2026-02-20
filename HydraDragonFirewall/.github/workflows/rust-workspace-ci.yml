@@ -1,0 +1,48 @@
+name: Rust Workspace CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check hydradragonfirewall
+        run: cargo check --manifest-path hydradragonfirewall/Cargo.toml --locked
+
+      - name: Compile tests hydradragonfirewall
+        run: cargo test --manifest-path hydradragonfirewall/Cargo.toml --locked --no-run
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Check UI crate
+        run: cargo check --manifest-path hydradragonfirewall/ui/Cargo.toml --target wasm32-unknown-unknown --locked
+
+      - name: Build release
+        run: cargo build --manifest-path hydradragonfirewall/Cargo.toml --release --locked
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydradragonfirewall-release-windows
+          path: |
+            hydradragonfirewall/target/release/*.exe
+            hydradragonfirewall/target/release/*.dll
+            hydradragonfirewall/target/release/*.pdb
+          if-no-files-found: warn

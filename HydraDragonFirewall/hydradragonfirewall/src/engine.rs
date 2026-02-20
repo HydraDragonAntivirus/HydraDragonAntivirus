@@ -8,8 +8,9 @@ use std::collections::{HashMap, VecDeque, HashSet};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windivert::prelude::*;
@@ -135,26 +136,49 @@ impl Default for TlsInspectionMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsProxyBackend {
+    InternalRedirect,
+    MitmproxyRsLocal,
+}
+
+impl Default for TlsProxyBackend {
+    fn default() -> Self {
+        TlsProxyBackend::InternalRedirect
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TlsProxyConfig {
     pub mode: TlsInspectionMode,
+    pub backend: TlsProxyBackend,
     pub listen_host: String,
     pub listen_port: u16,
     pub block_quic_udp_443: bool,
     pub enforce_proxy_routing: bool,
     pub proxy_process_allowlist: Vec<String>,
+    pub auto_start_backend: bool,
+    pub backend_command: String,
+    pub backend_args: Vec<String>,
+    pub local_capture_spec: Option<String>,
 }
 
 impl Default for TlsProxyConfig {
     fn default() -> Self {
         Self {
             mode: TlsInspectionMode::MetadataOnly,
+            backend: TlsProxyBackend::InternalRedirect,
             listen_host: "127.0.0.1".to_string(),
             listen_port: 8877,
             block_quic_udp_443: true,
             enforce_proxy_routing: false,
             proxy_process_allowlist: vec!["hydradragonfirewall.exe".to_string()],
+            auto_start_backend: false,
+            backend_command: "mitmdump".to_string(),
+            backend_args: Vec::new(),
+            local_capture_spec: None,
         }
     }
 }
@@ -567,6 +591,8 @@ impl AppManager {
             || app_name_lower == "hydradragonfirewall.exe"
             || app_name_lower == "system"
             || app_name_lower.contains("owlyshield")
+            || app_name_lower.contains("mitmdump")
+            || app_name_lower.contains("mitmproxy")
             || pid == 0
             || pid == 4
         {
@@ -634,6 +660,7 @@ pub struct FirewallEngine {
     pub stop_signal: Arc<AtomicBool>,
     pub sdk: Arc<RwLock<crate::sdk::SdkRegistry>>,
     pub file_checker: Arc<FileMagicChecker>,
+    pub tls_proxy_backend_child: Arc<Mutex<Option<Child>>>,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -672,6 +699,7 @@ impl FirewallEngine {
         let rules = Arc::new(RwLock::new(settings_data.rules.clone()));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(crate::sdk::SdkRegistry::with_defaults()));
+        let tls_proxy_backend_child = Arc::new(Mutex::new(None));
 
         Self {
             stats,
@@ -683,6 +711,7 @@ impl FirewallEngine {
             stop_signal,
             sdk,
             file_checker,
+            tls_proxy_backend_child,
         }
     }
 
@@ -778,6 +807,7 @@ impl FirewallEngine {
         outbound: bool,
         app_name: &str,
         tls_proxy: &TlsProxyConfig,
+        use_internal_redirect: bool,
         redirected_to_proxy: bool,
         should_forward: &mut bool,
         reason: &mut Option<String>,
@@ -792,6 +822,10 @@ impl FirewallEngine {
                 "TLS Proxy Mode: blocked QUIC (UDP/443); use TCP through the configured proxy"
                     .to_string()
             });
+            return;
+        }
+
+        if !use_internal_redirect {
             return;
         }
 
@@ -887,6 +921,7 @@ impl FirewallEngine {
         reason: &mut Option<String>,
     ) -> bool {
         if tls_proxy.mode != TlsInspectionMode::TlsProxy
+            || tls_proxy.backend != TlsProxyBackend::InternalRedirect
             || !outbound
             || !matches!(info.protocol, Protocol::TCP)
             || info.dst_port != 443
@@ -917,6 +952,108 @@ impl FirewallEngine {
                 reason.get_or_insert_with(|| format!("TLS Proxy redirect failed: {}", e));
                 false
             }
+        }
+    }
+
+    fn build_mitmproxy_local_mode(mode_spec: Option<&str>) -> String {
+        if let Some(spec) = mode_spec.map(str::trim).filter(|s| !s.is_empty()) {
+            format!("local:{}", spec)
+        } else {
+            "local".to_string()
+        }
+    }
+
+    fn start_mitmproxy_rs_backend(&self, tls_proxy: &TlsProxyConfig, tx: &AppHandle) {
+        if tls_proxy.mode != TlsInspectionMode::TlsProxy
+            || tls_proxy.backend != TlsProxyBackend::MitmproxyRsLocal
+            || !tls_proxy.auto_start_backend
+        {
+            return;
+        }
+
+        let mut child_lock = self.tls_proxy_backend_child.lock().unwrap();
+        if let Some(child) = child_lock.as_mut() {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    *child_lock = None;
+                }
+                Ok(None) => {
+                    let now = Self::now_ts();
+                    let _ = tx.emit(
+                        "log",
+                        LogEntry {
+                            id: format!("{}-mitmproxy-backend-running", now),
+                            timestamp: now,
+                            level: LogLevel::Info,
+                            message: "mitmproxy_rs backend already running".to_string(),
+                        },
+                    );
+                    return;
+                }
+                Err(_) => {
+                    *child_lock = None;
+                }
+            }
+        }
+
+        let mut cmd = Command::new(&tls_proxy.backend_command);
+        let mut args = tls_proxy.backend_args.clone();
+
+        let has_mode_arg = args.iter().any(|a| a == "--mode" || a == "-m");
+        if !has_mode_arg {
+            args.push("--mode".to_string());
+            args.push(Self::build_mitmproxy_local_mode(
+                tls_proxy.local_capture_spec.as_deref(),
+            ));
+        }
+
+        cmd.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        let now = Self::now_ts();
+        match cmd.spawn() {
+            Ok(child) => {
+                *child_lock = Some(child);
+                let mode_arg = Self::build_mitmproxy_local_mode(
+                    tls_proxy.local_capture_spec.as_deref(),
+                );
+                let _ = tx.emit(
+                    "log",
+                    LogEntry {
+                        id: format!("{}-mitmproxy-backend-started", now),
+                        timestamp: now,
+                        level: LogLevel::Success,
+                        message: format!(
+                            "Started mitmproxy_rs backend: {} --mode {}",
+                            tls_proxy.backend_command, mode_arg
+                        ),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = tx.emit(
+                    "log",
+                    LogEntry {
+                        id: format!("{}-mitmproxy-backend-failed", now),
+                        timestamp: now,
+                        level: LogLevel::Error,
+                        message: format!(
+                            "Failed to start mitmproxy_rs backend ({}): {}",
+                            tls_proxy.backend_command, e
+                        ),
+                    },
+                );
+            }
+        }
+    }
+
+    fn stop_mitmproxy_rs_backend(&self) {
+        let mut child_lock = self.tls_proxy_backend_child.lock().unwrap();
+        if let Some(mut child) = child_lock.take() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 
@@ -1156,7 +1293,8 @@ impl FirewallEngine {
                     timestamp: ts,
                     level: LogLevel::Info,
                     message: format!(
-                        "TLS Proxy mode enabled: proxy={}:{}, block_quic_udp_443={}, enforce_proxy_routing={}",
+                        "TLS Proxy mode enabled: backend={:?}, proxy={}:{}, block_quic_udp_443={}, enforce_proxy_routing={}",
+                        tls_proxy_cfg.backend,
                         tls_proxy_cfg.listen_host,
                         tls_proxy_cfg.listen_port,
                         tls_proxy_cfg.block_quic_udp_443,
@@ -1164,6 +1302,8 @@ impl FirewallEngine {
                     ),
                 },
             );
+
+            self.start_mitmproxy_rs_backend(&tls_proxy_cfg, &tx);
         }
 
         // PENDING APP MONITOR THREAD
@@ -1678,7 +1818,8 @@ impl FirewallEngine {
         }
 
         // 10c. TLS PROXY REDIRECT + ENFORCEMENT
-        let redirected_to_proxy = if should_forward {
+        let use_internal_redirect = tls_proxy_cfg.backend == TlsProxyBackend::InternalRedirect;
+        let redirected_to_proxy = if should_forward && use_internal_redirect {
             Self::try_apply_tls_proxy_redirect(
                 &mut data_vec,
                 &info,
@@ -1695,6 +1836,7 @@ impl FirewallEngine {
             outbound,
             &app_name,
             &tls_proxy_cfg,
+            use_internal_redirect,
             redirected_to_proxy,
             &mut should_forward,
             &mut reason,
@@ -2348,5 +2490,11 @@ impl FirewallEngine {
             .into_iter()
             .map(|ip| (ip, String::new()))
             .collect()
+    }
+}
+
+impl Drop for FirewallEngine {
+    fn drop(&mut self) {
+        self.stop_mitmproxy_rs_backend();
     }
 }
