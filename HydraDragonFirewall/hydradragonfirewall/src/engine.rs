@@ -13,9 +13,6 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windivert::prelude::*;
-use shared_no_std::ghost_hunting::{Syscall, NtFunction, NetworkActivityData};
-use tokio::net::windows::named_pipe::ClientOptions;
-use tokio::io::AsyncReadExt;
 
 lazy_static! {
     static ref URL_REGEX: Regex =
@@ -475,7 +472,6 @@ pub struct AppManager {
     pub port_map: RwLock<HashMap<u16, u32>>,
     pub info_cache: AppInfoCache,
     pub url_cache: RwLock<HashMap<u32, String>>, // PID -> URL
-    pub ghost_urls: RwLock<HashMap<u32, Vec<String>>>, // PID -> List of URLs from ETW
     pub active_alert: RwLock<Option<PendingApp>>,
     pub suspicious_pids: RwLock<HashSet<u32>>,    // PIDs flagged by behavior engine
 }
@@ -489,7 +485,6 @@ impl AppManager {
             port_map: RwLock::new(HashMap::new()),
             info_cache: AppInfoCache::new(),
             url_cache: RwLock::new(HashMap::new()),
-            ghost_urls: RwLock::new(HashMap::new()),
             active_alert: RwLock::new(None),
             suspicious_pids: RwLock::new(HashSet::new()),
         }
@@ -532,7 +527,6 @@ impl AppManager {
         if pid == std::process::id()
             || app_name_lower == "hydradragonfirewall.exe"
             || app_name_lower == "system"
-            || app_name_lower.contains("sanctum")
             || app_name_lower.contains("owlyshield")
             || pid == 0
             || pid == 4
@@ -914,7 +908,7 @@ impl FirewallEngine {
                         id: format!("{}-divert-fail", ts),
                         timestamp: ts,
                         level: LogLevel::Error,
-                        message: format!("❌ WinDivert Open Failed: {:?}", e),
+                        message: format!("WinDivert Open Failed: {:?}", e),
                     },
                 );
                 return;
@@ -930,7 +924,7 @@ impl FirewallEngine {
                 id: format!("{}-divert-active", ts),
                 timestamp: ts,
                 level: LogLevel::Success,
-                message: "🛡️ Firewall Engine ACTIVE (RADICAL Parallel Mode Enabled)".into(),
+                message: "Firewall Engine ACTIVE (RADICAL Parallel Mode Enabled)".into(),
             },
         );
 
@@ -973,79 +967,6 @@ impl FirewallEngine {
             .expect("failed to spawn pending_monitor thread");
 
 
-        // Start Telemetry Relay Monitor (Sanctum Ghost Layer)
-        let am_telemetry = Arc::clone(&am);
-        let tx_telemetry = tx.clone();
-        tauri::async_runtime::spawn(async move {
-            let pipe_name = r"\\.\pipe\hydradragon_firewall_telemetry";
-            println!("[Engine] Telemetry Relay Monitor starting (searching for pipe: {})", pipe_name);
-            loop {
-                match ClientOptions::new().open(pipe_name) {
-                    Ok(mut client) => {
-                        println!("[Engine] [Sanctum] Connected to Sanctum Telemetry pipe!");
-                        let ts = Self::now_ts();
-                        let _ = tx_telemetry.emit(
-                            "log",
-                            LogEntry {
-                                id: format!("{}-telemetry-connected", ts),
-                                timestamp: ts,
-                                level: LogLevel::Success,
-                                message: "📡 Connected to Sanctum Telemetry (Ghost Layer)".to_string(),
-                            },
-                        );
-
-                        let mut buffer = vec![0u8; 8192];
-                        loop {
-                            match client.read(&mut buffer).await {
-                                Ok(0) => {
-                                     println!("[Engine] [Sanctum] Telemetry pipe disconnected.");
-                                    break; // disconnected
-                                }
-                                Ok(n) => {
-                                    // Handle stream of multiple JSON objects (contiguous or partial)
-                                    let mut de = serde_json::Deserializer::from_slice(&buffer[..n]).into_iter::<Syscall>();
-                                    while let Some(result) = de.next() {
-                                        match result {
-                                            Ok(syscall) => {
-                                                println!("[Engine] [Sanctum] Received Event: {:?}", syscall.data);
-                                                if let NtFunction::NetworkActivity(data) = syscall.data {
-                                                    let url = match data {
-                                                        NetworkActivityData::Http(h) => h.url,
-                                                        NetworkActivityData::WinINet(w) => w.url,
-                                                    };
-                                                    println!("[Engine] [Ghost] Telemetry Hit for PID {}: {}", syscall.pid, url);
-                                                    let mut urls = am_telemetry.ghost_urls.write().unwrap();
-                                                    urls.entry(syscall.pid).or_default().push(url);
-                                                }
-                                            }
-                                            Err(e) => {
-                                                eprintln!("[Engine] [Sanctum] Deserialization error: {}", e);
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("[Engine] [Sanctum] Pipe read error: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let err_msg = e.to_string();
-                        if e.kind() == std::io::ErrorKind::NotFound {
-                            // Silent wait for Sanctum to start
-                        } else if err_msg.contains("231") || err_msg.contains("busy") {
-                             println!("[Engine] [Sanctum] Telemetry pipe busy (waiting for Sanctum server to be ready...)");
-                        } else {
-                             eprintln!("[Engine] [Sanctum] Failed to open telemetry pipe: {}", e);
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                }
-            }
-        });
-
         // Worker Pool - RADICAL REFACTOR: Each worker is a fully independent capture loop
         let num_workers = 8; // Increased workers for parallel processing
         for worker_id in 0..num_workers {
@@ -1077,7 +998,7 @@ impl FirewallEngine {
                                         id: format!("{}-worker-{}-count", ts, worker_id),
                                         timestamp: ts,
                                         level: LogLevel::Info,
-                                        message: format!("📊 Worker {} received {} packets", worker_id, packet_count),
+                                        message: format!("Worker {} received {} packets", worker_id, packet_count),
                                     });
                                 }
                                 // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
@@ -1236,7 +1157,7 @@ impl FirewallEngine {
                                         id: format!("{}-worker-{}-err-{}", ts, worker_id, packet_count),
                                         timestamp: ts,
                                         level: LogLevel::Error,
-                                        message: format!("❌ Worker {} Recv Error: {} (count: {})", worker_id, err_str, packet_count),
+                                        message: format!("Worker {} Recv Error: {} (count: {})", worker_id, err_str, packet_count),
                                     });
                                     std::thread::sleep(Duration::from_millis(100));
                                 }
@@ -1338,27 +1259,12 @@ impl FirewallEngine {
             reason.get_or_insert_with(|| "Localhost".to_string());
         }
 
-        // Cache URLs and resolve Ghost URLs (ETW)
+        // Cache URLs by PID for subsequent packets in the same flow.
         if let Some(ref url) = info.full_url {
             am.url_cache.write().unwrap().insert(pid, url.clone());
         } else {
             if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                 info.full_url = Some(url.clone());
-            } else {
-                // Check Ghost URLs (Sanctum ETW)
-                if let Some(urls) = am.ghost_urls.read().unwrap().get(&pid) {
-                    if let Some(last_url) = urls.last() {
-                        info.full_url = Some(last_url.clone());
-                        // Also try to extract hostname from URL
-                        if info.hostname.is_none() {
-                            if let Ok(url_parsed) = ::url::Url::parse(last_url) {
-                                if let Some(host) = url_parsed.host_str() {
-                                    info.hostname = Some(host.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -1372,7 +1278,7 @@ impl FirewallEngine {
             info.detected_file_type = Some(dtype.clone());
         }
 
-        // (Hook DLL injection removed, relying on Sanctum for telemetry)
+        // URL telemetry is derived from packet parsing and in-engine caching only.
 
         let is_dns_query = matches!(info.protocol, Protocol::UDP)
             && (info.src_port == 53 || info.dst_port == 53);
@@ -1492,7 +1398,7 @@ impl FirewallEngine {
                                 timestamp: Self::now_ts(),
                                 level: LogLevel::Warning,
                                 message: format!(
-                                    "⚠️ Attack detected by [{}]: {}",
+                                    "Attack detected by [{}]: {}",
                                     finding.rule_name, finding.description
                                 ),
                             },
@@ -1519,7 +1425,7 @@ impl FirewallEngine {
                 if let Some(entropy) = info.payload_entropy {
                     if entropy > 7.5 {
                         should_forward = false;
-                        reason = Some("🚫 High Entropy Upload from Suspicious Process (OwlyShield Alert)".to_string());
+                        reason = Some("High Entropy Upload from Suspicious Process (OwlyShield Alert)".to_string());
                     }
                 }
             }
@@ -1597,7 +1503,7 @@ impl FirewallEngine {
                             id: format!("{}-allow", now),
                             timestamp: now,
                             level: LogLevel::Success,
-                            message: format!("✅ {} | {}", allow_reason, context),
+                            message: format!("{} | {}", allow_reason, context),
                         },
                     );
                 }
@@ -1635,7 +1541,7 @@ impl FirewallEngine {
                             id: format!("{}-blocked", now),
                             timestamp: now,
                             level: LogLevel::Warning,
-                            message: format!("🚫 {} | {}", log_reason, context),
+                            message: format!("{} | {}", log_reason, context),
                         },
                     );
                 }
