@@ -122,6 +122,43 @@ pub enum AppDecision {
     AllowOnce,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsInspectionMode {
+    MetadataOnly,
+    TlsProxy,
+}
+
+impl Default for TlsInspectionMode {
+    fn default() -> Self {
+        TlsInspectionMode::MetadataOnly
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TlsProxyConfig {
+    pub mode: TlsInspectionMode,
+    pub listen_host: String,
+    pub listen_port: u16,
+    pub block_quic_udp_443: bool,
+    pub enforce_proxy_routing: bool,
+    pub proxy_process_allowlist: Vec<String>,
+}
+
+impl Default for TlsProxyConfig {
+    fn default() -> Self {
+        Self {
+            mode: TlsInspectionMode::MetadataOnly,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 8877,
+            block_quic_udp_443: true,
+            enforce_proxy_routing: false,
+            proxy_process_allowlist: vec!["hydradragonfirewall.exe".to_string()],
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PendingApp {
     pub process_id: u32,
@@ -285,6 +322,7 @@ pub struct FirewallSettings {
     pub app_decisions: HashMap<String, AppDecision>,
     pub website_path: String,
     pub rules: Vec<FirewallRule>,
+    pub tls_proxy: TlsProxyConfig,
     pub metadata: HashMap<String, String>,
 }
 
@@ -304,6 +342,7 @@ impl Default for FirewallSettings {
             app_decisions: apps,
             website_path: String::new(),
             rules: Vec::new(),
+            tls_proxy: TlsProxyConfig::default(),
             metadata,
         }
     }
@@ -581,6 +620,7 @@ struct PacketDecision {
     packet_data: Vec<u8>,
     address_data: Vec<u8>, // Serialized address for cross-thread safety
     should_forward: bool,
+    recalc_checksums: bool,
     _reason: String,
 }
 
@@ -686,6 +726,7 @@ impl FirewallEngine {
             app_decisions: decisions,
             website_path: current_settings.website_path.clone(),
             rules: self.rules.read().unwrap().clone(),
+            tls_proxy: current_settings.tls_proxy.clone(),
             metadata: current_settings.metadata.clone(),
         };
 
@@ -702,6 +743,180 @@ impl FirewallEngine {
                     || v4 == Ipv4Addr::new(0, 0, 0, 0)
             }
             IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        }
+    }
+
+    fn is_tls_proxy_process(process_name: &str, tls_proxy: &TlsProxyConfig) -> bool {
+        let process_name_lower = process_name.to_lowercase();
+        tls_proxy.proxy_process_allowlist.iter().any(|entry| {
+            let entry = entry.trim();
+            !entry.is_empty() && process_name_lower == entry.to_lowercase()
+        })
+    }
+
+    fn is_proxy_destination(info: &PacketInfo, tls_proxy: &TlsProxyConfig) -> bool {
+        if !matches!(info.protocol, Protocol::TCP) {
+            return false;
+        }
+
+        if info.dst_port != tls_proxy.listen_port {
+            return false;
+        }
+
+        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
+            return info.dst_ip.is_loopback();
+        }
+
+        match tls_proxy.listen_host.parse::<IpAddr>() {
+            Ok(proxy_ip) => info.dst_ip == proxy_ip,
+            Err(_) => info.dst_ip.is_loopback(),
+        }
+    }
+
+    fn enforce_tls_proxy_mode(
+        info: &PacketInfo,
+        outbound: bool,
+        app_name: &str,
+        tls_proxy: &TlsProxyConfig,
+        redirected_to_proxy: bool,
+        should_forward: &mut bool,
+        reason: &mut Option<String>,
+    ) {
+        if tls_proxy.mode != TlsInspectionMode::TlsProxy || !outbound || !*should_forward {
+            return;
+        }
+
+        if matches!(info.protocol, Protocol::UDP) && info.dst_port == 443 && tls_proxy.block_quic_udp_443 {
+            *should_forward = false;
+            reason.get_or_insert_with(|| {
+                "TLS Proxy Mode: blocked QUIC (UDP/443); use TCP through the configured proxy"
+                    .to_string()
+            });
+            return;
+        }
+
+        if !tls_proxy.enforce_proxy_routing
+            || !matches!(info.protocol, Protocol::TCP)
+            || info.dst_port != 443
+            || redirected_to_proxy
+            || Self::is_proxy_destination(info, tls_proxy)
+            || Self::is_tls_proxy_process(app_name, tls_proxy)
+        {
+            return;
+        }
+
+        *should_forward = false;
+        reason.get_or_insert_with(|| {
+            format!(
+                "TLS Proxy Mode: direct TCP/443 blocked (expected proxy {}:{})",
+                tls_proxy.listen_host, tls_proxy.listen_port
+            )
+        });
+    }
+
+    fn resolve_proxy_ip_for_destination(dst_ip: IpAddr, tls_proxy: &TlsProxyConfig) -> Option<IpAddr> {
+        if tls_proxy.listen_host.eq_ignore_ascii_case("localhost") {
+            return Some(match dst_ip {
+                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+            });
+        }
+
+        match tls_proxy.listen_host.parse::<IpAddr>() {
+            Ok(proxy_ip) => match (dst_ip, proxy_ip) {
+                (IpAddr::V4(_), IpAddr::V4(v4)) => Some(IpAddr::V4(v4)),
+                (IpAddr::V6(_), IpAddr::V6(v6)) => Some(IpAddr::V6(v6)),
+                _ => None,
+            },
+            Err(_) => Some(match dst_ip {
+                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+            }),
+        }
+    }
+
+    fn rewrite_tcp_destination(
+        packet_data: &mut [u8],
+        new_dst_ip: IpAddr,
+        new_dst_port: u16,
+    ) -> Result<(), String> {
+        if packet_data.len() < 20 {
+            return Err("packet too short".to_string());
+        }
+
+        let ip_version = (packet_data[0] >> 4) & 0x0F;
+        match ip_version {
+            4 => {
+                let ihl = ((packet_data[0] & 0x0F) as usize) * 4;
+                if ihl < 20 || packet_data.len() < ihl + 4 {
+                    return Err("invalid IPv4/TCP header length".to_string());
+                }
+                let IpAddr::V4(v4) = new_dst_ip else {
+                    return Err("IPv4 packet cannot be redirected to IPv6 proxy".to_string());
+                };
+                packet_data[16..20].copy_from_slice(&v4.octets());
+                let port = new_dst_port.to_be_bytes();
+                packet_data[ihl + 2] = port[0];
+                packet_data[ihl + 3] = port[1];
+                Ok(())
+            }
+            6 => {
+                let base = 40usize;
+                if packet_data.len() < base + 4 {
+                    return Err("invalid IPv6/TCP header length".to_string());
+                }
+                let IpAddr::V6(v6) = new_dst_ip else {
+                    return Err("IPv6 packet cannot be redirected to IPv4 proxy".to_string());
+                };
+                packet_data[24..40].copy_from_slice(&v6.octets());
+                let port = new_dst_port.to_be_bytes();
+                packet_data[base + 2] = port[0];
+                packet_data[base + 3] = port[1];
+                Ok(())
+            }
+            _ => Err("unsupported IP version".to_string()),
+        }
+    }
+
+    fn try_apply_tls_proxy_redirect(
+        packet_data: &mut Vec<u8>,
+        info: &PacketInfo,
+        outbound: bool,
+        app_name: &str,
+        tls_proxy: &TlsProxyConfig,
+        reason: &mut Option<String>,
+    ) -> bool {
+        if tls_proxy.mode != TlsInspectionMode::TlsProxy
+            || !outbound
+            || !matches!(info.protocol, Protocol::TCP)
+            || info.dst_port != 443
+            || Self::is_proxy_destination(info, tls_proxy)
+            || Self::is_tls_proxy_process(app_name, tls_proxy)
+        {
+            return false;
+        }
+
+        let Some(proxy_ip) = Self::resolve_proxy_ip_for_destination(info.dst_ip, tls_proxy) else {
+            reason.get_or_insert_with(|| {
+                "TLS Proxy Mode: proxy host IP family mismatch with traffic".to_string()
+            });
+            return false;
+        };
+
+        match Self::rewrite_tcp_destination(packet_data.as_mut_slice(), proxy_ip, tls_proxy.listen_port) {
+            Ok(()) => {
+                reason.get_or_insert_with(|| {
+                    format!(
+                        "TLS Proxy redirect: {}:443 -> {}:{}",
+                        info.dst_ip, proxy_ip, tls_proxy.listen_port
+                    )
+                });
+                true
+            }
+            Err(e) => {
+                reason.get_or_insert_with(|| format!("TLS Proxy redirect failed: {}", e));
+                false
+            }
         }
     }
 
@@ -928,6 +1143,29 @@ impl FirewallEngine {
             },
         );
 
+        let tls_proxy_cfg = {
+            let settings = settings_arc.read().unwrap();
+            settings.tls_proxy.clone()
+        };
+        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy {
+            let ts = Self::now_ts();
+            let _ = tx.emit(
+                "log",
+                LogEntry {
+                    id: format!("{}-tls-proxy-mode", ts),
+                    timestamp: ts,
+                    level: LogLevel::Info,
+                    message: format!(
+                        "TLS Proxy mode enabled: proxy={}:{}, block_quic_udp_443={}, enforce_proxy_routing={}",
+                        tls_proxy_cfg.listen_host,
+                        tls_proxy_cfg.listen_port,
+                        tls_proxy_cfg.block_quic_udp_443,
+                        tls_proxy_cfg.enforce_proxy_routing
+                    ),
+                },
+            );
+        }
+
         // PENDING APP MONITOR THREAD
         // Checks for new unknown apps and asks the UI
         let am_monitor = Arc::clone(&am);
@@ -1134,10 +1372,13 @@ impl FirewallEngine {
 
                                 if decision.should_forward {
                                     // REINJECT IMMEDIATELY from the SAME thread
-                                    let reinject_packet = windivert::packet::WinDivertPacket {
+                                    let mut reinject_packet = windivert::packet::WinDivertPacket {
                                         address: packet.address,
-                                        data: std::borrow::Cow::Borrowed(&decision.packet_data),
+                                        data: std::borrow::Cow::Owned(decision.packet_data),
                                     };
+                                    if decision.recalc_checksums {
+                                        let _ = reinject_packet.recalculate_checksums(Default::default());
+                                    }
                                     if let Err(_e) = divert_w.send(&reinject_packet) {
                                         // Log error selectively?
                                     }
@@ -1199,6 +1440,7 @@ impl FirewallEngine {
                         packet_data: data.to_vec(),
                         address_data: address_data.to_vec(),
                         should_forward: true,
+                        recalc_checksums: false,
                         _reason: "Unparsed packet allowed (no default deny)".to_string(),
                     };
                 }
@@ -1219,6 +1461,10 @@ impl FirewallEngine {
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
+        let tls_proxy_cfg = {
+            let s = settings.read().unwrap();
+            s.tls_proxy.clone()
+        };
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
         if info.hostname.is_none() {
@@ -1431,6 +1677,29 @@ impl FirewallEngine {
             }
         }
 
+        // 10c. TLS PROXY REDIRECT + ENFORCEMENT
+        let redirected_to_proxy = if should_forward {
+            Self::try_apply_tls_proxy_redirect(
+                &mut data_vec,
+                &info,
+                outbound,
+                &app_name,
+                &tls_proxy_cfg,
+                &mut reason,
+            )
+        } else {
+            false
+        };
+        Self::enforce_tls_proxy_mode(
+            &info,
+            outbound,
+            &app_name,
+            &tls_proxy_cfg,
+            redirected_to_proxy,
+            &mut should_forward,
+            &mut reason,
+        );
+
         // 11. Finalize Pending Decision (Trigger prompt if still unknown)
         if app_decision == AppDecision::Pending {
             let app_name_lower = app_name.to_lowercase();
@@ -1554,6 +1823,7 @@ impl FirewallEngine {
             packet_data: data_vec,
             address_data: address_data.to_vec(),
             should_forward,
+            recalc_checksums: redirected_to_proxy,
             _reason: reason_text,
         }
     }
