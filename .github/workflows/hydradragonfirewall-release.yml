@@ -26,19 +26,19 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --manifest-path hydradragonfirewall/Cargo.toml --release --locked
+        run: cargo build --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --release --locked
 
       - name: Prepare release bundle
         run: |
-          $bundleDir = "hydradragonfirewall/target/release/hydradragonfirewall-windows-x64"
+          $bundleDir = "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64"
           New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
 
-          Copy-Item "hydradragonfirewall/target/release/hydradragonfirewall.exe" $bundleDir -Force
-          Copy-Item "windivert-bin/WinDivert.dll" $bundleDir -Force
-          Copy-Item "windivert-bin/WinDivert64.sys" $bundleDir -Force
-          Copy-Item "hydradragonfirewall/rules.yaml" $bundleDir -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall.exe" $bundleDir -Force
+          Copy-Item "HydraDragonFirewall/windivert-bin/WinDivert.dll" $bundleDir -Force
+          Copy-Item "HydraDragonFirewall/windivert-bin/WinDivert64.sys" $bundleDir -Force
+          Copy-Item "HydraDragonFirewall/hydradragonfirewall/rules.yaml" $bundleDir -Force
 
-          $zipPath = "hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip"
+          $zipPath = "HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip"
           if (Test-Path $zipPath) {
             Remove-Item $zipPath -Force
           }
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hydradragonfirewall-windows-x64
-          path: hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+          path: HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -57,4 +57,4 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip
+            HydraDragonFirewall/hydradragonfirewall/target/release/hydradragonfirewall-windows-x64.zip

@@ -23,26 +23,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check hydradragonfirewall
-        run: cargo check --manifest-path hydradragonfirewall/Cargo.toml --locked
+        run: cargo check --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --locked
 
       - name: Compile tests hydradragonfirewall
-        run: cargo test --manifest-path hydradragonfirewall/Cargo.toml --locked --no-run
+        run: cargo test --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --locked --no-run
 
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
       - name: Check UI crate
-        run: cargo check --manifest-path hydradragonfirewall/ui/Cargo.toml --target wasm32-unknown-unknown --locked
+        run: cargo check --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml --target wasm32-unknown-unknown --locked
 
       - name: Build release
-        run: cargo build --manifest-path hydradragonfirewall/Cargo.toml --release --locked
+        run: cargo build --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml --release --locked
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: hydradragonfirewall-release-windows
           path: |
-            hydradragonfirewall/target/release/*.exe
-            hydradragonfirewall/target/release/*.dll
-            hydradragonfirewall/target/release/*.pdb
+            HydraDragonFirewall/hydradragonfirewall/target/release/*.exe
+            HydraDragonFirewall/hydradragonfirewall/target/release/*.dll
+            HydraDragonFirewall/hydradragonfirewall/target/release/*.pdb
           if-no-files-found: warn

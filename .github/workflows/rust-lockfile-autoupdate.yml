@@ -25,9 +25,9 @@ jobs:
       - name: Update lockfiles
         shell: pwsh
         run: |
-          cargo update --manifest-path hydradragonfirewall/Cargo.toml
-          cargo update --manifest-path hydradragonfirewall/ui/Cargo.toml
-          cargo update --manifest-path windivert-rust-master/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/hydradragonfirewall/ui/Cargo.toml
+          cargo update --manifest-path HydraDragonFirewall/windivert-rust-master/Cargo.toml
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -36,9 +36,9 @@ jobs:
           title: "chore(deps): auto-update rust lockfiles"
           body: |
             Automated Rust dependency update for:
-            - `hydradragonfirewall/Cargo.lock`
-            - `hydradragonfirewall/ui/Cargo.lock`
-            - `windivert-rust-master/Cargo.lock`
+            - `HydraDragonFirewall/hydradragonfirewall/Cargo.lock`
+            - `HydraDragonFirewall/hydradragonfirewall/ui/Cargo.lock`
+            - `HydraDragonFirewall/windivert-rust-master/Cargo.lock`
           branch: "chore/rust-lockfile-autoupdate"
           labels: |
             dependencies
