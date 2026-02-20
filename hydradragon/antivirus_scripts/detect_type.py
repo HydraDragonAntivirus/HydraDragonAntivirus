@@ -175,6 +175,13 @@ def is_advanced_installer_file_from_output(die_output):
         return True
     return False
 
+def is_clickteam_installer_file_from_output(die_output):
+    """Checks if DIE output indicates a Advanced Installer file."""
+    if die_output and ("ClickTeam" in die_output):
+        logger.info("DIE output indicates a ClickTeam Installer file.")
+        return True
+    return False
+
 def is_autoit_file_from_output(die_output):
     """Checks if DIE output indicates a AutoIt file."""
     if die_output and ("AutoIt" in die_output):

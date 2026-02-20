@@ -76,6 +76,8 @@ from .path_and_variables import (
     general_extracted_with_7z_dir,
     nuitka_extracted_dir,
     advanced_installer_extracted_dir,
+    cicdec_unpacked_dir,
+    cicdec_path,
     memory_dir,
     debloat_dir,
     detectiteasy_console_path,
@@ -400,6 +402,7 @@ from .detect_type import (  # noqa: E402
     is_pe_file_from_output,
     is_cx_freeze_file_from_output,
     is_advanced_installer_file_from_output,
+    is_clickteam_installer_file_from_output,
     is_autoit_file_from_output,
     is_jsc_from_output,
     is_npm_from_output,
@@ -829,6 +832,54 @@ def advanced_installer_extractor(file_path):
                 logger.debug(ar)
 
         return extracted_files
+
+def run_cicdec_unpacker(file_path):
+    """
+    Unpacks an ClickTeam Installer file using cicdec.exe.
+    Returns the path to the output directory, or None on failure.
+
+    :param file_path: Path to the ClickTeam file (e.g., .exe)
+    :return: Path to the directory containing extracted files, or None if extraction failed.
+    """
+    try:
+        logger.info(f"Detected ClickTeam file: {file_path}")
+
+        # create a unique subdirectory inside cicdec_unpacked_dir
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        folder_number = 1
+        while True:
+            out_dir_name = f"{base_name}_extracted{'' if folder_number == 1 else f'_{folder_number}'}"
+            output_dir = os.path.join(cicdec_unpacked_dir, out_dir_name)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                break
+            folder_number += 1
+
+        # run cicdec.exe: `cicdec.exe <ClickTeam file> [output dir]`
+        cmd = [
+            cicdec_path,
+            file_path,
+            output_dir
+        ]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+
+        if result.returncode != 0:
+            logger.error(f"ClickTeam extraction failed ({result.returncode}): {result.stderr.strip()}")
+            return None
+
+        logger.info(f"Files extracted to: {output_dir}")
+        return output_dir
+
+    except Exception as ex:
+        logger.error(f"Error extracting ClickTeam file {file_path}: {ex}")
+        return None
 
 def analyze_file_with_die(file_path):
     """
@@ -7022,7 +7073,7 @@ def extract_installshield(file_path):
     try:
         logger.info(f"Detected InstallShield file: {file_path}")
 
-        # create a unique subdirectory inside installshield-extracted_dir
+        # create a unique subdirectory inside installshield_extracted_dir
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         folder_number = 1
         while True:
@@ -8577,6 +8628,17 @@ async def scan_and_warn(file_path,
             except Exception as e:
                 logger.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
+        async def clickteam_installer_analysis():
+            try:
+                if is_clickteam_installer_file_from_output(die_output):
+                    logger.info(f"File {norm_path} is a valid ClickTeam Installer file.")
+                    extracted_files = await asyncio.to_thread(run_cicdec_unpacker, norm_path)
+                    for extracted_file in extracted_files:
+                        # MODIFIED: Call async scan_and_warn as a new task
+                        asyncio.create_task(scan_and_warn(extracted_file, main_file_path=main_file_path))
+            except Exception as e:
+                logger.error(f"Error in ClickTeam Installer analysis for {norm_path}: {e}")
+
         async def apk_analysis():
             """
             Async Task: Analyze and decompile an APK, then scan decompiled files in tasks.
@@ -8647,6 +8709,7 @@ async def scan_and_warn(file_path,
             asyncio.create_task(jsc_analysis()),
             asyncio.create_task(installshield_analysis()),
             asyncio.create_task(advanced_installer_analysis()),
+            asyncio.create_task(clickteam_installer_analysis()),
             asyncio.create_task(apk_analysis()),
             dotnet_task,
             asyncio.create_task(cx_freeze_thread()),

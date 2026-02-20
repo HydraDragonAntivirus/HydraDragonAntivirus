@@ -1,0 +1,49 @@
+3.0.1
+  Updated BioLib to 2.5.0
+
+3.0.0
+  Added support for another installer version
+  Added '-dfb' command line parameter to extract file data block
+  Changed '-db' command line parameter to not extract the file block per default
+  Fixed crash if the installer contains unknown data blocks
+  Fixed crash when using the '-si' command line option
+  Improved installer version detection
+  Updated BioLib to 2.3.2
+  Updated SharpZipLib to 1.3.3
+
+2.3.0
+  Added support for installers containing files bigger than ~2 GB
+  Fixed extraction for installers with more than one data file
+  Reduced memory usage during extraction
+  Updated BioLib to 2.3.0
+
+2.2.0
+  Added support for another installer version, thanks to sjkorvin
+  Updated BioLib to 2.2.0
+
+2.1.2
+  Fixed extraction failure of some installers with data files
+
+2.1.1
+  Fixed version detection for some installers
+  Updated BioLib to 2.0.0
+
+2.1.0
+  Added 'Overwrite file?' prompt if output file already exists
+  Moved common functions to separate dll
+
+2.0.0
+  Added support for installer version 2.0.0.20
+  Added command line parameter to explicitly set the installer version instead of auto-detecting it
+  Fixed files being skipped if their names contain certain non-ASCII characters
+  Fixed extraction for installers with big external data files
+  Improved detetion of installer version
+
+1.1.0
+  Added support for installers with external data files
+
+1.0.1
+  Fixed crash if the installer contains dummy files
+
+1.0.0
+  Initial release
