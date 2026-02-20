@@ -3077,7 +3077,6 @@ def _build_guid_to_index_map():
     data = buf.raw
     mapping = {}
     # GUIDs have pattern like '{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}' or 'XXXXXXXX-XXXX-...'
-    import re
     # find GUID-style occurrences in buffer
     guid_count = 0
     for m in re.finditer(br'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', data):
