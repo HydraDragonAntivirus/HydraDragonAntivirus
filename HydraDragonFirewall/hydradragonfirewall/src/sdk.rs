@@ -1090,5 +1090,3 @@ impl RawPacket {
         }
     }
 }
-
-// (HookSettings removed as per user request to rely on ETW/Sanctum)
