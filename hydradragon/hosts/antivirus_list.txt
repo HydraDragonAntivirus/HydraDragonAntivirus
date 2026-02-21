@@ -64,4 +64,5 @@ ca.com
 cloudantivirus.com
 safer-networking.com
 safer-networking.org
+spybot.com
 scanguard.com
