@@ -81,23 +81,26 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     auto dump_hook_bytes = [&](PCSTR hookName, PHOOK_DEF hookDef) {
         UCHAR bytes[6] = {0};
 
-        if (hookDef == NULL || hookDef->Address == NULL) {
+        if (hookDef == NULL || hookDef->Address == NULL)
+        {
             DbgPrint("UserModeHook: %s address is NULL\n", hookName);
             return;
         }
 
         KAPC_STATE vs;
         KeStackAttachProcess((PRKPROCESS)Process, &vs);
-        __try {
+        __try
+        {
             RtlCopyMemory(bytes, hookDef->Address, sizeof(bytes));
         }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
             RtlZeroMemory(bytes, sizeof(bytes));
         }
         KeUnstackDetachProcess(&vs);
 
-        DbgPrint("UserModeHook: %s bytes: %02X %02X %02X %02X %02X %02X\n",
-            hookName, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+        DbgPrint("UserModeHook: %s bytes: %02X %02X %02X %02X %02X %02X\n", hookName, bytes[0], bytes[1], bytes[2],
+                 bytes[3], bytes[4], bytes[5]);
     };
 
     // NTDLL Hooks (Default)
@@ -106,13 +109,13 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
     DbgPrint("UserModeHook: PID %lu hook NtWriteVirtualMemory (id=13) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtWriteVirtualMemory", &HookEntry->NtWriteVirtualMemory);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory, 14,
-                        TargetNtDeviceIo, NewModuleBase);
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtAllocateVirtualMemory",
+                        &HookEntry->NtAllocateVirtualMemory, 14, TargetNtDeviceIo, NewModuleBase);
     DbgPrint("UserModeHook: PID %lu hook NtAllocateVirtualMemory (id=14) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtAllocateVirtualMemory", &HookEntry->NtAllocateVirtualMemory);
 
-    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory, 15,
-                        TargetNtDeviceIo, NewModuleBase);
+    st = ResolveAndHook(Process, HookEntry, L"ntdll.dll", "NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory,
+                        15, TargetNtDeviceIo, NewModuleBase);
     DbgPrint("UserModeHook: PID %lu hook NtProtectVirtualMemory (id=15) -> 0x%08X\n", HookEntry->ProcessId, st);
     dump_hook_bytes("NtProtectVirtualMemory", &HookEntry->NtProtectVirtualMemory);
 
@@ -147,12 +150,9 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
                 st = ResolveAndHook(Process, HookEntry, g_GlobalCustomHooks[i].ModuleName,
                                     g_GlobalCustomHooks[i].FunctionName, &HookEntry->CustomHooks[i],
                                     g_GlobalCustomHooks[i].EventId, TargetNtDeviceIo, NewModuleBase);
-                DbgPrint("UserModeHook: PID %lu hook %ws!%s (id=%lu) -> 0x%08X\n",
-                    HookEntry->ProcessId,
-                    g_GlobalCustomHooks[i].ModuleName,
-                    g_GlobalCustomHooks[i].FunctionName,
-                    g_GlobalCustomHooks[i].EventId,
-                    st);
+                DbgPrint("UserModeHook: PID %lu hook %ws!%s (id=%lu) -> 0x%08X\n", HookEntry->ProcessId,
+                         g_GlobalCustomHooks[i].ModuleName, g_GlobalCustomHooks[i].FunctionName,
+                         g_GlobalCustomHooks[i].EventId, st);
             }
         }
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -212,106 +212,399 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     return STATUS_SUCCESS;
 }
 
-// Complete x64 Shellcode for API Hooking
-// Properly calls NtDeviceIoControlFile with all 10 parameters
-// Stack Layout (after register saves and sub rsp):
-// [RSP+0x00]  = HOOK_EVENT_DATA (88 bytes)
-// [RSP+0x50]  = Arg2 storage (8 bytes)
-// [RSP+0x58]  = IO_STATUS_BLOCK (16 bytes)
-// [RSP+0x68]  = Shadow space + stack params (80 bytes)
-// [RSP+0xB8]  = Return to saved registers
-// Total stack allocation: 0xF0 (240 bytes)
+// =============================================================================
+// Shellcode design: struct-based layout so ALL patchable field offsets are
+// computed by the compiler via offsetof(). No more manual byte counting.
+//
+// Stack state when shellcode fires (entered via JMP FF 25, not CALL):
+//   - Caller's CALL pushed the return address, so entry RSP is 8-misaligned.
+//   - We push rax,rcx,rdx,rbx,r8,r9,r10,r11 (8 pushes = 64 bytes)
+//   - Then push rbp + mov rbp,rsp  → rbp anchors the unaligned frame
+//   - Then and rsp,-16             → RSP forced to 16-byte alignment
+//   - Then sub rsp,0xF8            → working area allocated
+//
+// After and+sub, saved registers are accessed via rbp:
+//   [rbp+0]  = saved rbp
+//   [rbp+8]  = saved r11
+//   [rbp+16] = saved r10
+//   [rbp+24] = saved r9
+//   [rbp+32] = saved r8
+//   [rbp+40] = saved rbx
+//   [rbp+48] = saved rdx  (= original Arg2/RDX of hooked function)
+//   [rbp+56] = saved rcx  (= original Arg1/RCX of hooked function)
+//   [rbp+64] = saved rax
+//
+// Stack layout within the 0xF8 allocation (relative to aligned RSP):
+//   [rsp+00..1F] shadow space (32 bytes)
+//   [rsp+20]     Arg5  = &IoStatusBlock
+//   [rsp+28]     Arg6  = IoControlCode (ULONG in 8-byte slot)
+//   [rsp+30]     Arg7  = &HOOK_EVENT_DATA
+//   [rsp+38]     Arg8  = sizeof(HOOK_EVENT_DATA) = 88
+//   [rsp+40]     Arg9  = NULL (OutputBuffer)
+//   [rsp+48]     Arg10 = 0   (OutputBufferLength)
+//   [rsp+50..5F] IoStatusBlock (16 bytes, zeroed, kernel writes here)
+//   [rsp+60..B7] HOOK_EVENT_DATA (88 bytes = 0x58)
+// =============================================================================
 
-UCHAR g_ShellcodeTemplate[] = {
+#pragma pack(push, 1)
+
+// FunctionName chunk: mov rax,imm64 / mov [rsp+disp8],rax  (15 bytes)
+// Used for [rsp+68h], [rsp+70h], [rsp+78h] (displacements 104,112,120 < 128)
+struct FNCHUNK_SMALL {
+    UCHAR     op[2];        // 48 B8
+    ULONGLONG imm;          // [PATCH: 8 bytes of function name]
+    UCHAR     store[5];     // 48 89 44 24 <disp8>
+};
+static_assert(sizeof(FNCHUNK_SMALL) == 15, "FNCHUNK_SMALL size");
+
+// FunctionName chunk: mov rax,imm64 / mov [rsp+disp32],rax (18 bytes)
+// Used for [rsp+80h+] (displacements >= 128, require disp32)
+struct FNCHUNK_LARGE {
+    UCHAR     op[2];        // 48 B8
+    ULONGLONG imm;          // [PATCH: 8 bytes of function name]
+    UCHAR     store[8];     // 48 89 84 24 <disp32>
+};
+static_assert(sizeof(FNCHUNK_LARGE) == 18, "FNCHUNK_LARGE size");
+
+// 5-byte store instruction wrapper (for zero-init array)
+struct STORE5 { UCHAR b[5]; };
+
+struct SHELLCODE_LAYOUT {
     // ===== RE-ENTRANCY GUARD =====
-    0x50,                                                       // push rax
-    0x48, 0xA1, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, [FLAG_ADDR]
-    0x48, 0x85, 0xC0,                                           // test rax, rax
-    0x0F, 0x85, 0x76, 0x01, 0x00, 0x00,                         // jnz SKIP (offset 394)
-    0x58,                                                       // pop rax
-    0x50,                                                       // push rax
-    0x48, 0xB8, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, FLAG_ADDR
-    0x48, 0xC7, 0x00, 0x01, 0x00, 0x00, 0x00,                   // mov qword [rax], 1
-    0x58,                                                       // pop rax
+    // Per-thread safe: busy flag lives in first 8 bytes of shellcode allocation.
+    // Guard reads flag, skips to SKIP_TARGET if busy, otherwise sets flag.
+    UCHAR     grd_push;          // 50          push rax
+    UCHAR     grd_rptr[2];       // 48 A1       mov rax, [mem64]
+    PVOID     grd_read_addr;     // [PATCH: &flag]
+    UCHAR     grd_test[3];       // 48 85 C0    test rax, rax
+    UCHAR     grd_jnz[2];        // 0F 85       jnz rel32
+    LONG      grd_jnz_rel32;     // [COMPUTED: offset to skip_pop]
+    UCHAR     grd_pop1;          // 58          pop rax   (flag=0, restore)
+    UCHAR     grd_push2;         // 50          push rax  (will be saved below)
+    UCHAR     grd_wimm[2];       // 48 B8       mov rax, imm64
+    PVOID     grd_write_addr;    // [PATCH: &flag]
+    UCHAR     grd_set1[7];       // 48 C7 00 01 00 00 00   mov [rax], 1
+    UCHAR     grd_pop2;          // 58          pop rax
 
     // ===== SAVE VOLATILE REGISTERS =====
-    0x50, 0x51, 0x52, 0x53,                                     // push rax, rcx, rdx, rbx
-    0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53,             // push r8, r9, r10, r11
+    UCHAR     s_rax;             // 50
+    UCHAR     s_rcx;             // 51
+    UCHAR     s_rdx;             // 52
+    UCHAR     s_rbx;             // 53
+    UCHAR     s_r8[2];           // 41 50
+    UCHAR     s_r9[2];           // 41 51
+    UCHAR     s_r10[2];          // 41 52
+    UCHAR     s_r11[2];          // 41 53
 
-    // ===== ALLOCATE ALIGNED STACK SPACE =====
-    0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00,                   // sub rsp, 0xF8
+    // ===== STACK ALIGNMENT (FIX: was missing, caused SSE crashes) =====
+    // push rbp saves the current (unaligned) rsp so we can restore it exactly.
+    // and rsp,-16 forces 16-byte alignment required by x64 ABI for any CALL.
+    UCHAR     push_rbp;          // 55          push rbp
+    UCHAR     mov_rbp_rsp[3];    // 48 89 E5    mov rbp, rsp
+    UCHAR     and_rsp_16[4];     // 48 83 E4 F0 and rsp, -16
 
-    // ===== FILL HOOK_EVENT_DATA (RSP+0x60) =====
-    0xC7, 0x44, 0x24, 0x60, 0x11, 0x11, 0x11, 0x11,             // EventType (Offset 63)
-    0xC7, 0x44, 0x24, 0x64, 0x22, 0x22, 0x22, 0x22,             // ProcessId (Offset 71)
-    
-    // FunctionName (64 bytes)
-    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24, 0x68,
-    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x48, 0x89, 0x44, 0x24, 0x70,
-    0x48, 0xB8, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x48, 0x89, 0x44, 0x24, 0x78,
-    0x48, 0xB8, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,
-    0x48, 0xB8, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00,
-    0x48, 0xB8, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0xBC, 0x48, 0x89, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00,
-    0x48, 0xB8, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0x48, 0x89, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00,
-    0x48, 0xB8, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0x48, 0x89, 0x84, 0x24, 0xA0, 0x00, 0x00, 0x00,
-    
-    // Arg1 = RCX
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, 0x48, 0x89, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00,
-    // Arg2 = RDX
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, 0x48, 0x89, 0x84, 0x24, 0xB0, 0x00, 0x00, 0x00,
+    // ===== ALLOCATE STACK FRAME =====
+    UCHAR     sub_op[3];         // 48 81 EC    sub rsp, imm32
+    ULONG     sub_imm;           // 00 01 00 00 (0x100 = 256 bytes)
 
-    // ===== PREPARE STACK PARAMS (ZERO THEM FIRST) =====
-    0x48, 0x31, 0xC0,                                           // xor rax, rax
-    0x48, 0x89, 0x44, 0x24, 0x20,                               // mov [rsp+20h], rax (Arg5/Shadow)
-    0x48, 0x89, 0x44, 0x24, 0x28,                               // mov [rsp+28h], rax (Arg6)
-    0x48, 0x89, 0x44, 0x24, 0x30,                               // mov [rsp+30h], rax (Arg7)
-    0x48, 0x89, 0x44, 0x24, 0x38,                               // mov [rsp+38h], rax (Arg8)
-    0x48, 0x89, 0x44, 0x24, 0x40,                               // mov [rsp+40h], rax (Arg9)
-    0x48, 0x89, 0x44, 0x24, 0x48,                               // mov [rsp+48h], rax (Arg10)
-    0x48, 0x89, 0x44, 0x24, 0x50,                               // mov [rsp+50h], rax (IO_STATUS_BLOCK)
-    0x48, 0x89, 0x44, 0x24, 0x58,                               // mov [rsp+58h], rax (IO_STATUS_BLOCK)
+    // ===== FILL HOOK_EVENT_DATA at [rsp+60h] =====
+    UCHAR     et_op[4];          // C7 44 24 60
+    ULONG     event_type;        // [PATCH: EventId]
 
-    // ===== SETUP NtDeviceIoControlFile =====
-    0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // FileHandle (Offset 277)
-    0x48, 0x31, 0xD2,                                           // xor rdx, rdx 
-    0x4D, 0x31, 0xC0,                                           // xor r8, r8   
-    0x4D, 0x31, 0xC9,                                           // xor r9, r9   
-    
-    0x48, 0x8D, 0x44, 0x24, 0x50,                               // lea rax, [rsp+50h] -> IoStatusBlock
-    0x48, 0x89, 0x44, 0x24, 0x20,                               // mov [rsp+20h], rax
-    
-    0xC7, 0x44, 0x24, 0x28, 0xAA, 0xAA, 0xAA, 0xAA,             // IoControlCode (Offset 308)
-    
-    0x48, 0x8D, 0x44, 0x24, 0x60,                               // lea rax, [rsp+60h] -> InputBuffer
-    0x48, 0x89, 0x44, 0x24, 0x30,                               // mov [rsp+30h], rax
-    
-    0xC7, 0x44, 0x24, 0x38, 0x58, 0x00, 0x00, 0x00,             // InputBufferLength = 88 bytes
+    UCHAR     pid_op[4];         // C7 44 24 64
+    ULONG     process_id;        // [PATCH: ProcessId]
 
-    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // NtDeviceIoControlFile (Offset 332)
-    0xFF, 0xD0,                                                 // call rax
+    // FunctionName: 8 chunks × 8 bytes = 64 bytes
+    // Chunks 0-2 → [rsp+68h/70h/78h] (disp8, 15 bytes each)
+    FNCHUNK_SMALL fn[3];
+    // Chunks 3-7 → [rsp+80h..A0h] (disp32, 18 bytes each)
+    FNCHUNK_LARGE fn_l[5];
+
+    // ===== Arg1/Arg2 from saved registers (FIX: use rbp, not fixed RSP offset) =====
+    // Original RCX (Arg1 of hooked fn) is at [rbp+56]. See stack diagram above.
+    UCHAR     a1_load[4];        // 48 8B 45 38   mov rax, [rbp+56]
+    UCHAR     a1_store[8];       // 48 89 84 24 A8 00 00 00  → HOOK_EVENT_DATA.Arg1
+
+    // Original RDX (Arg2) is at [rbp+48]
+    UCHAR     a2_load[4];        // 48 8B 45 30   mov rax, [rbp+48]
+    UCHAR     a2_store[8];       // 48 89 84 24 B0 00 00 00  → HOOK_EVENT_DATA.Arg2
+
+    // ===== ZERO STACK PARAMS =====
+    UCHAR     xrax[3];           // 48 31 C0    xor rax, rax
+    STORE5    zero_s[8];         // zero [rsp+20h]..[rsp+58h]
+
+    // ===== NtDeviceIoControlFile CALL SETUP =====
+    // Arg1 (rcx) = FileHandle
+    UCHAR     mov_rcx[2];        // 48 B9
+    HANDLE    file_handle;       // [PATCH: DriverDeviceHandle]
+
+    // Arg2/3/4 = NULL
+    UCHAR     xrdx[3];           // 48 31 D2    xor rdx, rdx
+    UCHAR     xr8[3];            // 4D 31 C0    xor r8, r8
+    UCHAR     xr9[3];            // 4D 31 C9    xor r9, r9
+
+    // Arg5 [rsp+20h] = &IoStatusBlock
+    UCHAR     lea_iosb[5];       // 48 8D 44 24 50   lea rax, [rsp+50h]
+    UCHAR     mov_arg5[5];       // 48 89 44 24 20   mov [rsp+20h], rax
+
+    // Arg6 [rsp+28h] = IoControlCode
+    UCHAR     ioctl_op[4];       // C7 44 24 28
+    ULONG     ioctl_code;        // [PATCH: IoControlCode]
+
+    // Arg7 [rsp+30h] = &HOOK_EVENT_DATA (InputBuffer)
+    UCHAR     lea_input[5];      // 48 8D 44 24 60   lea rax, [rsp+60h]
+    UCHAR     mov_arg7[5];       // 48 89 44 24 30   mov [rsp+30h], rax
+
+    // Arg8 [rsp+38h] = sizeof(HOOK_EVENT_DATA) = 88
+    UCHAR     ilen_op[4];        // C7 44 24 38
+    ULONG     input_len;         // 0x00000058
+
+    // Call NtDeviceIoControlFile via rax (preserves rcx from file_handle patch)
+    UCHAR     mov_ntdev[2];      // 48 B8
+    PVOID     ntdeviceio;        // [PATCH: NtDeviceIoControlFile address]
+    UCHAR     call_rax[2];       // FF D0
 
     // ===== CLEAR BUSY FLAG =====
-    0x50,                                                       // push rax
-    0x48, 0xB8, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, // mov rax, FLAG_ADDR (Offset 345)
-    0x48, 0xC7, 0x00, 0x00, 0x00, 0x00, 0x00,                   // mov qword [rax], 0
-    0x58,                                                       // pop rax
+    UCHAR     clr_push;          // 50
+    UCHAR     clr_mov[2];        // 48 B8
+    PVOID     clr_addr;          // [PATCH: &flag]
+    UCHAR     clr_zero[7];       // 48 C7 00 00 00 00 00   mov [rax], 0
+    UCHAR     clr_pop;           // 58
 
-    // ===== RESTORE STACK & REGISTERS =====
-    0x48, 0x81, 0xC4, 0xF8, 0x00, 0x00, 0x00,                   // add rsp, 0xF8
-    0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58,             // pop r11, r10, r9, r8
-    0x5B, 0x5A, 0x59, 0x58,                                     // pop rbx, rdx, rcx, rax
+    // ===== RESTORE STACK (FIX: use rbp instead of add rsp,0xF8) =====
+    // mov rsp,rbp undoes BOTH the sub and the and, restoring exact pre-alignment RSP.
+    UCHAR     rst_rsp[3];        // 48 89 EC    mov rsp, rbp
+    UCHAR     pop_rbp;           // 5D          pop rbp
 
-    // ===== SAFE JUMP TO GATEWAY (Preserves RAX) =====
-    0x68, 0x55, 0x55, 0x55, 0x55,                               // push LOW_32_BITS (Offset 381)
-    0xC7, 0x44, 0x24, 0x04, 0x55, 0x55, 0x55, 0x55,             // mov dword [rsp+4], HIGH_32_BITS (Offset 389)
-    0xC3,                                                       // ret
+    // ===== RESTORE VOLATILE REGISTERS =====
+    UCHAR     r_r11[2];          // 41 5B
+    UCHAR     r_r10[2];          // 41 5A
+    UCHAR     r_r9[2];           // 41 59
+    UCHAR     r_r8[2];           // 41 58
+    UCHAR     r_rbx;             // 5B
+    UCHAR     r_rdx;             // 5A
+    UCHAR     r_rcx;             // 59
+    UCHAR     r_rax;             // 58
 
-    // ===== SKIP TARGET: busy path =====
-    0x58,                                                       // pop rax
-    0x68, 0xBB, 0xBB, 0xBB, 0xBB,                               // push LOW_32_BITS (Offset 396)
-    0xC7, 0x44, 0x24, 0x04, 0xBB, 0xBB, 0xBB, 0xBB,             // mov dword [rsp+4], HIGH_32_BITS (Offset 404)
-    0xC3                                                        // ret
+    // ===== JUMP TO GATEWAY (splits 64-bit address, avoids register clobber) =====
+    UCHAR     gw_push;           // 68
+    ULONG     gw_low;            // [PATCH: gatewayAddress & 0xFFFFFFFF]
+    UCHAR     gw_hi_op[4];       // C7 44 24 04
+    ULONG     gw_high;           // [PATCH: gatewayAddress >> 32]
+    UCHAR     gw_ret;            // C3
+
+    // ===== SKIP TARGET (jnz lands here when busy) =====
+    // Pop the rax we pushed at guard entry, then jump to gateway anyway.
+    UCHAR     skip_pop;          // 58          pop rax (undo guard_push)
+    UCHAR     skip_push;         // 68
+    ULONG     skip_low;          // [PATCH: same as gw_low]
+    UCHAR     skip_hi_op[4];     // C7 44 24 04
+    ULONG     skip_high;         // [PATCH: same as gw_high]
+    UCHAR     skip_ret;          // C3
 };
+#pragma pack(pop)
+
+// ---------------------------------------------------------------------------
+// g_ShellcodeTemplate is a zero-initialized global filled once at driver load
+// by BuildShellcodeTemplate(). No static-const aggregate initializer is used
+// because MSVC kernel-mode compilation rejects nested-struct brace-init and
+// constexpr offsetof on incomplete types.
+// ---------------------------------------------------------------------------
+static SHELLCODE_LAYOUT g_ShellcodeTemplate;
+static BOOLEAN g_ShellcodeTemplateBuilt = FALSE;
+
+// Helper: set N bytes starting at p
+static FORCEINLINE VOID SetBytes(PUCHAR p, const UCHAR* src, ULONG n)
+{
+    for (ULONG i = 0; i < n; i++) p[i] = src[i];
+}
+#define SB(field, ...) do { const UCHAR _b[] = {__VA_ARGS__}; \
+    SetBytes((PUCHAR)&(sc->field), _b, sizeof(_b)); } while(0)
+
+static VOID BuildShellcodeTemplate(VOID)
+{
+    SHELLCODE_LAYOUT* sc = &g_ShellcodeTemplate;
+    RtlZeroMemory(sc, sizeof(*sc));
+
+    // jnz rel32 displacement = distance from grd_pop1 to skip_pop.
+    // Computed here with FIELD_OFFSET (ntddk.h) which is always available
+    // at runtime in kernel mode even without stddef.h.
+    LONG jnzRel = (LONG)(
+        FIELD_OFFSET(SHELLCODE_LAYOUT, skip_pop) -
+        FIELD_OFFSET(SHELLCODE_LAYOUT, grd_pop1));
+
+    // -----------------------------------------------------------------------
+    // RE-ENTRANCY GUARD
+    // -----------------------------------------------------------------------
+    sc->grd_push = 0x50;
+    SB(grd_rptr,  0x48, 0xA1);
+    sc->grd_read_addr  = (PVOID)(ULONG_PTR)0xEEEEEEEEEEEEEEEEULL;
+    SB(grd_test,  0x48, 0x85, 0xC0);
+    SB(grd_jnz,   0x0F, 0x85);
+    sc->grd_jnz_rel32  = jnzRel;
+    sc->grd_pop1  = 0x58;
+    sc->grd_push2 = 0x50;
+    SB(grd_wimm,  0x48, 0xB8);
+    sc->grd_write_addr = (PVOID)(ULONG_PTR)0xEEEEEEEEEEEEEEEEULL;
+    SB(grd_set1,  0x48, 0xC7, 0x00, 0x01, 0x00, 0x00, 0x00);
+    sc->grd_pop2  = 0x58;
+
+    // -----------------------------------------------------------------------
+    // SAVE VOLATILE REGISTERS
+    // -----------------------------------------------------------------------
+    sc->s_rax = 0x50; sc->s_rcx = 0x51; sc->s_rdx = 0x52; sc->s_rbx = 0x53;
+    SB(s_r8,  0x41, 0x50);
+    SB(s_r9,  0x41, 0x51);
+    SB(s_r10, 0x41, 0x52);
+    SB(s_r11, 0x41, 0x53);
+
+    // -----------------------------------------------------------------------
+    // STACK ALIGNMENT
+    // -----------------------------------------------------------------------
+    sc->push_rbp = 0x55;
+    SB(mov_rbp_rsp, 0x48, 0x89, 0xE5);
+    SB(and_rsp_16,  0x48, 0x83, 0xE4, 0xF0);
+
+    // -----------------------------------------------------------------------
+    // ALLOCATE STACK FRAME
+    // -----------------------------------------------------------------------
+    SB(sub_op, 0x48, 0x81, 0xEC);
+    sc->sub_imm = 0x00000100;
+
+    // -----------------------------------------------------------------------
+    // FILL HOOK_EVENT_DATA
+    // -----------------------------------------------------------------------
+    SB(et_op,  0xC7, 0x44, 0x24, 0x60);
+    sc->event_type = 0x11111111;          // patched per hook
+    SB(pid_op, 0xC7, 0x44, 0x24, 0x64);
+    sc->process_id = 0x22222222;          // patched per hook
+
+    // FunctionName chunks 0-2: mov rax,imm64 / mov [rsp+disp8],rax
+    SB(fn[0].op,    0x48, 0xB8);
+    sc->fn[0].imm = 0x6666666666666666ULL;
+    SB(fn[0].store, 0x48, 0x89, 0x44, 0x24, 0x68);
+
+    SB(fn[1].op,    0x48, 0xB8);
+    sc->fn[1].imm = 0x7777777777777777ULL;
+    SB(fn[1].store, 0x48, 0x89, 0x44, 0x24, 0x70);
+
+    SB(fn[2].op,    0x48, 0xB8);
+    sc->fn[2].imm = 0x8888888888888888ULL;
+    SB(fn[2].store, 0x48, 0x89, 0x44, 0x24, 0x78);
+
+    // FunctionName chunks 3-7: mov rax,imm64 / mov [rsp+disp32],rax
+    SB(fn_l[0].op,    0x48, 0xB8);
+    sc->fn_l[0].imm = 0x9999999999999999ULL;
+    SB(fn_l[0].store, 0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00);
+
+    SB(fn_l[1].op,    0x48, 0xB8);
+    sc->fn_l[1].imm = 0xAAAAAAAAAAAAAAAAULL;
+    SB(fn_l[1].store, 0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00);
+
+    SB(fn_l[2].op,    0x48, 0xB8);
+    sc->fn_l[2].imm = 0xBBBBBBBBBBBBBBBBULL;
+    SB(fn_l[2].store, 0x48, 0x89, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00);
+
+    SB(fn_l[3].op,    0x48, 0xB8);
+    sc->fn_l[3].imm = 0xCCCCCCCCCCCCCCCCULL;
+    SB(fn_l[3].store, 0x48, 0x89, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00);
+
+    SB(fn_l[4].op,    0x48, 0xB8);
+    sc->fn_l[4].imm = 0xDDDDDDDDDDDDDDDDULL;
+    SB(fn_l[4].store, 0x48, 0x89, 0x84, 0x24, 0xA0, 0x00, 0x00, 0x00);
+
+    // -----------------------------------------------------------------------
+    // ARG1/ARG2 CAPTURE (via rbp)
+    // -----------------------------------------------------------------------
+    // Original RCX at [rbp+0x38], original RDX at [rbp+0x30]
+    SB(a1_load,  0x48, 0x8B, 0x45, 0x38);
+    SB(a1_store, 0x48, 0x89, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00);
+    SB(a2_load,  0x48, 0x8B, 0x45, 0x30);
+    SB(a2_store, 0x48, 0x89, 0x84, 0x24, 0xB0, 0x00, 0x00, 0x00);
+
+    // -----------------------------------------------------------------------
+    // ZERO STACK PARAMS
+    // -----------------------------------------------------------------------
+    SB(xrax, 0x48, 0x31, 0xC0);
+    SB(zero_s[0].b, 0x48, 0x89, 0x44, 0x24, 0x20);
+    SB(zero_s[1].b, 0x48, 0x89, 0x44, 0x24, 0x28);
+    SB(zero_s[2].b, 0x48, 0x89, 0x44, 0x24, 0x30);
+    SB(zero_s[3].b, 0x48, 0x89, 0x44, 0x24, 0x38);
+    SB(zero_s[4].b, 0x48, 0x89, 0x44, 0x24, 0x40);
+    SB(zero_s[5].b, 0x48, 0x89, 0x44, 0x24, 0x48);
+    SB(zero_s[6].b, 0x48, 0x89, 0x44, 0x24, 0x50);
+    SB(zero_s[7].b, 0x48, 0x89, 0x44, 0x24, 0x58);
+
+    // -----------------------------------------------------------------------
+    // NtDeviceIoControlFile CALL
+    // -----------------------------------------------------------------------
+    SB(mov_rcx, 0x48, 0xB9);
+    sc->file_handle = NULL;                         // patched per hook
+    SB(xrdx, 0x48, 0x31, 0xD2);
+    SB(xr8,  0x4D, 0x31, 0xC0);
+    SB(xr9,  0x4D, 0x31, 0xC9);
+    SB(lea_iosb,  0x48, 0x8D, 0x44, 0x24, 0x50);
+    SB(mov_arg5,  0x48, 0x89, 0x44, 0x24, 0x20);
+    SB(ioctl_op,  0xC7, 0x44, 0x24, 0x28);
+    sc->ioctl_code = 0xAAAAAAAA;                    // patched per hook
+    SB(lea_input, 0x48, 0x8D, 0x44, 0x24, 0x60);
+    SB(mov_arg7,  0x48, 0x89, 0x44, 0x24, 0x30);
+    SB(ilen_op,   0xC7, 0x44, 0x24, 0x38);
+    sc->input_len = 0x00000058;                     // sizeof(HOOK_EVENT_DATA) = 88
+    SB(mov_ntdev, 0x48, 0xB8);
+    sc->ntdeviceio = NULL;                          // patched per hook
+    SB(call_rax, 0xFF, 0xD0);
+
+    // -----------------------------------------------------------------------
+    // CLEAR BUSY FLAG
+    // -----------------------------------------------------------------------
+    sc->clr_push = 0x50;
+    SB(clr_mov, 0x48, 0xB8);
+    sc->clr_addr = (PVOID)(ULONG_PTR)0xEEEEEEEEEEEEEEEEULL;  // patched per hook
+    SB(clr_zero, 0x48, 0xC7, 0x00, 0x00, 0x00, 0x00, 0x00);
+    sc->clr_pop = 0x58;
+
+    // -----------------------------------------------------------------------
+    // RESTORE STACK (mov rsp,rbp undoes both sub AND and-alignment)
+    // -----------------------------------------------------------------------
+    SB(rst_rsp, 0x48, 0x89, 0xEC);
+    sc->pop_rbp = 0x5D;
+
+    // -----------------------------------------------------------------------
+    // RESTORE VOLATILE REGISTERS
+    // -----------------------------------------------------------------------
+    SB(r_r11, 0x41, 0x5B);
+    SB(r_r10, 0x41, 0x5A);
+    SB(r_r9,  0x41, 0x59);
+    SB(r_r8,  0x41, 0x58);
+    sc->r_rbx = 0x5B; sc->r_rdx = 0x5A; sc->r_rcx = 0x59; sc->r_rax = 0x58;
+
+    // -----------------------------------------------------------------------
+    // GATEWAY JUMP (push low32 / mov [rsp+4],high32 / ret)
+    // -----------------------------------------------------------------------
+    sc->gw_push  = 0x68;
+    sc->gw_low   = 0x55555555;                      // patched per hook
+    SB(gw_hi_op, 0xC7, 0x44, 0x24, 0x04);
+    sc->gw_high  = 0x55555555;                      // patched per hook
+    sc->gw_ret   = 0xC3;
+
+    // -----------------------------------------------------------------------
+    // SKIP TARGET (busy path: pop rax then jump to gateway)
+    // -----------------------------------------------------------------------
+    sc->skip_pop  = 0x58;
+    sc->skip_push = 0x68;
+    sc->skip_low  = 0xBBBBBBBB;                     // patched per hook
+    SB(skip_hi_op, 0xC7, 0x44, 0x24, 0x04);
+    sc->skip_high = 0xBBBBBBBB;                     // patched per hook
+    sc->skip_ret  = 0xC3;
+
+    g_ShellcodeTemplateBuilt = TRUE;
+
+    DbgPrint("UserModeHook: shellcode template built, size=%lu bytes, jnzRel32=%ld\n",
+             (ULONG)sizeof(SHELLCODE_LAYOUT), jnzRel);
+}
+
+#undef SB
 
 //
 // Initialize the user-mode hooking engine
@@ -382,6 +675,9 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     ExInitializeFastMutex(&g_UserHookEngine->EngineMutex);
     ExInitializeFastMutex(&g_ConfigMutex);
     g_UserHookEngine->IsInitialized = TRUE;
+
+    // Build the shellcode template (fills opcodes + placeholder values)
+    BuildShellcodeTemplate();
 
     return STATUS_SUCCESS;
 }
@@ -597,18 +893,37 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         return STATUS_INVALID_PARAMETER;
     if (HookDef->IsHooked)
         return STATUS_SUCCESS;
+    if (!g_ShellcodeTemplateBuilt)
+        return STATUS_DRIVER_UNABLE_TO_LOAD;
 
-    SIZE_T totalSize = sizeof(g_ShellcodeTemplate) + 64;
+    // -----------------------------------------------------------------------
+    // Each hook consumes sizeof(SHELLCODE_LAYOUT) + 64 bytes for the gateway.
+    // The busy flag lives at offset 0 of the FIRST hook's shellcode (shared).
+    // -----------------------------------------------------------------------
+    SIZE_T totalSize = sizeof(SHELLCODE_LAYOUT) + 64;
     if (HookEntry->ShellcodeUsed + totalSize > HookEntry->ShellcodeSize)
         return STATUS_INSUFFICIENT_RESOURCES;
 
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
-    PVOID gatewayAddress = (PVOID)((ULONG_PTR)myShellcodeAddress + sizeof(g_ShellcodeTemplate));
-    PVOID flagAddr = HookEntry->ShellcodeBase; // First 8 bytes = busy flag
+    PVOID gatewayAddress     = (PVOID)((ULONG_PTR)myShellcodeAddress + sizeof(SHELLCODE_LAYOUT));
+
+    // flagAddr points to the first 8 bytes of the entire shellcode region.
+    // All hooks for this process share one re-entrancy flag so any hook
+    // can prevent a second hook from firing recursively.
+    PVOID flagAddr = HookEntry->ShellcodeBase;
 
     KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
-    // 1. Create gateway trampoline
+    // -------------------------------------------------------------------
+    // 1. Build gateway trampoline (64 bytes, written into user-mode alloc)
+    //
+    //    Copies the first 16 bytes of the target function verbatim, then
+    //    appends: mov rax, <target+16> ; jmp rax
+    //
+    //    Safe for all ntdll syscall stubs (14-byte pattern:
+    //      mov r10,rcx / mov eax,N / syscall / ret — 14 bytes total),
+    //    so byte 16 is always the start of the next function or padding.
+    // -------------------------------------------------------------------
     UCHAR gateway[64];
     RtlZeroMemory(gateway, sizeof(gateway));
     __try
@@ -616,11 +931,10 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         ProbeForRead(HookDef->Address, 16, 1);
         RtlCopyMemory(gateway, HookDef->Address, 16);
         RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 16);
-        gateway[16] = 0x48;
-        gateway[17] = 0xB8;
+        // Append: mov rax, <target+16> ; jmp rax
+        gateway[16] = 0x48; gateway[17] = 0xB8;
         *(PVOID*)(gateway + 18) = (PVOID)((ULONG_PTR)HookDef->Address + 16);
-        gateway[26] = 0xFF;
-        gateway[27] = 0xE0;
+        gateway[26] = 0xFF; gateway[27] = 0xE0;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -638,62 +952,63 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         return STATUS_ACCESS_VIOLATION;
     }
 
-    // 2. Prepare shellcode
-    UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
-    RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
+    // -------------------------------------------------------------------
+    // 2. Build shellcode by copying the const template then patching named
+    //    struct fields. The compiler knows every offset via sizeof/offsetof.
+    //    Zero manual byte arithmetic. Zero sentinel value checks.
+    // -------------------------------------------------------------------
+    SHELLCODE_LAYOUT sc;
+    RtlCopyMemory(&sc, &g_ShellcodeTemplate, sizeof(sc));
 
-    // Safety checks (Updated for new precise shellcode lengths)
-    if (*(PULONG)(shellcode + 63) != 0x11111111 || *(PULONG)(shellcode + 71) != 0x22222222 ||
-        *(PULONGLONG)(shellcode + 277) != 0x3333333333333333ULL || *(PULONG)(shellcode + 308) != 0xAAAAAAAA ||
-        *(PULONGLONG)(shellcode + 332) != 0x4444444444444444ULL)
-    {
-        KeUnstackDetachProcess(&apcState);
-        return STATUS_INVALID_IMAGE_FORMAT;
-    }
+    // Patch re-entrancy flag address (three references inside the shellcode)
+    sc.grd_read_addr  = flagAddr;
+    sc.grd_write_addr = flagAddr;
+    sc.clr_addr       = flagAddr;
 
-    // Patch FLAG_ADDR
-    *(PVOID *)(shellcode + 3) = flagAddr;
-    *(PVOID *)(shellcode + 24) = flagAddr;
-    *(PVOID *)(shellcode + 345) = flagAddr;
+    // Patch event metadata
+    sc.event_type = EventId;
+    sc.process_id = ProcessId;
 
-    // Patch EventType and ProcessId
-    *(PULONG)(shellcode + 63) = EventId;
-    *(PULONG)(shellcode + 71) = ProcessId;
-
-    // Patch FunctionName 
-    const ULONG fnImmOffsets[8] = {77, 92, 107, 122, 140, 158, 176, 194};
+    // Patch FunctionName: 64-byte ANSI string split into 8 × 8-byte chunks
+    // embedded as mov rax,imm64 immediates.
+    // Use RtlCopyMemory into the imm fields to avoid packed-struct unaligned UB.
     CHAR fnBuf[64];
     RtlZeroMemory(fnBuf, sizeof(fnBuf));
     if (FunctionName != NULL)
     {
-        for (SIZE_T i = 0; i < 63 && FunctionName[i] != '\0'; i++)
-            fnBuf[i] = FunctionName[i];
+        SIZE_T i = 0;
+        while (i < 63 && FunctionName[i] != '\0') { fnBuf[i] = FunctionName[i]; i++; }
     }
-    for (ULONG i = 0; i < 8; i++)
-    {
-        ULONGLONG chunk = 0;
-        RtlCopyMemory(&chunk, fnBuf + (i * 8), sizeof(chunk));
-        *(PULONGLONG)(shellcode + fnImmOffsets[i]) = chunk;
-    }
+    RtlCopyMemory(&sc.fn[0].imm,   fnBuf +  0, 8);
+    RtlCopyMemory(&sc.fn[1].imm,   fnBuf +  8, 8);
+    RtlCopyMemory(&sc.fn[2].imm,   fnBuf + 16, 8);
+    RtlCopyMemory(&sc.fn_l[0].imm, fnBuf + 24, 8);
+    RtlCopyMemory(&sc.fn_l[1].imm, fnBuf + 32, 8);
+    RtlCopyMemory(&sc.fn_l[2].imm, fnBuf + 40, 8);
+    RtlCopyMemory(&sc.fn_l[3].imm, fnBuf + 48, 8);
+    RtlCopyMemory(&sc.fn_l[4].imm, fnBuf + 56, 8);
 
-    // Patch API Control blocks
-    *(PHANDLE)(shellcode + 277) = HookEntry->DriverDeviceHandle;
-    *(PULONG)(shellcode + 308) = IoControlCode;
-    *(PVOID *)(shellcode + 332) = TargetNtDeviceIo;
+    // Patch NtDeviceIoControlFile call arguments
+    sc.file_handle = HookEntry->DriverDeviceHandle;
+    sc.ioctl_code  = IoControlCode;
+    sc.ntdeviceio  = TargetNtDeviceIo;
 
-    // Patch the safe Gateway jumps (Splitting 64-bit addresses to avoid register clobbering)
-    ULONG gatewayLow = (ULONG)((ULONG_PTR)gatewayAddress & 0xFFFFFFFF);
-    ULONG gatewayHigh = (ULONG)(((ULONG_PTR)gatewayAddress >> 32) & 0xFFFFFFFF);
+    // Patch gateway jump: split 64-bit address into two 32-bit halves.
+    // push imm32 + mov dword[rsp+4],imm32 + ret reconstructs the full
+    // 64-bit return address without touching any general-purpose register.
+    ULONG gatewayLow  = (ULONG)((ULONG_PTR)gatewayAddress & 0xFFFFFFFF);
+    ULONG gatewayHigh = (ULONG)((ULONG_PTR)gatewayAddress >> 32);
+    sc.gw_low    = gatewayLow;
+    sc.gw_high   = gatewayHigh;
+    // SKIP path (busy flag was set) also jumps to the gateway so execution
+    // reaches the original function regardless.
+    sc.skip_low  = gatewayLow;
+    sc.skip_high = gatewayHigh;
 
-    *(PULONG)(shellcode + 381) = gatewayLow;
-    *(PULONG)(shellcode + 389) = gatewayHigh;
-    *(PULONG)(shellcode + 396) = gatewayLow;
-    *(PULONG)(shellcode + 404) = gatewayHigh;
-
-    // Write shellcode
+    // Write the fully-patched shellcode into the user-mode allocation
     __try
     {
-        RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+        RtlCopyMemory(myShellcodeAddress, &sc, sizeof(sc));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -702,31 +1017,41 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         return STATUS_ACCESS_VIOLATION;
     }
 
-    // 3. Install hook (JMP to shellcode)
+    // -------------------------------------------------------------------
+    // 3. Install the hook: overwrite the first 16 bytes of the target
+    //    function with an absolute indirect JMP (FF 25 00000000 <addr64>).
+    //    Two trailing NOPs pad to 16 bytes so we always overwrite complete
+    //    instruction boundaries for standard ntdll stubs.
+    // -------------------------------------------------------------------
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = 14;
+    SIZE_T pageSize = 16;
     ULONG oldProt;
 
-    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
+                                      PAGE_EXECUTE_READWRITE, &oldProt);
     if (NT_SUCCESS(status))
     {
         UCHAR jmp[16];
         RtlZeroMemory(jmp, 16);
-        jmp[0] = 0xFF;
-        jmp[1] = 0x25;
-        *(PULONG)&jmp[2] = 0;
-        *(PVOID*)&jmp[6] = myShellcodeAddress;
-        jmp[14] = 0x90;
-        jmp[15] = 0x90;
+        jmp[0] = 0xFF; jmp[1] = 0x25;           // FF 25 <rel32=0>
+        *(PULONG)&jmp[2]  = 0;                   // RIP-relative offset = 0 → pointer follows immediately
+        *(PVOID*)&jmp[6]  = myShellcodeAddress;  // absolute target
+        jmp[14] = 0x90; jmp[15] = 0x90;          // NOP NOP
+
         RtlCopyMemory(HookDef->Address, jmp, 16);
         fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
         HookEntry->ShellcodeUsed += totalSize;
         HookDef->IsHooked = TRUE;
+
+        DbgPrint("UserModeHook: hooked %s PID=%lu shellcode=%p gateway=%p\n",
+                 FunctionName ? FunctionName : "(null)", ProcessId,
+                 myShellcodeAddress, gatewayAddress);
     }
     else
     {
-        DbgPrint("UserModeHook: ZwProtectVirtualMemory failed PID=%lu EventId=%lu status=0x%08X target=%p\n",
+        DbgPrint("UserModeHook: ZwProtectVirtualMemory failed PID=%lu EventId=%lu "
+                 "status=0x%08X target=%p\n",
                  ProcessId, EventId, status, HookDef->Address);
     }
 
@@ -765,8 +1090,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     if (!NT_SUCCESS(status))
     {
         DbgPrint("UserModeHook: ZwAllocateVirtualMemory failed PID=%lu status=0x%08X protect=RWX\n", pid, status);
-        if (status == (NTSTATUS)0xC0000604) {
-            DbgPrint("UserModeHook: PID %lu appears to block dynamic executable memory (ACG/DynamicCode policy)\n", pid);
+        if (status == (NTSTATUS)0xC0000604)
+        {
+            DbgPrint("UserModeHook: PID %lu appears to block dynamic executable memory (ACG/DynamicCode policy)\n",
+                     pid);
         }
         KeUnstackDetachProcess(&apcState);
         return status;
@@ -790,19 +1117,15 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
     // 2. Add FILE_SYNCHRONOUS_IO_NONALERT to enforce blocking I/O
-    status = ZwCreateFile(&targetHandle, 
-                        GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, 
-                        &objAttr, &ioStatus, NULL,
-                        FILE_ATTRIBUTE_NORMAL, 
-                        FILE_SHARE_READ | FILE_SHARE_WRITE, 
-                        FILE_OPEN, 
-                        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, // CRITICAL FIX
-                        NULL, 0);
+    status = ZwCreateFile(&targetHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
+                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
+                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, // CRITICAL FIX
+                          NULL, 0);
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("UserModeHook: ZwCreateFile(\\\\??\\\\OwlyshieldHook) failed PID=%lu status=0x%08X iosb=0x%08X\n",
-                 pid, status, ioStatus.Status);
+        DbgPrint("UserModeHook: ZwCreateFile(\\\\??\\\\OwlyshieldHook) failed PID=%lu status=0x%08X iosb=0x%08X\n", pid,
+                 status, ioStatus.Status);
         if (fnZwFreeVirtualMemory)
         {
             SIZE_T freeSize = 0;
@@ -830,73 +1153,32 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
     PVOID modBase = NULL;
     SIZE_T modSize = 0;
 
-    // Wildcard Module Search
-    if (ModuleName[0] == L'*' && ModuleName[1] == L'\0')
-    {
-        KAPC_STATE apcState;
-        KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+    // Stop blind arbitrary hooking until a proper Length Disassembler Engine (LDE) is added.
+    // Blindly overwriting 16 bytes causes 0xc0000005 in complex functions (like igfxCUIService.exe internals or kernel32).
+    // Syscalls in ntdll.dll are perfectly structured for 16-byte tramplines, so we restrict to ntdll.dll.
+    if (_wcsicmp(ModuleName, L"ntdll.dll") != 0) {
+        return STATUS_NOT_SUPPORTED;
+    }
 
-        if (NewModuleBase)
-        {
-            // Targeted scan of newly loaded module
-            HookDef->Address = FindExportedFunction(NewModuleBase, FunctionName);
-            if (HookDef->Address)
-                modBase = NewModuleBase;
-        }
-        else
-        {
-            // Full scan of all modules (Initial hook or retroactive)
-            __try
-            {
-                PPEB peb = fnPsGetProcessPeb(Process);
-                if (peb && peb->Ldr)
-                {
-                    PLIST_ENTRY listHead = &peb->Ldr->InLoadOrderModuleList;
-                    for (PLIST_ENTRY entry = listHead->Flink; entry != listHead; entry = entry->Flink)
-                    {
-                        PLDR_DATA_TABLE_ENTRY ldrEntry =
-                            CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
-                        if (ldrEntry->DllBase)
-                        {
-                            HookDef->Address = FindExportedFunction(ldrEntry->DllBase, FunctionName);
-                            if (HookDef->Address)
-                            {
-                                modBase = ldrEntry->DllBase;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-        }
-        KeUnstackDetachProcess(&apcState);
+    // Explicit module check
+    if (NewModuleBase)
+    {
+        // If NewModuleBase is provided, we only check if it matches the target ModuleName
+        modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+        if (modBase != NewModuleBase)
+            modBase = NULL; // Only hook if it's the module that just loaded
     }
     else
     {
-        // Explicit module check
-        if (NewModuleBase)
-        {
-            // If NewModuleBase is provided, we only check if it matches the target ModuleName
-            // Note: FindModuleBaseAddress handles string comparison
-            modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
-            if (modBase != NewModuleBase)
-                modBase = NULL; // Only hook if it's the module that just loaded
-        }
-        else
-        {
-            modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
-        }
+        modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+    }
 
-        if (modBase)
-        {
-            KAPC_STATE apcState;
-            KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-            HookDef->Address = FindExportedFunction(modBase, FunctionName);
-            KeUnstackDetachProcess(&apcState);
-        }
+    if (modBase)
+    {
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)Process, &apcState);
+        HookDef->Address = FindExportedFunction(modBase, FunctionName);
+        KeUnstackDetachProcess(&apcState);
     }
 
     if (!HookDef->Address)
@@ -908,6 +1190,11 @@ NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY Hook
                             ioControlCode);
 }
 
+// ---------------------------------------------------------------------------
+// PsGetProcessImageFileName and SeLocateProcessImageName are available
+// via ntifs.h. No manual declarations are needed.
+// ---------------------------------------------------------------------------
+
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 {
     NTSTATUS status;
@@ -916,13 +1203,15 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
 
     DbgPrint("UserModeHook: UserModeHookProcess enter PID=%lu ImageBase=%p\n", ProcessId, ImageBase);
 
-    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized) {
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+    {
         DbgPrint("UserModeHook: engine not initialized for PID %lu\n", ProcessId);
         return STATUS_DEVICE_NOT_READY;
     }
 
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (!NT_SUCCESS(status)) {
+    if (!NT_SUCCESS(status))
+    {
         DbgPrint("UserModeHook: PsLookupProcessByProcessId failed PID=%lu status=0x%08X\n", ProcessId, status);
         return status;
     }

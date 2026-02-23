@@ -74,8 +74,8 @@ HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
 [MiniFilter.DriverFiles]
 %DriverName%.sys
 
-[MiniFilter.DriverFiles.Del]
-%DriverName%.sys
+; [MiniFilter.DriverFiles.Del]
+; %DriverName%.sys
 
 [SourceDisksFiles]
 OwlyshieldRansomFilter.sys = 1,,
