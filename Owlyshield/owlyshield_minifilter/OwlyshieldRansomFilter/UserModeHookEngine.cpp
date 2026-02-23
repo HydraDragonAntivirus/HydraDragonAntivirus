@@ -343,8 +343,9 @@ struct SHELLCODE_LAYOUT {
     UCHAR     xr8[3];            // 4D 31 C0    xor r8, r8
     UCHAR     xr9[3];            // 4D 31 C9    xor r9, r9
 
-    // Arg5 [rsp+20h] = &IoStatusBlock
-    UCHAR     lea_iosb[5];       // 48 8D 44 24 50   lea rax, [rsp+50h]
+    // Arg5 [rsp+20h] = &IoStatusBlock (Persistent IOSB at end of shellcode)
+    UCHAR     mov_arg5_op[2];    // 48 B8
+    PVOID     arg5_iosb_addr;    // [PATCH: &this->Iosb]
     UCHAR     mov_arg5[5];       // 48 89 44 24 20   mov [rsp+20h], rax
 
     // Arg6 [rsp+28h] = IoControlCode
@@ -401,6 +402,9 @@ struct SHELLCODE_LAYOUT {
     UCHAR     skip_hi_op[4];     // C7 44 24 04
     ULONG     skip_high;         // [PATCH: same as gw_high]
     UCHAR     skip_ret;          // C3
+
+    // ===== PERSISTENT IOSB (Non-blocking I/O safety) =====
+    IO_STATUS_BLOCK Iosb;
 };
 #pragma pack(pop)
 
@@ -543,7 +547,9 @@ static VOID BuildShellcodeTemplate(VOID)
     SB(xrdx, 0x48, 0x31, 0xD2);
     SB(xr8,  0x4D, 0x31, 0xC0);
     SB(xr9,  0x4D, 0x31, 0xC9);
-    SB(lea_iosb,  0x48, 0x8D, 0x44, 0x24, 0x50);
+    // Arg5 [rsp+20h] = &PersistentIosb (Shellcode relative address)
+    SB(mov_arg5_op, 0x48, 0xB8);
+    sc->arg5_iosb_addr = (PVOID)(ULONG_PTR)0xEEEEEEEEEEEEEEEEULL; // patched per hook
     SB(mov_arg5,  0x48, 0x89, 0x44, 0x24, 0x20);
     SB(ioctl_op,  0xC7, 0x44, 0x24, 0x28);
     sc->ioctl_code = 0xAAAAAAAA;                    // patched per hook
@@ -993,6 +999,10 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
     sc.ioctl_code  = IoControlCode;
     sc.ntdeviceio  = TargetNtDeviceIo;
 
+    // Patch Arg5 to point to the persistent IOSB inside the shellcode layout
+    sc.arg5_iosb_addr = (PVOID)&((SHELLCODE_LAYOUT*)myShellcodeAddress)->Iosb;
+
+
     // Patch gateway jump: split 64-bit address into two 32-bit halves.
     // push imm32 + mov dword[rsp+4],imm32 + ret reconstructs the full
     // 64-bit return address without touching any general-purpose register.
@@ -1116,10 +1126,11 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     InitializeObjectAttributes(&objAttr, &hookDevicePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
-    // 2. Add FILE_SYNCHRONOUS_IO_NONALERT to enforce blocking I/O
-    status = ZwCreateFile(&targetHandle, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &objAttr, &ioStatus, NULL,
+    // 2. Open handle for ASYNCHRONOUS (non-blocking) communication.
+    // READ ONLY: Minimal access and no SYNC flags to avoid blocking application threads.
+    status = ZwCreateFile(&targetHandle, GENERIC_READ, &objAttr, &ioStatus, NULL,
                           FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
-                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, // CRITICAL FIX
+                          FILE_NON_DIRECTORY_FILE, 
                           NULL, 0);
 
     if (!NT_SUCCESS(status))
