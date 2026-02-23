@@ -41,6 +41,17 @@ HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
 
+// Global safety mode:
+// - Disable all per-process API hooking uniformly.
+// - No whitelist/blacklist decisions are used.
+// - Fail-open behavior prevents process crashes from hook injection attempts.
+static const BOOLEAN g_DisableAllProcessHooking = TRUE;
+
+static BOOLEAN IsProcessHookingEnabled(VOID)
+{
+    return (g_DisableAllProcessHooking == FALSE);
+}
+
 // Forward Declarations
 NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
                         _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
@@ -77,6 +88,15 @@ static VOID CleanupPartialHookEntry(_In_opt_ PEPROCESS Process, _Inout_ PPROCESS
 
 VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID TargetNtDeviceIo, PVOID NewModuleBase)
 {
+    if (!IsProcessHookingEnabled())
+    {
+        UNREFERENCED_PARAMETER(Process);
+        UNREFERENCED_PARAMETER(HookEntry);
+        UNREFERENCED_PARAMETER(TargetNtDeviceIo);
+        UNREFERENCED_PARAMETER(NewModuleBase);
+        return;
+    }
+
     NTSTATUS st = STATUS_SUCCESS;
     auto dump_hook_bytes = [&](PCSTR hookName, PHOOK_DEF hookDef) {
         UCHAR bytes[6] = {0};
@@ -161,6 +181,9 @@ VOID ApplyHooksInternal(PEPROCESS Process, PPROCESS_HOOK_ENTRY HookEntry, PVOID 
 
 VOID ApplyGlobalHooksToAll()
 {
+    if (!IsProcessHookingEnabled())
+        return;
+
     if (g_UserHookEngine == NULL)
         return;
 
@@ -183,6 +206,13 @@ VOID ApplyGlobalHooksToAll()
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
+    if (!IsProcessHookingEnabled())
+    {
+        UNREFERENCED_PARAMETER(Config);
+        DbgPrint("UserModeHook: custom hook request ignored because process hooking is disabled globally\n");
+        return STATUS_SUCCESS;
+    }
+
     ExAcquireFastMutex(&g_ConfigMutex);
 
     // Idempotent add: skip duplicates instead of consuming hook slots.
@@ -619,6 +649,30 @@ static VOID BuildShellcodeTemplate(VOID)
 NTSTATUS UserModeHookEngineInitialize(VOID)
 {
     DbgPrint("!!! UserModeHook: Initializing user-mode hooking engine...\n");
+
+    if (g_UserHookEngine && g_UserHookEngine->IsInitialized)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if (!IsProcessHookingEnabled())
+    {
+        g_UserHookEngine =
+            (PUSERMODE_HOOK_ENGINE)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(USERMODE_HOOK_ENGINE), 'UMHk');
+        if (g_UserHookEngine == NULL)
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(g_UserHookEngine, sizeof(USERMODE_HOOK_ENGINE));
+        ExInitializeFastMutex(&g_UserHookEngine->EngineMutex);
+        ExInitializeFastMutex(&g_ConfigMutex);
+        g_UserHookEngine->IsInitialized = TRUE;
+
+        DbgPrint("!!! UserModeHook: Process API hooking is disabled globally (no whitelist/blacklist mode)\n");
+        DbgPrint("!!! UserModeHook: Running in read-only/no-op safety mode to avoid process crashes and BSOD risk\n");
+        return STATUS_SUCCESS;
+    }
 
     // ---------------------------------------------------------------------
     // FIX: Resolve system routines dynamically to avoid Linker Errors
@@ -1212,6 +1266,13 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId, _In_opt_ PVOID ImageBase)
     PEPROCESS process = NULL;
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
 
+    if (!IsProcessHookingEnabled())
+    {
+        UNREFERENCED_PARAMETER(ProcessId);
+        UNREFERENCED_PARAMETER(ImageBase);
+        return STATUS_SUCCESS;
+    }
+
     DbgPrint("UserModeHook: UserModeHookProcess enter PID=%lu ImageBase=%p\n", ProcessId, ImageBase);
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
@@ -1447,6 +1508,12 @@ NTSTATUS UserModeUnhookProcessInternal(_Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 {
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
+
+    if (!IsProcessHookingEnabled())
+    {
+        UNREFERENCED_PARAMETER(ProcessId);
+        return STATUS_SUCCESS;
+    }
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;

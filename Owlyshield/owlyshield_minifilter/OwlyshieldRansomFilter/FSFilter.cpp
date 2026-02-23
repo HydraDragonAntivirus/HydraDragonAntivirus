@@ -298,16 +298,16 @@ Return Value:
     driverData->SetQuarantinePath(&quarantinePathString);
 
     // ====================================================================
-    // UPDATED: Initialize WORKING monitoring systems
-    // - User-mode hooking (bypasses PatchGuard)
+    // Initialize monitoring systems
+    // - User-mode hook engine in safety no-op mode (no per-process injection)
     // - Thread creation callbacks
     // - Image load callbacks
     // ====================================================================
 
     DbgPrint("!!! FSFilter: Initializing advanced monitoring systems...\n");
 
-    // 1. Initialize user-mode hooking engine
-    //    This hooks ntdll.dll in monitored processes instead of kernel functions
+    // 1. Initialize user-mode hook engine.
+    //    Current policy disables per-process hook injection to avoid process instability.
     status = UserModeHookEngineInitialize();
     if (!NT_SUCCESS(status))
     {
@@ -316,11 +316,11 @@ Return Value:
     }
     else
     {
-        DbgPrint("!!! FSFilter: User-mode hook engine initialized successfully\n");
-        DbgPrint("!!! FSFilter: Will hook ntdll.dll in each monitored process\n");
-        DbgPrint("!!! FSFilter: Enumerating existing processes for initial hook pass\n");
-        EnumerateExistingProcesses();
+        DbgPrint("!!! FSFilter: User-mode hook engine initialized in no-hook safety mode\n");
     }
+
+    DbgPrint("!!! FSFilter: Enumerating existing processes for initial process baseline\n");
+    EnumerateExistingProcesses();
 
     // 2. Register thread creation callback
     //    Detects remote thread injection (NtCreateThreadEx from different process)
@@ -354,7 +354,7 @@ Return Value:
     DbgPrint("!!! FSFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
     DbgPrint("!!! FSFilter: - File operations (Minifilter callbacks)\n");
     DbgPrint("!!! FSFilter: - Registry operations (CmRegisterCallback)\n");
-    DbgPrint("!!! FSFilter: - Memory operations (User-mode hooks - ntdll.dll)\n");
+    DbgPrint("!!! FSFilter: - Memory operations (per-process user-mode hooks disabled)\n");
     DbgPrint("!!! FSFilter: ========================================\n");
 
     // ====================================================================
@@ -455,8 +455,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     }
 
 
-    // 2. User Mode Image Load - Hook ALL executables (EXE and DLL) for comprehensive API monitoring
-    // Modern EDRs monitor all API calls across the entire process address space
+    // 2. User Mode Image Load telemetry (no process hook injection)
     
     // Check if this is an executable file (.exe or .dll)
     BOOLEAN isExecutable = FALSE;
@@ -471,12 +470,8 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
 
     if (isExecutable)
     {
-        NTSTATUS hookStatus;
-        DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ - Triggering hook engine\n",
+        DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ (no-hook mode)\n",
                  (ULONG)(ULONG_PTR)ProcessId, FullImageName);
-        hookStatus = UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase);
-        DbgPrint("!!! FSFilter: UserModeHookProcess(pid=%lu, imageBase=%p) -> 0x%08X\n",
-                 (ULONG)(ULONG_PTR)ProcessId, ImageInfo->ImageBase, hookStatus);
     }
 }
 
@@ -558,12 +553,6 @@ VOID EnumerateExistingProcesses(VOID)
                             if (!driverData->AddIrpMessage(newEntry))
                             {
                                 delete newEntry;
-                            }
-                            
-                            // PROACTIVE: Hook existing process now (Full scan)
-                            {
-                                NTSTATUS hookStatus = UserModeHookProcess(pidNum, NULL);
-                                DbgPrint("!!! FSFilter: UserModeHookProcess(existing pid=%lu) -> 0x%08X\n", pidNum, hookStatus);
                             }
                         }
                     }
