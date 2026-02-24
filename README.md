@@ -143,6 +143,10 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects to optimize the antivirus.
 
+- https://github.com/HyperDbg/HyperDbg
+
+- I used these projects to HyperVisor
+
 **Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
 
