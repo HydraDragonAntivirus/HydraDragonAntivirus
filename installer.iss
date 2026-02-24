@@ -65,8 +65,8 @@ Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u471-windows-x64.exe"; 
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.22-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-9.0.9-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-; Node.js 22.18.0 (x64) MSI
-Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+; Node.js 22.22.0 (x64) MSI
+Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.22.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.py"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
@@ -141,8 +141,8 @@ Filename: "{tmp}\Suricata-7.0.12-1-64bit.msi"; Parameters: "/quiet /norestart"; 
 ; Mitmproxy 12.2.1 installer (BitRock unattended)
 Filename: "{tmp}\mitmproxy-12.2.1-windows-x86_64-installer.exe"; Parameters: "--mode unattended --unattendedmodeui none --installer-language en --prefix ""{pf64}\mitmproxy"""; Flags: shellexec waituntilterminated
 
-; Node.js 22.18.0 (silent)
-Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+; Node.js 22.22.0 (silent)
+Filename: "{tmp}\node-v22.22.0-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Npcap
 Filename: "{tmp}\npcap-1.85.exe"; Flags: shellexec waituntilterminated
