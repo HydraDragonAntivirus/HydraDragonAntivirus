@@ -1,3 +1,0 @@
-[submodule "windivert-sys/vendor"]
-	path = windivert-sys/vendor
-	url = git@github.com:basil00/Divert.git
