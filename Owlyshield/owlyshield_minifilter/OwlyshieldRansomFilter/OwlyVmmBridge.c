@@ -1,14 +1,5 @@
 #include "OwlyVmmBridge.h"
 
-#if defined(_M_AMD64)
-
-//
-// Force local definitions for transparency symbols, we provide local safe stubs.
-//
-#ifndef HYPERDBG_HYPEREVADE
-#define HYPERDBG_HYPEREVADE
-#endif
-
 #include "pch.h"
 #include "vmm/vmx/Hv.h"
 #include "vmm/vmx/Vmx.h"
