@@ -1,6 +1,6 @@
 #include "OwlyVmmBridge.h"
 
-#if defined(_M_AMD64) && defined(OWLY_HYPERDBG_VMM_AVAILABLE)
+#if defined(_M_AMD64)
 
 //
 // Force local definitions for transparency symbols, we provide local safe stubs.
