@@ -1,2 +1,0 @@
-[workspace]
-members = ["windivert-sys", "windivert"]
