@@ -1,0 +1,332 @@
+﻿cargo :     Checking 
+hydradragon-ui v0.1.0
+ (C:\Users\victim\Doc
+uments\GitHub\HydraDr
+agonFirewall\hydradra
+gonfirewall\ui)
+At line:1 char:1
++ cargo check --targe
+t wasm32-unknown-unkn
+own 2> check_output.t
+xt
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (    Che   
+ cking hy...gonfi    
+rewall\ui):Strin    g
+) [], RemoteExc    ep
+tion
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+error: expected strin
+g literal
+   --> src\main.rs:85
+2:26
+    |
+852 |                
+     <!-- Title Bar -
+->
+    |                
+          ^^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:86
+4:30
+    |
+864 |                
+         <!-- Line Nu
+mbers Sidebar -->
+    |                
+              ^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:86
+9:30
+    |
+869 |                
+         <!-- Editor 
+Area -->
+    |                
+              ^^^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:87
+8:42
+    |
+878 | ...            
+       <!-- Name Fiel
+d -->
+    |                
+            ^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:88
+9:42
+    |
+889 | ...            
+       <!-- Descripti
+on Field -->
+    |                
+            ^^^^^^^^^
+^^
+
+error: expected strin
+g literal
+   --> src\main.rs:90
+0:42
+    |
+900 | ...            
+       <!-- Protocol 
+Field -->
+    |                
+            ^^^^^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:91
+3:42
+    |
+913 | ...            
+       <!-- Action Fi
+eld -->
+    |                
+            ^^^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:92
+4:42
+    |
+924 | ...            
+       <!-- IPs Field
+ -->
+    |                
+            ^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:93
+8:42
+    |
+938 | ...            
+       <!-- Ports Fie
+ld -->
+    |                
+            ^^^^^
+
+error: expected strin
+g literal
+   --> src\main.rs:97
+0:26
+    |
+970 |                
+     <!-- Console/Out
+put Area -->
+    |                
+          ^^^^^^^
+
+error[E0597]: `line` 
+does not live long en
+ough
+    --> src\main.rs:9
+75:63
+     |
+ 973 |               
+             {move ||
+ console_output.get()
+.into_iter().map(|lin
+e| view! {
+     |  _____________
+_____________________
+_____________________
+__________________---
+-__-
+     | |             
+                     
+                     
+                  |
+     | |             
+                     
+                     
+                  bin
+ding `line` declared 
+here
+ 974 | |             
+                 <div
+ style="color: #ccc; 
+margin-bottom: 2px">
+ 975 | |             
+                    <
+span style="color: #4
+ec9b0">{line.split_at
+(1).0}</span>
+     | |             
+                     
+                     
+        ^^^^ borrowed
+ value does not live 
+long enough
+ 976 | |             
+                    <
+span>{line.split_at(1
+).1}</span>
+ 977 | |             
+                 </di
+v>
+ 978 | |             
+             }).colle
+ct_view()}
+     | |             
+             -
+     | |             
+             |
+     | |_____________
+_____________`line` d
+ropped here while sti
+ll borrowed
+     |               
+             argument
+ requires that `line`
+ is borrowed for `'st
+atic`
+     |
+note: requirement tha
+t the value outlives 
+`'static` introduced 
+here
+    --> C:\Users\vict
+im\.cargo\registry\sr
+c\index.crates.io-194
+9cf8c6b5b557f\leptos_
+dom-0.6.15\src\html.r
+s:1223:36
+     |
+1223 |     pub fn chi
+ld(self, child: impl 
+IntoView) -> Self {
+     |               
+                     
+^^^^^^^^
+
+error[E0597]: `line` 
+does not live long en
+ough
+    --> src\main.rs:9
+76:40
+     |
+ 973 |               
+             {move ||
+ console_output.get()
+.into_iter().map(|lin
+e| view! {
+     |  _____________
+_____________________
+_____________________
+__________________---
+-__-
+     | |             
+                     
+                     
+                  |
+     | |             
+                     
+                     
+                  bin
+ding `line` declared 
+here
+ 974 | |             
+                 <div
+ style="color: #ccc; 
+margin-bottom: 2px">
+ 975 | |             
+                    <
+span style="color: #4
+ec9b0">{line.split_at
+(1).0}</span>
+ 976 | |             
+                    <
+span>{line.split_at(1
+).1}</span>
+     | |             
+                     
+      ^^^^ borrowed v
+alue does not live lo
+ng enough
+ 977 | |             
+                 </di
+v>
+ 978 | |             
+             }).colle
+ct_view()}
+     | |             
+             -- `line
+` dropped here while 
+still borrowed
+     | |_____________
+_____________|
+     |               
+             argument
+ requires that `line`
+ is borrowed for `'st
+atic`
+     |
+note: requirement tha
+t the value outlives 
+`'static` introduced 
+here
+    --> C:\Users\vict
+im\.cargo\registry\sr
+c\index.crates.io-194
+9cf8c6b5b557f\leptos_
+dom-0.6.15\src\html.r
+s:1223:36
+     |
+1223 |     pub fn chi
+ld(self, child: impl 
+IntoView) -> Self {
+     |               
+                     
+^^^^^^^^
+
+warning: unused varia
+ble: `graph_points`
+   --> src\main.rs:14
+4:9
+    |
+144 |     let graph_p
+oints = move || {
+    |         ^^^^^^^
+^^^^^ help: if this i
+s intentional, prefix
+ it with an underscor
+e: `_graph_points`
+    |
+    = note: `#[warn(u
+nused_variables)]` (p
+art of `#[warn(unused
+)]`) on by default
+
+For more information 
+about this error, try
+ `rustc --explain E05
+97`.
+warning: `hydradragon
+-ui` (bin "hydradrago
+n-ui") generated 1 wa
+rning
+error: could not comp
+ile `hydradragon-ui` 
+(bin "hydradragon-ui"
+) due to 12 previous 
+errors; 1 warning emi
+tted

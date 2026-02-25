@@ -1,0 +1,40 @@
+[package]
+name = "windivert"
+version = "0.6.0"
+description = "Wrapper library around windivert-sys"
+authors = ["Ruben Serrano Izquierdo <rserranoizq@gmail.com>"]
+repository = "https://github.com/Rubensei/windivert-rust.git"
+homepage = "https://github.com/Rubensei/windivert-rust"
+keywords = ["ffi", "windivert", "bindings", "driver"]
+categories = ["external-ffi-bindings"]
+readme = "../README.md"
+license = "LGPL-3.0-or-later"
+edition = "2021"
+
+[features]
+default = []
+vendored = ["windivert-sys/vendored"]
+static = ["vendored", "windivert-sys/static"]
+
+[dependencies]
+etherparse = "0.13"
+thiserror = "1"
+windivert-sys = { version = "0.10.0", path = "../windivert-sys" }
+
+[dependencies.windows]
+version = "0.48"
+features = [
+	"Devices_Custom",
+	"Win32_Devices",
+	"Win32_Foundation",
+	"Win32_Security",
+	"Win32_Storage_FileSystem",
+	"Win32_System_Diagnostics",
+	"Win32_System_IO",
+	"Win32_System_Ioctl",
+	"Win32_System_Services",
+	"Win32_System_Threading",
+]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
