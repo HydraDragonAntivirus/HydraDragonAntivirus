@@ -1,9 +1,5 @@
 #include "OwlyVmmBridge.h"
 
-#include "pch.h"
-#include "vmm/vmx/Hv.h"
-#include "vmm/vmx/Vmx.h"
-
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 
 static BOOLEAN
