@@ -17,24 +17,79 @@
 This project is not production-ready.
 Breaking changes, bugs, and incomplete features should be expected.
 </p>
-- False positives are pretty common in this project.
-- This program assumes the PC is in a clean state and is not subject to post-infection.
-- This project doesn't replace your daily AV and this project not an AV.
-- This project believes that achieving 99% detection rate, even if it takes hours, is better than achieving 90% detection rate within seconds. It focuses on looking toward the future rather than being stuck in the past or present. It doesn't mean this project has 99% detection rate but his philosophy like that.
-- It's for people learn to how malware analysis platforms works.
-- It's very experimental program and you need to be careful.
-- I made very dumb choices in past. It damaged my project but now I improving it.
-- We are not going to detect too old samples. See here: https://blog.clamav.net/2025/12/clamav-signature-retirement.html
-- You must uninstall it manually; the auto-uninstaller won't work.
-- The ClamAV update issue is temporary during setup; you can safely ignore it.
-- Disable Secure Boot if the driver installation fails.
-- We recommend waiting until the antivirus fully opens, even if some protections are already active.
-- You can manually terminate the antivirus, but a virus cannot, because the antivirus driver can detect whether the request comes from a user or not. So don't worry if you managed to close it manually.
-- Quarantine folder: C:\ProgramData\HydraDragonAntivirus\Quarantine
-- Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
-- Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
-- So we ignore files looks like junk data (fully unknown)
-- What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
+ ## Important Notes & Limitations
+
+### Project Scope
+
+HydraDragon is a local antivirus project currently under active and experimental development.
+
+- It operates locally on the system.
+- No client-server architecture is implemented at this time.
+- It is intended for research, learning, and malware analysis experimentation.
+
+This project does not aim to replace your primary daily antivirus solution.
+
+---
+
+### Detection Philosophy
+
+- False positives may occur.
+- The system assumes the machine is in a clean state (not post-infection).
+- The project prioritizes deeper analysis over speed.
+- The goal is long-term detection improvement rather than quick but shallow detection.
+- This does NOT mean the project achieves a 99% detection rate — it reflects the development philosophy only.
+
+---
+
+### Experimental Status
+
+- This is a highly experimental project.
+- Some architectural decisions in earlier versions were not optimal and affected stability.
+- The project is actively being improved and refined.
+- Use with caution.
+
+---
+
+### Sample Detection Policy
+
+- Very old malware samples may not be detected.
+- Signature retirement reference:
+  https://blog.clamav.net/2025/12/clamav-signature-retirement.html
+
+- Files that appear as junk or fully unknown data may be ignored intentionally.
+- If a PE header is removed, some detection engines may no longer flag the file.
+- YARA detections may still trigger depending on rule logic (for example, rules that do not verify file type).
+
+Example:
+
+PE header removed sample:
+https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
+
+Original sample:
+https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
+
+---
+
+### Installation & Usage Notes
+
+- You must uninstall the software manually (auto-uninstaller is not functional).
+- Temporary ClamAV update errors during setup can be safely ignored.
+- If driver installation fails, disable Secure Boot and try again.
+- It is recommended to wait until the antivirus interface fully loads, even if some protections appear active.
+
+---
+
+### Process Protection
+
+- The antivirus can be manually terminated by the user.
+- Malware processes cannot terminate it because the driver verifies the origin of termination requests.
+- If you close it manually, this does not indicate a security failure.
+
+---
+
+### Quarantine Directory
+
+C:\ProgramData\HydraDragonAntivirus\Quarantine
 
 ## Description
 At this stage:
