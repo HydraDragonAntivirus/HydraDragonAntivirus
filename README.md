@@ -9,16 +9,14 @@
 <img src="hydradragon/assets/sanctum-cover.webp" width= 1024px>
 </p>
 
-## Description
-- Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
-- HydraDragonPlatform - Unified Executable Analysis & Detection Framework
+<h1 align="center" style="color: red;">
+⚠️ WARNING: ACTIVE DEVELOPMENT IN PROGRESS ⚠️
+</h1>
 
-## License
-
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPLv3).  
-See the [LICENSE](./LICENSE) file for more information.
-
-## MEGA IMPORTANT AND !!!WARNING!!!
+<p align="center" style="color: red; font-size: 22px; font-weight: bold;">
+This project is not production-ready.
+Breaking changes, bugs, and incomplete features should be expected.
+</p>
 - False positives are pretty common in this project.
 - This program assumes the PC is in a clean state and is not subject to post-infection.
 - This project doesn't replace your daily AV and this project not an AV.
@@ -37,6 +35,18 @@ See the [LICENSE](./LICENSE) file for more information.
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - So we ignore files looks like junk data (fully unknown)
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
+
+## Description
+- Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
+- HydraDragonPlatform - Unified Executable Analysis & Detection Framework
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0** (AGPLv3).  
+See the [LICENSE](./LICENSE) file for more information.
+
+ 
+
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
