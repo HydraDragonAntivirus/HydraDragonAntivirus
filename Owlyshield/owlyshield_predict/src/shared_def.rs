@@ -89,44 +89,8 @@ pub enum IrpMajorOp {
     IrpProcessExit,
     /// Process handle opened for access (OB callback)
     IrpProcessHandleOpen,
-    /// Kernel thread-create callback (cross-process only)
-    IrpKernelRemoteThread,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Injection/Code manipulation
-    // --------------------------------------------------------------------------------
-    /// NtWriteVirtualMemory - code injection attempt
-    IrpNtWriteVirtualMemory,
-    /// NtAllocateVirtualMemory - memory allocation
-    IrpNtAllocateVirtualMemory,
-    /// NtProtectVirtualMemory - DEP bypass attempt
-    IrpNtProtectVirtualMemory,
-    /// NtCreateThreadEx - remote thread creation
-    IrpNtCreateThread,
-    /// NtQueueApcThread - APC injection
-    IrpNtQueueApc,
-    /// NtSetContextThread - thread context manipulation
-    IrpNtSetContext,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - File/Section manipulation
-    // --------------------------------------------------------------------------------
-    /// NtCreateSection - section creation
-    IrpNtCreateSection,
-    /// NtMapViewOfSection - section mapping
-    IrpNtMapSection,
-    /// NtDeleteFile - file deletion
-    IrpNtDeleteFile,
-    
-    // --------------------------------------------------------------------------------
-    // User-mode API hooks (ntdll.dll) - Driver/System operations
-    // --------------------------------------------------------------------------------
-    /// NtLoadDriver - driver loading
-    IrpNtLoadDriver,
-    /// NtOpenProcess - process access
-    IrpNtOpenProcess,
-    /// Generic API call (dynamic hook)
-    IrpNtGenericApiCall,
+    /// Single normalized event for all hypervisor-origin activity
+    IrpHypervisorEvent,
 }
 
 impl IrpMajorOp {
@@ -145,22 +109,8 @@ impl IrpMajorOp {
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
             
-            // Kernel callback + NTDLL hooks
-            12 => IrpMajorOp::IrpKernelRemoteThread,
-            13 => IrpMajorOp::IrpNtWriteVirtualMemory,
-            14 => IrpMajorOp::IrpNtAllocateVirtualMemory,
-            15 => IrpMajorOp::IrpNtProtectVirtualMemory,
-            16 => IrpMajorOp::IrpNtCreateThread,
-            17 => IrpMajorOp::IrpNtQueueApc,
-            18 => IrpMajorOp::IrpNtSetContext,
-            19 => IrpMajorOp::IrpNtCreateSection,
-            20 => IrpMajorOp::IrpNtMapSection,
-            21 => IrpMajorOp::IrpNtDeleteFile,
-            22 => IrpMajorOp::IrpNtLoadDriver,
-            23 => IrpMajorOp::IrpNtOpenProcess,
-            24 => IrpMajorOp::IrpNtGenericApiCall,
-            
-            _ => IrpMajorOp::IrpNone,
+            // Hypervisor/kernel events are normalized to one fallback opcode.
+            12..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
         }
     }
 }
@@ -244,6 +194,10 @@ pub struct NtdllEventInfo {
     // Thread operation details
     pub thread_handle: u64,        // Thread handle (for thread operations)
     pub thread_start_routine: u64, // Start routine (for thread creation)
+
+    // Raw hook arguments from hypervisor/kernel event source
+    pub raw_argument1: u64,
+    pub raw_argument2: u64,
     
     // File/Section operation details
     pub object_name: String,       // File/section name (up to 520 WCHARs in C)

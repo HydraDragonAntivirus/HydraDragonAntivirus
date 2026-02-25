@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="header">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="code">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="header\platform">
+      <UniqueIdentifier>{7884782a-2386-47f5-aeed-fabdefcc888d}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="code\common-utils.cpp">
+      <Filter>code</Filter>
+    </ClCompile>
+    <ClCompile Include="code\symbol-parser.cpp">
+      <Filter>code</Filter>
+    </ClCompile>
+    <ClCompile Include="code\casting.cpp">
+      <Filter>code</Filter>
+    </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>code</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="pch.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="header\common-utils.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="header\symbol-parser.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\platform\user\header\Environment.h">
+      <Filter>header\platform</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

@@ -1342,10 +1342,39 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 if let Some(api_name) = self.dynamic_hook_event_map.get(&iomsg.irp_op).cloned() {
-                    iomsg.irp_op = 24;
-                    iomsg.ntdll_event_info.event_type = 24;
+                    iomsg.irp_op = 12;
+                    if iomsg.ntdll_event_info.event_type == 0 {
+                        iomsg.ntdll_event_info.event_type = iomsg.irp_op as u32;
+                    }
                     if iomsg.ntdll_event_info.object_name.trim().is_empty() {
                         iomsg.ntdll_event_info.object_name = api_name;
+                    }
+                }
+
+                // Hypervisor mode: any kernel API event is classified as one generic fallback opcode.
+                // Raw event type is preserved in ntdll_event_info.event_type.
+                let raw_event_type = if iomsg.ntdll_event_info.event_type != 0 {
+                    iomsg.ntdll_event_info.event_type
+                } else {
+                    iomsg.irp_op as u32
+                };
+
+                if raw_event_type >= 12 || iomsg.irp_op >= 12 {
+                    iomsg.irp_op = 12;
+                    iomsg.ntdll_event_info.event_type = raw_event_type;
+
+                    if iomsg.ntdll_event_info.source_process_id == 0 {
+                        iomsg.ntdll_event_info.source_process_id = if iomsg.attacker_pid != 0 {
+                            iomsg.attacker_pid
+                        } else {
+                            iomsg.pid
+                        };
+                    }
+                    if iomsg.ntdll_event_info.target_process_id == 0 {
+                        iomsg.ntdll_event_info.target_process_id = iomsg.pid;
+                    }
+                    if iomsg.ntdll_event_info.object_name.trim().is_empty() {
+                        iomsg.ntdll_event_info.object_name = "HypervisorEventFallback".to_string();
                     }
                 }
             }
@@ -1733,75 +1762,11 @@ pub mod worker_instance {
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
-            if let Some(driver) = self.driver {
-                let monitored_apis = self.collect_dynamic_hook_api_targets(pid);
-                
-                if monitored_apis.is_empty() {
-                    Logging::debug(&format!("[DYNAMIC HOOK] No API targets found for PID {}", pid));
-                    return;
-                }
-
-                let mut registered_count = 0;
-                let mut already_registered_count = 0;
-                let mut failed_count = 0;
-                let mut wildcard_count = 0;
-
-                for api_spec in &monitored_apis {
-                    if self.is_api_already_registered(&api_spec) {
-                        already_registered_count += 1;
-                        continue;
-                    }
-
-                    let event_id = self.resolve_or_allocate_dynamic_event_id(api_spec);
-                    let (module, function) = if let Some(idx) = api_spec.find('!') {
-                        // Explicit module!function format
-                        (
-                            Self::normalize_hook_module_name(&api_spec[..idx]),
-                            api_spec[idx + 1..].to_string(),
-                        )
-                    } else {
-                        // No module specified - use wildcard to search ALL loaded modules
-                        // This is powerful for detecting sophisticated attacks that use custom/obfuscated names
-                        wildcard_count += 1;
-                        ("*".to_string(), api_spec.clone())
-                    };
-                    
-                    // Driver-side MESSAGE_ADD_HOOK is global today (not truly PID-scoped),
-                    // so register once globally to avoid duplicate hooks.
-                    match driver.add_hook_target(&module, &function, event_id as u32) {
-                        Ok(_) => {
-                            self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
-                            self.dynamic_hook_event_map.insert(event_id, api_spec.to_string());
-                            if module == "*" {
-                                Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL wildcard hook (trigger PID {}, event {}): *!{}", pid, event_id, function));
-                            } else {
-                                Logging::debug(&format!("[DYNAMIC HOOK] Registered GLOBAL hook (trigger PID {}, event {}): {}!{}", pid, event_id, module, function));
-                            }
-                            registered_count += 1;
-                        }
-                        Err(e) => {
-                            Logging::error(&format!("[DYNAMIC HOOK] Failed GLOBAL hook registration (trigger PID {}, event {}): {}!{}: {}", pid, event_id, module, function, e));
-                            failed_count += 1;
-                        }
-                    }
-                }
-
-                let pending_count = monitored_apis
-                    .iter()
-                    .filter(|api| !self.is_api_already_registered(api))
-                    .count();
-                self.dynamic_hooks_registered = pending_count == 0;
-                
-                if wildcard_count > 0 {
-                    Logging::info(&format!("[DYNAMIC HOOK] Global registration complete (trigger PID {}): Registered {}, Already {}, Failed {}, Pending {}, Wildcard {}", 
-                        pid, registered_count, already_registered_count, failed_count, pending_count, wildcard_count));
-                } else {
-                    Logging::info(&format!("[DYNAMIC HOOK] Global registration complete (trigger PID {}): Registered {}, Already {}, Failed {}, Pending {}", 
-                        pid, registered_count, already_registered_count, failed_count, pending_count));
-                }
-            } else {
-                Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
+            if !self.dynamic_hooks_registered {
+                Logging::info("[DYNAMIC HOOK] MESSAGE_ADD_HOOK registration disabled; using hypervisor event stream only");
+                self.dynamic_hooks_registered = true;
             }
+            let _ = pid;
         }
     }
 }

@@ -331,19 +331,7 @@ impl ApiTracker {
                     });
                 }
             }
-            IrpMajorOp::IrpNtWriteVirtualMemory
-            | IrpMajorOp::IrpNtAllocateVirtualMemory
-            | IrpMajorOp::IrpNtProtectVirtualMemory
-            | IrpMajorOp::IrpNtCreateThread
-            | IrpMajorOp::IrpNtQueueApc
-            | IrpMajorOp::IrpNtSetContext
-            | IrpMajorOp::IrpNtCreateSection
-            | IrpMajorOp::IrpNtMapSection
-            | IrpMajorOp::IrpNtDeleteFile
-            | IrpMajorOp::IrpNtLoadDriver
-            | IrpMajorOp::IrpKernelRemoteThread
-            | IrpMajorOp::IrpNtOpenProcess
-            | IrpMajorOp::IrpNtGenericApiCall => {
+            IrpMajorOp::IrpHypervisorEvent => {
                 self.record_kernel_api_event(msg, irp_op);
             }
             _ => {}
@@ -367,79 +355,38 @@ impl ApiTracker {
     fn record_kernel_api_event(&mut self, msg: &IOMessage, op: IrpMajorOp) {
         self.kernel_operations.total_kernel_events += 1;
 
-        let op_name = format!("{:?}", op);
-        let api_name = if matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
-            String::new()
-        } else {
-            self.resolve_api_name(msg, &op_name)
-        };
-        if !matches!(op, IrpMajorOp::IrpKernelRemoteThread) {
-            let category = self.api_category_from_kernel_op(&op, &api_name);
-            self.track_api_call(api_name.clone(), category, Some(msg.filepathstr.clone()));
-        }
+        let op_name = "IrpHypervisorEvent".to_string();
+        let event_name = self.resolve_api_name(msg, "HypervisorEventFallback");
+        let category = self.api_category_from_kernel_op(&op, &event_name);
+        self.track_api_call(event_name.clone(), category, Some(msg.filepathstr.clone()));
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let (target_pid, mem_size, status) = (
+        let (target_pid, mem_size, status, raw_event_type) = (
             msg.ntdll_event_info.target_process_id,
             msg.ntdll_event_info.memory_size as u64,
             msg.ntdll_event_info.operation_status,
+            if msg.ntdll_event_info.event_type != 0 {
+                msg.ntdll_event_info.event_type
+            } else {
+                msg.irp_op as u32
+            },
         );
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-        let (target_pid, mem_size, status) = (msg.pid, 0u64, 0i32);
+        let (target_pid, mem_size, status, raw_event_type) = (msg.pid, 0u64, 0i32, msg.irp_op as u32);
 
         self.operation_sequence.push(OperationType::KernelApi {
             opcode: op_name.clone(),
-            api: api_name.clone(),
+            api: event_name.clone(),
             target_pid,
             size: mem_size,
             status,
         });
 
-        match op {
-            IrpMajorOp::IrpNtWriteVirtualMemory => {
-                self.kernel_operations.write_virtual_memory += 1;
-                self.process_operations.processes_injected += 1;
-            }
-            IrpMajorOp::IrpNtAllocateVirtualMemory => {
-                self.kernel_operations.allocate_virtual_memory += 1;
-                self.process_operations.memory_allocated += mem_size;
-                self.operation_sequence.push(OperationType::MemoryAllocate(mem_size));
-            }
-            IrpMajorOp::IrpNtProtectVirtualMemory => self.kernel_operations.protect_virtual_memory += 1,
-            IrpMajorOp::IrpNtCreateThread => {
-                self.kernel_operations.create_thread += 1;
-                self.process_operations.threads_created += 1;
-            }
-            IrpMajorOp::IrpKernelRemoteThread => {
-                self.kernel_operations.create_thread += 1;
-                self.process_operations.threads_created += 1;
-            }
-            IrpMajorOp::IrpNtQueueApc => self.kernel_operations.queue_apc += 1,
-            IrpMajorOp::IrpNtSetContext => self.kernel_operations.set_context += 1,
-            IrpMajorOp::IrpNtCreateSection => self.kernel_operations.create_section += 1,
-            IrpMajorOp::IrpNtMapSection => self.kernel_operations.map_section += 1,
-            IrpMajorOp::IrpNtDeleteFile => {
-                self.kernel_operations.delete_file += 1;
-                self.file_operations.files_deleted += 1;
-            }
-            IrpMajorOp::IrpNtLoadDriver => {
-                self.kernel_operations.load_driver += 1;
-                let driver_path = if !msg.filepathstr.trim().is_empty() {
-                    msg.filepathstr.clone()
-                } else {
-                    api_name.clone()
-                };
-                self.kernel_operations.loaded_kernel_drivers.insert(driver_path.clone());
-                self.operation_sequence.push(OperationType::DriverLoad(driver_path));
-            }
-            IrpMajorOp::IrpNtOpenProcess => self.kernel_operations.open_process += 1,
-            IrpMajorOp::IrpNtGenericApiCall => self.kernel_operations.generic_api_call += 1,
-            _ => {}
-        }
+        self.kernel_operations.generic_api_call += 1;
 
         self.append_kernel_log(format!(
-            "op={} api={} pid={} gid={} target_pid={} size={} path={}",
-            op_name, api_name, msg.pid, msg.gid, target_pid, mem_size, msg.filepathstr
+            "op={} raw_event_type={} event={} pid={} gid={} target_pid={} size={} path={}",
+            op_name, raw_event_type, event_name, msg.pid, msg.gid, target_pid, mem_size, msg.filepathstr
         ));
     }
 
@@ -462,19 +409,7 @@ impl ApiTracker {
             return ApiCategory::Internet;
         }
         match op {
-            IrpMajorOp::IrpNtWriteVirtualMemory
-            | IrpMajorOp::IrpNtAllocateVirtualMemory
-            | IrpMajorOp::IrpNtProtectVirtualMemory
-            | IrpMajorOp::IrpNtCreateThread
-            | IrpMajorOp::IrpKernelRemoteThread
-            | IrpMajorOp::IrpNtQueueApc
-            | IrpMajorOp::IrpNtSetContext
-            | IrpMajorOp::IrpNtCreateSection
-            | IrpMajorOp::IrpNtMapSection => ApiCategory::Injection,
-            IrpMajorOp::IrpNtDeleteFile => ApiCategory::Ransomware,
-            IrpMajorOp::IrpNtLoadDriver | IrpMajorOp::IrpNtOpenProcess | IrpMajorOp::IrpNtGenericApiCall => {
-                ApiCategory::Helper
-            }
+            IrpMajorOp::IrpHypervisorEvent => ApiCategory::Helper,
             IrpMajorOp::IrpProcessHandleOpen | IrpMajorOp::IrpProcessTerminateAttempt => ApiCategory::Enumeration,
             _ => ApiCategory::Unknown,
         }
@@ -684,19 +619,7 @@ impl ApiTracker {
 
     pub fn kernel_opcode_counts(&self) -> HashMap<String, usize> {
         HashMap::from([
-            ("IrpNtWriteVirtualMemory".to_string(), self.kernel_operations.write_virtual_memory),
-            ("IrpNtAllocateVirtualMemory".to_string(), self.kernel_operations.allocate_virtual_memory),
-            ("IrpNtProtectVirtualMemory".to_string(), self.kernel_operations.protect_virtual_memory),
-            ("IrpNtCreateThread".to_string(), self.kernel_operations.create_thread),
-            ("IrpKernelRemoteThread".to_string(), self.kernel_operations.create_thread),
-            ("IrpNtQueueApc".to_string(), self.kernel_operations.queue_apc),
-            ("IrpNtSetContext".to_string(), self.kernel_operations.set_context),
-            ("IrpNtCreateSection".to_string(), self.kernel_operations.create_section),
-            ("IrpNtMapSection".to_string(), self.kernel_operations.map_section),
-            ("IrpNtDeleteFile".to_string(), self.kernel_operations.delete_file),
-            ("IrpNtLoadDriver".to_string(), self.kernel_operations.load_driver),
-            ("IrpNtOpenProcess".to_string(), self.kernel_operations.open_process),
-            ("IrpNtGenericApiCall".to_string(), self.kernel_operations.generic_api_call),
+            ("IrpHypervisorEvent".to_string(), self.kernel_operations.generic_api_call),
             ("IrpProcessHandleOpen".to_string(), self.kernel_operations.process_handle_open),
             (
                 "IrpProcessTerminateAttempt".to_string(),

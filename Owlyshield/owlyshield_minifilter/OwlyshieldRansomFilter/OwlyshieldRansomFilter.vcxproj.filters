@@ -43,7 +43,7 @@
     <ClCompile Include="ProcessProtection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UserModeHookEngine.cpp">
+    <ClCompile Include="OwlyVmmBridge.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -83,7 +83,7 @@
     <ClInclude Include="KernelHookEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UserModeHookEngine.h">
+    <ClInclude Include="OwlyVmmBridge.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

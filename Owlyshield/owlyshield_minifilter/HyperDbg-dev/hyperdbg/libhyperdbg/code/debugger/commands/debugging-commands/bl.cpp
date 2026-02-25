@@ -1,0 +1,77 @@
+/**
+ * @file bl.cpp
+ * @author Sina Karvandi (sina@hyperdbg.org)
+ * @brief bl command
+ * @details
+ * @version 0.1
+ * @date 2021-03-11
+ *
+ * @copyright This project is released under the GNU Public License v3.
+ *
+ */
+#include "pch.h"
+
+//
+// Global Variables
+//
+extern BOOLEAN g_IsSerialConnectedToRemoteDebuggee;
+
+/**
+ * @brief help of the bl command
+ *
+ * @return VOID
+ */
+VOID
+CommandBlHelp()
+{
+    ShowMessages("bl : lists all the enabled and disabled breakpoints.\n\n");
+
+    ShowMessages("syntax : \tbl\n");
+}
+
+/**
+ * @brief handler of the bl command
+ *
+ * @param CommandTokens
+ * @param Command
+ *
+ * @return VOID
+ */
+VOID
+CommandBl(vector<CommandToken> CommandTokens, string Command)
+{
+    DEBUGGEE_BP_LIST_OR_MODIFY_PACKET Request = {0};
+
+    //
+    // Validate the commands
+    //
+    if (CommandTokens.size() != 1)
+    {
+        ShowMessages("incorrect use of the '%s'\n\n",
+                     GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
+        CommandBlHelp();
+        return;
+    }
+
+    //
+    // Check if the remote serial debuggee is paused or not (connected or not)
+    //
+    if (g_IsSerialConnectedToRemoteDebuggee)
+    {
+        //
+        // Perform listing breakpoint
+        //
+        Request.Request = DEBUGGEE_BREAKPOINT_MODIFICATION_REQUEST_LIST_BREAKPOINTS;
+
+        //
+        // Send the request
+        //
+        KdSendListOrModifyPacketToDebuggee(&Request);
+        ShowMessages("\n");
+    }
+    else
+    {
+        ShowMessages("err, listing breakpoints is only valid if you connected to "
+                     "a debuggee in debugger-mode\n");
+    }
+}

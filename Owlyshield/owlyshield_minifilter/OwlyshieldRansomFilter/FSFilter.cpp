@@ -8,7 +8,7 @@ Abstract:
 
     This is the main module of the FsFilter miniFilter driver.
     
-    UPDATED: Replaced broken kernel hooking with working user-mode hooking
+    UPDATED: Replaced process hooking path with hypervisor/VMM monitoring
              and proper Windows notification callbacks.
 
 Environment:
@@ -20,7 +20,7 @@ Environment:
 #include "FsFilter.h"
 #include "Regedit.h"
 #include "ProcessProtection.h"
-#include "UserModeHookEngine.h"  // CHANGED: Use user-mode hooking instead
+#include "OwlyVmmBridge.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -95,7 +95,7 @@ CONST FLT_REGISTRATION FilterRegistration = {
     0,                          //  Flags
     NULL,                       //  Context Registration.
     Callbacks,                  //  Operation callbacks
-    NULL,                       //  FilterUnload
+    FSUnloadDriver,             //  FilterUnload
     FSInstanceSetup,            //  InstanceSetup
     FSInstanceQueryTeardown,    //  InstanceQueryTeardown
     FSInstanceTeardownStart,    //  InstanceTeardownStart
@@ -299,24 +299,29 @@ Return Value:
 
     // ====================================================================
     // Initialize monitoring systems
-    // - User-mode hook engine in safety no-op mode (no per-process injection)
+    // - Hypervisor/VMM monitoring backend
     // - Thread creation callbacks
     // - Image load callbacks
     // ====================================================================
 
     DbgPrint("!!! FSFilter: Initializing advanced monitoring systems...\n");
 
-    // 1. Initialize user-mode hook engine.
-    //    Current policy disables per-process hook injection to avoid process instability.
-    status = UserModeHookEngineInitialize();
+    // 1. Initialize VMM-based monitoring core (no per-process user-mode hooking).
+    status = OwlyVmmInitialize();
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: Failed to initialize user-mode hook engine: 0x%X\n", status);
-        DbgPrint("!!! FSFilter: Memory operations will not be monitored (non-fatal)\n");
+        if (status == STATUS_NOT_SUPPORTED)
+        {
+            DbgPrint("!!! FSFilter: VMM initialization skipped (HyperDbg VMM sources unavailable or unsupported build target)\n");
+        }
+        else
+        {
+            DbgPrint("!!! FSFilter: VMM initialization failed: 0x%X (non-fatal)\n", status);
+        }
     }
     else
     {
-        DbgPrint("!!! FSFilter: User-mode hook engine initialized in no-hook safety mode\n");
+        DbgPrint("!!! FSFilter: VMM monitoring core initialized\n");
     }
 
     DbgPrint("!!! FSFilter: Enumerating existing processes for initial process baseline\n");
@@ -354,7 +359,7 @@ Return Value:
     DbgPrint("!!! FSFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
     DbgPrint("!!! FSFilter: - File operations (Minifilter callbacks)\n");
     DbgPrint("!!! FSFilter: - Registry operations (CmRegisterCallback)\n");
-    DbgPrint("!!! FSFilter: - Memory operations (per-process user-mode hooks disabled)\n");
+    DbgPrint("!!! FSFilter: - Memory operations (VMM/hypervisor backend)\n");
     DbgPrint("!!! FSFilter: ========================================\n");
 
     // ====================================================================
@@ -595,8 +600,8 @@ Return Value:
 
     DbgPrint("FSFilter: Unloading driver\n");
 
-    // Hook Cleanup
-    UserModeHookEngineCleanup();
+    // VMM Cleanup
+    OwlyVmmUninitialize();
 
     // Registry Cleanup
     RegeditUnloadDriver();
@@ -2289,7 +2294,8 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 ULONG eventType = 0;
                 ULONG processId = 0;
                 PCWSTR incomingWideName = NULL;
-                PVOID genericArg = NULL;
+                ULONG_PTR rawArg1 = 0;
+                ULONG_PTR rawArg2 = 0;
                 WCHAR convertedIncomingName[64] = {0};
     
                 if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
@@ -2297,7 +2303,8 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                     PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
                     eventType = eventData->EventType;
                     processId = eventData->ProcessId;
-                    genericArg = (PVOID)eventData->Arg2;
+                    rawArg1 = eventData->Arg1;
+                    rawArg2 = eventData->Arg2;
 
                     // Convert ANSI FunctionName to WCHAR
                     if (eventData->FunctionName[0] != '\0')
@@ -2320,7 +2327,8 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                     PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
                     eventType = eventData80->EventType;
                     processId = eventData80->ProcessId;
-                    genericArg = (PVOID)eventData80->Arg1;
+                    rawArg1 = eventData80->Arg1;
+                    rawArg2 = 0;
                     if (eventData80->FunctionName[0] != '\0') {
                         ANSI_STRING asFunc;
                         UNICODE_STRING usFunc;
@@ -2335,57 +2343,24 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                     }
                 }
 
-                WCHAR resolvedFunctionName[64] = {0};
                 PCWSTR functionName = NULL;
 
                 if (incomingWideName && incomingWideName[0] != L'\0') {
                     functionName = incomingWideName;
                 } else {
-                    BOOLEAN mapped = FALSE;
-                    ExAcquireFastMutex(&g_ConfigMutex);
-                    for (ULONG i = 0; i < g_CustomHookCount; i++) {
-                        if (g_GlobalCustomHooks[i].EventId == eventType) {
-                            ANSI_STRING asFunc;
-                            UNICODE_STRING usFunc;
-                            RtlInitAnsiString(&asFunc, g_GlobalCustomHooks[i].FunctionName);
-                            usFunc.Buffer = resolvedFunctionName;
-                            usFunc.Length = 0;
-                            usFunc.MaximumLength = sizeof(resolvedFunctionName);
-                            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
-                                resolvedFunctionName[(RTL_NUMBER_OF(resolvedFunctionName) - 1)] = L'\0';
-                                functionName = resolvedFunctionName;
-                                mapped = TRUE;
-                            }
-                            break;
-                        }
-                    }
-                    ExReleaseFastMutex(&g_ConfigMutex);
-
-                    if (!mapped) {
-                        switch (eventType) {
-                        case IRP_NT_WRITE_VIRTUAL_MEMORY: functionName = L"NtWriteVirtualMemory"; break;
-                        case IRP_NT_ALLOCATE_VIRTUAL_MEMORY: functionName = L"NtAllocateVirtualMemory"; break;
-                        case IRP_NT_PROTECT_VIRTUAL_MEMORY: functionName = L"NtProtectVirtualMemory"; break;
-                        case IRP_NT_CREATE_THREAD: functionName = L"NtCreateThreadEx"; break;
-                        case IRP_NT_QUEUE_APC: functionName = L"NtQueueApcThread"; break;
-                        case IRP_NT_SET_CONTEXT: functionName = L"NtSetContextThread"; break;
-                        case IRP_NT_CREATE_SECTION: functionName = L"NtCreateSection"; break;
-                        case IRP_NT_MAP_SECTION: functionName = L"NtMapViewOfSection"; break;
-                        case IRP_NT_DELETE_FILE: functionName = L"NtDeleteFile"; break;
-                        case IRP_NT_LOAD_DRIVER: functionName = L"NtLoadDriver"; break;
-                        case IRP_KERNEL_REMOTE_THREAD: functionName = L"KernelRemoteThread"; break;
-                        case IRP_NT_OPEN_PROCESS: functionName = L"NtOpenProcess"; break;
-                        default: functionName = L"GenericApiCall"; break;
-                        }
-                    }
+                    functionName = L"HypervisorEventFallback";
                 }
 
                 // Log event using existing mechanism
-                DbgPrint("FSFilter: Hook Event from PID %lu: Type=%lu Name=%ws\n", 
-                    processId, eventType, functionName ? functionName : L"");
+                DbgPrint("FSFilter: Hypervisor event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
+                         processId,
+                         eventType,
+                         functionName ? functionName : L"",
+                         (PVOID)rawArg1,
+                         (PVOID)rawArg2);
                 
-                // Pass Arg2 (BaseAddress) as Generic Data Pointer and FunctionName
-                OnKernelApiEvent(eventType, processId, processId, functionName, genericArg);
+                // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
+                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
             }
         }
         else {

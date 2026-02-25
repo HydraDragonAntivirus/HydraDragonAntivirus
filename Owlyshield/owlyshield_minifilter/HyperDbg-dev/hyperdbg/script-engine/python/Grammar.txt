@@ -1,0 +1,320 @@
+# ThreeOpFunc1 inputs are three numbers and returns a number.
+.ThreeOpFunc1->interlocked_compare_exchange
+
+# ThreeOpFunc2 inputs are three numbers and returns no value.
+.ThreeOpFunc2->event_inject_error_code memcpy memcpy_pa
+
+# TwoOpFunc1 inputs are two numbers and returns a number.
+.TwoOpFunc1->ed eb eq interlocked_exchange interlocked_exchange_add eb_pa ed_pa eq_pa
+
+# TwoOpFunc2 inputs are two numbers and returns no value
+.TwoOpFunc2->spinlock_lock_custom_wait event_inject
+
+# OneOpFunc1 input is a number and returns a number.
+.OneOpFunc1->poi db dd dw dq neg hi low not check_address disassemble_len disassemble_len32 disassemble_len64 interlocked_increment interlocked_decrement reference physical_to_virtual virtual_to_physical poi_pa hi_pa low_pa db_pa dd_pa dw_pa dq_pa
+
+# OneOpFunc2 input is a number.
+.OneOpFunc2->print formats event_enable event_disable event_clear test_statement spinlock_lock spinlock_unlock event_sc microsleep
+
+# OneOpFunc3 input is a number or a string and returns a number.
+.OneOpFunc3->strlen
+
+# TwoOpFunc3 the two inputs are numbers or strings and returns a number.
+.TwoOpFunc3->strcmp
+
+# ThreeOpFunc3 the first two inputs are numbers or strings and the third input is a number and returns a number.
+.ThreeOpFunc3->memcmp strncmp
+
+# ThreeOpFunc4 the first two inputs are numbers or wstrings and the third input is a number and returns a number.
+.ThreeOpFunc4->wcsncmp
+
+# OneOpFunc4 input is a number or a wstring and returns a number.
+.OneOpFunc4->wcslen
+
+
+# TwoOpFunc4 the two inputs are numbers or wstrings and returns a number.
+.TwoOpFunc4->wcscmp
+
+.ZeroOpFunc1->pause flush event_trace_step event_trace_step_in event_trace_step_out event_trace_instrumentation_step event_trace_instrumentation_step_in
+
+# ZeroOpFunc2 no input and returns a number
+.ZeroOpFunc2->rdtsc rdtscp
+
+.VarArgFunc1->printf 
+
+.OperatorsTwoOperand->or xor and asr asl add sub mul div mod gt lt egt elt equal neq
+.OperatorsOneOperand->inc dec reference
+
+.AssignmentOperator->add_assignment sub_assignment mul_assignment div_assignment mod_assignment asl_assignment asr_assignment and_assignment xor_assignment or_assignment
+
+.SemantiRules->jmp jz jnz mov start_of_do_while start_of_do_while_commands end_of_do_while start_of_for for_inc_dec start_of_for_ommands end_of_if ignore_lvalue push pop call ret
+
+.Registers->rax eax ax ah al rcx ecx cx ch cl rdx edx dx dh dl rbx ebx bx bh bl rsp esp sp spl rbp ebp bp bpl rsi esi si sil rdi edi di dil r8 r8d r8w r8h r8l r9 r9d r9w r9h r9l r10 r10d r10w r10h r10l r11 r11d r11w r11h r11l r12 r12d r12w r12h r12l r13 r13d r13w r13h r13l r14 r14d r14w r14h r14l r15 r15d r15w r15h r15l ds es fs gs cs ss rflags eflags flags cf pf af zf sf tf if df of iopl nt rf vm ac vif vip id rip eip ip idtr ldtr gdtr tr cr0 cr2 cr3 cr4 cr8 dr0 dr1 dr2 dr3 dr6 dr7
+
+.PseudoRegisters->pid tid pname core proc thread peb teb ip buffer context event_tag event_id event_stage date time
+ 
+S->STATEMENT S
+S->{ STATEMENT S }
+S->eps
+
+STATEMENT->IF_STATEMENT
+STATEMENT->WHILE_STATEMENT
+STATEMENT->DO_WHILE_STATEMENT
+STATEMENT->FOR_STATEMENT
+STATEMENT->ASSIGNMENT_STATEMENT ;
+STATEMENT->@PUSH _function_id ( VA2 ) @END_OF_CALLING_USER_DEFINED_FUNCTION_WITHOUT_RETURNING_VALUE ;
+STATEMENT->CALL_FUNC_STATEMENT ;
+STATEMENT->break @BREAK ;
+STATEMENT->continue @CONTINUE ;
+STATEMENT->VARIABLE_TYPE3
+STATEMENT->#include STRING @INCLUDE ;
+
+
+S2->STATEMENT2 S2
+S2->{ STATEMENT2 S2 }
+S2->eps
+
+STATEMENT2->IF_STATEMENT
+STATEMENT2->WHILE_STATEMENT
+STATEMENT2->DO_WHILE_STATEMENT
+STATEMENT2->FOR_STATEMENT
+STATEMENT2->ASSIGNMENT_STATEMENT ;
+STATEMENT2->@PUSH _function_id ( VA2 ) @END_OF_CALLING_USER_DEFINED_FUNCTION_WITHOUT_RETURNING_VALUE ;
+STATEMENT2->CALL_FUNC_STATEMENT ;
+STATEMENT2->break @BREAK ;
+STATEMENT2->continue @CONTINUE ;
+STATEMENT2->VARIABLE_TYPE1 VARIABLE_TYPE2 L_VALUE = EXPRESSION MULTIPLE_ASSIGNMENT ;
+STATEMENT2->return RETURN ;
+
+RETURN->eps @RETURN_OF_USER_DEFINED_FUNCTION_WITHOUT_VALUE
+RETURN->EXPRESSION @RETURN_OF_USER_DEFINED_FUNCTION_WITH_VALUE
+
+.ScriptVariableType->void bool char short int long unsigned signed float double
+VARIABLE_TYPE1->@PUSH _script_variable_type
+
+VARIABLE_TYPE2->VARIABLE_TYPE1 VARIABLE_TYPE2
+VARIABLE_TYPE2->* @DECLARE_POINTER_TYPE
+VARIABLE_TYPE2->eps
+
+VARIABLE_TYPE3->VARIABLE_TYPE1 VARIABLE_TYPE2 L_VALUE VARIABLE_TYPE4
+VARIABLE_TYPE4->= EXPRESSION MULTIPLE_ASSIGNMENT ;
+
+VARIABLE_TYPE4->@ARRAY_L_VALUE ARRAY_DIMS = ARRAY_INIT @ARRAY_DECLARITION ;
+
+ARRAY_DIMS->[ CONST_NUMBER @ARRAY_DIM_NUMBER ] ARRAY_DIMS2
+ARRAY_DIMS2->ARRAY_DIMS
+ARRAY_DIMS2->eps
+
+ARRAY_INIT->{ INIT_LIST } @ARRAY_LEFT_BRACKET
+
+INIT_LIST->INIT_ITEM INIT_LIST_TAIL
+
+INIT_ITEM->ARRAY_INIT
+INIT_ITEM->EXPRESSION
+
+INIT_LIST_TAIL->, INIT_LIST_CONT
+INIT_LIST_TAIL->eps
+
+INIT_LIST_CONT->INIT_ITEM INIT_LIST_TAIL
+INIT_LIST_CONT->eps
+
+
+
+
+
+# define function
+VARIABLE_TYPE4->@START_OF_USER_DEFINED_FUNCTION ( VARIABLE_TYPE5 ) { S2 @END_OF_USER_DEFINED_FUNCTION }
+
+VARIABLE_TYPE5->eps
+VARIABLE_TYPE5->VARIABLE_TYPE1 VARIABLE_TYPE2 L_VALUE @FUNCTION_PARAMETER VARIABLE_TYPE6
+VARIABLE_TYPE6->, VARIABLE_TYPE1 VARIABLE_TYPE2 L_VALUE @FUNCTION_PARAMETER VARIABLE_TYPE6
+VARIABLE_TYPE6->eps
+
+ASSIGNMENT_STATEMENT->* L_VALUE = EXPRESSION @DEREFERENCE
+
+ASSIGNMENT_STATEMENT->L_VALUE ARRAY_DIMS_WRITE_OPT ASSIGNMENT_STATEMENT'
+
+ARRAY_DIMS_WRITE_OPT->ARRAY_DIMS_WRITE
+ARRAY_DIMS_WRITE_OPT->eps
+
+ARRAY_DIMS_WRITE->[ EXPRESSION @ARRAY_DIM_NUMBER ] ARRAY_DIMS_WRITE2
+ARRAY_DIMS_WRITE2->ARRAY_DIMS_WRITE
+ARRAY_DIMS_WRITE2->eps @ARRAY_INDEX_WRITE
+
+
+
+ASSIGNMENT_STATEMENT'->++ @INC
+ASSIGNMENT_STATEMENT'->-- @DEC
+ASSIGNMENT_STATEMENT'->= EXPRESSION MULTIPLE_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->+= EXPRESSION @ADD_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->-= EXPRESSION @SUB_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->*= EXPRESSION @MUL_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->/= EXPRESSION @DIV_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->%= EXPRESSION @MOD_ASSIGNMENT
+ASSIGNMENT_STATEMENT'-><<= EXPRESSION @ASL_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->>>= EXPRESSION @ASR_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->&= EXPRESSION @AND_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->^= EXPRESSION @XOR_ASSIGNMENT
+ASSIGNMENT_STATEMENT'->|= EXPRESSION @OR_ASSIGNMENT
+
+
+
+
+
+CALL_FUNC_STATEMENT->.OneOpFunc2 ( EXPRESSION @.OneOpFunc2 )
+CALL_FUNC_STATEMENT->.VarArgFunc1 ( STRING @VARGSTART VA @.VarArgFunc1 )
+CALL_FUNC_STATEMENT->.ZeroOpFunc1 ( @.ZeroOpFunc1 )
+CALL_FUNC_STATEMENT->.ZeroOpFunc2 ( @.ZeroOpFunc2 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.TwoOpFunc2 ( EXPRESSION , EXPRESSION @.TwoOpFunc2 ) 
+CALL_FUNC_STATEMENT->.OneOpFunc1 ( EXPRESSION @.OneOpFunc1 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.TwoOpFunc1 ( EXPRESSION , EXPRESSION @.TwoOpFunc1 ) @IGNORE_LVALUE 
+CALL_FUNC_STATEMENT->.ThreeOpFunc1 ( EXPRESSION , EXPRESSION , EXPRESSION @.ThreeOpFunc1 ) @IGNORE_LVALUE 
+CALL_FUNC_STATEMENT->.OneOpFunc3 ( StringNumber @.OneOpFunc3 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.TwoOpFunc3 ( StringNumber , StringNumber @.TwoOpFunc3 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.ThreeOpFunc3 ( StringNumber , StringNumber , EXPRESSION @.ThreeOpFunc3 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.OneOpFunc4 ( WstringNumber @.OneOpFunc4 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.TwoOpFunc4 ( WstringNumber , WstringNumber @.TwoOpFunc4 ) @IGNORE_LVALUE
+CALL_FUNC_STATEMENT->.ThreeOpFunc2 ( EXPRESSION , EXPRESSION , EXPRESSION @.ThreeOpFunc2 )
+CALL_FUNC_STATEMENT->.ThreeOpFunc4 ( WstringNumber , WstringNumber , EXPRESSION @.ThreeOpFunc4 ) @IGNORE_LVALUE
+
+VA->, EXPRESSION VA
+VA->eps
+
+IF_STATEMENT->if @START_OF_IF ( BOOLEAN_EXPRESSION ) @JZ { S2 } ELSIF_STATEMENT ELSE_STATEMENT @END_OF_IF END_OF_IF
+ELSIF_STATEMENT->elsif @JMP_TO_END_AND_JZCOMPLETED ( BOOLEAN_EXPRESSION ) @JZ { S2 } ELSIF_STATEMENT
+ELSIF_STATEMENT->@JMP_TO_END_AND_JZCOMPLETED ELSIF_STATEMENT'
+ELSIF_STATEMENT'->eps
+ELSE_STATEMENT->else { S2 } 
+ELSE_STATEMENT->eps
+END_OF_IF->eps
+
+    
+
+WHILE_STATEMENT->while @START_OF_WHILE ( BOOLEAN_EXPRESSION ) @START_OF_WHILE_COMMANDS { S2 @END_OF_WHILE } 
+DO_WHILE_STATEMENT->do @START_OF_DO_WHILE { S2 } while ( BOOLEAN_EXPRESSION ) @END_OF_DO_WHILE ; 
+
+FOR_STATEMENT->for ( SIMPLE_ASSIGNMENT ; @START_OF_FOR BOOLEAN_EXPRESSION ; @FOR_INC_DEC INC_DEC ) { @START_OF_FOR_COMMANDS S2 @END_OF_FOR }
+SIMPLE_ASSIGNMENT->VARIABLE_TYPE1 VARIABLE_TYPE2 L_VALUE = EXPRESSION MULTIPLE_ASSIGNMENT
+SIMPLE_ASSIGNMENT->L_VALUE = EXPRESSION MULTIPLE_ASSIGNMENT
+SIMPLE_ASSIGNMENT->eps 
+
+
+INC_DEC->L_VALUE INC_DEC'
+INC_DEC'->++ @INC
+INC_DEC'->-- @DEC
+INC_DEC'->= EXPRESSION MULTIPLE_ASSIGNMENT
+INC_DEC'->+= EXPRESSION @ADD_ASSIGNMENT
+INC_DEC'->-= EXPRESSION @SUB_ASSIGNMENT
+INC_DEC'->*= EXPRESSION @MUL_ASSIGNMENT
+INC_DEC'->/= EXPRESSION @DIV_ASSIGNMENT
+INC_DEC'->%= EXPRESSION @MOD_ASSIGNMENT
+INC_DEC'-><<= EXPRESSION @ASL_ASSIGNMENT
+INC_DEC'->>>= EXPRESSION @ASR_ASSIGNMENT
+INC_DEC'->&= EXPRESSION @AND_ASSIGNMENT
+INC_DEC'->^= EXPRESSION @XOR_ASSIGNMENT
+INC_DEC'->|= EXPRESSION @OR_ASSIGNMENT
+INC_DEC'->eps
+
+BOOLEAN_EXPRESSION->eps
+
+MULTIPLE_ASSIGNMENT->eps @MOV
+MULTIPLE_ASSIGNMENT->= EXPRESSION MULTIPLE_ASSIGNMENT2
+MULTIPLE_ASSIGNMENT2->= EXPRESSION MULTIPLE_ASSIGNMENT2
+MULTIPLE_ASSIGNMENT2->eps @MULTIPLE_ASSIGNMENT 
+
+
+
+EXPRESSION->E1 E0'
+E0'->| E1 @OR E0' 
+E0'->eps
+
+
+E1->E2 E1'
+E1'->^ E2 @XOR E1' 
+E1'->eps
+
+E2->E3 E2'
+E2'->& E3 @AND E2' 
+E2'->eps  
+
+E3->E4 E3'
+E3'->>> E4 @ASR E3'
+E3'-><< E4 @ASL E3'
+E3'->eps
+
+
+
+E4->E5 E4'
+E4'->+ E5 @ADD E4'
+E4'->- E5 @SUB E4'
+E4'->eps
+
+E5->E12 E5'
+E5'->/ E12 @DIV E5'
+E5'->% E12 @MOD E5'
+E5'->* E12 @MUL E5'
+E5'->eps 
+
+
+
+E12->.ZeroOpFunc2 ( @.ZeroOpFunc2 )
+E12->.OneOpFunc1 ( EXPRESSION @.OneOpFunc1 ) 
+E12->.TwoOpFunc1 ( EXPRESSION , EXPRESSION @.TwoOpFunc1 ) 
+E12->.ThreeOpFunc1 ( EXPRESSION , EXPRESSION , EXPRESSION @.ThreeOpFunc1 ) 
+E12->.OneOpFunc3 ( StringNumber @.OneOpFunc3 )
+E12->.TwoOpFunc3 ( StringNumber , StringNumber @.TwoOpFunc3 )
+E12->.ThreeOpFunc3 ( StringNumber , StringNumber , EXPRESSION @.ThreeOpFunc3 )
+E12->.OneOpFunc4 ( WstringNumber @.OneOpFunc4 )
+E12->.TwoOpFunc4 ( WstringNumber , WstringNumber @.TwoOpFunc4 )
+E12->.ThreeOpFunc4 ( WstringNumber , WstringNumber , EXPRESSION @.ThreeOpFunc4 )
+
+E12->( EXPRESSION )
+
+E12->L_VALUE ARRAY_DIMS_READ_OPT
+E12->@PUSH _function_id ( VA2 ) @END_OF_CALLING_USER_DEFINED_FUNCTION_WITH_RETURNING_VALUE
+
+ARRAY_DIMS_READ_OPT->ARRAY_DIMS_READ
+ARRAY_DIMS_READ_OPT->eps
+
+ARRAY_DIMS_READ->[ EXPRESSION @ARRAY_DIM_NUMBER ] ARRAY_DIMS_READ2
+ARRAY_DIMS_READ2->ARRAY_DIMS_READ
+ARRAY_DIMS_READ2->eps @ARRAY_INDEX_READ
+
+
+
+
+
+
+# numbers 
+CONST_NUMBER->@PUSH _hex
+CONST_NUMBER->@PUSH _decimal
+CONST_NUMBER->@PUSH _octal
+CONST_NUMBER->@PUSH _binary
+
+E12->CONST_NUMBER
+
+E12->@PUSH _pseudo_register
+
+E12->- E12 @NEG
+E12->+ E12
+E12->~ E12 @NOT
+E12->* E12 @POI
+E12->& E12 @REFERENCE
+
+# Types must have '_' at the first 
+STRING->@PUSH _string
+WSTRING->@PUSH _wstring
+L_VALUE->@PUSH _global_id 
+L_VALUE->@PUSH _local_id 
+L_VALUE->@PUSH _register
+L_VALUE->@PUSH _function_parameter_id
+
+VA2->eps
+VA2->EXPRESSION VA3
+VA3->, EXPRESSION VA3
+VA3->eps
+
+StringNumber->EXPRESSION
+StringNumber->STRING
+WstringNumber->EXPRESSION
+WstringNumber->WSTRING

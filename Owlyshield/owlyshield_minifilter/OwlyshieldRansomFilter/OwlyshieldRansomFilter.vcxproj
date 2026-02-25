@@ -69,8 +69,8 @@
   <ItemGroup>
     <ClCompile Include="KernelCommon.cpp" />
     <ClCompile Include="KernelString.cpp" />
+    <ClCompile Include="OwlyVmmBridge.c" />
     <ClCompile Include="ShanonEntropy.cpp" />
-    <ClCompile Include="UserModeHookEngine.cpp" />
     <ResourceCompile Include="FsFilter.rc" />
     <ClCompile Include="FSFilter.cpp" />
     <ClCompile Include="Communication.cpp" />
@@ -78,6 +78,76 @@
     <ClCompile Include="Regedit.cpp" />
     <ClCompile Include="ProcessProtection.cpp" />
     <Inf Include="OwlyshieldRansomFilter.inf" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Platform)'=='x64' and '$(OwlyHyperDbgVmmAvailable)'=='true'">
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\interface\HyperLogCallback.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\optimizations\code\AvlTree.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\optimizations\code\BinarySearch.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\optimizations\code\InsertionSort.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\optimizations\code\OptimizationsExamples.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\components\spinlock\code\Spinlock.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\include\platform\kernel\code\PlatformMem.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\broadcast\Broadcast.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\broadcast\DpcRoutines.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\common\Bitwise.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\common\Common.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\common\UnloadDll.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\components\registers\DebugRegisters.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\devices\Apic.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\devices\Pci.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\features\CompatibilityChecks.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\features\DirtyLogging.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\globals\GlobalVariableManagement.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\hooks\ept-hook\EptHook.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\hooks\ept-hook\ModeBasedExecHook.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\hooks\ept-hook\ExecTrap.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\hooks\syscall-hook\EferHook.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\hooks\syscall-hook\SyscallCallback.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\interface\Callback.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\interface\Configuration.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\interface\DirectVmcall.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\interface\Dispatch.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\interface\Export.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\AddressCheck.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\Conversion.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\Layout.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\MemoryManager.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\MemoryMapper.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\PoolManager.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\Segmentation.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\memory\SwitchLayout.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\mmio\MmioShadowing.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\processor\Idt.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\processor\Smm.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\ept\Ept.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\ept\Invept.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\ept\Vpid.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Counters.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\CrossVmexits.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Events.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Hv.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\IdtEmulation.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\IoHandler.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\ManageRegs.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\MsrHandlers.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Mtf.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\ProtectedHv.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Vmcall.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Vmexit.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\Vmx.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\VmxBroadcast.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\VmxMechanisms.c" />
+    <ClCompile Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\vmm\vmx\VmxRegions.c" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Platform)'=='x64' and '$(OwlyHyperDbgVmmAvailable)'=='true'">
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmCommon.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmHooks.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmEpt.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmSegmentRegs.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmVmexitHandler.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmVmxContextState.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmVmxOperation.asm" />
+    <MASM Include="..\HyperDbg-dev\hyperdbg\hyperhv\code\assembly\AsmInterruptHandlers.asm" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DF8682E7-17C1-4450-A68C-D7CEF8780D8F}</ProjectGuid>
@@ -89,6 +159,9 @@
     <RootNamespace>FsFilter</RootNamespace>
     <ProjectName>OwlyshieldRansomFilter</ProjectName>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OwlyHyperDbgVmmAvailable Condition="Exists('$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\ia32-doc\out\ia32.h') or Exists('$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\ia32-doc\out\ia32.h')">true</OwlyHyperDbgVmmAvailable>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -307,6 +380,8 @@
       <Optimization>MaxSpeed</Optimization>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <WholeProgramOptimization>true</WholeProgramOptimization>
+      <AdditionalIncludeDirectories Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">$(ProjectDir)..\HyperDbg-dev\hyperdbg\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\header;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\code;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">OWLY_HYPERDBG_VMM_AVAILABLE;HYPERDBG_HYPEREVADE;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
@@ -322,7 +397,8 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">$(ProjectDir)..\HyperDbg-dev\hyperdbg\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\header;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\code;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">OWLY_HYPERDBG_VMM_AVAILABLE;HYPERDBG_HYPEREVADE;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
@@ -335,6 +411,8 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">$(ProjectDir)..\HyperDbg-dev\hyperdbg\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\header;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\code;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">OWLY_HYPERDBG_VMM_AVAILABLE;HYPERDBG_HYPEREVADE;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -350,6 +428,8 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <AdditionalIncludeDirectories Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">$(ProjectDir)..\HyperDbg-dev\hyperdbg\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\header;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv\code;$(ProjectDir)..\HyperDbg-dev\hyperdbg\hyperhv;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\include;$(ProjectDir)..\HyperDbg-dev\hyperdbg\dependencies\zydis\dependencies\zycore\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(OwlyHyperDbgVmmAvailable)'=='true'">OWLY_HYPERDBG_VMM_AVAILABLE;HYPERDBG_HYPEREVADE;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;ZYAN_NO_LIBC;ZYDIS_NO_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <DriverSign>
       <FileDigestAlgorithm>SHA256</FileDigestAlgorithm>
@@ -406,10 +486,10 @@
     <ClInclude Include="KernelCommon.h" />
     <ClInclude Include="KernelHookEngine.h" />
     <ClInclude Include="KernelString.h" />
+    <ClInclude Include="OwlyVmmBridge.h" />
     <ClInclude Include="ShanonEntropy.h" />
     <ClInclude Include="Regedit.h" />
     <ClInclude Include="ProcessProtection.h" />
-    <ClInclude Include="UserModeHookEngine.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

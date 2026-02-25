@@ -365,6 +365,9 @@ pub struct CKernelEventInfo {
     
     pub thread_handle: *const c_void,  // HANDLE
     pub thread_start_routine: *const c_void,
+
+    pub raw_argument1: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
+    pub raw_argument2: c_ulonglong, // ULONG_PTR in SharedDefs.h (x64 build)
     
     pub object_name: [wchar_t; 520],  // MAX_FILE_NAME_LENGTH from SharedDefs.h
     
@@ -456,6 +459,8 @@ impl CKernelEventInfo {
             is_executable_memory: self.is_executable_memory != 0,
             thread_handle: self.thread_handle as u64,
             thread_start_routine: self.thread_start_routine as u64,
+            raw_argument1: self.raw_argument1,
+            raw_argument2: self.raw_argument2,
             object_name,
             access_mask: self.access_mask,
             operation_status: self.operation_status,

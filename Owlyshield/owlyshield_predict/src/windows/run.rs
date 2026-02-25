@@ -31,7 +31,7 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
-    register_default_kernel_hooks(&driver);
+    Logging::info("[VMM MODE] Skipping startup MESSAGE_ADD_HOOK registration; consuming hypervisor events directly");
 
     let mut vecnew: Vec<u8> = Vec::with_capacity(65536);
 
@@ -268,40 +268,31 @@ pub fn run() {
                             if op < 32 { opcode_counts[op] += 1; }
                             total_msgs += 1;
                             
-                                                        // Log every kernel event from the driver (no opcode filter).
+                            // Log every event from the driver (hypervisor events are normalized to opcode 12).
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            let api_name = {
-                                let from_payload = iomsg.ntdll_event_info.object_name.trim().to_string();
-                                if !from_payload.is_empty() {
-                                    from_payload
+                            let (api_name, raw_event_type) = {
+                                let from_payload = iomsg.ntdll_event_info.object_name.trim();
+                                let normalized_name = if !from_payload.is_empty() {
+                                    from_payload.to_string()
                                 } else {
-                                    match iomsg.irp_op {
-                                        12 => String::new(),
-                                        13 => "NtWriteVirtualMemory".to_string(),
-                                        14 => "NtAllocateVirtualMemory".to_string(),
-                                        15 => "NtProtectVirtualMemory".to_string(),
-                                        16 => "NtCreateThreadEx".to_string(),
-                                        17 => "NtQueueApcThread".to_string(),
-                                        18 => "NtSetContextThread".to_string(),
-                                        19 => "NtCreateSection".to_string(),
-                                        20 => "NtMapViewOfSection".to_string(),
-                                        21 => "NtDeleteFile".to_string(),
-                                        22 => "NtLoadDriver".to_string(),
-                                        23 => "NtOpenProcess".to_string(),
-                                        24 => "GenericApiCall".to_string(),
-                                        op if op > 24 => format!("DynamicApiEvent({op})"),
-                                        _ => String::new(),
-                                    }
-                                }
+                                    "HypervisorEventFallback".to_string()
+                                };
+                                let raw_ty = if iomsg.ntdll_event_info.event_type != 0 {
+                                    iomsg.ntdll_event_info.event_type
+                                } else {
+                                    iomsg.irp_op as u32
+                                };
+                                (normalized_name, raw_ty)
                             };
                             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                            let api_name = String::new();
+                            let (api_name, raw_event_type) = (String::new(), iomsg.irp_op as u32);
 
                             Logging::info(&format!(
-                                "[DIAG] KERNEL EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} api=\"{}\" cmd=\"{}\"",
+                                "[DIAG] EVENT RECEIVED: op={:?} opcode={} raw_event_type={} pid={} gid={} path={} api=\"{}\" cmd=\"{}\"",
                                 irp,
                                 op,
+                                raw_event_type,
                                 iomsg.pid,
                                 iomsg.gid,
                                 &iomsg.filepathstr,
@@ -309,13 +300,6 @@ pub fn run() {
                                 iomsg.runtime_features.command_line
                             ));
 
-                            if matches!(irp, IrpMajorOp::IrpNtLoadDriver) {
-                                Logging::alert(&format!(
-                                    "[KERNEL-WATCH] Driver change event detected: pid={} gid={} path={} api=\"{}\"",
-                                    iomsg.pid, iomsg.gid, iomsg.filepathstr, api_name
-                                ));
-                            }
-                            
                             if tx_iomsgs.send(iomsg).is_err() {
                                 println!("Cannot send iomsg");
                                 Logging::error("Cannot send iomsg");
@@ -339,22 +323,27 @@ pub fn run() {
                 let mut summary = format!("[DIAG] {} total msgs in 10s. Opcodes: ", total_msgs);
                 let names = [
                     "None","Read","Write","SetInfo","Create","Cleanup","Registry",
-                    "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen",
-                    "KrnRemoteThread","KrnWriteMem","KrnAllocMem","KrnProtectMem",
-                    "KrnCreateThread","KrnQueueApc","KrnSetCtx","KrnCreateSec",
-                    "KrnMapSec","KrnDeleteFile","KrnLoadDrv","KrnOpenProc","KrnGenericApi"
+                    "ProcCreate","ProcTerm","ProcTermAttempt","ProcExit","ProcHandleOpen"
                 ];
-                for i in 0..25 {
+                for i in 0..12 {
                     if opcode_counts[i] > 0 {
                         summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
                     }
                 }
+                let kernel_api_total: u64 = opcode_counts
+                    .iter()
+                    .enumerate()
+                    .skip(12)
+                    .map(|(_, c)| *c)
+                    .sum();
+                if kernel_api_total > 0 {
+                    summary.push_str(&format!("KrnHyperEvent={} ", kernel_api_total));
+                }
                 Logging::info(&summary);
                 
-                // Check specifically for kernel hook events
-                let kernel_total: u64 = opcode_counts[12..=24].iter().sum();
-                if kernel_total == 0 {
-                    Logging::warning("[DIAG] ZERO kernel hook events (opcodes 12-24) received from driver!");
+                // Check specifically for kernel/hypervisor events.
+                if kernel_api_total == 0 {
+                    Logging::warning("[DIAG] ZERO kernel/hypervisor events (opcodes 12+) received from driver!");
                 }
                 
                 opcode_counts = [0; 32];
@@ -367,31 +356,4 @@ pub fn run() {
 
 
 
-fn register_default_kernel_hooks(driver: &Driver) {
-    let hooks: [(&str, &str); 14] = [
-        ("ntdll.dll", "NtWriteVirtualMemory"),
-        ("ntdll.dll", "NtAllocateVirtualMemory"),
-        ("ntdll.dll", "NtProtectVirtualMemory"),
-        ("ntdll.dll", "NtCreateThreadEx"),
-        ("ntdll.dll", "NtQueueApcThread"),
-        ("ntdll.dll", "NtSetContextThread"),
-        ("ntdll.dll", "NtCreateSection"),
-        ("ntdll.dll", "NtMapViewOfSection"),
-        ("ntdll.dll", "NtDeleteFile"),
-        ("ntdll.dll", "NtLoadDriver"),
-        ("ntdll.dll", "NtOpenProcess"),
-        ("kernel32.dll", "LoadLibraryA"),
-        ("kernel32.dll", "LoadLibraryW"),
-        ("kernelbase.dll", "CreateRemoteThreadEx"),
-    ];
-
-    for (module, function) in hooks {
-        if let Err(e) = driver.add_hook_target(module, function, 24) {
-            Logging::warning(&format!(
-                "[KERNEL-WATCH] Hook registration failed for {}!{}: {}",
-                module, function, e
-            ));
-        }
-    }
-}
 

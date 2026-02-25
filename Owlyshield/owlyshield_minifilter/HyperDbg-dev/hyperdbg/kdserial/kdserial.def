@@ -1,0 +1,21 @@
+LIBRARY kdserial
+
+EXPORTS
+
+    DllInitialize PRIVATE
+    DllUnload PRIVATE
+
+    KdInitialize
+    KdReceivePacket
+    KdSendPacket
+    KdSetHiberRange
+    KdPower
+
+    HviGetDebugDeviceOptions
+    HviGetHypervisorFeatures
+    HviIsHypervisorVendorMicrosoft
+
+    KdHyperDbgTest
+    KdHyperDbgPrepareDebuggeeConnectionPort
+    KdHyperDbgSendByte
+    KdHyperDbgRecvByte

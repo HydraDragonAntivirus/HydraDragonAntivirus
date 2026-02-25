@@ -455,11 +455,10 @@ NTSTATUS OnKernelApiEvent(
     _In_ ULONG SourcePid,
     _In_ ULONG TargetPid,
     _In_opt_ PCWSTR FunctionName,
-    _In_opt_ PVOID EventData
+    _In_opt_ ULONG_PTR EventArg1,
+    _In_opt_ ULONG_PTR EventArg2
 )
 {
-    UNREFERENCED_PARAMETER(EventData);
-    
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
 
@@ -468,10 +467,9 @@ NTSTATUS OnKernelApiEvent(
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
     ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
 
-    // Keep dynamic generic API events even when process GID tracking is not yet established.
-    // User mode can recover correlation from PID and normalize to a synthetic GID.
-    if (!sourceFound && !targetFound && EventType != IRP_NT_GENERIC_API_CALL)
-        return STATUS_SUCCESS;
+    // Always forward hypervisor-origin events. User mode can normalize GID from PID.
+    const ULONG normalizedTargetPid = (TargetPid != 0) ? TargetPid : SourcePid;
+    const ULONGLONG normalizedTargetGid = targetFound ? targetGid : sourceGid;
 
     PIRP_ENTRY newEntry = new IRP_ENTRY();
     if (newEntry == NULL) {
@@ -479,24 +477,43 @@ NTSTATUS OnKernelApiEvent(
     }
 
     PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = TargetPid;
-    newItem->Gid = targetGid;
+    newItem->PID = normalizedTargetPid;
+    newItem->Gid = normalizedTargetGid;
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
-    newItem->IRP_OP = (UCHAR)EventType;
+    newItem->IRP_OP = IRP_HYPERVISOR_EVENT;
 
-    // Store event type
+    LARGE_INTEGER timestamp;
+    KeQuerySystemTime(&timestamp);
+
+    // Preserve full kernel/hypervisor metadata while emitting one generic opcode.
     newItem->KernelEventInfo.EventType = EventType;
+    newItem->KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
     newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    newItem->KernelEventInfo.TargetProcessId = normalizedTargetPid;
+    newItem->KernelEventInfo.RawArgument1 = EventArg1;
+    newItem->KernelEventInfo.RawArgument2 = EventArg2;
+    newItem->KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
+    newItem->KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
+    newItem->KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
+    newItem->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
 
-    if (FunctionName != NULL) {
-        RtlCopyMemory(newItem->KernelEventInfo.ObjectName, FunctionName, 
-            min(wcslen(FunctionName) * sizeof(WCHAR), sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
-    }
+    PCWSTR effectiveName = (FunctionName != NULL && FunctionName[0] != L'\0')
+                               ? FunctionName
+                               : L"HypervisorEventFallback";
+    RtlCopyMemory(newItem->KernelEventInfo.ObjectName,
+                  effectiveName,
+                  min(wcslen(effectiveName) * sizeof(WCHAR),
+                      sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
 
-    DbgPrint("!!! ProcessProtection: Kernel API event detected - Type: %lu, Name: %ls, Source PID: %lu, Target PID: %lu\n",
-        EventType, FunctionName ? FunctionName : L"Unknown", SourcePid, TargetPid);
+    DbgPrint("!!! ProcessProtection: Hypervisor event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p\n",
+             EventType,
+             IRP_HYPERVISOR_EVENT,
+             effectiveName,
+             SourcePid,
+             normalizedTargetPid,
+             (PVOID)EventArg1,
+             (PVOID)EventArg2);
 
     if (!driverData->AddIrpMessage(newEntry)) {
         delete newEntry;

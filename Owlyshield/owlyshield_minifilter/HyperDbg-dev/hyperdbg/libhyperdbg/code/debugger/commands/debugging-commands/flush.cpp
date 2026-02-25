@@ -1,0 +1,124 @@
+/**
+ * @file flush.cpp
+ * @author Sina Karvandi (sina@hyperdbg.org)
+ * @brief flush command
+ * @details
+ * @version 0.1
+ * @date 2020-08-19
+ *
+ * @copyright This project is released under the GNU Public License v3.
+ *
+ */
+#include "pch.h"
+
+//
+// Global Variables
+//
+extern BOOLEAN g_IsSerialConnectedToRemoteDebuggee;
+
+/**
+ * @brief help of the flush command
+ *
+ * @return VOID
+ */
+VOID
+CommandFlushHelp()
+{
+    ShowMessages("flush : removes all the buffer and messages from kernel-mode "
+                 "buffers.\n\n");
+
+    ShowMessages("syntax : \tflush \n");
+}
+
+/**
+ * @brief flush command handler
+ *
+ * @return VOID
+ */
+VOID
+CommandFlushRequestFlush()
+{
+    BOOL                           Status;
+    ULONG                          ReturnedLength;
+    DEBUGGER_FLUSH_LOGGING_BUFFERS FlushRequest = {0};
+
+    if (g_IsSerialConnectedToRemoteDebuggee)
+    {
+        //
+        // It's a debug-mode
+        //
+        KdSendFlushPacketToDebuggee();
+    }
+    else
+    {
+        //
+        // It's a vmi-mode
+        //
+        AssertShowMessageReturnStmt(g_DeviceHandle, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturn);
+
+        //
+        // By the way, we don't need to send an input buffer
+        // to the kernel, but let's keep it like this, if we
+        // want to pass some other arguments to the kernel in
+        // the future
+        //
+        Status = DeviceIoControl(
+            g_DeviceHandle,                        // Handle to device
+            IOCTL_DEBUGGER_FLUSH_LOGGING_BUFFERS,  // IO Control Code (IOCTL)
+            &FlushRequest,                         // Input Buffer to driver.
+            SIZEOF_DEBUGGER_FLUSH_LOGGING_BUFFERS, // Input buffer length
+            &FlushRequest,                         // Output Buffer from driver.
+            SIZEOF_DEBUGGER_FLUSH_LOGGING_BUFFERS, // Length of output buffer in
+                                                   // bytes.
+            &ReturnedLength,                       // Bytes placed in buffer.
+            NULL                                   // synchronous call
+        );
+
+        if (!Status)
+        {
+            ShowMessages("ioctl failed with code 0x%x\n", GetLastError());
+            return;
+        }
+
+        if (FlushRequest.KernelStatus == DEBUGGER_OPERATION_WAS_SUCCESSFUL)
+        {
+            //
+            // The amount of message that are deleted are the amount of
+            // vmx-root messages and vmx non-root messages
+            //
+            ShowMessages(
+                "flushing buffers was successful, total %d messages were cleared.\n",
+                FlushRequest.CountOfMessagesThatSetAsReadFromVmxNonRoot +
+                    FlushRequest.CountOfMessagesThatSetAsReadFromVmxRoot);
+        }
+        else
+        {
+            ShowMessages("flushing buffers was not successful :(\n");
+        }
+    }
+}
+
+/**
+ * @brief flush command handler
+ *
+ * @param CommandTokens
+ * @param Command
+ *
+ * @return VOID
+ */
+VOID
+CommandFlush(vector<CommandToken> CommandTokens, string Command)
+{
+    if (CommandTokens.size() != 1)
+    {
+        ShowMessages("incorrect use of the '%s'\n\n",
+                     GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
+        CommandFlushHelp();
+        return;
+    }
+
+    //
+    // Flush the buffer
+    //
+    CommandFlushRequestFlush();
+}

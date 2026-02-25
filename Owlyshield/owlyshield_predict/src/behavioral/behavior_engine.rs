@@ -38,9 +38,9 @@ pub struct IrpOperationRecord {
     pub function_name: String,  // NEW: For generic API hooks - which function was called
 }
 
-/// Ntdll API operation details for detailed tracking and forensics
+/// Hypervisor event operation details for detailed tracking and forensics
 #[derive(Debug, Clone)]
-pub struct NtdllApiOperation {
+pub struct HypervisorEventOperation {
     pub timestamp: SystemTime,
     pub api_type: IrpMajorOp,
     pub source_pid: u32,
@@ -74,23 +74,7 @@ pub struct IrpStatistics {
     pub process_handle_open_count: u64,
     pub process_terminate_attempt_count: u64,
     
-    // Ntdll API Hooks - Code Injection/Manipulation
-    pub nt_write_virtual_memory_count: u64,
-    pub nt_allocate_virtual_memory_count: u64,
-    pub nt_protect_virtual_memory_count: u64,
-    pub nt_create_thread_count: u64,
-    pub nt_queue_apc_count: u64,
-    pub nt_set_context_count: u64,
-    
-    // Ntdll API Hooks - File/Section
-    pub nt_create_section_count: u64,
-    pub nt_map_section_count: u64,
-    pub nt_delete_file_count: u64,
-    
-    // Ntdll API Hooks - System
-    pub nt_load_driver_count: u64,
-    pub nt_open_process_count: u64,
-    pub nt_generic_api_events: u64,  // Generic API calls from dynamic hooks
+    pub hypervisor_event_count: u64,  // Normalized hypervisor event count
     
     // Bytes transferred
     pub total_bytes_read: u64,
@@ -106,8 +90,8 @@ pub struct IrpStatistics {
     pub average_entropy: f64,
     pub entropy_samples: Vec<f64>,
     
-    // Ntdll API operation history (limited to last 100 for memory efficiency)
-    pub ntdll_api_operations: Vec<NtdllApiOperation>,
+    // Hypervisor event operation history (limited to last 100 for memory efficiency)
+    pub hypervisor_event_operations: Vec<HypervisorEventOperation>,
     
     // All APIs called (for comprehensive tracking)
     pub all_apis_called: HashSet<String>,
@@ -156,70 +140,21 @@ impl IrpStatistics {
             IrpMajorOp::IrpProcessExit => self.process_exit_count += 1,
             IrpMajorOp::IrpProcessHandleOpen => self.process_handle_open_count += 1,
             
-            // Ntdll API Hooks - Code Injection/Manipulation
-            IrpMajorOp::IrpNtWriteVirtualMemory => {
-                self.nt_write_virtual_memory_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtWriteVirtualMemory - Code injection attempt");
-            },
-            IrpMajorOp::IrpNtAllocateVirtualMemory => {
-                self.nt_allocate_virtual_memory_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtAllocateVirtualMemory - Memory allocation");
-            },
-            IrpMajorOp::IrpNtProtectVirtualMemory => {
-                self.nt_protect_virtual_memory_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtProtectVirtualMemory - DEP bypass attempt");
-            },
-            IrpMajorOp::IrpNtCreateThread => {
-                self.nt_create_thread_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtCreateThreadEx - Remote thread creation");
-            },
-            IrpMajorOp::IrpNtQueueApc => {
-                self.nt_queue_apc_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtQueueApcThread - APC injection");
-            },
-            IrpMajorOp::IrpNtSetContext => {
-                self.nt_set_context_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtSetContextThread - Thread context manipulation");
-            },
-            
-            // Ntdll API Hooks - File/Section
-            IrpMajorOp::IrpNtCreateSection => {
-                self.nt_create_section_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtCreateSection - Section creation");
-            },
-            IrpMajorOp::IrpNtMapSection => {
-                self.nt_map_section_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtMapViewOfSection - Section mapping");
-            },
-            IrpMajorOp::IrpNtDeleteFile => {
-                self.nt_delete_file_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtDeleteFile - File deletion");
-            },
-            
-            // Ntdll API Hooks - System
-            IrpMajorOp::IrpNtLoadDriver => {
-                self.nt_load_driver_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtLoadDriver - Driver loading");
-            },
-            IrpMajorOp::IrpKernelRemoteThread => {},
-            IrpMajorOp::IrpNtOpenProcess => {
-                self.nt_open_process_count += 1;
-                self.record_ntdll_api_operation(rec, irp_op, "NtOpenProcess - Process access");
-            },
-            
-            // Generic API Hook (Event ID 24) - Dynamic hooks from behavior rules
-            IrpMajorOp::IrpNtGenericApiCall => {
-                self.nt_generic_api_events += 1;
-                // The function name is in the record
-                let api_name = if !rec.function_name.is_empty() {
-                    &rec.function_name
+            // Hypervisor/kernel events are tracked as one fallback class.
+            IrpMajorOp::IrpHypervisorEvent => {
+                self.hypervisor_event_count += 1;
+                let event_name = "HypervisorEventFallback";
+                let details = if rec.function_name.is_empty() {
+                    "Hypervisor Event".to_string()
                 } else {
-                    "Unknown"
+                    format!("Hypervisor Event (raw_name={})", rec.function_name)
                 };
-                self.record_ntdll_api_operation(rec, irp_op, &format!("Generic API Call: {}", api_name));
-                
-                // Track the specific API that was called
-                self.all_apis_called.insert(api_name.to_string());
+                self.record_hypervisor_event_operation(
+                    rec,
+                    IrpMajorOp::IrpHypervisorEvent,
+                    &details,
+                );
+                self.all_apis_called.insert(event_name.to_string());
             },
             
             _ => {},
@@ -242,23 +177,23 @@ impl IrpStatistics {
         }
     }
     
-    /// Record detailed Ntdll API operation for forensics and analysis
-    fn record_ntdll_api_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
-        let operation = NtdllApiOperation {
+    /// Record detailed hypervisor event operation for forensics and analysis
+    fn record_hypervisor_event_operation(&mut self, rec: &IrpOperationRecord, api_type: IrpMajorOp, details: &str) {
+        let operation = HypervisorEventOperation {
             timestamp: rec.timestamp,
             api_type,
             source_pid: 0, // Will be filled from IOMessage if available
             target_pid: rec.target_pid,
-            memory_address: 0, // Will be filled from NTDLL_EVENT_INFO if available
+            memory_address: 0, // Will be filled from hypervisor event payload if available
             memory_size: rec.bytes_transferred,
             operation_details: details.to_string(),
         };
         
-        self.ntdll_api_operations.push(operation);
+        self.hypervisor_event_operations.push(operation);
         
         // Keep only last 100 operations to prevent memory bloat
-        if self.ntdll_api_operations.len() > 100 {
-            self.ntdll_api_operations.remove(0);
+        if self.hypervisor_event_operations.len() > 100 {
+            self.hypervisor_event_operations.remove(0);
         }
     }
     
@@ -279,46 +214,19 @@ impl IrpStatistics {
             "process_exit" => self.process_exit_count,
             "process_handle_open" => self.process_handle_open_count,
             "process_terminate_attempt" => self.process_terminate_attempt_count,
-            // Updated mappings for Ntdll
-            "nt_write_virtual_memory" => self.nt_write_virtual_memory_count,
-            "nt_allocate_virtual_memory" => self.nt_allocate_virtual_memory_count,
-            "nt_protect_virtual_memory" => self.nt_protect_virtual_memory_count,
-            "nt_create_thread" => self.nt_create_thread_count,
-            "nt_queue_apc" => self.nt_queue_apc_count,
-            "nt_set_context" => self.nt_set_context_count,
-            "nt_create_section" => self.nt_create_section_count,
-            "nt_map_section" => self.nt_map_section_count,
-            "nt_delete_file" => self.nt_delete_file_count,
-            "nt_load_driver" => self.nt_load_driver_count,
-            "nt_open_process" => self.nt_open_process_count,
+            "hypervisor_event" => self.hypervisor_event_count,
             _ => 0,
         }
     }
     
-    /// Get total count of all injection-related Ntdll API calls
+    /// Get total count of normalized hypervisor events.
     pub fn get_injection_api_count(&self) -> u64 {
-        self.nt_write_virtual_memory_count +
-        self.nt_allocate_virtual_memory_count +
-        self.nt_protect_virtual_memory_count +
-        self.nt_create_thread_count +
-        self.nt_queue_apc_count +
-        self.nt_set_context_count +
-        self.nt_create_section_count +
-        self.nt_map_section_count
+        self.hypervisor_event_count
     }
     
-    /// Check if process shows signs of code injection behavior
+    /// Check if process has any hypervisor event activity.
     pub fn has_injection_indicators(&self) -> bool {
-        // Multiple different injection techniques used
-        let technique_count = 
-            (if self.nt_write_virtual_memory_count > 0 { 1 } else { 0 }) +
-            (if self.nt_allocate_virtual_memory_count > 0 { 1 } else { 0 }) +
-            (if self.nt_protect_virtual_memory_count > 0 { 1 } else { 0 }) +
-            (if self.nt_create_thread_count > 0 { 1 } else { 0 }) +
-            (if self.nt_queue_apc_count > 0 { 1 } else { 0 });
-        
-        // Suspicious if using 3+ different injection techniques
-        technique_count >= 3 || self.get_injection_api_count() > 10
+        self.hypervisor_event_count > 0
     }
 }
 
@@ -673,35 +581,13 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub untrusted_signers: Vec<String>,
     
-    // UPDATED: Nt-level API hook event tracking
+    // Hypervisor event tracking (single normalized opcode path)
     #[serde(default)]
-    pub nt_write_memory_apis: Vec<String>,
+    pub hypervisor_event_labels: Vec<String>,
     #[serde(default)]
-    pub nt_thread_creation_apis: Vec<String>,
+    pub detect_hypervisor_event: bool,
     #[serde(default)]
-    pub nt_apc_injection_apis: Vec<String>,
-    #[serde(default)]
-    pub nt_section_apis: Vec<String>,
-    #[serde(default)]
-    pub nt_memory_protection_apis: Vec<String>,
-    #[serde(default)]
-    pub nt_process_access_apis: Vec<String>,
-    #[serde(default)]
-    pub nt_driver_loading_apis: Vec<String>,
-    #[serde(default)]
-    pub detect_nt_write_memory: bool,
-    #[serde(default)]
-    pub detect_nt_thread_creation: bool,
-    #[serde(default)]
-    pub detect_nt_apc_injection: bool,
-    #[serde(default)]
-    pub detect_nt_section_mapping: bool,
-    #[serde(default)]
-    pub detect_nt_memory_protection: bool,
-    #[serde(default)]
-    pub detect_nt_process_access: bool,
-    #[serde(default)]
-    pub ntdll_event_threshold: usize,
+    pub hypervisor_event_threshold: usize,
     
     #[serde(default = "default_zero")]
     pub min_matches: usize,
@@ -965,14 +851,8 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.trusted_signers);
             expand_vec(&mut cond_group.untrusted_signers);
             
-            // UPDATED: Expand Nt-level event tracking fields
-            expand_vec(&mut cond_group.nt_write_memory_apis);
-            expand_vec(&mut cond_group.nt_thread_creation_apis);
-            expand_vec(&mut cond_group.nt_apc_injection_apis);
-            expand_vec(&mut cond_group.nt_section_apis);
-            expand_vec(&mut cond_group.nt_memory_protection_apis);
-            expand_vec(&mut cond_group.nt_process_access_apis);
-            expand_vec(&mut cond_group.nt_driver_loading_apis);
+            // Expand normalized hypervisor event labels
+            expand_vec(&mut cond_group.hypervisor_event_labels);
         }
 
         for stage in &mut self.stages {
@@ -1106,20 +986,9 @@ pub struct ProcessBehaviorState {
     pub network_apis_called: HashSet<String>,
     pub all_apis_called: HashSet<String>,
     
-    // UPDATED: Nt-level API hooking event tracking
-    pub nt_write_virtual_memory_events: u32,
-    pub nt_allocate_virtual_memory_events: u32,
-    pub nt_protect_virtual_memory_events: u32,
-    pub nt_create_thread_events: u32,
-    pub nt_queue_apc_events: u32,
-    pub nt_set_context_events: u32,
-    pub nt_create_section_events: u32,
-    pub nt_map_section_events: u32,
-    pub nt_delete_file_events: u32,
-    pub nt_load_driver_events: u32,
-    pub nt_open_process_events: u32,
-    pub nt_generic_api_events: u32,
-    pub ntdll_events_total: u32,
+    // Normalized hypervisor event tracking
+    pub hypervisor_event_count: u32,
+    pub hypervisor_events_total: u32,
 }
 
 impl ProcessBehaviorState {
@@ -1143,25 +1012,14 @@ impl ProcessBehaviorState {
         state.network_apis_called = HashSet::new();
         state.all_apis_called = HashSet::new();
         
-        // UPDATED: Initialize Nt event counters
-        state.nt_write_virtual_memory_events = 0;
-        state.nt_allocate_virtual_memory_events = 0;
-        state.nt_protect_virtual_memory_events = 0;
-        state.nt_create_thread_events = 0;
-        state.nt_queue_apc_events = 0;
-        state.nt_set_context_events = 0;
-        state.nt_create_section_events = 0;
-        state.nt_map_section_events = 0;
-        state.nt_delete_file_events = 0;
-        state.nt_load_driver_events = 0;
-        state.nt_open_process_events = 0;
-        state.nt_generic_api_events = 0;
-        state.ntdll_events_total = 0;
+        // Initialize normalized hypervisor event counters
+        state.hypervisor_event_count = 0;
+        state.hypervisor_events_total = 0;
         
         state
     }
     
-    /// Record IRP operation with full context and track Nt events
+    /// Record IRP operation with full context and track normalized hypervisor events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
@@ -1176,416 +1034,40 @@ impl ProcessBehaviorState {
         };
         
         self.irp_stats.record_operation(&rec);
+        let normalized_irp_op = if irp_op >= 12 { 12 } else { irp_op };
         
-        match irp_op {
-            13 => {  // IRP_NT_WRITE_VIRTUAL_MEMORY
-                self.nt_write_virtual_memory_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let source_pid = if msg.ntdll_event_info.source_process_id != 0 {
-                        msg.ntdll_event_info.source_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    let size = if msg.ntdll_event_info.memory_size != 0 {
-                        msg.ntdll_event_info.memory_size
-                    } else {
-                        msg.mem_sized_used as usize
-                    };
-                    
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtWriteVirtualMemory - Source PID: {}, Target PID: {}, Address: 0x{:X}, Size: {} bytes, Count: {}",
-                        source_pid,
-                        target_pid,
-                        msg.ntdll_event_info.memory_address,
-                        size,
-                        self.nt_write_virtual_memory_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtWriteVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
-                        msg.pid,
-                        msg.mem_sized_used,
-                        self.nt_write_virtual_memory_events
-                    ));
-                }
-            },
-            
-            14 => {  // IRP_NT_ALLOCATE_VIRTUAL_MEMORY
-                self.nt_allocate_virtual_memory_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    let size = if msg.ntdll_event_info.memory_size != 0 {
-                        msg.ntdll_event_info.memory_size
-                    } else {
-                        msg.mem_sized_used as usize
-                    };
-                    
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtAllocateVirtualMemory - PID: {}, Target: {}, Size: {} bytes, Protection: 0x{:X}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        size,
-                        msg.ntdll_event_info.memory_protection,
-                        self.nt_allocate_virtual_memory_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtAllocateVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
-                        msg.pid,
-                        msg.mem_sized_used,
-                        self.nt_allocate_virtual_memory_events
-                    ));
-                }
-            },
-            
-            15 => {  // IRP_NT_PROTECT_VIRTUAL_MEMORY
-                self.nt_protect_virtual_memory_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    let size = if msg.ntdll_event_info.memory_size != 0 {
-                        msg.ntdll_event_info.memory_size
-                    } else {
-                        msg.mem_sized_used as usize
-                    };
-                    
-                    let is_exec = if msg.ntdll_event_info.is_executable_memory { "EXECUTABLE" } else { "non-exec" };
-                    
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtProtectVirtualMemory (DEP bypass!) - PID: {}, Target: {}, Address: 0x{:X}, Size: {} bytes, Protection: 0x{:X} ({}), Count: {}",
-                        msg.pid,
-                        target_pid,
-                        msg.ntdll_event_info.memory_address,
-                        size,
-                        msg.ntdll_event_info.memory_protection,
-                        is_exec,
-                        self.nt_protect_virtual_memory_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtProtectVirtualMemory - PID: {}, Size: {} bytes, Count: {}",
-                        msg.pid,
-                        msg.mem_sized_used,
-                        self.nt_protect_virtual_memory_events
-                    ));
-                }
-            },
-            
-            16 => {  // IRP_NT_CREATE_THREAD
-                self.nt_create_thread_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtCreateThreadEx (remote thread!) - Source PID: {}, Target PID: {}, StartAddress: 0x{:X}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        msg.ntdll_event_info.thread_start_routine,
-                        self.nt_create_thread_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtCreateThreadEx - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_create_thread_events
-                    ));
-                }
-            },
-            
-            17 => {  // IRP_NT_QUEUE_APC
-                self.nt_queue_apc_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtQueueApcThread (APC injection!) - Source PID: {}, Target PID: {}, ApcRoutine: 0x{:X}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        msg.ntdll_event_info.thread_start_routine,
-                        self.nt_queue_apc_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtQueueApcThread - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_queue_apc_events
-                    ));
-                }
-            },
-            
-            18 => {  // IRP_NT_SET_CONTEXT
-                self.nt_set_context_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtSetContextThread (thread hijack!) - Source PID: {}, Target PID: {}, ThreadHandle: 0x{:X}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        msg.ntdll_event_info.thread_handle,
-                        self.nt_set_context_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtSetContextThread - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_set_context_events
-                    ));
-                }
-            },
-            
-            19 => {  // IRP_NT_CREATE_SECTION
-                self.nt_create_section_events += 1;
-                
-                Logging::info(&format!(
-                    "[NTDLL HOOK] NtCreateSection - PID: {}, Count: {}",
-                    msg.pid,
-                    self.nt_create_section_events
-                ));
-            },
-            
-            20 => {  // IRP_NT_MAP_SECTION
-                self.nt_map_section_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
-                    
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtMapViewOfSection - Source PID: {}, Target PID: {}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        self.nt_map_section_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtMapViewOfSection - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_map_section_events
-                    ));
-                }
-            },
-            
-            21 => {  // IRP_NT_DELETE_FILE
-                self.nt_delete_file_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let path = if !msg.ntdll_event_info.object_name.is_empty() {
-                        &msg.ntdll_event_info.object_name
-                    } else {
-                        &msg.filepathstr
-                    };
-                    
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtDeleteFile - PID: {}, Path: {}, Count: {}",
-                        msg.pid,
-                        path,
-                        self.nt_delete_file_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtDeleteFile - PID: {}, Path: {}, Count: {}",
-                        msg.pid,
-                        msg.filepathstr,
-                        self.nt_delete_file_events
-                    ));
-                }
-            },
-            
-            22 => {  // IRP_NT_LOAD_DRIVER
-                self.nt_load_driver_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let path = if !msg.ntdll_event_info.object_name.is_empty() {
-                        &msg.ntdll_event_info.object_name
-                    } else {
-                        &msg.filepathstr
-                    };
-                    
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtLoadDriver (driver load!) - PID: {}, Path: {}, Count: {}",
-                        msg.pid,
-                        path,
-                        self.nt_load_driver_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::warning(&format!(
-                        "[NTDLL HOOK] NtLoadDriver - PID: {}, Path: {}, Count: {}",
-                        msg.pid,
-                        msg.filepathstr,
-                        self.nt_load_driver_events
-                    ));
-                }
-            },
-            
-            12 => {  // IRP_KERNEL_REMOTE_THREAD
-                self.nt_create_thread_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let source_pid = if msg.ntdll_event_info.source_process_id != 0 {
-                        msg.ntdll_event_info.source_process_id
-                    } else {
-                        msg.attacker_pid
-                    };
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        msg.pid
-                    };
+        if normalized_irp_op == 12 {
+            self.hypervisor_event_count += 1;
+            self.detected_apis.insert("HypervisorEventFallback".to_string());
+            self.all_apis_called.insert("HypervisorEventFallback".to_string());
+            let raw_event_type = if msg.ntdll_event_info.event_type != 0 {
+                msg.ntdll_event_info.event_type
+            } else {
+                irp_op as u32
+            };
 
-                    Logging::info(&format!(
-                        "[KERNEL CALLBACK] Remote thread create - Source: {}, Target: {}, StartRoutine: 0x{:X}, Count: {}",
-                        source_pid,
-                        target_pid,
-                        msg.ntdll_event_info.thread_start_routine as usize,
-                        self.nt_create_thread_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[KERNEL CALLBACK] Remote thread create - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_create_thread_events
-                    ));
-                }
-            },
-
-            23 => {  // IRP_NT_OPEN_PROCESS
-                self.nt_open_process_events += 1;
-                
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                {
-                    let target_pid = if msg.ntdll_event_info.target_process_id != 0 {
-                        msg.ntdll_event_info.target_process_id
-                    } else {
-                        0
-                    };
-                    
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtOpenProcess - PID: {}, Target: {}, Access: 0x{:X}, Count: {}",
-                        msg.pid,
-                        target_pid,
-                        msg.ntdll_event_info.access_mask,
-                        self.nt_open_process_events
-                    ));
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                {
-                    Logging::info(&format!(
-                        "[NTDLL HOOK] NtOpenProcess - PID: {}, Count: {}",
-                        msg.pid,
-                        self.nt_open_process_events
-                    ));
-                }
-            },
-            
-            24 => { // IRP_NT_GENERIC_API_CALL
-                self.nt_generic_api_events += 1;
-                self.detected_apis.insert(msg.ntdll_event_info.object_name.clone());
-                self.all_apis_called.insert(msg.ntdll_event_info.object_name.clone());
-
-                Logging::info(&format!(
-                    "[NTDLL HOOK] Generic API Call: {} - PID: {}, Count: {}",
-                    msg.ntdll_event_info.object_name,
-                    msg.pid,
-                    self.nt_generic_api_events
-                ));
-            },
-            
-            _ => {},
+            Logging::info(&format!(
+                "[HYPERVISOR EVENT] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} raw_name=\"{}\" count={}",
+                raw_event_type,
+                msg.pid,
+                msg.ntdll_event_info.source_process_id,
+                msg.ntdll_event_info.target_process_id,
+                msg.ntdll_event_info.raw_argument1,
+                msg.ntdll_event_info.raw_argument2,
+                msg.ntdll_event_info.object_name,
+                self.hypervisor_event_count
+            ));
         }
 
-        // Increment total Ntdll events counter and log injection pattern detection
-        if irp_op >= 12 && irp_op <= 24 {
-            self.ntdll_events_total += 1;
+        // Increment total hypervisor events counter and emit activity signal
+        if normalized_irp_op == 12 {
+            self.hypervisor_events_total += 1;
             
-            // Check for injection indicators after each Nt API event
+            // Check for hypervisor event activity after each normalized event
             if self.irp_stats.has_injection_indicators() {
                 Logging::warning(&format!(
-                    "[INJECTION DETECTED] PID {} shows multiple injection techniques - Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Total injection APIs: {}",
+                    "[HYPERVISOR EVENT DETECTED] PID {} - Total fallback events: {}",
                     msg.pid,
-                    self.irp_stats.nt_write_virtual_memory_count,
-                    self.irp_stats.nt_allocate_virtual_memory_count,
-                    self.irp_stats.nt_protect_virtual_memory_count,
-                    self.irp_stats.nt_create_thread_count,
-                    self.irp_stats.nt_queue_apc_count,
                     self.irp_stats.get_injection_api_count()
                 ));
             }
@@ -1912,10 +1394,10 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
-    // API DETECTION FROM NTDLL HOOK EVENTS
+    // EVENT DETECTION FROM HYPERVISOR EVENTS
     // ==========================================================================
     
-    /// Get actual detected APIs from ntdll hooks
+    /// Get actual detected labels from hypervisor events
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
         state.all_apis_called.clone()
     }
@@ -2606,52 +2088,14 @@ impl BehaviorEngine {
                     }
                 }
                 
-                // UPDATED: Nt event tracking conditions
-                if !matched && cond_group.detect_nt_write_memory && state.nt_write_virtual_memory_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
+                if !matched
+                    && cond_group.detect_hypervisor_event
+                    && state.hypervisor_event_count >= cond_group.hypervisor_event_threshold.max(1) as u32
+                {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - NtWriteVirtualMemory detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_write_virtual_memory_events
-                    ));
-                }
-                
-                if !matched && cond_group.detect_nt_thread_creation && state.nt_create_thread_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - NtCreateThreadEx detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_create_thread_events
-                    ));
-                }
-                
-                if !matched && cond_group.detect_nt_apc_injection && state.nt_queue_apc_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - NtQueueApcThread detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_queue_apc_events
-                    ));
-                }
-                
-                if !matched && cond_group.detect_nt_section_mapping && (state.nt_create_section_events + state.nt_map_section_events) >= cond_group.ntdll_event_threshold.max(1) as u32 {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Nt Section Operation detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_create_section_events + state.nt_map_section_events
-                    ));
-                }
-                
-                if !matched && cond_group.detect_nt_memory_protection && state.nt_protect_virtual_memory_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - NtProtectVirtualMemory detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_protect_virtual_memory_events
-                    ));
-                }
-                
-                if !matched && cond_group.detect_nt_process_access && state.nt_open_process_events >= cond_group.ntdll_event_threshold.max(1) as u32 {
-                    matched = true;
-                    Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - NtOpenProcess detected for PID {}: {} events",
-                        cond_name, state.pid, state.nt_open_process_events
+                        "[BehaviorEngine] Condition '{}' - Hypervisor event fallback detected for PID {}: {} events",
+                        cond_name, state.pid, state.hypervisor_event_count
                     ));
                 }
                 
@@ -3314,27 +2758,16 @@ impl BehaviorEngine {
             let exe_path_str = exe_path_buf.to_string_lossy().to_string();
 
             // Log Nt API activity summary if any events detected
-            if state.ntdll_events_total > 0 {
+            if state.hypervisor_events_total > 0 {
                 Logging::info(&format!(
-                    "[NTDLL API SUMMARY] PID {} ({}) - Total events: {}, Write: {}, Alloc: {}, Protect: {}, Thread: {}, APC: {}, Context: {}, Section: {}, Map: {}, DelFile: {}, Driver: {}, OpenProc: {}",
+                    "[HYPERVISOR EVENT SUMMARY] PID {} ({}) - Total fallback events: {}",
                     pid, app_name,
-                    state.ntdll_events_total,
-                    state.nt_write_virtual_memory_events,
-                    state.nt_allocate_virtual_memory_events,
-                    state.nt_protect_virtual_memory_events,
-                    state.nt_create_thread_events,
-                    state.nt_queue_apc_events,
-                    state.nt_set_context_events,
-                    state.nt_create_section_events,
-                    state.nt_map_section_events,
-                    state.nt_delete_file_events,
-                    state.nt_load_driver_events,
-                    state.nt_open_process_events
+                    state.hypervisor_events_total
                 ));
                 
                 if state.irp_stats.has_injection_indicators() {
                     Logging::warning(&format!(
-                        "[INJECTION PATTERN] PID {} ({}) shows code injection behavior pattern - Total injection APIs: {}",
+                        "[HYPERVISOR EVENT PATTERN] PID {} ({}) shows hypervisor event activity - Total fallback events: {}",
                         pid, app_name, state.irp_stats.get_injection_api_count()
                     ));
                 }
