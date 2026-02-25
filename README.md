@@ -10,7 +10,7 @@
 </p>
 
 <h1 align="center" style="color: red;">
-⚠️ WARNING: ACTIVE DEVELOPMENT IN PROGRESS ⚠️
+    WARNING: ACTIVE DEVELOPMENT IN PROGRESS  
 </h1>
 
 <p align="center" style="color: red; font-size: 22px; font-weight: bold;">
