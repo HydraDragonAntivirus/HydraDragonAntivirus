@@ -1,5 +1,7 @@
 #include "OwlyVmmBridge.h"
 
+#if defined(_M_AMD64)
+
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 
 static BOOLEAN
