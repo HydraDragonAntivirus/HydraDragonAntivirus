@@ -37,6 +37,13 @@ Breaking changes, bugs, and incomplete features should be expected.
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
 
 ## Description
+At this stage:
+- The application works **locally only**.
+- The **client-server architecture has not been implemented yet**.
+- Features may be incomplete or unstable.
+- Breaking changes may occur without prior notice.
+- This project is **not production-ready** and should be used for development and testing purposes only.
+
 - Dynamic and static analysis with Real Time Malware/Executable Analysis Platform for Windows, including open-source XDR (2 EDR projects), ClamAV, YARA-X, machine learning AI, behavioral analysis, Unpacker, Deobfuscator, Decompiler, website signatures, Ghidra, Suricata, Sigma, Kernel based protection and much more than you can imagine.
 - HydraDragonPlatform - Unified Executable Analysis & Detection Framework
 
