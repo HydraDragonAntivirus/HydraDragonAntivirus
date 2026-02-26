@@ -1,0 +1,39 @@
+- value: 0x80000007
+  name: EXTENDED_TIME_STAMP_COUNTER
+  description: Extended Function CPUID Information.
+
+- short_name: EAX_80000007
+  long_name: EAX_80000007
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EAX is reserved.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EBX is reserved.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: ECX is reserved.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 8
+      name: INVARIANT_TSC_AVAILABLE
+      description: Invariant TSC available if 1.

@@ -1,0 +1,33 @@
+- name: CPUID
+  short_description: CPUID
+  todo: Long description
+  children_name_with_prefix: CPUID
+  type: group
+  reference: Vol2A[3.2(CPUID)]
+  include:
+  - EAX_00
+  - EAX_01
+  - EAX_04
+  - EAX_05
+  - EAX_06
+  - EAX_07
+  - EAX_08
+  - EAX_09
+  - EAX_0A
+  - EAX_0B
+  - EAX_0D
+  - EAX_0F
+  - EAX_10
+  - EAX_12
+  - EAX_14
+  - EAX_15
+  - EAX_16
+  - EAX_17
+  - EAX_18
+  - EAX_80000000
+  - EAX_80000001
+  - EAX_80000002_80000004
+  - EAX_80000005
+  - EAX_80000006
+  - EAX_80000007
+  - EAX_80000008

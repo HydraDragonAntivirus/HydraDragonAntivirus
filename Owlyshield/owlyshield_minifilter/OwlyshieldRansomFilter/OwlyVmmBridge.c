@@ -1,5 +1,23 @@
 #include "OwlyVmmBridge.h"
 
+#if defined(_M_AMD64)
+BOOLEAN
+OwlyVmFuncInitVmmFallback(VMM_CALLBACKS * VmmCallbacks)
+{
+    UNREFERENCED_PARAMETER(VmmCallbacks);
+    return FALSE;
+}
+
+VOID
+OwlyVmFuncUninitVmmFallback(VOID)
+{
+}
+
+// Use HyperDbg exports when they are linked; otherwise resolve to local fallbacks.
+#pragma comment(linker, "/alternatename:VmFuncInitVmm=OwlyVmFuncInitVmmFallback")
+#pragma comment(linker, "/alternatename:VmFuncUninitVmm=OwlyVmFuncUninitVmmFallback")
+#endif
+
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 
 static BOOLEAN
@@ -228,7 +246,7 @@ OwlyVmmInitialize(VOID)
     callbacks.KdQueryDebuggerQueryThreadOrProcessTracingDetailsByCoreId =
         OwlyKdQueryDebuggerThreadOrProcessTracingDetailsByCoreId;
 
-    initResult = HvInitVmm(&callbacks);
+    initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
     {
         return STATUS_UNSUCCESSFUL;
@@ -246,7 +264,7 @@ OwlyVmmUninitialize(VOID)
         return;
     }
 
-    VmxPerformTermination();
+    VmFuncUninitVmm();
     g_OwlyVmmInitialized = FALSE;
 }
 

@@ -1,0 +1,49 @@
+- value: 0x15
+  short_name: TIME_STAMP_COUNTER
+  long_name: TIME_STAMP_COUNTER_INFORMATION
+  short_description: Stamp Counter and Nominal Core Crystal Clock Information Leaf
+  long_description: |
+    When CPUID executes with EAX set to 15H and ECX = 0H, the processor returns information about Time Stamp
+    Counter and Core Crystal Clock.
+  note: |
+    If EBX[31:0] is 0, the TSC/”core crystal clock” ratio is not enumerated.
+    EBX[31:0]/EAX[31:0] indicates the ratio of the TSC frequency and the core crystal clock frequency.
+
+    If ECX is 0, the nominal core crystal clock frequency is not enumerated.
+    “TSC frequency” = “core crystal clock frequency” * EBX/EAX.
+
+- short_name: EAX_15
+  long_name: EAX_15
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: DENOMINATOR
+      description: An unsigned integer which is the denominator of the TSC/”core crystal clock” ratio.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: NUMERATOR
+      description: An unsigned integer which is the numerator of the TSC/”core crystal clock” ratio.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: NOMINAL_FREQUENCY
+      description: An unsigned integer which is the nominal frequency of the core crystal clock in Hz.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: EDX is reserved.

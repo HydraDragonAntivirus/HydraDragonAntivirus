@@ -1,0 +1,6075 @@
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x000 - 0x0FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+#
+# Some names are inspired from:
+# * https://github.com/tianocore/edk2/blob/master/UefiCpuPkg/Include/Register/ArchitecturalMsr.h
+#
+
+- name: P5_MC
+  short_description: IA32_P5_MC_(x)
+  long_description: |
+    When machine-check exceptions are enabled for the Pentium processor (MCE flag is set in control register CR4),
+    the machine-check exception handler uses the RDMSR instruction to read the error type from the P5_MC_TYPE
+    register and the machine check address from the P5_MC_ADDR register. The handler then normally reports these
+    register values to the system console before aborting execution.
+  type: group
+  reference: Vol3B[15.10.2(Pentium Processor Machine-Check Exception Handling)]
+  fields:
+  - value: 0x0
+    name: P5_MC_ADDR
+    description: Machine-check exception address.
+    remarks: 05_01H
+    see: Vol4[2.22(MSRS IN PENTIUM PROCESSORS)]
+
+  - value: 0x1
+    name: P5_MC_TYPE
+    description: Machine-check exception type.
+    remarks: 05_01H
+    see: Vol4[2.22(MSRS IN PENTIUM PROCESSORS)]
+
+- value: 0x6
+  name: MONITOR_FILTER_SIZE
+  alternative_name: MONITOR_FILTER_LINE_SIZE
+  description: System coherence line size.
+  remarks: 0F_03H
+  see: Vol3A[8.10.5(Monitor/Mwait Address Range Determination)]
+  reference: Vol3A[8.10.5(Monitor/Mwait Address Range Determination)]
+
+- value: 0x10
+  name: TIME_STAMP_COUNTER
+  description: Value as returned by instruction RDTSC.
+  access: R/W
+  remarks: 05_01H
+  see: Vol3B[17.17(TIME-STAMP COUNTER)]
+
+- value: 0x17
+  name: PLATFORM_ID
+  description: |
+    The operating system can use this MSR to determine “slot” information for the
+    processor and the proper microcode update to load.
+  access: RO
+  remarks: 06_01H
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 50-52
+      name: PLATFORM_ID
+      short_description: Platform Id
+      long_description: |
+        Contains information concerning the intended platform for the processor.
+
+
+
+        52 | 51 | 50 | _
+
+        --:|:--:|:---|-----------------
+
+        0  | 0  | 0  | Processor Flag 0
+
+        0  | 0  | 1  | Processor Flag 1
+
+        0  | 1  | 0  | Processor Flag 2
+
+        0  | 1  | 1  | Processor Flag 3
+
+        1  | 0  | 0  | Processor Flag 4
+
+        1  | 0  | 1  | Processor Flag 5
+
+        1  | 1  | 0  | Processor Flag 6
+
+        1  | 1  | 1  | Processor Flag 7
+      access: RO
+
+- value: 0x1B
+  name: APIC_BASE
+  description: |
+    This register holds the APIC base address, permitting the relocation of the APIC
+    memory map.
+  remarks: 06_01H
+  see:
+  - Vol3A[10.4.4(Local APIC Status and Location)]
+  - Vol3A[10.4.5(Relocating the Local APIC Registers)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 8
+      short_name: BSP
+      long_name: BSP_FLAG
+      description: BSP flag.
+      access: R/W
+
+    - bit: 10
+      short_name: EXTD
+      long_name: ENABLE_(x)2APIC_MODE
+      description: Enable x2APIC mode.
+
+    - bit: 11
+      short_name: EN
+      long_name: APIC_GLOBAL_ENABLE
+      description: APIC Global Enable.
+      access: R/W
+
+    - bit: 12-(MAXPHYADDR-1)
+      name: APIC_BASE
+      description: APIC Base.
+      access: R/W
+
+- value: 0x3A
+  name: FEATURE_CONTROL
+  description: Control Features in Intel 64 Processor.
+  access: R/W
+  remarks: If any one enumeration condition for defined bit field holds.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: LOCK
+      long_name: LOCK_BIT
+      short_description: Lock bit
+      long_description: |
+        When set, locks this MSR from being written; writes
+        to this bit will result in GP(0).
+      note: |
+        Once the Lock bit is set, the contents
+        of this register cannot be modified. Therefore the lock bit must be set after
+        configuring support for Intel Virtualization Technology and prior to transferring control
+        to an option ROM or the OS. Hence, once the Lock bit is set, the entire
+        IA32_FEATURE_CONTROL contents are preserved across RESET when PWRGOOD is
+        not deasserted.
+      access: R/WO
+      remarks: |
+        If any one enumeration condition for defined bit field position greater than
+        bit 0 holds.
+
+    - bit: 1
+      short_name: SMX_VMXON
+      long_name: ENABLE_VMX_INSIDE_SMX
+      short_description: Enable VMX inside SMX operation
+      long_description: |
+        This bit enables a system executive to use
+        VMX in conjunction with SMX to support Intel® Trusted Execution Technology.
+        BIOS must set this bit only when the CPUID function 1 returns VMX feature flag and
+        SMX feature flag set (ECX bits 5 and 6 respectively).
+      access: R/WL
+      remarks: |
+        If CPUID.01H:ECX[5] = 1 && CPUID.01H:ECX[6] = 1
+
+    - bit: 2
+      short_name: VMXON
+      long_name: ENABLE_VMX_OUTSIDE_SMX
+      short_description: Enable VMX outside SMX operation
+      long_description: |
+        This bit enables VMX for a system
+        executive that does not require SMX. BIOS must set this bit only when the CPUID
+        function 1 returns the VMX feature flag set (ECX bit 5).
+      access: R/WL
+      remarks: |
+        If CPUID.01H:ECX[5] = 1
+
+    - bit: 8-14
+      short_name: SENTER_LOCAL_FUNCTION_ENABLES
+      long_name: SENTER_LOCAL_FUNCTION_ENABLES
+      short_description: SENTER Local Function Enable
+      long_description: |
+        When set, each bit in the field represents
+        an enable control for a corresponding SENTER function. This field is supported
+        only if CPUID.1:ECX.[bit 6] is set.
+      access: R/WL
+      remarks: |
+        If CPUID.01H:ECX[6] = 1
+
+    - bit: 15
+      short_name: SENTER_ENABLE
+      long_name: SENTER_GLOBAL_ENABLE
+      short_description: SENTER Global Enable
+      long_description: |
+        This bit must be set to enable SENTER leaf functions.
+        This bit is supported only if CPUID.1:ECX.[bit 6] is set.
+      access: R/WL
+      remarks: |
+        If CPUID.01H:ECX[6] = 1
+
+    - bit: 17
+      short_name: SGX_LAUNCH_CONTROL_ENABLE
+      long_name: SGX_LAUNCH_CONTROL_ENABLE
+      short_description: SGX Launch Control Enable
+      long_description: |
+        This bit must be set to enable runtime
+        reconfiguration of SGX Launch Control via the IA32_SGXLEPUBKEYHASHn MSR.
+      access: R/WL
+      remarks: |
+        If CPUID.(EAX=07H, ECX=0H): ECX[30] = 1
+
+    - bit: 18
+      short_name: SGX_ENABLE
+      long_name: SGX_GLOBAL_ENABLE
+      short_description: SGX Global Enable
+      long_description: |
+        This bit must be set to enable SGX leaf functions.
+      access: R/WL
+      remarks: |
+        If CPUID.(EAX=07H, ECX=0H): EBX[2] = 1
+
+    - bit: 20
+      short_name: LMCE_ON
+      long_name: LMCE_ON
+      short_description: LMCE On
+      long_description: |
+        When set, system software can program the MSRs associated
+        with LMCE to configure delivery of some machine check exceptions to a single logical
+        processor.
+      access: R/WL
+      remarks: |
+        If IA32_MCG_CAP[27] = 1
+
+- value: 0x3B
+  name: TSC_ADJUST
+  description: Per Logical Processor TSC Adjust.
+  access: R/Write to clear
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H): EBX[1] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: struct
+    fields:
+    - size: 64
+      name: THREAD_ADJUST
+      description: |
+        Local offset value of the IA32_TSC for a logical processor. Reset value is zero. A
+        write to IA32_TSC will modify the local offset in IA32_TSC_ADJUST and the
+        content of IA32_TSC, but does not affect the internal invariant TSC hardware.
+
+- value: 0x48
+  name: SPEC_CTRL
+  description: |
+    Speculation Control. The MSR bits are defined as logical processor scope. On some core
+    implementations, the bits may impact sibling logical processors on the same core. This
+    MSR has a value of 0 after reset and is unaffected by INIT# or SIPI#.
+  access: R/W
+  remarks: If any one of the enumeration conditions for defined bit field positions holds.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: IBRS
+      description: |
+        IBRS: Indirect Branch Restricted Speculation (IBRS). Restricts speculation of indirect branch.
+      remarks: If CPUID.(EAX=07H,ECX=0):EDX[26]=1
+
+    - bit: 1
+      name: STIBP
+      description: |
+        STIBP: Single Thread Indirect Branch Predictors (STIBP). Prevents indirect branch predictions
+        on all logical processors on the core from being controlled by any sibling logical
+        processor in the same core.
+      remarks: If CPUID.(EAX=07H,ECX=0):EDX[27]=1
+
+    - bit: 2
+      name: SSBD
+      description: |
+        SSBD: Speculative Store Bypass Disable (SSBD). Delays speculative execution of a load until
+        the addresses for all older stores are known.
+      remarks: If CPUID.(EAX=07H,ECX=0):EDX[31]=1
+
+- value: 0x49
+  name: PRED_CMD
+  description: |
+    Prediction Command. Gives software a way to issue commands that affect the state of predictors.
+  access: WO
+  remarks: If any one of the enumeration conditions for defined bit field positions holds.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: IBPB
+      description: |
+        IBPB: Indirect Branch Prediction Barrier (IBPB).
+      remarks: If CPUID.(EAX=07H,ECX=0):EDX[26]=1
+
+- value: 0x79
+  short_name: BIOS_UPDT_TRIG
+  long_name: BIOS_UPDATE_TRIGGER
+  alternative_name: BIOS_UPDATE_TRIGGER
+  short_description: BIOS Update Trigger
+  long_description: |
+    Executing a WRMSR instruction to this MSR causes a microcode update
+    to be loaded into the processor. A processor may prevent writing to this MSR when loading
+    guest states on VM entries or saving guest states on VM exits.
+  access: W
+  remarks: 06_01H
+  see: Vol3A[9.11.6(Microcode Update Loader)]
+
+- value: 0x8B
+  short_name: BIOS_SIGN_ID
+  long_name: BIOS_UPDATE_SIGNATURE
+  alternative_name: BIOS_UPDATE_SIGNATURE
+  short_description: BIOS Update Signature
+  long_description: |
+    Returns the microcode update signature
+    following the execution of CPUID.01H. A processor may prevent writing to this
+    MSR when loading guest states on VM entries or saving guest states on VM exits.
+  access: RO
+  remarks: 06_01H
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      name: Reserved
+      description: Reserved.
+
+    - bit: 32-63
+      name: MICROCODE_UPDATE_SIGNATURE
+      short_description: Microcode update signature
+      long_description: |
+        This field contains the signature of the currently
+        loaded microcode update when read following the execution of the CPUID instruction,
+        function 1. It is required that this register field be pre-loaded with zero prior to
+        executing the CPUID, function 1. If the field remains equal to zero, then there is
+        no microcode update loaded. Another nonzero value will be the signature.
+      reference: Vol3A[9.11.7.1(Determining the Signature)]
+
+- name: SGXLEPUBKEYHASH
+  short_description: IA32_SGXLEPUBKEYHASH[(64*n+63):(64*n)]
+  long_description: |
+    Bits (64*n+63):(64*n) of the
+    SHA256 digest of the SIGSTRUCT.MODULUS for SGX Launch Enclave. On reset, the
+    default value is the digest of Intel’s signing key.
+  access: R/W
+  type: group
+  remarks: |
+    Read permitted If CPUID.(EAX=12H,ECX=0H):
+      EAX[0]=1 && CPUID.(EAX=07H,ECX=0H):ECX[30]=1.
+    Write permitted if CPUID.(EAX=12H,ECX=0H):
+      EAX[0]=1 && IA32_FEATURE_CONTROL[17] = 1 && IA32_FEATURE_CONTROL[0] = 1.
+  fields:
+  - value: 0x8C
+    name: SGXLEPUBKEYHASH0
+  - value: 0x8D
+    name: SGXLEPUBKEYHASH1
+  - value: 0x8E
+    name: SGXLEPUBKEYHASH2
+  - value: 0x8F
+    name: SGXLEPUBKEYHASH3
+
+- value: 0x9B
+  name: SMM_MONITOR_CTL
+  description: SMM Monitor Configuration.
+  access: R/W
+  remarks: |
+    If CPUID.01H: ECX[5]=1 || CPUID.01H: ECX[6] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: VALID
+      short_description: Valid
+      long_description: |
+        The STM may be invoked using VMCALL only if this bit is 1. Because VMCALL is
+        used to activate the dual-monitor treatment, the dual-monitor treatment cannot be
+        activated if the bit is 0. This bit is cleared when the logical processor is reset.
+      access: R/W
+      see: Vol3C[34.15.6(Activating the Dual-Monitor Treatment)]
+      reference: Vol3C[34.15.5(Enabling the Dual-Monitor Treatment)]
+
+    - bit: 2
+      short_name: BLOCK_SMI
+      long_name: SMI_UNBLOCKING_BY_VMXOFF
+      short_description: Controls SMI unblocking by VMXOFF
+      long_description: |
+        Determines whether executions of VMXOFF unblock SMIs under the default treatment of SMIs and SMM.
+        Executions of VMXOFF unblock SMIs unless bit 2 is 1 (the value of bit 0 is irrelevant).
+      remarks: If IA32_VMX_MISC[28]
+      see: Vol3C[34.14.4(VMXOFF and SMI Unblocking)]
+      reference: Vol3C[34.15.5(Enabling the Dual-Monitor Treatment)]
+
+    - bit: 12-31
+      name: MSEG_BASE
+      short_description: MSEG Base
+      long_description: |
+        Value that, when shifted left 12 bits, is the physical address of MSEG (the MSEG base
+        address).
+      access: R/W
+      reference: Vol3C[34.15.5(Enabling the Dual-Monitor Treatment)]
+
+#
+# Extra (see MSEG_BASE above).
+#
+- name: MSEG_HEADER
+  todo: More description
+  type: struct
+  size: 16384           # 2 kb
+  reference: Vol3C[34.15.5(Enabling the Dual-Monitor Treatment)]
+  fields:
+  - size: 32
+    name: MSEG_HEADER_REVISION
+    short_description: MSEG revision identifier
+    long_description: |
+      Different processors may use different MSEG revision identifiers.
+      These identifiers enable software to avoid using an MSEG header formatted for one processor on a
+      processor that uses a different format. Software can discover the MSEG revision identifier that a processor uses
+      by reading the VMX capability MSR IA32_VMX_MISC.
+    see: Vol3D[A.6(MISCELLANEOUS DATA)]
+
+  - size: 32
+    name: MONITOR_FEATURES
+    short_description: SMM-transfer monitor features field
+    long_description: |
+      Bits 31:1 of this field are reserved and must be
+      zero. Bit 0 of the field is the IA-32e mode SMM feature bit. It indicates whether the logical processor will be
+      in IA-32e mode after the STM is activated.
+    see: Vol3C[34.15.6(Activating the Dual-Monitor Treatment)]
+    fields:
+    - value: 1
+      name: STM_FEATURES_IA32E
+      description: Define values for the MonitorFeatures field of MSEG_HEADER.
+
+  - size: 32
+    name: GDTR_LIMIT
+    description: |
+      Fields that determine how processor state is loaded when the STM is activated.
+      SMM code should establish these fields so that activating of the STM invokes the STM’s initialization
+      code.
+    see: Vol3C[34.15.6.5(Loading Host State)]
+
+  - size: 32
+    name: GDTR_BASE_OFFSET
+
+  - size: 32
+    name: CS_SELECTOR
+
+  - size: 32
+    name: EIP_OFFSET
+
+  - size: 32
+    name: ESP_OFFSET
+
+  - size: 32
+    name: CR3_OFFSET
+
+  # TODO
+  #- size: 1984
+  #  name: Reserved
+  #  description: Pad header so total size is 2KB.
+
+- value: 0x9E
+  name: SMBASE
+  description: Base address of the logical processor’s SMRAM image.
+  access: RO, SMM only
+  remarks: |
+    If IA32_VMX_MISC[15]
+
+- name: PMC
+  short_description: IA32_PMC(n)
+  long_description: General Performance Counters.
+  access: R/W
+  type: group
+  remarks: |
+    If CPUID.0AH: EAX[15:8] > n
+  fields:
+  - value: 0xC1
+    name: PMC0
+  - value: 0xC2
+    name: PMC1
+  - value: 0xC3
+    name: PMC2
+  - value: 0xC4
+    name: PMC3
+  - value: 0xC5
+    name: PMC4
+  - value: 0xC6
+    name: PMC5
+  - value: 0xC7
+    name: PMC6
+  - value: 0xC8
+    name: PMC7
+
+- value: 0xE7
+  name: MPERF
+  description: TSC Frequency Clock Counter.
+  access: R/Write to clear
+  remarks: |
+    If CPUID.06H: ECX[0] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: struct
+    fields:
+    - size: 64
+      name: C0_MCNT
+      short_description: C0 TSC Frequency Clock Count
+      long_description: |
+        Increments at fixed interval (relative to TSC
+        freq.) when the logical processor is in C0. Cleared upon overflow / wrap-around of
+        IA32_APERF.
+
+- value: 0xE8
+  name: APERF
+  description: Actual Performance Clock Counter
+  access: R/Write to clear
+  remarks: |
+    If CPUID.06H: ECX[0] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: struct
+    fields:
+    - size: 64
+      name: C0_ACNT
+      short_description: C0 Actual Frequency Clock Count
+      long_description: |
+        Accumulates core clock counts at the
+        coordinated clock frequency, when the logical processor is in C0.
+        Cleared upon overflow / wrap-around of IA32_MPERF.
+
+- value: 0xFE
+  short_name: MTRRCAP
+  long_name: MTRR_CAPABILITIES
+  alternative_name: MTRR_CAPABILITIES
+  description: MTRR Capability.
+  access: RO
+  see: Vol3A[11.11.2.1(IA32_MTRR_DEF_TYPE MSR)]
+  reference: Vol3A[11.11.1(MTRR Feature Identification)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      short_name: VCNT
+      long_name: VARIABLE_RANGE_REGISTERS_COUNT
+      alternative_name: VARIABLE_RANGE_COUNT
+      short_description: VCNT (variable range registers count) field
+      long_description: |
+        Indicates the number of variable ranges implemented on the processor.
+
+    - bit: 8
+      short_name: FIX
+      long_name: FIXED_RANGE_REGISTERS_SUPPORTED
+      alternative_name: FIXED_RANGE_SUPPORTED
+      short_description: FIX (fixed range registers supported) flag
+      long_description: |
+        Fixed range MTRRs (IA32_MTRR_FIX64K_00000
+        through IA32_MTRR_FIX4K_0F8000) are supported when set; no fixed range registers are supported when
+        clear.
+
+    - bit: 10
+      short_name: WC
+      long_name: WRITE_COMBINING
+      alternative_name: WC_SUPPORTED
+      short_description: WC (write combining) flag
+      long_description: |
+        The write-combining (WC) memory type is supported when set; the
+        WC type is not supported when clear.
+
+    - bit: 11
+      short_name: SMRR
+      long_name: SYSTEM_MANAGEMENT_RANGE_REGISTER
+      alternative_name: SMRR_SUPPORTED
+      short_description: SMRR (System-Management Range Register) flag
+      long_description: |
+        The system-management range register
+        (SMRR) interface is supported when bit 11 is set; the SMRR interface is not supported when clear.
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x100 - 0x1FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0x10A
+  name: ARCH_CAPABILITIES
+  description: Enumeration of Architectural Features.
+  access: RO
+  remarks: If CPUID.(EAX=07H,ECX=0):EDX[29]=1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: RDCL_NO
+      description: |
+        RDCL_NO: The processor is not susceptible to Rogue Data Cache Load (RDCL).
+
+    - bit: 1
+      name: IBRS_ALL
+      description: |
+        IBRS_ALL: The processor supports enhanced IBRS.
+
+    - bit: 2
+      name: RSBA
+      description: |
+        RSBA: The processor supports RSB Alternate. Alternative branch predictors may be used
+        by RET instructions when the RSB is empty. SW using retpoline may be affected by
+        this behavior.
+
+    - bit: 3
+      name: SKIP_L1DFL_VMENTRY
+      description: |
+        SKIP_L1DFL_VMENTRY: A value of 1 indicates the hypervisor need not flush the L1D on VM entry.
+
+    - bit: 4
+      name: SSB_NO
+      description: |
+        SSB_NO: Processor is not susceptible to Speculative Store Bypass.
+
+    - bit: 5
+      name: MDS_NO
+      description: |
+        MDS_NO: Processor is not susceptible to Microarchitectural Data Sampling (MDS).
+
+    - bit: 6
+      name: IF_PSCHANGE_MC_NO
+      description: |
+        IF_PSCHANGE_MC_NO: The processor is not susceptible to a machine check error due to modifying
+        the size of a code page without TLB invalidation.
+
+    - bit: 7
+      name: TSX_CTRL
+      description: |
+        TSX_CTRL: If 1, indicates presence of IA32_TSX_CTRL MSR.
+
+    - bit: 8
+      name: TAA_NO
+      description: |
+        TAA_NO: If 1, processor is not affected by TAA.
+
+- value: 0x10B
+  name: FLUSH_CMD
+  description: |
+    Flush Command. Gives software a way to invalidate structures with finer granularity
+    than other architectural methods.
+  access: WO
+  remarks: If any one of the enumeration conditions for defined bit field positions holds.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: L1D_FLUSH
+      description: |
+        L1D_FLUSH: Writeback and invalidate the L1 data cache.
+      remarks: If CPUID.(EAX=07H,ECX=0):EDX[28]=1
+
+- value: 0x122
+  name: TSX_CTRL
+  description: |
+    Flush Command. Gives software a way to invalidate structures with finer granularity
+    than other architectural methods.
+  access: WO
+  remarks: |
+    Thread scope. Not architecturally serializing.
+
+    Available when CPUID.ARCH_CAP(EAX=7H,ECX = 0):EDX[29] = 1 and IA32_ARCH_CAPABILITIES.bit 7 = 1.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: RTM_DISABLE
+      description: |
+        RTM_DISABLE: When set to 1, XBEGIN will always abort with EAX code 0.
+
+    - bit: 1
+      name: TSX_CPUID_CLEAR
+      description: |
+        TSX_CPUID_CLEAR: When set to 1, CPUID.07H.EBX.RTM [bit 11] and CPUID.07H.EBX.HLE [bit 4]
+        report 0. When set to 0 and the SKU supports TSX, these bits will return 1.
+
+- value: 0x174
+  name: SYSENTER_CS
+  short_description: SYSENTER_CS_MSR
+  long_description: |
+    The lower 16 bits of this MSR are the segment selector for the
+    privilege level 0 code segment. This value is also used to determine the segment selector of the privilege level
+    0 stack segment. This value cannot indicate a null selector.
+  access: R/W
+  remarks: 06_01H
+  reference: Vol2B[4.3(Instructions (M-U) | SYSCALL - Fast System Call)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-15
+      short_name: CS
+      long_name: CS_SELECTOR
+      description: CS Selector.
+
+    - bit: 16-31
+      name: NOT_USED_1
+      description: Not used.
+      remarks: Can be read and written.
+
+    - bit: 32-63
+      name: NOT_USED_2
+      description: Not used.
+      remarks: Writes ignored; reads return zero.
+
+- value: 0x175
+  name: SYSENTER_ESP
+  short_description: SYSENTER_ESP_MSR
+  long_description: |
+    The value of this MSR is loaded into RSP (thus, this value
+    contains the stack pointer for the privilege level 0 stack). This value cannot represent a non-canonical address.
+    In protected mode, only bits 31:0 are loaded.
+  access: R/W
+  remarks: 06_01H
+  reference: Vol2B[4.3(Instructions (M-U) | SYSCALL - Fast System Call)]
+
+- value: 0x176
+  name: SYSENTER_EIP
+  short_description: SYSENTER_EIP_MSR
+  long_description: |
+    The value of this MSR is loaded into RIP (thus, this value
+    references the first instruction of the selected operating procedure or routine). In protected mode, only
+    bits 31:0 are loaded.
+  access: R/W
+  remarks: 06_01H
+  reference: Vol2B[4.3(Instructions (M-U) | SYSCALL - Fast System Call)]
+
+- value: 0x179
+  name: MCG_CAP
+  description: Global Machine Check Capability.
+  access: RO
+  todo: LongNames/ShortNames/Description
+  remarks: 06_01H
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      short_name: COUNT
+      long_name: COUNT
+      description: Number of reporting banks.
+
+    - bit: 8
+      name: MCG_CTL_P
+      description: IA32_MCG_CTL is present if this bit is set.
+
+    - bit: 9
+      name: MCG_EXT_P
+      description: Extended machine check state registers are present if this bit is set.
+
+    - bit: 10
+      name: MCP_CMCI_P
+      description: Support for corrected MC error event is present.
+      remarks: 06_01H
+
+    - bit: 11
+      name: MCG_TES_P
+      description: Threshold-based error status register are present if this bit is set.
+
+    - bit: 16-23
+      name: MCG_EXT_CNT
+      description: Number of extended machine check state registers present.
+
+    - bit: 24
+      name: MCG_SER_P
+      description: The processor supports software error recovery if this bit is set.
+
+    - bit: 26
+      name: MCG_ELOG_P
+      description: |
+        Indicates that the processor allows platform firmware to be invoked
+        when an error is detected so that it may provide additional platform specific
+        information in an ACPI format “Generic Error Data Entry” that augments the data
+        included in machine check bank registers.
+      remarks: 06_3EH
+
+    - bit: 27
+      name: MCG_LMCE_P
+      description: |
+        Indicates that the processor supports extended state in
+        IA32_MCG_STATUS and associated MSR necessary to configure Local Machine
+        Check Exception (LMCE).
+      remarks: 06_3EH
+
+- value: 0x17A
+  name: MCG_STATUS
+  description: Global Machine Check Status.
+  access: R/W0
+  todo: LongNames/ShortNames/Description
+  remarks: 06_01H
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: RIPV
+      description: Restart IP valid.
+      remarks: 06_01H
+
+    - bit: 1
+      name: EIPV
+      description: Error IP valid.
+      remarks: 06_01H
+
+    - bit: 2
+      name: MCIP
+      description: Machine check in progress.
+      remarks: 06_01H
+
+    - bit: 3
+      name: LMCE_S
+      description: If IA32_MCG_CAP.LMCE_P[27] = 1.
+
+- value: 0x17B
+  name: MCG_CTL
+  description: Global Machine Check Control.
+  access: R/W
+  todo: More description
+  remarks: If IA32_MCG_CAP.CTL_P[8] = 1
+
+- name: PERFEVTSEL
+  short_description: IA32_PERFEVTSEL(n)
+  long_description: Performance Event Select Register n.
+  access: R/W
+  type: group
+  remarks: |
+    If CPUID.0AH: EAX[15:8] > n
+  fields:
+  - value: 0x186
+    name: PERFEVTSEL0
+  - value: 0x187
+    name: PERFEVTSEL1
+  - value: 0x188
+    name: PERFEVTSEL2
+  - value: 0x189
+    name: PERFEVTSEL3
+
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      name: EVENT_SELECT
+      description: Selects a performance event logic unit.
+
+    - bit: 8-15
+      name: U_MASK
+      description: Qualifies the microarchitectural condition to detect on the selected event logic.
+
+    - bit: 16
+      name: USR
+      description: Counts while in privilege level is not ring 0.
+
+    - bit: 17
+      name: OS
+      description: Counts while in privilege level is ring 0.
+
+    - bit: 18
+      name: EDGE
+      description: Enables edge detection if set.
+
+    - bit: 19
+      name: PC
+      description: Enables pin control.
+
+    - bit: 20
+      name: INTR # INT
+      description: Enables interrupt on counter overflow.
+
+    - bit: 21
+      name: ANY_THREAD
+      description: |
+        When set to 1, it enables counting the associated event conditions
+        occurring across all logical processors sharing a processor core. When set to 0, the
+        counter only increments the associated event conditions occurring in the logical
+        processor which programmed the MSR.
+
+    - bit: 22
+      name: EN
+      description: |
+        Enables the corresponding performance counter to commence counting when this
+        bit is set.
+
+    - bit: 23
+      name: INV
+      description: Invert the CMASK.
+
+    - bit: 24-31
+      name: CMASK
+      description: |
+        When CMASK is not zero, the corresponding performance counter
+        increments each cycle if the event count is greater than or equal to the CMASK.
+
+- value: 0x198
+  name: PERF_STATUS
+  description: Current Performance Status.
+  access: RO
+  remarks: 0F_03H
+  see: Vol3B[14.1.1(Software Interface For Initiating Performance State Transitions)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - size: 16
+      bit: 0-15
+      short_name: STATE
+      long_name: CURRENT_PERFORMANCE_STATE_VALUE
+      alternative_name: STATE_VALUE
+      description: Current performance State Value.
+
+- value: 0x199
+  name: PERF_CTL
+  short_description: Performance Control
+  long_description: |
+    Performance Control. Software makes a request for a new
+    Performance state (P-State) by writing this MSR.
+  access: R/W
+  remarks: 0F_03H
+  see: Vol3B[14.1.1(Software Interface For Initiating Performance State Transitions)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-15
+      short_name: TARGET_STATE
+      long_name: TARGET_PERFORMANCE_STATE_VALUE
+      alternative_name: TARGET_STATE_VALUE
+      description: Target performance State Value.
+
+    - bit: 32
+      short_name: IDA
+      long_name: IDA_ENGAGE
+      alternative_name: IDA_ENGAGE
+      description: IDA Engage.
+      access: R/W
+      remarks: 06_0FH (Mobile only)
+
+- value: 0x19A
+  name: CLOCK_MODULATION
+  description: Clock Modulation Control.
+  access: R/W
+  remarks: |
+    If CPUID.01H:EDX[22] = 1
+  see: Vol3B[14.7.3(Software Controlled Clock Modulation)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: EXTENDED_ON_DEMAND_CLOCK_MODULATION_DUTY_CYCLE
+      description: Extended On-Demand Clock Modulation Duty Cycle.
+      remarks: |
+        If CPUID.06H:EAX[5] = 1
+
+    - bit: 1-3
+      name: ON_DEMAND_CLOCK_MODULATION_DUTY_CYCLE
+      short_description: On-Demand Clock Modulation Duty Cycle
+      long_description: |
+        On-Demand Clock Modulation Duty Cycle: Specific encoded values for target duty
+        cycle modulation.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 4
+      name: ON_DEMAND_CLOCK_MODULATION_ENABLE
+      short_description: On-Demand Clock Modulation Enable
+      long_description: |
+        On-Demand Clock Modulation Enable: Set 1 to enable modulation.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+- value: 0x19B
+  name: THERM_INTERRUPT
+  short_description: Thermal Interrupt Control
+  long_description: |
+    Thermal Interrupt Control. Enables and disables the generation of an
+    interrupt on temperature transitions detected with the processor’s thermal
+    sensors and thermal monitor.
+  access: R/W
+  remarks: |
+    If CPUID.01H:EDX[22] = 1
+  see: Vol3B[14.7.2(Thermal Monitor)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: HIGH_TEMP_ENABLE
+      long_name: HIGH_TEMPERATURE_INTERRUPT_ENABLE
+      description: |
+        High-Temperature Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 1
+      short_name: LOW_TEMP_ENABLE
+      long_name: LOW_TEMPERATURE_INTERRUPT_ENABLE
+      description: |
+        Low-Temperature Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 2
+      short_name: PROCHOT_ENABLE
+      long_name: PROCHOT_INTERRUPT_ENABLE
+      description: |
+        PROCHOT# Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 3
+      short_name: FORCEPR_ENABLE
+      long_name: FORCEPR_INTERRUPT_ENABLE
+      description: |
+        FORCEPR# Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 4
+      short_name: CRITICAL_TEMP_ENABLE
+      long_name: CRITICAL_TEMPERATURE_INTERRUPT_ENABLE
+      description: |
+        Critical Temperature Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 8-14
+      short_name: THRESHOLD1
+      long_name: THRESHOLD1_VALUE
+      description: |
+        Threshold #1 Value
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 15
+      short_name: THRESHOLD1_ENABLE
+      long_name: THRESHOLD1_INTERRUPT_ENABLE
+      description: |
+        Threshold #1 Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 16-22
+      short_name: THRESHOLD2
+      long_name: THRESHOLD2_VALUE
+      description: |
+        Threshold #2 Value.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 23
+      short_name: THRESHOLD2_ENABLE
+      long_name: THRESHOLD2_INTERRUPT_ENABLE
+      description: |
+        Threshold #2 Interrupt Enable.
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 24
+      name: POWER_LIMIT_NOTIFICATION_ENABLE
+      description: |
+        Power Limit Notification Enable.
+      remarks: |
+        If CPUID.06H:EAX[4] = 1
+
+- value: 0x19C
+  name: THERM_STATUS
+  short_description: Thermal Status Information
+  long_description: |
+    Thermal Status Information. Contains status information about the
+    processor’s thermal sensor and automatic thermal monitoring facilities.
+  access: RO
+  remarks: |
+    If CPUID.01H:EDX[22] = 1
+  see: Vol3B[14.7.2(Thermal Monitor)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: THERMAL_STATUS
+      description: |
+        Thermal Status
+      access: RO
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 1
+      name: THERMAL_STATUS_LOG
+      description: |
+        Thermal Status Log
+      access: R/W
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 2
+      name: PROCHOT_FORCEPR_EVENT
+      description: |
+        PROCHOT # or FORCEPR# event
+      access: RO
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 3
+      name: PROCHOT_FORCEPR_LOG
+      description: |
+        PROCHOT # or FORCEPR# log
+      access: R/WC0
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 4
+      short_name: CRITICAL_TEMP_STATUS
+      long_name: CRITICAL_TEMPERATURE_STATUS
+      description: |
+        Critical Temperature Status
+      access: RO
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 5
+      short_name: CRITICAL_TEMP_STATUS_LOG
+      long_name: CRITICAL_TEMPERATURE_STATUS_LOG
+      description: |
+        Critical Temperature Status log
+      access: R/WC0
+      remarks: |
+        If CPUID.01H:EDX[22] = 1
+
+    - bit: 6
+      name: THERMAL_THRESHOLD1_STATUS
+      description: |
+        Thermal Threshold #1 Status
+      access: RO
+      remarks: |
+        If CPUID.01H:ECX[8] = 1
+
+    - bit: 7
+      name: THERMAL_THRESHOLD1_LOG
+      description: |
+        Thermal Threshold #1 log
+      access: R/WC0
+      remarks: |
+        If CPUID.01H:ECX[8] = 1
+
+    - bit: 8
+      name: THERMAL_THRESHOLD2_STATUS
+      description: |
+        Thermal Threshold #2 Status
+      access: RO
+      remarks: |
+        If CPUID.01H:ECX[8] = 1
+
+    - bit: 9
+      name: THERMAL_THRESHOLD2_LOG
+      description: |
+        Thermal Threshold #2 log
+      access: R/WC0
+      remarks: |
+        If CPUID.01H:ECX[8] = 1
+
+    - bit: 10
+      name: POWER_LIMITATION_STATUS
+      description: |
+        Power Limitation Status
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[4] = 1
+
+    - bit: 11
+      name: POWER_LIMITATION_LOG
+      description: |
+        Power Limitation log
+      access: R/WC0
+      remarks: |
+        If CPUID.06H:EAX[4] = 1
+
+    - bit: 12
+      name: CURRENT_LIMIT_STATUS
+      description: |
+        Current Limit Status
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[7] = 1
+
+    - bit: 13
+      name: CURRENT_LIMIT_LOG
+      description: |
+        Current Limit log
+      access: R/WC0
+      remarks: |
+        If CPUID.06H:EAX[7] = 1
+
+    - bit: 14
+      name: CROSS_DOMAIN_LIMIT_STATUS
+      description: |
+        Cross Domain Limit Status
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[7] = 1
+
+    - bit: 15
+      name: CROSS_DOMAIN_LIMIT_LOG
+      description: |
+        Cross Domain Limit log
+      access: R/WC0
+      remarks: |
+        If CPUID.06H:EAX[7] = 1
+
+    - bit: 16-22
+      name: DIGITAL_READOUT
+      description: |
+        Digital Readout
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[0] = 1
+
+    - bit: 27-30
+      name: RESOLUTION_IN_DEGREES_CELSIUS
+      description: |
+        Resolution in Degrees Celsius
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[0] = 1
+
+    - bit: 31
+      name: READING_VALID
+      description: |
+        Reading Valid
+      access: RO
+      remarks: |
+        If CPUID.06H:EAX[0] = 1
+
+- value: 0x1A0
+  name: MISC_ENABLE
+  short_description: Enable Misc. Processor Features
+  long_description: |
+     Allows a variety of processor functions to be enabled and disabled.
+  access: R/W
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: FAST_STRINGS
+      long_name: FAST_STRINGS_ENABLE
+      short_description: Fast-Strings Enable
+      long_description: |
+        When set, the fast-strings feature (for REP MOVS and REP STORS) is enabled (default).
+        When clear, fast-strings are disabled.
+      remarks: 0F_0H
+
+    - bit: 3
+      short_name: AUTOMATIC_THERMAL_CONTROL_CIRCUIT
+      long_name: AUTOMATIC_THERMAL_CONTROL_CIRCUIT_ENABLE
+      short_description: Automatic Thermal Control Circuit Enable
+      long_description: |
+        - 1 = Setting this bit enables the thermal control circuit (TCC) portion of the
+          Intel Thermal Monitor feature. This allows the processor to automatically
+          reduce power consumption in response to TCC activation.
+
+        - 0 = Disabled.
+      note: |
+        In some products clearing this bit might be ignored in critical thermal
+        conditions, and TM1, TM2 and adaptive thermal throttling will still be activated.
+        The default value of this field varies with product.
+      access: R/W
+      remarks: 0F_0H
+
+    - bit: 7
+      short_name: PERFORMANCE_MONITORING
+      long_name: PERFORMANCE_MONITORING_AVAILABLE
+      short_description: Performance Monitoring Available
+      long_description: |
+        - 1 = Performance monitoring enabled.
+
+        - 0 = Performance monitoring disabled.
+      access: R
+      remarks: 0F_0H
+
+    - bit: 11
+      short_name: BTS
+      long_name: BRANCH_TRACE_STORAGE_UNAVAILABLE
+      short_description: Branch Trace Storage Unavailable
+      long_description: |
+        - 1 = Processor doesn’t support branch trace storage (BTS).
+
+        - 0 = BTS is supported.
+      access: RO
+      remarks: 0F_0H
+
+    - bit: 12
+      short_name: PEBS
+      long_name: PROCESSOR_EVENT_BASED_SAMPLING_UNAVAILABLE
+      short_description: Processor Event Based Sampling (PEBS) Unavailable
+      long_description: |
+        - 1 = PEBS is not supported.
+
+        - 0 = PEBS is supported.
+      access: RO
+      remarks: 06_0FH
+
+    - bit: 16
+      short_name: EIST
+      long_name: ENHANCED_INTEL_SPEEDSTEP_TECHNOLOGY_ENABLE
+      short_description: Enhanced Intel SpeedStep Technology Enable
+      long_description: |
+        - 0 = Enhanced Intel SpeedStep Technology disabled.
+
+        - 1 = Enhanced Intel SpeedStep Technology enabled.
+      access: R/W
+      remarks: |
+        If CPUID.01H: ECX[7] = 1
+
+    - bit: 18
+      short_name: MONITOR
+      long_name: ENABLE_MONITOR_FSM
+      short_description: ENABLE MONITOR FSM
+      long_description: |
+        When this bit is set to 0, the MONITOR feature flag is not set (CPUID.01H:ECX[bit3] = 0).
+        This indicates that MONITOR/MWAIT are not supported. Software attempts to execute
+        MONITOR/MWAIT will cause #UD when this bit is 0.
+
+        When this bit is set to 1 (default), MONITOR/MWAIT are supported
+        (CPUID.01H:ECX[bit 3] = 1). If the SSE3 feature flag ECX[0] is not set
+        (CPUID.01H:ECX[bit 0] = 0), the OS must not attempt to alter this bit. BIOS must
+        leave it in the default state. Writing this bit when the SSE3 feature flag is set to 0 may
+        generate a #GP exception.
+      access: R/W
+      remarks: 0F_03H
+
+    - bit: 22
+      name: LIMIT_CPUID_MAXVAL
+      short_description: Limit CPUID Maxval
+      long_description: |
+        When this bit is set to 1, CPUID.00H returns a maximum value in EAX[7:0] of 2.
+        BIOS should contain a setup question that allows users to specify when the installed
+        OS does not support CPUID functions greater than 2.
+
+        Before setting this bit, BIOS must execute the CPUID.0H and examine the maximum
+        value returned in EAX[7:0]. If the maximum value is greater than 2, this bit is
+        supported.
+
+        Otherwise, this bit is not supported. Setting this bit when the maximum value is not
+        greater than 2 may generate a #GP exception.
+        Setting this bit may cause unexpected behavior in software that depends on the
+        availability of CPUID leaves greater than 2.
+      access: R/W
+      remarks: 0F_03H
+
+    - bit: 23
+      name: (x)TPR_MESSAGE_DISABLE
+      short_description: xTPR Message Disable
+      long_description: |
+        When set to 1, xTPR messages are disabled. xTPR messages are optional
+        messages that allow the processor to inform the chipset of its priority.
+      access: R/W
+      remarks: |
+        If CPUID.01H:ECX[14] = 1
+
+    - bit: 34
+      short_name: XD
+      long_name: XD_BIT_DISABLE
+      short_description: XD Bit Disable
+      long_description: |
+        When set to 1, the Execute Disable Bit feature (XD Bit) is disabled and the XD Bit
+        extended feature flag will be clear (CPUID.80000001H: EDX[20]=0).
+
+        When set to a 0 (default), the Execute Disable Bit feature (if available) allows the
+        OS to enable PAE paging and take advantage of data only pages.
+
+        BIOS must not alter the contents of this bit location, if XD bit is not supported. Writing
+        this bit to 1 when the XD Bit extended feature flag is set to 0 may generate a #GP
+        exception.
+      access: R/W
+      remarks: |
+        If CPUID.80000001H:EDX[20] = 1
+
+- value: 0x1B0
+  name: ENERGY_PERF_BIAS
+  description: Performance Energy Bias Hint.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.6H:ECX[3] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-3
+      name: POWER_POLICY_PREFERENCE
+      short_description: Power Policy Preference
+      long_description: |
+        - 0 indicates preference to highest performance.
+
+        - 15 indicates preference to maximize energy saving.
+
+- value: 0x1B1
+  name: PACKAGE_THERM_STATUS
+  short_description: Package Thermal Status Information
+  long_description: |
+    Package Thermal Status Information. Contains status information about the
+    package’s thermal sensor.
+  access: RO
+  remarks: |
+    If CPUID.06H: EAX[6] = 1
+  see: Vol3B[14.8(PACKAGE LEVEL THERMAL MANAGEMENT)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: THERMAL_STATUS
+      description: |
+        Pkg Thermal Status
+      access: RO
+
+    - bit: 1
+      name: THERMAL_STATUS_LOG
+      description: |
+        Pkg Thermal Status Log
+      access: R/W
+
+    - bit: 2
+      name: PROCHOT_EVENT
+      description: |
+        Pkg PROCHOT # event
+      access: RO
+
+    - bit: 3
+      name: PROCHOT_LOG
+      description: |
+        Pkg PROCHOT # log
+      access: R/WC0
+
+    - bit: 4
+      short_name: CRITICAL_TEMP_STATUS
+      long_name: CRITICAL_TEMPERATURE_STATUS
+      description: |
+        Pkg Critical Temperature Status
+      access: RO
+
+    - bit: 5
+      short_name: CRITICAL_TEMP_STATUS_LOG
+      long_name: CRITICAL_TEMPERATURE_STATUS_LOG
+      description: |
+        Pkg Critical Temperature Status Log
+      access: R/WC0
+
+    - bit: 6
+      name: THERMAL_THRESHOLD1_STATUS
+      description: |
+        Pkg Thermal Threshold #1 Status
+      access: RO
+
+    - bit: 7
+      name: THERMAL_THRESHOLD1_LOG
+      description: |
+        Pkg Thermal Threshold #1 log
+      access: R/WC0
+
+    - bit: 8
+      name: THERMAL_THRESHOLD2_STATUS
+      description: |
+        Pkg Thermal Threshold #2 Status
+      access: RO
+
+    - bit: 9
+      name: THERMAL_THRESHOLD2_LOG
+      description: |
+        Pkg Thermal Threshold #2 log
+      access: R/WC0
+
+    - bit: 10
+      name: POWER_LIMITATION_STATUS
+      description: |
+        Pkg Power Limitation Status
+      access: RO
+
+    - bit: 11
+      name: POWER_LIMITATION_LOG
+      description: |
+        Pkg Power Limitation log
+      access: R/WC0
+
+    - bit: 16-22
+      name: DIGITAL_READOUT
+      description: |
+        Pkg Digital Readout
+      access: RO
+
+- value: 0x1B2
+  name: PACKAGE_THERM_INTERRUPT
+  short_description: Package Thermal Interrupt Control
+  long_description: |
+    Enables and disables the generation of an
+    interrupt on temperature transitions detected with the package’s thermal
+    sensor.
+  access: RO
+  remarks: |
+    If CPUID.06H: EAX[6] = 1
+  see: Vol3B[14.8(PACKAGE LEVEL THERMAL MANAGEMENT)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: HIGH_TEMP_ENABLE
+      long_name: HIGH_TEMPERATURE_INTERRUPT_ENABLE
+      description: |
+        Pkg High-Temperature Interrupt Enable.
+
+    - bit: 1
+      short_name: LOW_TEMP_ENABLE
+      long_name: LOW_TEMPERATURE_INTERRUPT_ENABLE
+      description: |
+        Pkg Low-Temperature Interrupt Enable.
+
+    - bit: 2
+      short_name: PROCHOT_ENABLE
+      long_name: PROCHOT_INTERRUPT_ENABLE
+      description: |
+        Pkg PROCHOT# Interrupt Enable.
+
+    - bit: 4
+      short_name: OVERHEAT_ENABLE
+      long_name: OVERHEAT_INTERRUPT_ENABLE
+      description: |
+        Pkg Overheat Interrupt Enable.
+
+    - bit: 8-14
+      short_name: THRESHOLD1
+      long_name: THRESHOLD1_VALUE
+      description: |
+        Pkg Threshold #1 Value
+
+    - bit: 15
+      short_name: THRESHOLD1_ENABLE
+      long_name: THRESHOLD1_INTERRUPT_ENABLE
+      description: |
+        Pkg Threshold #1 Interrupt Enable.
+
+    - bit: 16-22
+      short_name: THRESHOLD2
+      long_name: THRESHOLD2_VALUE
+      description: |
+        Pkg Threshold #2 Value.
+
+    - bit: 23
+      short_name: THRESHOLD2_ENABLE
+      long_name: THRESHOLD2_INTERRUPT_ENABLE
+      description: |
+        Pkg Threshold #2 Interrupt Enable.
+
+    - bit: 24
+      name: POWER_LIMIT_NOTIFICATION_ENABLE
+      description: |
+        Pkg Power Limit Notification Enable.
+
+- value: 0x1D9
+  name: DEBUGCTL
+  description: Trace/Profile Resource Control.
+  access: R/W
+  remarks: 06_0EH
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: LBR
+      long_name: LBR
+      description: |
+        Setting this bit to 1 enables the processor to record a running trace of the
+        most recent branches taken by the processor in the LBR stack.
+      remarks: 06_01H
+
+    - bit: 1
+      short_name: BTF
+      long_name: BTF
+      description: |
+        Setting this bit to 1 enables the processor to treat EFLAGS.TF as single-step
+        on branches instead of single-step on instructions.
+      remarks: 06_01H
+
+    - bit: 6
+      short_name: TR
+      long_name: TR
+      description: Setting this bit to 1 enables branch trace messages to be sent.
+      remarks: 06_0EH
+
+    - bit: 7
+      short_name: BTS
+      long_name: BTS
+      description: |
+        Setting this bit enables branch trace messages (BTMs) to be logged in a BTS
+        buffer.
+      remarks: 06_0EH
+
+    - bit: 8
+      short_name: BTINT
+      long_name: BTINT
+      description: |
+        When clear, BTMs are logged in a BTS buffer in circular fashion. When this bit
+        is set, an interrupt is generated by the BTS facility when the BTS buffer is full.
+      remarks: 06_0EH
+
+    - bit: 9
+      short_name: BTS_OFF_OS
+      long_name: BTS_OFF_OS
+      description: |
+        When set, BTS or BTM is skipped if CPL = 0.
+      remarks: 06_0FH
+
+    - bit: 10
+      short_name: BTS_OFF_USR
+      long_name: BTS_OFF_USR
+      description: |
+        When set, BTS or BTM is skipped if CPL > 0.
+      remarks: 06_0FH
+
+    - bit: 11
+      short_name: FREEZE_LBRS_ON_PMI
+      long_name: FREEZE_LBRS_ON_PMI
+      description: |
+        When set, the LBR stack is frozen on a PMI request.
+      remarks: |
+        If CPUID.01H: ECX[15] = 1 && CPUID.0AH: EAX[7:0] > 1
+
+    - bit: 12
+      short_name: FREEZE_PERFMON_ON_PMI
+      long_name: FREEZE_PERFMON_ON_PMI
+      description: |
+        When set, each ENABLE bit of the global counter control MSR are frozen (address 38FH) on a
+        PMI request.
+      remarks: |
+        If CPUID.01H: ECX[15] = 1 && CPUID.0AH: EAX[7:0] > 1
+
+    - bit: 13
+      short_name: ENABLE_UNCORE_PMI
+      long_name: ENABLE_UNCORE_PMI
+      description: |
+        When set, enables the logical processor to receive and generate PMI on behalf of the uncore.
+      remarks: 06_1AH
+
+    - bit: 14
+      short_name: FREEZE_WHILE_SMM
+      long_name: FREEZE_WHILE_SMM
+      description: When set, freezes perfmon and trace messages while in SMM.
+      remarks: |
+        If IA32_PERF_CAPABILITIES[12] = 1
+
+    - bit: 15
+      short_name: RTM_DEBUG
+      long_name: RTM_DEBUG
+      description: When set, enables DR7 debug bit on XBEGIN.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[11] = 1)
+
+- value: 0x1F2
+  name: SMRR_PHYSBASE
+  short_description: SMRR Base Address
+  long_description: |
+    SMRR Base Address. Base address of SMM memory range.
+  access: Writeable only in SMM
+  remarks: |
+    If IA32_MTRRCAP.SMRR[11] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      short_name: TYPE
+      long_name: TYPE
+      short_description: Type
+      long_description: |
+        Type. Specifies memory type of the range.
+
+    - bit: 12-31
+      short_name: PHYS_BASE
+      long_name: SMRR_PHYSICAL_BASE_ADDRESS
+      description: SMRR physical Base Address.
+
+- value: 0x1F3
+  name: SMRR_PHYSMASK
+  short_description: SMRR Range Mask
+  long_description: |
+    Range Mask of SMM memory range.
+  access: Writeable only in SMM
+  remarks: |
+    If IA32_MTRRCAP[SMRR] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 11
+      short_name: VALID
+      long_name: ENABLE_RANGE_MASK
+      description: Enable range mask.
+
+    - bit: 12-31
+      short_name: PHYS_MASK
+      long_name: SMRR_ADDRESS_RANGE_MASK
+      description: SMRR address range mask.
+
+- value: 0x1F8
+  name: PLATFORM_DCA_CAP
+  description: DCA Capability.
+  access: R
+  remarks: |
+    If CPUID.01H: ECX[18] = 1
+
+- value: 0x1F9
+  name: CPU_DCA_CAP
+  description: If set, CPU supports Prefetch-Hint type.
+  remarks: |
+    If CPUID.01H: ECX[18] = 1
+
+- value: 0x1FA
+  name: DCA_0_CAP
+  description: DCA type 0 Status and Control register.
+  remarks: |
+    If CPUID.01H: ECX[18] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: DCA_ACTIVE
+      description: Set by HW when DCA is fuseenabled and no defeatures are set.
+
+    - bit: 1-2
+      name: TRANSACTION
+      description: TRANSACTION.
+
+    - bit: 3-6
+      name: DCA_TYPE
+      description: DCA_TYPE.
+
+    - bit: 7-10
+      name: DCA_QUEUE_SIZE
+      description: DCA_QUEUE_SIZE.
+
+    - bit: 13-16
+      name: DCA_DELAY
+      description: Writes will update the register but have no HW side-effect.
+
+    - bit: 24
+      name: SW_BLOCK
+      description: SW can request DCA block by setting this bit.
+
+    - bit: 26
+      name: HW_BLOCK
+      description: Set when DCA is blocked by HW (e.g. CR0.CD = 1).
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x200 - 0x2FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- name: MTRR_PHYSBASE
+  short_description: IA32_MTRR_PHYSBASE(n)
+  long_description: IA32_MTRR_PHYSBASE(0-9).
+  type: group
+  remarks: |
+    If CPUID.01H: EDX.MTRR[12] = 1
+  see: Vol3A[11.11.2.3(Variable Range MTRRs)]
+  fields:
+  - name_with_suffix: REGISTER # MTRR_VARIABLE_BASE in WDK
+    type: bitfield
+    size: 64
+    reference: Vol3A[11.11.2.3(Variable Range MTRRs)]
+    fields:
+    - bit: 0-7
+      name: TYPE
+      description: Specifies the memory type for the range.
+
+    - bit: 12-(MAXPHYADDR-1)
+      short_name: PHYS_BASE
+      long_name: PHYSICAL_ADDRES_BASE
+      alternative_name: PAGE_FRAME_NUMBER
+      description: |
+        Specifies the base address of the address range.
+        This 24-bit value, in the case where MAXPHYADDR is 36 bits, is extended by 12 bits at the low end to form the
+        base address (this automatically aligns the address on a 4-KByte boundary).
+
+  - value: 0x200
+    name: MTRR_PHYSBASE0
+  - value: 0x202
+    name: MTRR_PHYSBASE1
+  - value: 0x204
+    name: MTRR_PHYSBASE2
+  - value: 0x206
+    name: MTRR_PHYSBASE3
+  - value: 0x208
+    name: MTRR_PHYSBASE4
+  - value: 0x20A
+    name: MTRR_PHYSBASE5
+  - value: 0x20C
+    name: MTRR_PHYSBASE6
+  - value: 0x20E
+    name: MTRR_PHYSBASE7
+  - value: 0x210
+    name: MTRR_PHYSBASE8
+    remarks: |
+      IA32_MTRRCAP[7:0] > 8
+  - value: 0x212
+    name: MTRR_PHYSBASE9
+    remarks: |
+      IA32_MTRRCAP[7:0] > 9
+
+- name: MTRR_PHYSMASK
+  short_description: IA32_MTRR_PHYSMASK(n)
+  long_description: IA32_MTRR_PHYSMASK(0-9).
+  type: group
+  remarks: |
+    If CPUID.01H: EDX.MTRR[12] = 1
+  see: Vol3A[11.11.2.3(Variable Range MTRRs)]
+  fields:
+  - name_with_suffix: REGISTER # MTRR_VARIABLE_MASK in WDK
+    type: bitfield
+    size: 64
+    reference: Vol3A[11.11.2.3(Variable Range MTRRs)]
+    fields:
+    - bit: 11
+      name: VALID
+      description: Enables the register pair when set; disables register pair when clear.
+
+    - bit: 12-(MAXPHYADDR-1)
+      short_name: PHYS_MASK
+      long_name: PHYSICAL_ADDRES_MASK
+      alternative_name: PAGE_FRAME_NUMBER
+      description: |
+        Specifies a mask (24 bits if the maximum physical
+        address size is 36 bits, 28 bits if the maximum physical address size is 40 bits). The mask determines the range
+        of the region being mapped, according to the following relationships:
+
+        - Address_Within_Range AND PhysMask = PhysBase AND PhysMask
+
+        - This value is extended by 12 bits at the low end to form the mask value.
+
+        - The width of the PhysMask field depends on the maximum physical address size supported by the
+        processor.
+
+        CPUID.80000008H reports the maximum physical address size supported by the processor. If
+        CPUID.80000008H is not available, software may assume that the processor supports a 36-bit physical
+        address size.
+      see: Vol3A[11.11.3(Example Base and Mask Calculations)]
+
+  - value: 0x201
+    name: MTRR_PHYSMASK0
+  - value: 0x203
+    name: MTRR_PHYSMASK1
+  - value: 0x205
+    name: MTRR_PHYSMASK2
+  - value: 0x207
+    name: MTRR_PHYSMASK3
+  - value: 0x209
+    name: MTRR_PHYSMASK4
+  - value: 0x20B
+    name: MTRR_PHYSMASK5
+  - value: 0x20D
+    name: MTRR_PHYSMASK6
+  - value: 0x20F
+    name: MTRR_PHYSMASK7
+  - value: 0x211
+    name: MTRR_PHYSMASK8
+    remarks: |
+      IA32_MTRRCAP[7:0] > 8
+  - value: 0x213
+    name: MTRR_PHYSMASK9
+    remarks: |
+      IA32_MTRRCAP[7:0] > 9
+
+- name: MTRR_FIX
+  description: IA32_MTRR_FIX(x).
+  type: group
+  remarks: |
+    If CPUID.01H: EDX.MTRR[12] = 1
+  see: Vol3A[11.11.2.2(Fixed Range MTRRs)]
+  fields:
+  - name: MTRR_FIX64K
+    description: IA32_MTRR_FIX64K(x).
+    type: group
+    fields:
+    - name: MTRR_FIX64K_BASE
+      value: 0
+      tag: Custom
+    - name: MTRR_FIX64K_SIZE
+      value: 0x10000
+      tag: Custom
+
+    - value: 0x250
+      name: MTRR_FIX64K_00000
+
+  - name: MTRR_FIX16K
+    description: IA32_MTRR_FIX16K(x).
+    type: group
+    fields:
+    - name: MTRR_FIX16K_BASE
+      value: 0x80000
+      tag: Custom
+    - name: MTRR_FIX16K_SIZE
+      value: 0x4000
+      tag: Custom
+
+    - value: 0x258
+      name: MTRR_FIX16K_80000
+    - value: 0x259
+      name: MTRR_FIX16K_A0000
+
+  - name: MTRR_FIX4K
+    description: IA32_MTRR_FIX4K(x).
+    type: group
+    fields:
+    - name: MTRR_FIX4K_BASE
+      value: 0xC0000
+      tag: Custom
+    - name: MTRR_FIX4K_SIZE
+      value: 0x1000
+      tag: Custom
+
+    - value: 0x268
+      name: MTRR_FIX4K_C0000
+    - value: 0x269
+      name: MTRR_FIX4K_C8000
+    - value: 0x26A
+      name: MTRR_FIX4K_D0000
+    - value: 0x26B
+      name: MTRR_FIX4K_D8000
+    - value: 0x26C
+      name: MTRR_FIX4K_E0000
+    - value: 0x26D
+      name: MTRR_FIX4K_E8000
+    - value: 0x26E
+      name: MTRR_FIX4K_F0000
+    - value: 0x26F
+      name: MTRR_FIX4K_F8000
+
+  - name: MTRR_FIX_COUNT
+    description: |
+      Architecture defined number of fixed range MTRRs (1 for 64k, 2 for 16k, 8 for 4k).
+    tag: Custom
+    value: ((1 + 2 + 8) * 8)
+
+  - name: MTRR_VARIABLE_COUNT
+    description: |
+      Architecture defined number of variable range MTRRs.
+      See: Table 2-2. IA-32 Architectural MSRs
+    see: Vol3A[2.1(ARCHITECTURAL MSRS)]
+    tag: Custom
+    value: 10
+
+  - name: MTRR_COUNT
+    description: |
+      A size of array to store all possible MTRRs.
+    tag: Custom
+    value: (IA32_MTRR_FIX_COUNT + IA32_MTRR_VARIABLE_COUNT)
+
+#
+# TODO: Memory types here? + Bitfield struct of result of PHYS_BASE/PHYS_MASK.
+#
+
+- value: 0x277
+  name: PAT
+  description: IA32_PAT.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.01H: EDX.MTRR[16] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-2
+      name: PA0
+      description: PA0.
+
+    - bit: 8-10
+      name: PA1
+      description: PA1.
+
+    - bit: 16-18
+      name: PA2
+      description: PA2.
+
+    - bit: 24-26
+      name: PA3
+      description: PA3.
+
+    - bit: 32-34
+      name: PA4
+      description: PA4.
+
+    - bit: 40-42
+      name: PA5
+      description: PA5.
+
+    - bit: 48-50
+      name: PA6
+      description: PA6.
+
+    - bit: 56-58
+      name: PA7
+      description: PA7.
+
+- name: MC_CTL2
+  short_description: IA32_MC(i)_CTL2
+  long_description: MSR to enable/disable CMCI capability for bank n.
+  access: R/W
+  todo: More description
+  type: group
+  remarks: |
+    If IA32_MCG_CAP[10] = 1 && IA32_MCG_CAP[7:0] > n
+  see: Vol3B[15.3.2.5(IA32_MCi_CTL2 MSRs)]
+  fields:
+  - value: 0x280
+    name: MC0_CTL2
+  - value: 0x281
+    name: MC1_CTL2
+  - value: 0x282
+    name: MC2_CTL2
+  - value: 0x283
+    name: MC3_CTL2
+  - value: 0x284
+    name: MC4_CTL2
+  - value: 0x285
+    name: MC5_CTL2
+  - value: 0x286
+    name: MC6_CTL2
+  - value: 0x287
+    name: MC7_CTL2
+  - value: 0x288
+    name: MC8_CTL2
+  - value: 0x289
+    name: MC9_CTL2
+  - value: 0x28A
+    name: MC10_CTL2
+  - value: 0x28B
+    name: MC11_CTL2
+  - value: 0x28C
+    name: MC12_CTL2
+  - value: 0x28D
+    name: MC13_CTL2
+  - value: 0x28E
+    name: MC14_CTL2
+  - value: 0x28F
+    name: MC15_CTL2
+  - value: 0x290
+    name: MC16_CTL2
+  - value: 0x291
+    name: MC17_CTL2
+  - value: 0x292
+    name: MC18_CTL2
+  - value: 0x293
+    name: MC19_CTL2
+  - value: 0x294
+    name: MC20_CTL2
+  - value: 0x295
+    name: MC21_CTL2
+  - value: 0x296
+    name: MC22_CTL2
+  - value: 0x297
+    name: MC23_CTL2
+  - value: 0x298
+    name: MC24_CTL2
+  - value: 0x299
+    name: MC25_CTL2
+  - value: 0x29A
+    name: MC26_CTL2
+  - value: 0x29B
+    name: MC27_CTL2
+  - value: 0x29C
+    name: MC28_CTL2
+  - value: 0x29D
+    name: MC29_CTL2
+  - value: 0x29E
+    name: MC30_CTL2
+  - value: 0x29F
+    name: MC31_CTL2
+
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-14
+      name: CORRECTED_ERROR_COUNT_THRESHOLD
+      description: Corrected error count threshold.
+    - bit: 30
+      name: CMCI_EN
+      description: CMCI_EN.
+
+- value: 0x2FF
+  name: MTRR_DEF_TYPE # MTRR_DEFAULT in WDK
+  description: IA32_MTRR_DEF_TYPE.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.01H: EDX.MTRR[12] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-2
+      short_name: TYPE
+      long_name: DEFAULT_MEMORY_TYPE
+      description: Default Memory Type.
+
+    - bit: 10
+      short_name: FE
+      long_name: FIXED_RANGE_MTRR_ENABLE
+      description: Fixed Range MTRR Enable.
+
+    - bit: 11
+      short_name: E
+      long_name: MTRR_ENABLE
+      description: MTRR Enable.
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x300 - 0x3FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- name: FIXED_CTR
+  short_description: IA32_FIXED_CTR(n)
+  long_description: Fixed-Function Performance Counter n.
+  access: R/W
+  todo: More description
+  type: group
+  remarks: |
+    If CPUID.0AH: EDX[4:0] > n
+  fields:
+  - value: 0x309
+    name: FIXED_CTR0
+    description: Counts Instr_Retired.Any.
+  - value: 0x30A
+    name: FIXED_CTR1
+    description: Counts CPU_CLK_Unhalted.Core
+  - value: 0x30B
+    name: FIXED_CTR2
+    description: Counts CPU_CLK_Unhalted.Ref
+
+- value: 0x345
+  name: PERF_CAPABILITIES
+  description: |
+    Read Only MSR that enumerates the existence of performance monitoring features.
+  access: RO
+  todo: More description
+  remarks: |
+    If CPUID.01H: ECX[15] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-5
+      short_name: LBR_FMT
+      long_name: LBR_FORMAT
+      description: LBR format.
+
+    - bit: 6
+      short_name: PEBS_TRAP
+      long_name: PEBS_TRAP
+      description: PEBS Trap.
+
+    - bit: 7
+      short_name: PEBS_ARCH_REG
+      long_name: PEBS_SAVE_ARCH_REGS
+      description: PEBSSaveArchRegs.
+
+    - bit: 8-11
+      short_name: PEBS_REC_FMT
+      long_name: PEBS_RECORD_FORMAT
+      description: PEBS Record Format.
+
+    - bit: 12
+      short_name: SMM_FREEZE
+      long_name: FREEZE_WHILE_SMM_IS_SUPPORTED
+      description: Freeze while SMM is supported.
+
+    - bit: 13
+      short_name: FW_WRITE
+      long_name: FULL_WIDTH_COUNTER_WRITE
+      description: Full width of counter writable via IA32_A_PMCx.
+
+- value: 0x38D
+  name: FIXED_CTR_CTRL
+  short_description: Fixed-Function Performance Counter Control
+  long_description: |
+    Fixed-Function Performance Counter Control. Counter increments while the results of
+    ANDing respective enable bit in IA32_PERF_GLOBAL_CTRL with the
+    corresponding OS or USR bits in this MSR is true.
+  access: R/W
+  todo: Split short/long description
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: EN0_OS
+      description: |
+        EN0_OS: Enable Fixed Counter 0 to count while CPL = 0.
+
+    - bit: 1
+      name: EN0_USR
+      description: |
+        EN0_Usr: Enable Fixed Counter 0 to count while CPL > 0.
+
+    - bit: 2
+      name: ANY_THREAD0
+      description: |
+        AnyThread: When set to 1, it enables counting the associated event conditions
+        occurring across all logical processors sharing a processor core. When set to 0, the
+        counter only increments the associated event conditions occurring in the logical
+        processor which programmed the MSR.
+      Remarks:
+        If CPUID.0AH: EAX[7:0] > 2
+
+    - bit: 3
+      name: EN0_PMI
+      description: |
+        EN0_PMI: Enable PMI when fixed counter 0 overflows.
+
+    - bit: 4
+      name: EN1_OS
+      description: |
+        EN1_OS: Enable Fixed Counter 1 to count while CPL = 0.
+
+    - bit: 5
+      name: EN1_USR
+      description: |
+        EN1_Usr: Enable Fixed Counter 1 to count while CPL > 0.
+
+    - bit: 6
+      name: ANY_THREAD1
+      description: |
+        AnyThread: When set to 1, it enables counting the associated event conditions
+        occurring across all logical processors sharing a processor core. When set to 0, the
+        counter only increments the associated event conditions occurring in the logical
+        processor which programmed the MSR.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 2
+
+    - bit: 7
+      name: EN1_PMI
+      description: |
+        EN1_PMI: Enable PMI when fixed counter 1 overflows.
+
+    - bit: 8
+      name: EN2_OS
+      description: |
+        EN2_OS: Enable Fixed Counter 2 to count while CPL = 0.
+
+    - bit: 9
+      name: EN2_USR
+      description: |
+        EN2_Usr: Enable Fixed Counter 2 to count while CPL > 0.
+
+    - bit: 10
+      name: ANY_THREAD2
+      description: |
+        AnyThread: When set to 1, it enables counting the associated event conditions
+        occurring across all logical processors sharing a processor core. When set to 0, the
+        counter only increments the associated event conditions occurring in the logical
+        processor which programmed the MSR.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 2
+
+    - bit: 11
+      name: EN2_PMI
+      description: |
+        EN2_PMI: Enable PMI when fixed counter 2 overflows.
+
+#
+# ToPA = Table of Physical Addresses
+# reference: Vol3C[35.2.6.2(Table of Physical Addresses (ToPA))]
+#
+
+- value: 0x38E
+  name: PERF_GLOBAL_STATUS
+  description: Global Performance Counter Status.
+  access: RO
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 0
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: OVF_PMC0
+      description: |
+        Ovf_PMC0: Overflow status of IA32_PMC0.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > 0
+
+    - bit: 1
+      name: OVF_PMC1
+      description: |
+        Ovf_PMC1: Overflow status of IA32_PMC1.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > 1
+
+
+    - bit: 2
+      name: OVF_PMC2
+      description: |
+        Ovf_PMC2: Overflow status of IA32_PMC2.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > 2
+
+    - bit: 3
+      name: OVF_PMC3
+      description: |
+        Ovf_PMC3: Overflow status of IA32_PMC3.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > 3
+
+    - bit: 32
+      name: OVF_FIXEDCTR0
+      description: |
+        Ovf_FixedCtr0: Overflow status of IA32_FIXED_CTR0.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 1
+
+    - bit: 33
+      name: OVF_FIXEDCTR1
+      description: |
+        Ovf_FixedCtr1: Overflow status of IA32_FIXED_CTR1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 1
+
+    - bit: 34
+      name: OVF_FIXEDCTR2
+      description: |
+        Ovf_FixedCtr2: Overflow status of IA32_FIXED_CTR2.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 1
+
+    - bit: 55
+      name: TRACE_TOPA_PMI
+      description: |
+        Trace_ToPA_PMI: A PMI occurred due to a ToPA entry memory buffer that was
+        completely filled.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[25] = 1) && IA32_RTIT_CTL.ToPA = 1
+
+    - bit: 58
+      name: LBR_FRZ
+      description: |
+        LBR_Frz. LBRs are frozen due to:
+
+        * IA32_DEBUGCTL.FREEZE_LBR_ON_PMI=1.
+
+        * The LBR stack overflowed.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 59
+      name: CTR_FRZ
+      description: |
+        CTR_Frz. Performance counters in the core PMU are frozen due to:
+
+        * IA32_DEBUGCTL.FREEZE_PERFMON_ON_PMI=1.
+
+        * One or more core PMU counters overflowed.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 60
+      name: ASCI
+      description: |
+        ASCI: Data in the performance counters in the core PMU may include contributions
+        from the direct or indirect operation Intel SGX to protect an enclave.
+      remarks: |
+        If CPUID.(EAX=07H, ECX=0):EBX[2] = 1
+
+    - bit: 61
+      name: OVF_UNCORE
+      description: |
+        Uncore counter overflow status.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 2
+
+    - bit: 62
+      name: OVF_BUF
+      description: |
+        OvfBuf: DS SAVE area Buffer overflow status.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 0
+
+    - bit: 63
+      name: COND_CHGD
+      description: |
+        CondChgd: Status bits of this register have changed.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 0
+
+- value: 0x38F
+  name: PERF_GLOBAL_CTRL
+  short_description: Global Performance Counter Control
+  long_description: |
+      Global Performance Counter Control.
+      Counter increments while the result of ANDing the respective enable bit in this
+      MSR with the corresponding OS or USR bits in the general-purpose or fixed counter
+      control MSR is true.
+  access: R/W
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 0
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      name: EN_PMC(n)
+      description: |
+        EN_PMC(n). Enable bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > n
+
+    - bit: 32-63
+      name: EN_FIXED_CTR(n)
+      description: |
+        EN_FIXED_CTR(n). Enable bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EDX[4:0] > n
+
+- value: 0x390
+  name: PERF_GLOBAL_STATUS_RESET
+  description: Global Performance Counter Overflow Reset Control.
+  access: R/W
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 3
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      short_name: OVF_PMC(n)
+      long_name: CLEAR_OVF_PMC(n)
+      description: |
+        Set 1 to clear Ovf_PMC(n) bit. Clear bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > n
+
+    - bit: 32-34
+      short_name: OVF_FIXED_CTR(n)
+      long_name: CLEAR_OVF_FIXED_CTR(n)
+      description: |
+        Set 1 to clear Ovf_FIXED_CTR(n) bit. Clear bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EDX[4:0] > n
+
+    - bit: 55
+      short_name: TRACE_TOPA_PMI
+      long_name: CLEAR_TRACE_TOPA_PMI
+      description: Set 1 to clear Trace_ToPA_PMI bit.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[25] = 1) && IA32_RTIT_CTL.ToPA = 1
+
+    - bit: 58
+      short_name: LBR_FRZ
+      long_name: CLEAR_LBR_FRZ
+      description: Set 1 to clear LBR_Frz bit.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 59
+      short_name: CTR_FRZ
+      long_name: CLEAR_CTR_FRZ
+      description: Set 1 to clear CTR_Frz bit.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 60
+      short_name: ASCI
+      long_name: CLEAR_ASCI
+      description: Set 1 to clear ASCI bit.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 61
+      short_name: OVF_UNCORE
+      long_name: CLEAR_OVF_UNCORE
+      description: Set 1 to clear Ovf_Uncore bit.
+      remarks: |
+        06_2EH
+
+    - bit: 62
+      short_name: OVF_BUF
+      long_name: CLEAR_OVF_BUF
+      description: Set 1 to clear OvfBuf bit.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 0
+
+    - bit: 63
+      short_name: COND_CHGD
+      long_name: CLEAR_COND_CHGD
+      description: Set 1 to clear CondChgd bit.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 0
+
+- value: 0x391
+  name: PERF_GLOBAL_STATUS_SET
+  description: Global Performance Counter Overflow Set Control.
+  access: R/W
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 3
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      name: OVF_PMC(n)
+      description: |
+        Set 1 to cause Ovf_PMC(n) = 1. Set bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > n
+
+    - bit: 32-34
+      name: OVF_FIXED_CTR(n)
+      description: |
+        Set 1 to cause Ovf_FIXED_CTR(n) = 1. Set bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EDX[4:0] > n
+
+    - bit: 55
+      name: TRACE_TOPA_PMI
+      description: Set 1 to cause Trace_ToPA_PMI = 1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 58
+      name: LBR_FRZ
+      description: Set 1 to cause LBR_Frz = 1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 59
+      name: CTR_FRZ
+      description: Set 1 to cause CTR_Frz = 1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 60
+      name: ASCI
+      description: Set 1 to cause ASCI = 1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+    - bit: 61
+      name: OVF_UNCORE
+      description: Set 1 to cause Ovf_Uncore = 1.
+      remarks: |
+        06_2EH
+
+    - bit: 62
+      name: OVF_BUF
+      description: Set 1 to cause OvfBuf = 1.
+      remarks: |
+        If CPUID.0AH: EAX[7:0] > 3
+
+- value: 0x392
+  name: PERF_GLOBAL_INUSE
+  description: Indicator that core perfmon interface is in use.
+  access: RO
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 3
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      short_name: IA32_PERFEVTSEL(n)
+      long_name: IA32_PERFEVTSEL(n)_IN_USE
+      description: |
+        IA32_PERFEVTSEL(n) in use. Status bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+      remarks: |
+        If CPUID.0AH: EAX[15:8] > n
+
+    - bit: 32-34
+      short_name: IA32_FIXED_CTR(n)
+      long_name: IA32_FIXED_CTR(n)_IN_USE
+      description: |
+        IA32_FIXED_CTR(n) in use. Status bitmask. Only the first n-1 bits are valid.
+        Bits 31:n are reserved.
+
+    - bit: 63
+      short_name: PMI
+      long_name: PMI_IN_USE
+      description: PMI in use.
+
+- value: 0x3F1
+  name: PEBS_ENABLE
+  description: PEBS Control.
+  access: R/W
+  remarks: |
+    If CPUID.0AH: EAX[7:0] > 3
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: ENABLE
+      long_name: ENABLE_PEBS
+      description: Enable PEBS on IA32_PMC0.
+      remarks: 06_0FH
+
+    - bit: 1-3
+      name: ReservedOrModelSpecific1
+      description: Reserved or model specific.
+
+    - bit: 32-35
+      name: ReservedOrModelSpecific2
+      description: Reserved or model specific.
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x400 - 0x4FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- name: MC_CTL
+  short_description: IA32_MC(i)_CTL
+  long_description: IA32_MC(0-28)_CTL.
+  type: group
+  remarks: |
+    If IA32_MCG_CAP.CNT > n
+  fields:
+  - value: 0x400
+    name: MC0_CTL
+  - value: 0x404
+    name: MC1_CTL
+  - value: 0x408
+    name: MC2_CTL
+  - value: 0x40C
+    name: MC3_CTL
+  - value: 0x410
+    name: MC4_CTL
+  - value: 0x414
+    name: MC5_CTL
+  - value: 0x418
+    name: MC6_CTL
+  - value: 0x41C
+    name: MC7_CTL
+  - value: 0x420
+    name: MC8_CTL
+  - value: 0x424
+    name: MC9_CTL
+  - value: 0x428
+    name: MC10_CTL
+  - value: 0x42C
+    name: MC11_CTL
+  - value: 0x430
+    name: MC12_CTL
+  - value: 0x434
+    name: MC13_CTL
+  - value: 0x438
+    name: MC14_CTL
+  - value: 0x43C
+    name: MC15_CTL
+  - value: 0x440
+    name: MC16_CTL
+  - value: 0x444
+    name: MC17_CTL
+  - value: 0x448
+    name: MC18_CTL
+  - value: 0x44C
+    name: MC19_CTL
+  - value: 0x450
+    name: MC20_CTL
+  - value: 0x454
+    name: MC21_CTL
+  - value: 0x458
+    name: MC22_CTL
+  - value: 0x45C
+    name: MC23_CTL
+  - value: 0x460
+    name: MC24_CTL
+  - value: 0x464
+    name: MC25_CTL
+  - value: 0x468
+    name: MC26_CTL
+  - value: 0x46C
+    name: MC27_CTL
+  - value: 0x470
+    name: MC28_CTL
+
+- name: MC_STATUS
+  short_description: IA32_MC(i)_STATUS
+  long_description: IA32_MC(0-28)_STATUS.
+  type: group
+  remarks: |
+    If IA32_MCG_CAP.CNT > n
+  fields:
+  - value: 0x401
+    name: MC0_STATUS
+  - value: 0x405
+    name: MC1_STATUS
+  - value: 0x409
+    name: MC2_STATUS
+  - value: 0x40D
+    name: MC3_STATUS
+  - value: 0x411
+    name: MC4_STATUS
+  - value: 0x415
+    name: MC5_STATUS
+  - value: 0x419
+    name: MC6_STATUS
+  - value: 0x41D
+    name: MC7_STATUS
+  - value: 0x421
+    name: MC8_STATUS
+  - value: 0x425
+    name: MC9_STATUS
+  - value: 0x429
+    name: MC10_STATUS
+  - value: 0x42D
+    name: MC11_STATUS
+  - value: 0x431
+    name: MC12_STATUS
+  - value: 0x435
+    name: MC13_STATUS
+  - value: 0x439
+    name: MC14_STATUS
+  - value: 0x43D
+    name: MC15_STATUS
+  - value: 0x441
+    name: MC16_STATUS
+  - value: 0x445
+    name: MC17_STATUS
+  - value: 0x449
+    name: MC18_STATUS
+  - value: 0x44D
+    name: MC19_STATUS
+  - value: 0x451
+    name: MC20_STATUS
+  - value: 0x455
+    name: MC21_STATUS
+  - value: 0x459
+    name: MC22_STATUS
+  - value: 0x45D
+    name: MC23_STATUS
+  - value: 0x461
+    name: MC24_STATUS
+  - value: 0x465
+    name: MC25_STATUS
+  - value: 0x469
+    name: MC26_STATUS
+  - value: 0x46D
+    name: MC27_STATUS
+  - value: 0x471
+    name: MC28_STATUS
+
+- name: MC_ADDR
+  short_description: IA32_MC(i)_ADDR
+  long_description: IA32_MC(0-28)_ADDR.
+  type: group
+  remarks: |
+    If IA32_MCG_CAP.CNT > n
+  fields:
+  - value: 0x402
+    name: MC0_ADDR
+  - value: 0x406
+    name: MC1_ADDR
+  - value: 0x40A
+    name: MC2_ADDR
+  - value: 0x40E
+    name: MC3_ADDR
+  - value: 0x412
+    name: MC4_ADDR
+  - value: 0x416
+    name: MC5_ADDR
+  - value: 0x41A
+    name: MC6_ADDR
+  - value: 0x41E
+    name: MC7_ADDR
+  - value: 0x422
+    name: MC8_ADDR
+  - value: 0x426
+    name: MC9_ADDR
+  - value: 0x42A
+    name: MC10_ADDR
+  - value: 0x42E
+    name: MC11_ADDR
+  - value: 0x432
+    name: MC12_ADDR
+  - value: 0x436
+    name: MC13_ADDR
+  - value: 0x43A
+    name: MC14_ADDR
+  - value: 0x43E
+    name: MC15_ADDR
+  - value: 0x442
+    name: MC16_ADDR
+  - value: 0x446
+    name: MC17_ADDR
+  - value: 0x44A
+    name: MC18_ADDR
+  - value: 0x44E
+    name: MC19_ADDR
+  - value: 0x452
+    name: MC20_ADDR
+  - value: 0x456
+    name: MC21_ADDR
+  - value: 0x45A
+    name: MC22_ADDR
+  - value: 0x45E
+    name: MC23_ADDR
+  - value: 0x462
+    name: MC24_ADDR
+  - value: 0x466
+    name: MC25_ADDR
+  - value: 0x46A
+    name: MC26_ADDR
+  - value: 0x46E
+    name: MC27_ADDR
+  - value: 0x472
+    name: MC28_ADDR
+
+- name: MC_MISC
+  short_description: IA32_MC(i)_MISC
+  long_description: IA32_MC(0-28)_MISC.
+  type: group
+  remarks: |
+    If IA32_MCG_CAP.CNT > n
+  fields:
+  - value: 0x403
+    name: MC0_MISC
+  - value: 0x407
+    name: MC1_MISC
+  - value: 0x40B
+    name: MC2_MISC
+  - value: 0x40F
+    name: MC3_MISC
+  - value: 0x413
+    name: MC4_MISC
+  - value: 0x417
+    name: MC5_MISC
+  - value: 0x41B
+    name: MC6_MISC
+  - value: 0x41F
+    name: MC7_MISC
+  - value: 0x423
+    name: MC8_MISC
+  - value: 0x427
+    name: MC9_MISC
+  - value: 0x42B
+    name: MC10_MISC
+  - value: 0x42F
+    name: MC11_MISC
+  - value: 0x433
+    name: MC12_MISC
+  - value: 0x437
+    name: MC13_MISC
+  - value: 0x43B
+    name: MC14_MISC
+  - value: 0x43F
+    name: MC15_MISC
+  - value: 0x443
+    name: MC16_MISC
+  - value: 0x447
+    name: MC17_MISC
+  - value: 0x44B
+    name: MC18_MISC
+  - value: 0x44F
+    name: MC19_MISC
+  - value: 0x453
+    name: MC20_MISC
+  - value: 0x457
+    name: MC21_MISC
+  - value: 0x45B
+    name: MC22_MISC
+  - value: 0x45F
+    name: MC23_MISC
+  - value: 0x463
+    name: MC24_MISC
+  - value: 0x467
+    name: MC25_MISC
+  - value: 0x46B
+    name: MC26_MISC
+  - value: 0x46F
+    name: MC27_MISC
+  - value: 0x473
+    name: MC28_MISC
+
+#
+# TODO: Merge above into single group?
+#
+
+#
+# ShortNames and ShortDescriptions for VMX_* MSRs taken from:
+# * https://www.virtualbox.org/svn/vbox/trunk/include/VBox/vmm/hm_vmx.h
+#
+
+- value: 0x480
+  name: VMX_BASIC
+  description: Reporting Register of Basic VMX Capabilities.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.1(BASIC VMX INFORMATION)]
+  reference: Vol3D[A.1(Basic VMX Information)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-30
+      short_name: VMCS_ID
+      long_name: VMCS_REVISION_ID
+      short_description: VMCS revision identifier used by the processor
+      long_description: |
+        31-bit VMCS revision identifier used by the processor. Processors that use the same VMCS
+        revision identifier use the same size for VMCS regions.
+
+    - bit: 31
+      name: MUST_BE_ZERO
+      description: Bit 31 is always 0.
+
+    - bit: 32-44
+      short_name: VMCS_SIZE
+      long_name: VMCS_SIZE_IN_BYTES
+      short_description: Size of the VMCS
+      long_description: |
+        Report the number of bytes that software should allocate for the VMXON region and any VMCS
+        region. It is a value greater than 0 and at most 4096 (bit 44 is set if and only if bits 43:32 are clear).
+
+    - bit: 48
+      short_name: PHYS_WIDTH
+      long_name: VMCS_PHYSICAL_ADDRESS_WIDTH
+      short_description: |
+        Width of physical address used for the VMCS
+
+        - 0 -> limited to the available amount of physical RAM
+
+        - 1 -> within the first 4 GB
+      long_description: |
+        Indicates the width of the physical addresses that may be used for the VMXON region, each VMCS, and
+        data structures referenced by pointers in a VMCS (I/O bitmaps, virtual-APIC page, MSR areas for VMX transitions).
+        If the bit is 0, these addresses are limited to the processor’s physical-address width.2 If the bit is 1,
+        these addresses are limited to 32 bits. This bit is always 0 for processors that support Intel 64 architecture.
+
+    - bit: 49
+      short_name: DUAL_MON
+      long_name: DUAL_MONITOR
+      alternative_name: DUAL_MONITOR_SUPPORT
+      short_description: |
+        Whether the processor supports the dual-monitor treatment of system-management interrupts
+        and system-management code (always 1)
+      long_description: |
+        Read as 1, the logical processor supports the dual-monitor treatment of system-management
+        interrupts and system-management mode.
+      see: Vol3C[34.15(DUAL-MONITOR TREATMENT OF SMIs AND SMM)]
+
+    - bit: 50-53
+      short_name: MEM_TYPE
+      long_name: MEMORY_TYPE
+      short_description: Memory type that must be used for the VMCS
+      long_description: |
+        Report the memory type that should be used for the VMCS, for data structures referenced by
+        pointers in the VMCS (I/O bitmaps, virtual-APIC page, MSR areas for VMX transitions), and for the MSEG
+        header. If software needs to access these data structures (e.g., to modify the contents of the MSR bitmaps), it
+        can configure the paging structures to map them into the linear-address space. If it does so, it should establish
+        mappings that use the memory type reported bits 53:50 in this MSR.
+
+        As of this writing, all processors that support VMX operation indicate the write-back type.
+
+    - bit: 54
+      short_name: INS_OUTS
+      long_name: INS_OUTS_VMEXIT_INFORMATION
+      alternative_name: INS_OUTS_REPORTING
+      short_description: Whether the processor provides additional information for exits due to INS/OUTS
+      long_description: |
+        When set to 1, the processor reports information in the VM-exit instruction-information field on VM exits
+        due to execution of the INS and OUTS instructions. This reporting is done only if this bit is
+        read as 1.
+      see: Vol3C[27.2.4(Information for VM Exits Due to Instruction Execution)]
+
+    - bit: 55
+      short_name: TRUE_CONTROLS
+      long_name: TRUE_CONTROLS
+      alternative_name: VMX_CONTROLS
+      short_description: |
+        Whether default 1 bits in control MSRs (pin/proc/exit/entry) may be
+        cleared to 0 and that 'true' control MSRs are supported
+      long_description: |
+        Is read as 1 if any VMX controls that default to 1 may be cleared to 0. It also
+        reports support for the VMX capability MSRs IA32_VMX_TRUE_PINBASED_CTLS,
+        IA32_VMX_TRUE_PROCBASED_CTLS, IA32_VMX_TRUE_EXIT_CTLS, and IA32_VMX_TRUE_ENTRY_CTLS.
+      see:
+      - Vol3D[A.2(RESERVED CONTROLS AND DEFAULT SETTINGS)]
+      - Vol3D[A.3.1(Pin-Based VM-Execution Controls)]
+      - Vol3D[A.3.2(Primary Processor-Based VM-Execution Controls)]
+      - Vol3D[A.4(VM-EXIT CONTROLS)]
+      - Vol3D[A.5(VM-ENTRY CONTROLS)]
+
+- value: 0x481
+  name: VMX_PINBASED_CTLS
+  description: Capability Reporting Register of Pin-Based VM-Execution Controls.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.3.1(Pin-Based VM-Execution Controls)]
+  reference: Vol3C[24.6.1(Pin-Based VM-Execution Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: EXT_INT_EXIT
+      long_name: EXTERNAL_INTERRUPT_EXITING
+      short_description: External interrupts cause VM-exits if set; otherwise dispatched through the guest's IDT
+      long_description: |
+        If this control is 1, external interrupts cause VM exits. Otherwise, they are delivered normally
+        through the guest interrupt-descriptor table (IDT). If this control is 1, the value of RFLAGS.IF
+        does not affect interrupt blocking.
+
+    - bit: 3
+      short_name: NMI_EXIT
+      long_name: NMI_EXITING
+      short_description: Non-maskable interrupts cause VM-exits if set; otherwise dispatched through the guest's IDT
+      long_description: |
+        If this control is 1, non-maskable interrupts (NMIs) cause VM exits. Otherwise, they are
+        delivered normally using descriptor 2 of the IDT. This control also determines interactions
+        between IRET and blocking by NMI.
+      see: Vol3C[25.3(CHANGES TO INSTRUCTION BEHAVIOR IN VMX NON-ROOT OPERATION)]
+
+    - bit: 5
+      short_name: VIRTUAL_NMI
+      long_name: VIRTUAL_NMIS
+      alternative_name: VIRTUAL_NMI
+      short_description: Virtual NMIs
+      long_description: |
+        If this control is 1, NMIs are never blocked and the “blocking by NMI” bit (bit 3) in the
+        interruptibility-state field indicates “virtual-NMI blocking”. This control also
+        interacts with the “NMI-window exiting” VM-execution control.
+      see: Vol3C[24.6.2(Processor-Based VM-Execution Controls)]
+
+    - bit: 6
+      short_name: PREEMPT_TIMER
+      long_name: ACTIVATE_VMX_PREEMPTION_TIMER
+      short_description: Activate VMX preemption timer
+      long_description: |
+        If this control is 1, the VMX-preemption timer counts down in VMX non-root operation.
+        A VM exit occurs when the timer counts down to zero.
+      see:
+      - Vol3C[25.5.1(VMX-Preemption Timer)]
+      - Vol3C[25.2(OTHER CAUSES OF VM EXITS)]
+
+    - bit: 7
+      short_name: POSTED_INTR
+      long_name: PROCESS_POSTED_INTERRUPTS
+      short_description: Process interrupts with the posted-interrupt notification vector
+      long_description: |
+        If this control is 1, the processor treats interrupts with the posted-interrupt notification vector
+        specially, updating the virtual-APIC page with posted-interrupt requests.
+      see:
+      - Vol3C[24.6.8(Controls for APIC Virtualization)]
+      - Vol3C[29.6(POSTED-INTERRUPT PROCESSING)]
+
+- value: 0x482
+  name: VMX_PROCBASED_CTLS
+  description: Capability Reporting Register of Primary Processor-Based VM-Execution Controls.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.3.2(Primary Processor-Based VM-Execution Controls)]
+  reference: Vol3C[24.6.2(Processor-Based VM-Execution Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 2
+      short_name: INT_WINDOW_EXIT
+      long_name: INTERRUPT_WINDOW_EXITING
+      short_description: VM-exit as soon as RFLAGS.IF=1 and no blocking is active
+      long_description: |
+        If this control is 1, a VM exit occurs at the beginning of any instruction if RFLAGS.IF = 1 and
+        there are no other blocking of interrupts.
+      see: Vol3C[24.4.2(Guest Non-Register State)]
+
+    - bit: 3
+      short_name: USE_TSC_OFFSETTING
+      long_name: USE_TSC_OFFSETTING
+      short_description: Use timestamp counter offset
+      long_description: |
+        This control determines whether executions of RDTSC, executions of RDTSCP, and executions
+        of RDMSR that read from the IA32_TIME_STAMP_COUNTER MSR return a value modified by
+        the TSC offset field.
+      see:
+      - Vol3C[24.6.5(Time-Stamp Counter Offset and Multiplier)]
+      - Vol3C[25.3(CHANGES TO INSTRUCTION BEHAVIOR IN VMX NON-ROOT OPERATION)]
+
+    - bit: 7
+      short_name: HLT_EXIT
+      long_name: HLT_EXITING
+      short_description: VM-exit when executing the HLT instruction
+      long_description: This control determines whether executions of HLT cause VM exits.
+
+    - bit: 9
+      short_name: INVLPG_EXIT
+      long_name: INVLPG_EXITING
+      short_description: VM-exit when executing the INVLPG instruction
+      long_description: This control determines whether executions of INVLPG cause VM exits.
+
+    - bit: 10
+      short_name: MWAIT_EXIT
+      long_name: MWAIT_EXITING
+      short_description: VM-exit when executing the MWAIT instruction
+      long_description: This control determines whether executions of MWAIT cause VM exits.
+
+    - bit: 11
+      short_name: RDPMC_EXIT
+      long_name: RDPMC_EXITING
+      short_description: VM-exit when executing the RDPMC instruction
+      long_description: This control determines whether executions of RDPMC cause VM exits.
+
+    - bit: 12
+      short_name: RDTSC_EXIT
+      long_name: RDTSC_EXITING
+      short_description: VM-exit when executing the RDTSC/RDTSCP instruction
+      long_description: This control determines whether executions of RDTSC and RDTSCP cause VM exits.
+
+    - bit: 15
+      short_name: CR3_LOAD_EXIT
+      long_name: CR3_LOAD_EXITING
+      short_description: VM-exit when executing the MOV to CR3 instruction (forced to 1 on the 'first' VT-x capable CPUs; this actually includes the newest Nehalem CPUs)
+      long_description: |
+        In conjunction with the CR3-target controls, this control determines
+        whether executions of MOV to CR3 cause VM exits.
+        The first processors to support the virtual-machine extensions supported only the 1-setting
+        of this control.
+      see:
+      - Vol3C[24.6.7(CR3-Target Controls)]
+      - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+
+    - bit: 16
+      short_name: CR3_STORE_EXIT
+      long_name: CR3_STORE_EXITING
+      short_description: VM-exit when executing the MOV from CR3 instruction (forced to 1 on the 'first' VT-x capable CPUs; this actually includes the newest Nehalem CPUs)
+      long_description: |
+        This control determines whether executions of MOV from CR3 cause VM exits.
+        The first processors to support the virtual-machine extensions supported only the 1-setting
+        of this control.
+
+    - bit: 17
+      short_name: USE_TERTIARY_EXEC_CTRL
+      long_name: ACTIVATE_TERTIARY_CONTROLS
+      short_description: Determines whether the tertiary processor based VM-execution controls are used
+      long_description: |
+        This control determines whether the tertiary processor-based VM-execution controls are
+        used. If this control is 0, the logical processor operates as if all the tertiary processor-based
+        VM-execution controls were also 0.
+
+    - bit: 19
+      short_name: CR8_LOAD_EXIT
+      long_name: CR8_LOAD_EXITING
+      short_description: VM-exit on CR8 loads
+      long_description: This control determines whether executions of MOV to CR8 cause VM exits.
+
+    - bit: 20
+      short_name: CR8_STORE_EXIT
+      long_name: CR8_STORE_EXITING
+      short_description: VM-exit on CR8 stores
+      long_description: This control determines whether executions of MOV from CR8 cause VM exits.
+
+    - bit: 21
+      short_name: USE_TPR_SHADOW
+      long_name: USE_TPR_SHADOW
+      short_description: Use TPR shadow
+      long_description: Setting this control to 1 enables TPR virtualization and other APIC-virtualization features.
+      see: Vol3C[29(APIC VIRTUALIZATION AND VIRTUAL INTERRUPTS)]
+
+    - bit: 22
+      short_name: NMI_WINDOW_EXIT
+      long_name: NMI_WINDOW_EXITING
+      short_description: VM-exit when virtual NMI blocking is disabled
+      long_description: |
+        If this control is 1, a VM exit occurs at the beginning of any instruction if there is no virtual-NMI blocking.
+      see: Vol3C[24.4.2(Guest Non-Register State)]
+
+    - bit: 23
+      short_name: MOV_DR_EXIT
+      long_name: MOV_DR_EXITING
+      short_description: VM-exit when executing a MOV DRx instruction
+      long_description: This control determines whether executions of MOV DR cause VM exits.
+
+    - bit: 24
+      short_name: UNCOND_IO_EXIT
+      long_name: UNCONDITIONAL_IO_EXITING
+      short_description: VM-exit when executing IO instructions
+      long_description: |
+        This control determines whether executions of I/O instructions (IN, INS/INSB/INSW/INSD, OUT,
+        and OUTS/OUTSB/OUTSW/OUTSD) cause VM exits.
+
+    - bit: 25
+      short_name: USE_IO_BITMAPS
+      long_name: USE_IO_BITMAPS
+      short_description: Use IO bitmaps
+      long_description: |
+        This control determines whether I/O bitmaps are used to restrict executions of I/O instructions
+        For this control, “0” means “do not use I/O bitmaps” and “1” means “use I/O bitmaps.” If the I/O
+        bitmaps are used, the setting of the “unconditional I/O exiting” control is ignored.
+      see:
+      - Vol3C[24.6.4(I/O-Bitmap Addresses)]
+      - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+
+    - bit: 27
+      short_name: MONITOR_TRAP_FLAG
+      long_name: MONITOR_TRAP_FLAG
+      short_description: Monitor trap flag
+      long_description: If this control is 1, the monitor trap flag debugging feature is enabled.
+      see: Vol3C[25.5.2(Monitor Trap Flag)]
+
+    - bit: 28
+      short_name: USE_MSR_BITMAPS
+      long_name: USE_MSR_BITMAPS
+      short_description: Use MSR bitmaps
+      long_description: |
+        This control determines whether MSR bitmaps are used to control execution of the RDMSR
+        and WRMSR instructions.
+        For this control, “0” means “do not use MSR bitmaps” and “1” means “use MSR bitmaps.” If the
+        MSR bitmaps are not used, all executions of the RDMSR and WRMSR instructions cause
+        VM exits.
+      see:
+      - Vol3C[24.6.9(MSR-Bitmap Address)]
+      - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+
+    - bit: 29
+      short_name: MONITOR_EXIT
+      long_name: MONITOR_EXITING
+      short_description: VM-exit when executing the MONITOR instruction
+      long_description: This control determines whether executions of MONITOR cause VM exits.
+
+    - bit: 30
+      short_name: PAUSE_EXIT
+      long_name: PAUSE_EXITING
+      short_description: VM-exit when executing the PAUSE instruction
+      long_description: This control determines whether executions of PAUSE cause VM exits.
+
+    - bit: 31
+      short_name: USE_SECONDARY_EXEC_CTRL
+      long_name: ACTIVATE_SECONDARY_CONTROLS
+      short_description: Determines whether the secondary processor based VM-execution controls are used
+      long_description: |
+        This control determines whether the secondary processor-based VM-execution controls are
+        used. If this control is 0, the logical processor operates as if all the secondary processor-based
+        VM-execution controls were also 0.
+
+- value: 0x483
+  name: VMX_EXIT_CTLS
+  description: Capability Reporting Register of Primaryr VM-Exit Controls.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.4.1(Primaryr VM-Exit Controls)]
+  reference: Vol3C[24.7.1(VM-Exit Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 2
+      short_name: SAVE_DEBUG
+      long_name: SAVE_DEBUG_CONTROLS
+      short_description: |
+        Save guest debug controls (dr7 & IA32_DEBUGCTL_MSR) (forced to 1 on the 'first' VT-x capable CPUs; this actually includes the newest Nehalem CPUs)
+      long_description: |
+        This control determines whether DR7 and the IA32_DEBUGCTL MSR are saved on VM exit.
+        The first processors to support the virtual-machine extensions supported only the 1-setting
+        of this control.
+
+    - bit: 9
+      short_name: HOST_ADDR_SPACE_SIZE
+      long_name: HOST_ADDRESS_SPACE_SIZE
+      short_description: Return to long mode after a VM-exit
+      long_description: |
+        On processors that support Intel 64 architecture, this control determines whether a logical
+        processor is in 64-bit mode after the next VM exit. Its value is loaded into CS.L,
+        IA32_EFER.LME, and IA32_EFER.LMA on every VM exit.1
+        This control must be 0 on processors that do not support Intel 64 architecture.
+
+    - bit: 12
+      short_name: LOAD_PERF_MSR
+      long_name: LOAD_IA32_PERF_GLOBAL_CTRL
+      short_description: Whether the IA32_PERF_GLOBAL_CTRL MSR is loaded on VM-exit
+      long_description: This control determines whether the IA32_PERF_GLOBAL_CTRL MSR is loaded on VM exit.
+
+    - bit: 15
+      short_name: ACK_EXT_INT
+      long_name: ACKNOWLEDGE_INTERRUPT_ON_EXIT
+      short_description: Acknowledge external interrupts with the irq controller if one caused a VM-exit
+      long_description: |
+        This control affects VM exits due to external interrupts:
+
+        - If such a VM exit occurs and this control is 1, the logical processor acknowledges the
+          interrupt controller, acquiring the interrupt’s vector. The vector is stored in the VM-exit
+          interruption-information field, which is marked valid.
+
+        - If such a VM exit occurs and this control is 0, the interrupt is not acknowledged and the
+          VM-exit interruption-information field is marked invalid.
+
+    - bit: 18
+      short_name: SAVE_GUEST_PAT_MSR
+      long_name: SAVE_IA32_PAT
+      short_description: Whether the guest IA32_PAT MSR is saved on VM-exit
+      long_description: This control determines whether the IA32_PAT MSR is saved on VM exit.
+
+    - bit: 19
+      short_name: LOAD_HOST_PAT_MSR
+      long_name: LOAD_IA32_PAT
+      short_description: Whether the host IA32_PAT MSR is loaded on VM-exit
+      long_description: This control determines whether the IA32_PAT MSR is loaded on VM exit.
+
+    - bit: 20
+      short_name: SAVE_GUEST_EFER_MSR
+      long_name: SAVE_IA32_EFER
+      short_description: Whether the guest IA32_EFER MSR is saved on VM-exit
+      long_description: This control determines whether the IA32_EFER MSR is saved on VM exit.
+
+    - bit: 21
+      short_name: LOAD_HOST_EFER_MSR
+      long_name: LOAD_IA32_EFER
+      short_description: Whether the host IA32_EFER MSR is loaded on VM-exit
+      long_description: This control determines whether the IA32_EFER MSR is loaded on VM exit.
+
+    - bit: 22
+      short_name: SAVE_VMX_PREEMPT_TIMER
+      long_name: SAVE_VMX_PREEMPTION_TIMER_VALUE
+      short_description: Whether the value of the VMX preemption timer is saved on every VM-exit
+      long_description: This control determines whether the value of the VMX-preemption timer is saved on VM exit.
+
+    - bit: 23
+      short_name: CLEAR_BNDCFGS
+      long_name: CLEAR_IA32_BNDCFGS
+      description: This control determines whether the IA32_BNDCFGS MSR is cleared on VM exit.
+
+    - bit: 24
+      name: CONCEAL_VMX_FROM_PT
+      description: |
+        If this control is 1, Intel Processor Trace does not produce a paging information packet (PIP) on
+        a VM exit or a VMCS packet on an SMM VM exit.
+      see: Vol3C[35(INTEL® PROCESSOR TRACE)]
+
+    - bit: 25
+      short_name: CLEAR_RTIT_CTL
+      long_name: CLEAR_IA32_RTIT_CTL
+      description: |
+        This control determines whether the IA32_RTIT_CTL MSR is cleared on VM exit.
+      see: Vol3C[35(INTEL® PROCESSOR TRACE)]
+
+    - bit: 26
+      short_name: CLEAR_LBR_CTL
+      long_name: CLEAR_IA32_LBR_CTL
+      description: This control determines whether the IA32_LBR_CTL MSR is cleared on VM exit.
+
+    - bit: 27
+      short_name: CLEAR_UINV
+      long_name: CLEAR_UINV
+      description: This control determines whether UINV is cleared on VM exit.
+
+    - bit: 28
+      short_name: LOAD_HOST_CET_STATE
+      long_name: LOAD_IA32_CET_STATE
+      description: |
+        This control determines whether CET-related MSRs and SPP are loaded on VM exit.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 29
+      short_name: LOAD_HOST_PKRS
+      long_name: LOAD_IA32_PKRS
+      description: |
+        This control determines whether the IA32_PKRS MSR is loaded on VM exit.
+    
+    - bit: 30
+      short_name: SAVE_PERF_GLOBAL_CTL
+      long_name: SAVE_IA32_PERF_GLOBAL_CTL
+      description: |
+        This control determines whether the IA32_PERF_GLOBAL_CTL MSR is saved on VM
+        exit.
+
+    - bit: 31
+      short_name: USE_SECONDARY_CONTROLS
+      long_name: ACTIVATE_SECONDARY_CONTROLS
+      description: |
+        This control determines whether the secondary VM-exit controls
+        are used. If this control is 0, the logical processor operates as if all the secondary
+        VM-exit controls were also 0.
+
+- value: 0x484
+  name: VMX_ENTRY_CTLS
+  description: Capability Reporting Register of VM-Entry Controls.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.5(VM-ENTRY CONTROLS)]
+  reference: Vol3D[24.8.1(VM-Entry Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 2
+      short_name: LOAD_DEBUG
+      long_name: LOAD_DEBUG_CONTROLS
+      short_description: |
+        Load guest debug controls (dr7 & IA32_DEBUGCTL_MSR) (forced to 1 on the
+        'first' VT-x capable CPUs; this actually includes the newest Nehalem CPUs)
+      long_description: |
+        This control determines whether DR7 and the IA32_DEBUGCTL MSR are loaded on VM entry.
+        The first processors to support the virtual-machine extensions supported only the 1-setting of
+        this control.
+
+    - bit: 9
+      short_name: IA32E_MODE_GUEST
+      long_name: IA32E_MODE_GUEST
+      short_description: 64 bits guest mode. Must be 0 for CPUs that don't support AMD64
+      long_description: |
+        On processors that support Intel 64 architecture, this control determines whether the logical
+        processor is in IA-32e mode after VM entry. Its value is loaded into IA32_EFER.LMA as part of
+        VM entry.
+        This control must be 0 on processors that do not support Intel 64 architecture.
+
+    - bit: 10
+      short_name: ENTRY_SMM
+      long_name: ENTRY_TO_SMM
+      short_description: In SMM mode after VM-entry
+      long_description: |
+        This control determines whether the logical processor is in system-management mode (SMM)
+        after VM entry. This control must be 0 for any VM entry from outside SMM.
+
+    - bit: 11
+      short_name: DEACTIVATE_DUALMON
+      long_name: DEACTIVATE_DUAL_MONITOR_TREATMENT
+      short_description: Disable dual treatment of SMI and SMM; must be zero for VM-entry outside of SMM
+      long_description: |
+        If set to 1, the default treatment of SMIs and SMM is in effect after the VM entry.
+        This control must be 0 for any VM entry from outside SMM
+      see: Vol3C[34.15.7(Deactivating the Dual-Monitor Treatment)]
+
+    - bit: 13
+      short_name: LOAD_GUEST_PERF_MSR
+      long_name: LOAD_IA32_PERF_GLOBAL_CTRL
+      short_description: Whether the guest IA32_PERF_GLOBAL_CTRL MSR is loaded on VM-entry
+      long_description: This control determines whether the IA32_PERF_GLOBAL_CTRL MSR is loaded on VM entry.
+
+    - bit: 14
+      short_name: LOAD_GUEST_PAT_MSR
+      long_name: LOAD_IA32_PAT
+      short_description: Whether the guest IA32_PAT MSR is loaded on VM-entry
+      long_description: This control determines whether the IA32_PAT MSR is loaded on VM entry.
+
+    - bit: 15
+      short_name: LOAD_GUEST_EFER_MSR
+      long_name: LOAD_IA32_EFER
+      short_description: Whether the guest IA32_EFER MSR is loaded on VM-entry
+      long_description: This control determines whether the IA32_EFER MSR is loaded on VM entry.
+
+    - bit: 16
+      short_name: LOAD_GUEST_BNDCFGS
+      long_name: LOAD_IA32_BNDCFGS
+      description: This control determines whether the IA32_BNDCFGS MSR is loaded on VM entry.
+
+    - bit: 17
+      name: CONCEAL_VMX_FROM_PT
+      description: |
+        If this control is 1, Intel Processor Trace does not produce a paging information packet (PIP) on
+        a VM entry or a VMCS packet on a VM entry that returns from SMM.
+      see: Vol3C[35(INTEL® PROCESSOR TRACE)]
+
+    - bit: 18
+      short_name: LOAD_GUEST_RTIT_CTL
+      long_name: LOAD_IA32_RTIT_CTL
+      description: This control determines whether the IA32_RTIT_CTL MSR is loaded on VM entry.
+
+    - bit: 19
+      name: LOAD_UINV
+      description: This control determines whether UINV is loaded on VM entry.
+
+    - bit: 20
+      name: LOAD_CET_STATE
+      description: This control determines whether CET-related MSRs and SPP are loaded on VM entry.
+
+    - bit: 21
+      short_name: LOAD_GUEST_LBR_CTL
+      long_name: LOAD_IA32_LBR_CTL
+      description: This control determines whether the IA32_LBR_CTL MSR is loaded on VM entry.
+
+    - bit: 22
+      short_name: LOAD_GUEST_PKRS
+      long_name: LOAD_IA32_PKRS
+      description: This control determines whether the IA32_PKRS MSR is loaded on VM entry.
+
+- value: 0x485
+  name: VMX_MISC
+  description: Reporting Register of Miscellaneous VMX Capabilities.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.6(MISCELLANEOUS DATA)]
+  reference: Vol3D[A.6(Miscellaneous Data)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-4
+      short_name: PREEMPT_TSC_BIT
+      long_name: PREEMPTION_TIMER_TSC_RELATIONSHIP
+      short_description: Relationship between the preemption timer and tsc; count down every time bit x of the tsc changes
+      long_description: |
+        Report a value X that specifies the relationship between the rate of the VMX-preemption timer and that
+        of the timestamp counter (TSC). Specifically, the VMX-preemption timer (if it is active) counts down by 1 every
+        time bit X in the TSC changes due to a TSC increment.
+
+    - bit: 5
+      short_name: STORE_EFERLMA_VMEXIT
+      long_name: STORE_EFER_LMA_ON_VMEXIT
+      short_description: Whether VM-exit stores EFER.LMA into the "IA32e mode guest" field
+      long_description: |
+        When set to 1, VM exits store the value of IA32_EFER.LMA into the “IA-32e mode guest” VM-entry control.
+        This bit is read as 1 on any logical processor that supports the 1-setting of
+        the “unrestricted guest” VM-execution control.
+      see: Vol3C[27.2(RECORDING VM-EXIT INFORMATION AND UPDATING VM-ENTRY CONTROL FIELDS)]
+
+    - bit: 6-8
+      short_name: ACTIVITY_STATES
+      long_name: ACTIVITY_STATES
+      short_description: Activity states supported by the implementation
+      long_description: |
+        Report, as a bitmap, the activity states supported by the implementation:
+
+        - Bit 6 reports (if set) the support for activity state 1 (HLT).
+
+        - Bit 7 reports (if set) the support for activity state 2 (shutdown).
+
+        - Bit 8 reports (if set) the support for activity state 3 (wait-for-SIPI).
+
+        If an activity state is not supported, the implementation causes a VM entry to fail if it attempts to establish that
+        activity state. All implementations support VM entry to activity state 0 (active).
+
+    - bit: 14
+      short_name: INTEL_PT_VMX
+      long_name: INTEL_PT_AVAILABLE_IN_VMX
+      short_description: Intel Processor Trace (Intel PT) can be used in VMX operation
+      long_description: |
+        When set to 1, Intel® Processor Trace (Intel PT) can be used in VMX operation. If the processor supports
+        Intel PT but does not allow it to be used in VMX operation, execution of VMXON clears IA32_RTIT_CTL.TraceEn;
+        any attempt to write IA32_RTIT_CTL while in VMX operation (including VMX root operation) causes
+        a general-protection exception.
+      see: Vol3C[30.3(VMX INSTRUCTIONS | VMXON—Enter VMX Operation)]
+
+    - bit: 15
+      short_name: RDMSR_SMBASE_MSR_SMM
+      long_name: RDMSR_CAN_READ_IA32_SMBASE_MSR_IN_SMM
+      short_description: Whether RDMSR can be used to read IA32_SMBASE_MSR in SMM
+      long_description: |
+        When set to 1, the RDMSR instruction can be used in system-management mode (SMM) to read the
+        IA32_SMBASE MSR (MSR address 9EH).
+      see: Vol3C[34.15.6.3(Saving Guest State)]
+
+    - bit: 16-24
+      short_name: CR3_TARGET
+      long_name: CR3_TARGET_COUNT
+      short_description: Number of CR3 target values supported by the processor (0-256)
+      long_description: |
+        Indicate the number of CR3-target values supported by the processor. This number is a value
+        between 0 and 256, inclusive (bit 24 is set if and only if bits 23:16 are clear).
+
+    - bit: 25-27
+      short_name: MAX_MSR
+      long_name: MAX_NUMBER_OF_MSR
+      short_description: Maximum number of MSRs in the VMCS. (N+1)*512
+      long_description: |
+        Used to compute the recommended maximum number of MSRs that should appear in the VM-exit
+        MSR-store list, the VM-exit MSR-load list, or the VM-entry MSR-load list. Specifically, if the value bits 27:25 of
+        IA32_VMX_MISC is N, then 512 * (N + 1) is the recommended maximum number of MSRs to be included in
+        each list. If the limit is exceeded, undefined processor behavior may result (including a machine check during
+        the VMX transition).
+
+    - bit: 28
+      short_name: SMM_MONITOR_CTL_B2
+      long_name: SMM_MONITOR_CTL_B2
+      short_description: Whether bit 2 of IA32_SMM_MONITOR_CTL can be set to 1
+      long_description: |
+        When set to 1, bit 2 of the IA32_SMM_MONITOR_CTL can be set to 1. VMXOFF unblocks SMIs unless
+        IA32_SMM_MONITOR_CTL[bit 2] is 1.
+      see: Vol3C[34.14.4(VMXOFF and SMI Unblocking)]
+
+    - bit: 29
+      short_name: VMWRITE_VMEXIT_INFO
+      long_name: VMWRITE_VMEXIT_INFO
+      short_description: Whether VMWRITE can be used to write VM-exit information fields
+      long_description: |
+        When set to 1, software can use VMWRITE to write to any supported field in the VMCS; otherwise,
+        VMWRITE cannot be used to modify VM-exit information fields.
+
+    - bit: 30
+      short_name: ZERO_INSN_INJECTION
+      long_name: ZERO_LENGTH_INSTRUCTION_VMENTRY_INJECTION
+      description: |
+        When set to 1, VM entry allows injection of a software interrupt, software exception, or privileged
+        software exception with an instruction length of 0.
+
+    - bit: 32-63
+      short_name: MSEG_ID
+      long_name: MSEG_ID
+      short_description: MSEG revision identifier used by the processor
+      long_description: |
+        Report the 32-bit MSEG revision identifier used by the processor.
+
+- value: 0x486
+  name: VMX_CR0_FIXED0
+  description: Capability Reporting Register of CR0 Bits Fixed to 0.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.7(VMX-FIXED BITS IN CR0)]
+  reference: Vol3D[A.7(VMX-Fixed Bits in CR0)]
+
+- value: 0x487
+  name: VMX_CR0_FIXED1
+  description: Capability Reporting Register of CR0 Bits Fixed to 1.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.7(VMX-FIXED BITS IN CR0)]
+  reference: Vol3D[A.7(VMX-Fixed Bits in CR0)]
+
+- value: 0x488
+  name: VMX_CR4_FIXED0
+  description: Capability Reporting Register of CR4 Bits Fixed to 0.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.8(VMX-FIXED BITS IN CR4)]
+  reference: Vol3D[A.8(VMX-Fixed Bits in CR4)]
+
+- value: 0x489
+  name: VMX_CR4_FIXED1
+  description: Capability Reporting Register of CR4 Bits Fixed to 1.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.8(VMX-FIXED BITS IN CR4)]
+  reference: Vol3D[A.8(VMX-Fixed Bits in CR4)]
+
+- value: 0x48A
+  name: VMX_VMCS_ENUM
+  description: Capability Reporting Register of VMCS Field Enumeration.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[5] = 1
+  see: Vol3D[A.9(VMCS ENUMERATION)]
+  reference: Vol3D[A.9(VMCS Enumeration)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: ACCESS_TYPE
+      description: Indicates access type.
+
+    - bit: 1-9
+      short_name: HIGHEST_INDEX
+      long_name: HIGHEST_INDEX_VALUE
+      description: Highest index value used for any VMCS encoding.
+
+    - bit: 10-11
+      name: FIELD_TYPE
+      description: Indicate the field’s type.
+
+    - bit: 13-14
+      name: FIELD_WIDTH
+      description: Indicate the field’s width.
+
+- value: 0x48B
+  name: VMX_PROCBASED_CTLS2
+  description: Capability Reporting Register of Secondary Processor-Based VM-Execution Controls.
+  access: R/O
+  remarks: |
+    If ( CPUID.01H:ECX.[5] && IA32_VMX_PROCBASED_CTLS[63] )
+  see: Vol3D[A.3.3(Secondary Processor-Based VM-Execution Controls)]
+  reference: Vol3D[24.6.2(Processor-Based VM-Execution Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: VIRT_APIC
+      long_name: VIRTUALIZE_APIC_ACCESSES
+      short_description: Virtualize APIC access
+      long_description: |
+        If this control is 1, the logical processor treats specially accesses to the page with the APICaccess
+        address.
+      see: Vol3C[29.4(VIRTUALIZING MEMORY-MAPPED APIC ACCESSES)]
+
+    - bit: 1
+      short_name: EPT
+      long_name: ENABLE_EPT
+      short_description: EPT supported/enabled
+      long_description: |
+        If this control is 1, extended page tables (EPT) are enabled.
+      see: Vol3C[28.2(THE EXTENDED PAGE TABLE MECHANISM (EPT))]
+
+    - bit: 2
+      short_name: DESCRIPTOR_TABLE_EXIT
+      long_name: DESCRIPTOR_TABLE_EXITING
+      short_description: Descriptor table instructions cause VM-exits
+      long_description: |
+        This control determines whether executions of LGDT, LIDT, LLDT, LTR, SGDT, SIDT, SLDT, and
+        STR cause VM exits.
+
+    - bit: 3
+      short_name: RDTSCP
+      long_name: ENABLE_RDTSCP
+      short_description: RDTSCP supported/enabled
+      long_description: |
+        If this control is 0, any execution of RDTSCP causes an invalid-opcode exception (#UD).
+
+    - bit: 4
+      short_name: VIRT_X2APIC
+      long_name: VIRTUALIZE_X2APIC_MODE
+      short_description: Virtualize x2APIC mode
+      long_description: |
+        If this control is 1, the logical processor treats specially RDMSR and WRMSR to APIC MSRs (in
+        the range 800H–8FFH).
+      see: Vol3C[29.5(VIRTUALIZING MSR-BASED APIC ACCESSES)]
+
+    - bit: 5
+      short_name: VPID
+      long_name: ENABLE_VPID
+      short_description: VPID supported/enabled
+      long_description: |
+        If this control is 1, cached translations of linear addresses are associated with a virtualprocessor
+        identifier (VPID).
+      see: Vol3C[28.1(VIRTUAL PROCESSOR IDENTIFIERS (VPIDS))]
+
+    - bit: 6
+      short_name: WBINVD_EXIT
+      long_name: WBINVD_EXITING
+      short_description: VM-exit when executing the WBINVD instruction
+      long_description: |
+        This control determines whether executions of WBINVD cause VM exits.
+
+    - bit: 7
+      short_name: UNRESTRICTED_GUEST
+      long_name: UNRESTRICTED_GUEST
+      short_description: Unrestricted guest execution
+      long_description: |
+        This control determines whether guest software may run in unpaged protected mode or in realaddress
+        mode.
+
+    - bit: 8
+      short_name: APIC_REG_VIRT
+      long_name: APIC_REGISTER_VIRTUALIZATION
+      short_description: APIC register virtualization
+      long_description: |
+        If this control is 1, the logical processor virtualizes certain APIC accesses.
+      see:
+      - Vol3C[29.4(VIRTUALIZING MEMORY-MAPPED APIC ACCESSES)]
+      - Vol3C[29.5(VIRTUALIZING MSR-BASED APIC ACCESSES)]
+
+    - bit: 9
+      short_name: VIRT_INTR_DELIVERY
+      long_name: VIRTUAL_INTERRUPT_DELIVERY
+      short_description: Virtual-interrupt delivery
+      long_description: |
+        This controls enables the evaluation and delivery of pending virtual interrupts as well as the
+        emulation of writes to the APIC registers that control interrupt prioritization.
+
+    - bit: 10
+      short_name: PAUSE_LOOP_EXIT
+      long_name: PAUSE_LOOP_EXITING
+      short_description: A specified number of pause loops cause a VM-exit
+      long_description: |
+        This control determines whether a series of executions of PAUSE can cause a VM exit.
+      see:
+      - Vol3C[24.6.13(Controls for PAUSE-Loop Exiting)]
+      - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+
+    - bit: 11
+      short_name: RDRAND_EXIT
+      long_name: RDRAND_EXITING
+      short_description: VM-exit when executing RDRAND instructions
+      long_description: |
+        This control determines whether executions of RDRAND cause VM exits.
+
+    - bit: 12
+      short_name: INVPCID
+      long_name: ENABLE_INVPCID
+      short_description: Enables INVPCID instructions
+      long_description: |
+        If this control is 0, any execution of INVPCID causes a #UD.
+
+    - bit: 13
+      short_name: VMFUNC
+      long_name: ENABLE_VM_FUNCTIONS
+      short_description: Enables VMFUNC instructions
+      long_description: |
+        Setting this control to 1 enables use of the VMFUNC instruction in VMX non-root operation.
+      see: Vol3C[25.5.5(VM Functions)]
+
+    - bit: 14
+      short_name: VMCS_SHADOWING
+      long_name: VMCS_SHADOWING
+      short_description: Enables VMCS shadowing
+      long_description: |
+        If this control is 1, executions of VMREAD and VMWRITE in VMX non-root operation may access
+        a shadow VMCS (instead of causing VM exits).
+      see:
+      - Vol3C[24.10(VMCS TYPES: ORDINARY AND SHADOW)]
+      - Vol3C[30.3(VMX INSTRUCTIONS)]
+
+    - bit: 15
+      short_name: ENCLS_EXIT
+      long_name: ENABLE_ENCLS_EXITING
+      short_description: Enables ENCLS VM-exits
+      long_description: |
+        If this control is 1, executions of ENCLS consult the ENCLS-exiting bitmap to determine whether
+        the instruction causes a VM exit.
+      see:
+      - Vol3C[24.6.16(ENCLS-Exiting Bitmap)]
+      - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+
+    - bit: 16
+      short_name: RDSEED_EXIT
+      long_name: RDSEED_EXITING
+      short_description: VM-exit when executing RDSEED
+      long_description: |
+        This control determines whether executions of RDSEED cause VM exits.
+
+    - bit: 17
+      short_name: PML
+      long_name: ENABLE_PML
+      short_description: Enables page-modification logging
+      long_description: |
+        If this control is 1, an access to a guest-physical address that sets an EPT dirty bit first adds an
+        entry to the page-modification log.
+      see: Vol3C[28.2.5(Page-Modification Logging)]
+
+    - bit: 18
+      short_name: EPT_VE
+      long_name: EPT_VIOLATION
+      short_description: Controls whether EPT-violations may cause #VE instead of exits
+      long_description: |
+        If this control is 1, EPT violations may cause virtualization exceptions (#VE) instead of VM exits.
+      see: Vol3C[25.5.6(Virtualization Exceptions)]
+
+    - bit: 19
+      short_name: CONCEAL_FROM_PT
+      long_name: CONCEAL_VMX_FROM_PT
+      short_description: Conceal VMX non-root operation from Intel processor trace (PT)
+      long_description: |
+        If this control is 1, Intel Processor Trace suppresses from PIPs an indication that the processor
+        was in VMX non-root operation and omits a VMCS packet from any PSB+ produced in VMX nonroot
+        operation.
+      see: Vol3C[35(INTEL® PROCESSOR TRACE)]
+
+    - bit: 20
+      short_name: XSAVES_XRSTORS
+      long_name: ENABLE_XSAVES
+      short_description: Enables XSAVES/XRSTORS instructions
+      long_description: |
+        If this control is 0, any execution of XSAVES or XRSTORS causes a #UD.
+
+    - bit: 21
+      short_name: PASID_TRANSLATION
+      long_name: ENABLE_PASID_TRANSLATION
+      description: |
+        If this control is 1, PASID translation is performed for executions of ENQCMD and ENQCMDS.
+      see: Vol3C[27.5.8(PASID Translation)]
+
+    - bit: 22
+      short_name: MB_EXEC_CTL_EPT
+      long_name: MODE_BASED_EXECUTE_CONTROL_FOR_EPT
+      description: |
+        If this control is 1, EPT execute permissions are based on whether the linear address being
+        accessed is supervisor mode or user mode.
+      see: Vol3C[28(VMX SUPPORT FOR ADDRESS TRANSLATION)]
+
+    - bit: 23
+      short_name: SP_WRITE_PERM_EPT
+      long_name: SUB_PAGE_WRITE_PERMISSIONS_FOR_EPT
+      description: |
+        If this control is 1, EPT write permissions may be specified at the granularity of 128 bytes.
+      see: Vol3C[28.2.4(Sub-Page Write Permissions)]
+
+    - bit: 24
+      short_name: PT_GUEST_PA
+      long_name: PT_USES_GUEST_PHYSICAL_ADDRESSES
+      description: |
+        If this control is 1, all output addresses used by Intel Processor Trace are treated as guestphysical
+        addresses and translated using EPT.
+      see: Vol3C[25.5.3(Translation of Guest-Physical Addresses Using EPT)]
+
+    - bit: 25
+      short_name: TSC_SCALING
+      long_name: USE_TSC_SCALING
+      short_description: Use TSC scaling
+      long_description: |
+        This control determines whether executions of RDTSC, executions of RDTSCP, and executions
+        of RDMSR that read from the IA32_TIME_STAMP_COUNTER MSR return a value modified by the
+        TSC multiplier field.
+      see:
+      - Vol3C[24.6.5(Time-Stamp Counter Offset and Multiplier)]
+      - Vol3C[25.3(CHANGES TO INSTRUCTION BEHAVIOR IN VMX NON-ROOT OPERATION)]
+
+    - bit: 26
+      short_name: WAIT_PAUSE
+      long_name: ENABLE_USER_WAIT_PAUSE
+      short_description: Enables TPAUSE/UMONITOR/UMWAIT instructions
+      long_description: |
+        If this control is 0, any execution of TPAUSE, UMONITOR, or UMWAIT causes a #UD.
+
+    - bit: 27
+      short_name: PCONFIG
+      long_name: ENABLE_PCONFIG
+      short_description: Enables the PCONFIG instruction.
+      long_description: |
+        If this control is 0, any execution of PCONFIG causes a #UD.
+
+    - bit: 28
+      short_name: ENCLV_EXIT
+      long_name: ENABLE_ENCLV_EXITING
+      short_description: Enables ENCLV VM-exits
+      long_description: |
+        If this control is 1, executions of ENCLV consult the ENCLV-exiting bitmap to determine whether
+        the instruction causes a VM exit.
+      see:
+        - Vol3C[24.6.17(ENCLV-Exiting Bitmap)]
+        - Vol3C[25.1.3(Instructions That Cause VM Exits Conditionally)]
+    
+    - bit: 30
+      short_name: BUS_LOCK_EXIT
+      long_name: ENABLE_VMM_BUS_LOCK_DETECTION
+      short_description: Enables VM-exits on bus lock assertions.
+      long_description: |
+        This control determines whether assertion of a bus lock causes a VM exit.
+      see:
+        - Vol3C[27.2(OTHER CAUSES OF VM EXIT)]
+    
+    - bit: 31
+      short_name: INSTRUCTION_TIMEOUT
+      long_name: ENABLE_INSTRUCTION_TIMEOUT_EXIT
+      short_description: Enables VM-exits on instructions that block for a certain amount of time.
+      long_description: |
+        If this control is 1, a VM exit occurs if certain operations prevent the processor from reaching an
+        instruction boundary within a specified amount of time.
+      see:
+        - Vol3C[26.6.25(Instruction-Timeout Contro)]
+        - Vol3C[27.2(OTHER CAUSES OF VM EXIT)]
+
+- value: 0x48C
+  name: VMX_EPT_VPID_CAP
+  description: Capability Reporting Register of EPT and VPID.
+  access: R/O
+  remarks: |
+    If ( CPUID.01H:ECX.[5] && IA32_VMX_PROCBASED_CTLS[63] && (IA32_VMX_PROCBASED_CTLS2[33] || IA32_VMX_PROCBASED_CTLS2[37]) )
+  see: Vol3D[A.10(VPID AND EPT CAPABILITIES)]
+  reference: Vol3D[A.10(VPID and EPT Capabilities)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: RWX_X_ONLY
+      long_name: EXECUTE_ONLY_PAGES
+      description: |
+        When set to 1, the processor supports execute-only translations by EPT. This support allows software to
+        configure EPT paging-structure entries in which bits 1:0 are clear (indicating that data accesses are not
+        allowed) and bit 2 is set (indicating that instruction fetches are allowed).
+
+    - bit: 6
+      short_name: PAGE_WALK_LENGTH_4
+      long_name: PAGE_WALK_LENGTH_4
+      description: Indicates support for a page-walk length of 4.
+
+    - bit: 8
+      short_name: EMT_UC
+      long_name: MEMORY_TYPE_UNCACHEABLE
+      description: |
+        When set to 1, the logical processor allows software to configure the EPT paging-structure memory type
+        to be uncacheable (UC).
+      see: Vol3C[24.6.11(Extended-Page-Table Pointer (EPTP))]
+
+    - bit: 14
+      short_name: EMC_WB
+      long_name: MEMORY_TYPE_WRITE_BACK
+      description: |
+        When set to 1, the logical processor allows software to configure the EPT paging-structure memory type
+        to be write-back (WB).
+
+    - bit: 16
+      short_name: PDE_2M
+      long_name: PDE_2MB_PAGES
+      description: |
+        When set to 1, the logical processor allows software to configure a EPT PDE to map a 2-Mbyte page (by
+        setting bit 7 in the EPT PDE).
+
+    - bit: 17
+      short_name: PDPTE_1G
+      long_name: PDPTE_1GB_PAGES
+      description: |
+        When set to 1, the logical processor allows software to configure a EPT PDPTE to map a 1-Gbyte page (by
+        setting bit 7 in the EPT PDPTE).
+
+    - bit: 20
+      short_name: INVEPT
+      long_name: INVEPT
+      description: If bit 20 is read as 1, the INVEPT instruction is supported.
+      tag: Support for the INVEPT instruction
+      see:
+      - Vol3C[30(VMX INSTRUCTION REFERENCE)]
+      - Vol3C[28.3.3.1(Operations that Invalidate Cached Mappings)]
+
+    - bit: 21
+      short_name: EPT_ACCESS_DIRTY
+      long_name: EPT_ACCESSED_AND_DIRTY_FLAGS
+      description: When set to 1, accessed and dirty flags for EPT are supported.
+      see: Vol3C[28.2.4(Accessed and Dirty Flags for EPT)]
+
+    - bit: 22
+      short_name: ADVANCED_VMEXIT_EPT_INFO
+      long_name: ADVANCED_VMEXIT_EPT_VIOLATIONS_INFORMATION
+      description: |
+        When set to 1, the processor reports advanced VM-exit information for EPT violations.
+        This reporting is done only if this bit is read as 1.
+      see: Vol3C[27.2.1(Basic VM-Exit Information)]
+
+    - bit: 23
+      short_name: SUPERVISOR_SHADOW_STACK
+      long_name: SUPERVISOR_SHADOW_STACK
+      description: |
+        If bit 23 is read as 1, supervisor shadow-stack control is supported.
+      see: Vol3C[28.3.3.2(EPT Violations)]
+
+    - bit: 25
+      short_name: INVEPT_SINGLE_CONTEXT
+      long_name: INVEPT_SINGLE_CONTEXT
+      description: When set to 1, the single-context INVEPT type is supported.
+      tag: Support for the INVEPT instruction
+      see:
+      - Vol3C[30(VMX INSTRUCTION REFERENCE)]
+      - Vol3C[28.3.3.1(Operations that Invalidate Cached Mappings)]
+
+    - bit: 26
+      short_name: INVEPT_ALL_CONTEXTS
+      long_name: INVEPT_ALL_CONTEXTS
+      description: When set to 1, the all-context INVEPT type is supported.
+      tag: Support for the INVEPT instruction
+      see:
+      - Vol3C[30(VMX INSTRUCTION REFERENCE)]
+      - Vol3C[28.3.3.1(Operations that Invalidate Cached Mappings)]
+
+    - bit: 32
+      short_name: INVVPID
+      long_name: INVVPID
+      description: When set to 1, the INVVPID instruction is supported.
+
+    - bit: 40
+      short_name: INVVPID_INDIV_ADDR
+      long_name: INVVPID_INDIVIDUAL_ADDRESS
+      description: When set to 1, the individual-address INVVPID type is supported.
+
+    - bit: 41
+      short_name: INVVPID_SINGLE_CONTEXT
+      long_name: INVVPID_SINGLE_CONTEXT
+      description: When set to 1, the single-context INVVPID type is supported.
+
+    - bit: 42
+      short_name: INVVPID_ALL_CONTEXTS
+      long_name: INVVPID_ALL_CONTEXTS
+      description: When set to 1, the all-context INVVPID type is supported.
+
+    - bit: 43
+      short_name: INVVPID_SINGLE_CONTEXT_RETAIN_GLOBALS
+      long_name: INVVPID_SINGLE_CONTEXT_RETAIN_GLOBALS
+      description: When set to 1, the single-context-retaining-globals INVVPID type is supported.
+
+    - bit: 48-53
+      short_name: MAX_HLAT_PREFIX_SIZE
+      long_name: MAX_HLAT_PREFIX_SIZE
+      description: |
+        Enumerate the maximum HLAT prefix size. It is expected that any processor that supports the
+        1-setting of the "enable HLAT" VM-execution control will enumerate this value as 1.
+      see: Vol3A[4.5.1(Ordinary Paging and HLAT Paging)]
+
+- name: VMX_TRUE_CTLS
+  short_description: IA32_VMX_TRUE_(x)_CTLS
+  long_description: |
+    Capability Reporting Register of Pin-Based VM-Execution Flex Controls,
+    Primary Processor-Based VM-Execution Flex Controls,
+    VM-Exit Flex Controls and VM-Entry Flex Controls.
+  access: R/O
+  type: group
+  remarks: |
+    If ( CPUID.01H:ECX.[5] = 1 && IA32_VMX_BASIC[55] )
+  see:
+  - Vol3D[A.3.1(Pin-Based VM-Execution Controls)]
+  - Vol3D[A.3.2(Primary Processor-Based VM-Execution Controls)]
+  - Vol3D[A.4(VM-EXIT CONTROLS)]
+  - Vol3D[A.5(VM-ENTRY CONTROLS)]
+  reference:
+  - Vol3D[A.3.1(Pin-Based VMExecution Controls)]
+  - Vol3D[A.3.2(Primary Processor-Based VM-Execution Controls)]
+  - Vol3D[A.4(VM-Exit Controls)]
+  - Vol3D[A.5(VM-Entry Controls)]
+  fields:
+  - value: 0x48D
+    name: VMX_TRUE_PINBASED_CTLS
+  - value: 0x48E
+    name: VMX_TRUE_PROCBASED_CTLS
+  - value: 0x48F
+    name: VMX_TRUE_EXIT_CTLS
+  - value: 0x490
+    name: VMX_TRUE_ENTRY_CTLS
+
+  #
+  # Result.
+  #
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      name: ALLOWED_0_SETTINGS
+      description: |
+        Indicate the allowed 0-settings of these controls. VM entry allows control X to be 0 if
+        bit X in the MSR is cleared to 0; if bit X in the MSR is set to 1, VM entry fails if
+        control X is 0.
+
+    - bit: 32-63
+      name: ALLOWED_1_SETTINGS
+      description: |
+        Indicate the allowed 1-settings of these controls. VM entry allows control X to be 1 if bit 32+X in
+        the MSR is set to 1; if bit 32+X in the MSR is cleared to 0, VM entry fails if control X is 1.
+
+- value: 0x491
+  name: VMX_VMFUNC
+  description: Capability Reporting Register of VMFunction Controls.
+  access: R/O
+  remarks: |
+    If ( CPUID.01H:ECX.[5] = 1 && IA32_VMX_BASIC[55] )
+  see: Vol3D[A.11(VM FUNCTIONS)]
+  reference: Vol3D[24.6.14(VM-Function Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: EPTP_SWITCHING
+      description: The EPTP-switching VM function changes the EPT pointer to a value chosen from the EPTP list.
+      see: Vol3C[25.5.5.3(EPTP Switching)]
+
+- value: 0x492
+  name: VMX_PROCBASED_CTLS3
+  description: Capability Reporting Register of Tertiary Processor-Based VM-Execution Controls.
+  access: R/O
+  remarks: |
+    If ( CPUID.01H:ECX.[5] && IA32_VMX_PROCBASED_CTLS[49] )
+  see: Vol3D[A.3.4(Tertiary Processor-Based VM-Execution Controls)]
+  reference: Vol3D[24.6.2(Processor-Based VM-Execution Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: LOADIWKEY
+      long_name: LOADIWKEY_EXITING
+      short_description: Executions of LOADIWKEY cause VM exits.
+      long_description: |
+        This control determines whether executions of LOADIWKEY cause VM exits.
+
+    - bit: 1
+      short_name: HLAT
+      long_name: ENABLE_HLAT
+      short_description: Enables hypervisor-managed linear-address translation
+      long_description: |
+        This control enables hypervisor-managed linear-address translation.
+      see: Vol3A[4.5.1(Ordinary Paging and HLAT Paging)]
+
+    - bit: 2
+      short_name: EPT_PAGING_WRITE
+      long_name: EPT_PAGING_WRITE
+      short_description: |
+        If this control is 1, EPT permissions can be specified to allow writes only for paging-related control updates
+      long_description: |
+        If this control is 1, EPT permissions can be specified to allow writes only for paging-related control updates.
+      see: Vol3C[28.3.3.2(EPT Violations)]
+
+    - bit: 3
+      short_name: GUEST_PAGING
+      long_name: GUEST_PAGING
+      short_description: |
+        If this control is 1, EPT permissions can be specified to prevent accesses using linear addresses
+        verification whose translation has certain properties.
+      long_description: |
+        If this control is 1, EPT permissions can be specified to prevent accesses using linear addresses
+        verification whose translation has certain properties.
+      see: Vol3C[28.3.3.2(EPT Violations)]
+    
+    - bit: 4
+      short_name: IPI_VIRTUALIZATION
+      long_name: ENABLE_IPI_VIRTUALIZATION
+      short_description: |
+        Enables virtualization of IPIs.
+      long_description: |
+        If this control is 1, virtualization of interprocessor interrupts (IPIs) is enabled.
+      see: Vol3C[31.1.6(IPI Virtualization)]
+
+    - bit: 6
+      short_name: MSRLIST
+      long_name: ENABLE_RDMSRLIST_WRMSRLIST
+      short_description: |
+        Enables RDMSRLIST/WRMSRLIST instructions.
+      long_description: |
+        If this control is 0, any execution of RDMSRLIST or WRMSRLIST causes a #UD.
+    
+    - bit: 7
+      short_name: VIRTUALIZE_SPEC_CTRL
+      long_name: VIRTUALIZE_IA32_SPEC_CTRL
+      short_description: |
+        Changes access to the IA32_SPEC_CTRL MSR.
+      long_description: |
+        If this control is 1, the operation of the RDMSR and WRMSR instructions is changed when
+        accessing the IA32_SPEC_CTRL MSR.
+      see: 
+        - Vol3C[26.6.26(Fields Controlling Virtualization of the IA32_SPEC_CTRL MSR)]
+        - Vol3C[27.3(CHANGES TO INSTRUCTION BEHAVIOR IN VMX NON-ROOT OPERATION)]
+
+- value: 0x493
+  name: VMX_EXIT_CTLS2
+  description: Capability Reporting Register of Secondary VM-Exit Controls.
+  access: R/O
+  remarks: |
+    If ( CPUID.01H:ECX.[5] && IA32_VMX_EXIT_CTLS[63] )
+  see: Vol3D[A.4.2(Secondary VM-Exit Controls)]
+  reference: Vol3C[24.7.1(VM-Exit Controls)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 3
+      short_name: PREMATURELY_BUSY_SHADOW_STACK
+      long_name: ENABLE_PREMATURELY_BUSY_SHADOW_STACK_INDICATION
+      short_description: Enables indication of when a VM-exit causes a shadow stack to become prematurely busy.
+      long_description: |
+        If this control is 1, VM exits that cause a shadow stack to become prematurely busy
+        indicate this fact and save additional information into the VMCS.
+      see: Vol1[18.2.3(Supervisor Shadow Stack Token)]
+
+#
+# END-OF-VMX
+#
+
+- name: A_PMC
+  short_description: IA32_A_PMC(n)
+  long_description: Full Width Writable IA32_PMC(n) Alias.
+  access: R/W
+  type: group
+  remarks: |
+    (If CPUID.0AH: EAX[15:8] > 0) && IA32_PERF_CAPABILITIES[13] = 1
+  fields:
+  - value: 0x4C1
+    name: A_PMC0
+  - value: 0x4C2
+    name: A_PMC1
+  - value: 0x4C3
+    name: A_PMC2
+  - value: 0x4C4
+    name: A_PMC3
+  - value: 0x4C5
+    name: A_PMC4
+  - value: 0x4C6
+    name: A_PMC5
+  - value: 0x4C7
+    name: A_PMC6
+  - value: 0x4C8
+    name: A_PMC7
+
+- value: 0x4D0
+  name: MCG_EXT_CTL
+  description: Allows software to signal some MCEs to only a single logical processor in the system.
+  access: R/W
+  todo: More description
+  remarks: |
+    If IA32_MCG_CAP.LMCE_P = 1
+  see: Vol3B[15.3.1.4(IA32_MCG_EXT_CTL MSR)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: LMCE_EN
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x500 - 0x5FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0x500
+  name: SGX_SVN_STATUS
+  short_description: Status and SVN Threshold of SGX Support for ACM.
+  long_description: |
+    Intel SGX only allows launching ACMs with an Intel SGX SVN that is at the same level or higher than the expected
+    Intel SGX SVN. The expected Intel SGX SVN is specified by BIOS and locked down by the processor on the first
+    successful execution of an Intel SGX instruction that doesn’t return an error code. Intel SGX provides interfaces for
+    system software to discover whether a non faulting Intel SGX instruction has been executed, and evaluate the suitability
+    of the Intel SGX SVN value of any ACM that is expected to be launched by the OS or the VMM.
+  access: RO
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H): EBX[2] = 1
+  reference: Vol3D[41.11.3(Interactions with Authenticated Code Modules (ACMs))]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: LOCK
+      description: |
+        - If 1, indicates that a non-faulting Intel SGX instruction has been
+          executed, consequently, launching a properly signed ACM but with Intel
+          SGX SVN value less than the BIOS specified Intel SGX SVN threshold
+          would lead to an TXT shutdown.
+
+        - If 0, indicates that the processor will allow a properly signed ACM to
+          launch irrespective of the Intel SGX SVN value of the ACM.
+      see: Vol3D[41.11.3(Interactions with Authenticated Code Modules (ACMs))]
+
+    - bit: 16-23
+      name: SGX_SVN_SINIT
+      short_description: Reflects the expected threshold of Intel SGX SVN for the SINIT ACM
+      long_description: |
+        - If CPUID.01H:ECX.SMX = 1, this field reflects the expected threshold of
+          Intel SGX SVN for the SINIT ACM.
+
+        - If CPUID.01H:ECX.SMX = 0, this field is reserved (0).
+      see: Vol3D[41.11.3(Interactions with Authenticated Code Modules (ACMs))]
+
+- value: 0x560
+  name: RTIT_OUTPUT_BASE
+  description: Trace Output Base Register.
+  access: R/W
+  remarks: |
+    If ( (CPUID.(EAX=07H, ECX=0):EBX[25] = 1) && ( (CPUID.(EAX=14H,ECX=0): ECX[0] = 1) || (CPUID.(EAX=14H,ECX=0):ECX[2] = 1) ) )
+  reference: Vol3C[35.2.7.7(IA32_RTIT_OUTPUT_BASE MSR)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 7-(MAXPHYADDR-1)
+      name: BASE_PHYSICAL_ADDRESS
+      short_description: Base physical address
+      long_description: |
+        The base physical address. How this address is used depends on the value of
+        IA32_RTIT_CTL.ToPA:
+
+        - 0: This is the base physical address of a single, contiguous physical output region.
+          This could be mapped to DRAM or to MMIO, depending on the value.
+          The base address should be aligned with the size of the region, such that none of
+          the 1s in the mask value overlap with 1s in the base address. If
+          the base is not aligned, an operational error will result.
+
+        - 1: The base physical address of the current ToPA table. The address must be 4K
+          aligned. Writing an address in which bits 11:7 are non-zero will not cause a #GP, but
+          an operational error will be signaled once TraceEn is set.
+      see:
+      - Vol3C[35.2.7.8(IA32_RTIT_OUTPUT_MASK_PTRS MSR)]
+      - Vol3C[35.3.9(Operational Errors)]
+      - Vol3C[35.2.6.2(Table of Physical Addresses (ToPA))]
+
+- value: 0x561
+  name: RTIT_OUTPUT_MASK_PTRS
+  description: Trace Output Mask Pointers Register.
+  access: R/W
+  remarks: |
+    If ( (CPUID.(EAX=07H, ECX=0):EBX[25] = 1) && ( (CPUID.(EAX=14H,ECX=0):ECX[0] = 1) || (CPUID.(EAX=14H,ECX=0):ECX[2] = 1) ) )
+  reference: Vol3C[35.2.7.8(IA32_RTIT_OUTPUT_MASK_PTRS MSR)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-6
+      name: LOWER_MASK
+      description: Forced to 1, writes are ignored.
+
+    - bit: 7-31
+      name: MASK_OR_TABLE_OFFSET
+      short_description: MaskOrTableOffset.
+      long_description: |
+        The use of this field depends on the value of IA32_RTIT_CTL.ToPA:
+
+        - 0: This field holds bits 31:7 of the mask value for the single, contiguous physical output
+          region. The size of this field indicates that regions can be of size 128B up to 4GB. This value
+          (combined with the lower 7 bits, which are reserved to 1) will be ANDed with the
+          OutputOffset field to determine the next write address. All 1s in this field should be
+          consecutive and starting at bit 7, otherwise the region will not be contiguous, and an
+          operational error will be signaled when TraceEn is set.
+
+        - 1: This field holds bits 27:3 of the offset pointer into the current ToPA table. This value can
+          be added to the IA32_RTIT_OUTPUT_BASE value to produce a pointer to the current ToPA
+          table entry, which itself is a pointer to the current output region. In this scenario, the lower 7
+          reserved bits are ignored. This field supports tables up to 256 MBytes in size.
+      see: Vol3C[35.3.9(Operational Errors)]
+
+    - bit: 32-63
+      name: OUTPUT_OFFSET
+      description: Output Offset.
+      long_description: |
+        The use of this field depends on the value of IA32_RTIT_CTL.ToPA:
+
+        - 0: This is bits 31:0 of the offset pointer into the single, contiguous physical output region.
+          This value will be added to the IA32_RTIT_OUTPUT_BASE value to form the physical address
+          at which the next byte of packet output data will be written. This value must be less than or
+          equal to the MaskOrTableOffset field, otherwise an operational error will be
+          signaled when TraceEn is set.
+
+        - 1: This field holds bits 31:0 of the offset pointer into the current ToPA output region. This
+          value will be added to the output region base field, found in the current ToPA table entry, to
+          form the physical address at which the next byte of trace output data will be written.
+          This value must be less than the ToPA entry size, otherwise an operational error
+          will be signaled when TraceEn is set.
+      see:
+      - Vol3C[35.3.9(Operational Errors)]
+
+- value: 0x570
+  name: RTIT_CTL
+  description: Trace Control Register.
+  access: R/W
+  remarks: |
+    If (CPUID.(EAX=07H, ECX=0):EBX[25] = 1)
+  reference: Vol3C[35.2.7.2(IA32_RTIT_CTL MSR)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: TRACE_EN
+      alternative_name: TRACE_ENABLED
+      short_description: TraceEn
+      long_description: |
+        If 1, enables tracing; else tracing is disabled.
+
+        When this bit transitions from 1 to 0, all buffered packets are flushed out of internal buffers.
+        A further store, fence, or architecturally serializing instruction may be required to ensure that
+        packet data can be observed at the trace endpoint.
+
+        Note that the processor will clear this bit on #SMI (Section) and warm reset. Other MSR bits
+        of IA32_RTIT_CTL (and other trace configuration MSRs) are not impacted by these events.
+      see: Vol3C[35.2.7.3(Enabling and Disabling Packet Generation with TraceEn)]
+
+    - bit: 1
+      name: CYC_EN
+      alternative_name: CYC_ENABLED
+      short_description: CYCEn
+      long_description: |
+        - 0: Disables CYC Packet.
+
+        - 1: Enables CYC Packet.
+      remarks: |
+        If CPUID.(EAX=14H, ECX=0):EBX.CPSB_CAM[bit 1] = 0
+      see: Vol3C[35.4.2.14(Cycle Count (CYC) Packet)]
+
+    - bit: 2
+      name: OS
+      short_description: OS
+      long_description: |
+        - 0: Packet generation is disabled when CPL = 0.
+
+        - 1: Packet generation may be enabled when CPL = 0.
+
+    - bit: 3
+      name: USER
+      short_description: User
+      long_description: |
+        - 0: Packet generation is disabled when CPL > 0.
+
+        - 1: Packet generation may be enabled when CPL > 0.
+
+    - bit: 4
+      name: PWR_EVT_EN
+      alternative_name: POWER_EVENT_TRACE_ENABLED
+      short_description: PwrEvtEn
+      long_description: |
+        - 0: Power Event Trace packets are disabled.
+
+        - 1: Power Event Trace packets are enabled.
+      see: Vol3C[35.2.3(Power Event Tracing)]
+
+    - bit: 5
+      name: FUP_ON_PTW
+      short_description: FUPonPTW
+      long_description: |
+        - 0: PTW packets are not followed by FUPs.
+
+        - 1: PTW packets are followed by FUPs.
+
+    - bit: 6
+      name: FABRIC_EN
+      alternative_name: FABRIC_ENABLED
+      short_description: FabricEn
+      long_description: |
+        - 0: Trace output is directed to the memory subsystem, mechanism depends on
+          IA32_RTIT_CTL.ToPA.
+
+        - 1: Trace output is directed to the trace transport subsystem, IA32_RTIT_CTL.ToPA is ignored.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):ECX[3] = 1)
+        Reserved if CPUID.(EAX=14H, ECX=0):ECX[bit 3] = 0
+
+    - bit: 7
+      name: CR3_FILTER
+      short_description: CR3 filter
+      long_description: |
+        - 0: Disables CR3 filtering.
+
+        - 1: Enables CR3 filtering.
+
+    - bit: 8
+      name: TOPA
+      short_description: ToPA
+      long_description: |
+        - 0: Single-range output scheme enabled.
+
+        - 1: ToPA output scheme enabled.
+      remarks: |
+        0: If CPUID.(EAX=14H, ECX=0):ECX.SNGLRGNOUT[bit 2] = 1 and IA32_RTIT_CTL.FabricEn=0
+        1: If CPUID.(EAX=14H, ECX=0):ECX.TOPA[bit 0] = 1, and IA32_RTIT_CTL.FabricEn=0
+
+        WRMSR to IA32_RTIT_CTL that sets TraceEn but clears this bit and FabricEn would cause #GP:
+          If CPUID.(EAX=14H, ECX=0):ECX.SNGLRGNOUT[bit 2] = 0
+        WRMSR to IA32_RTIT_CTL that sets this bit causes #GP:
+          If CPUID.(EAX=14H, ECX=0):ECX.TOPA[bit 0] = 0
+      see: Vol3C[35.2.6.2(Table of Physical Addresses (ToPA))]
+
+    - bit: 9
+      name: MTC_EN
+      alternative_name: MTC_ENABLED
+      short_description: MTCEn
+      long_description: |
+        - 0: Disables MTC Packet.
+
+        - 1: Enables MTC Packet.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[3] = 1)
+        Reserved if CPUID.(EAX=14H, ECX=0):EBX.MTC[bit 3] = 0
+      see: Vol3C[35.4.2.16(Overflow (OVF) Packet)]
+
+    - bit: 10
+      name: TSC_EN
+      alternative_name: TSC_ENABLED
+      short_description: TSCEn
+      long_description: |
+        - 0: Disable TSC packets.
+
+        - 1: Enable TSC packets.
+      see: Vol3C[35.4.2.11(Timestamp Counter (TSC) Packet)]
+
+    - bit: 11
+      name: DIS_RETC
+      alternative_name: RET_COMPRESSION_DISABLED
+      short_description: DisRETC
+      long_description: |
+        - 0: Enable RET compression.
+
+        - 1: Disable RET compression.
+      see: Vol3C[35.2.1.2(Indirect Transfer COFI)]
+
+    - bit: 12
+      name: PTW_EN
+      alternative_name: PTW_ENABLED
+      short_description: PTWEn
+      long_description: |
+        - 0: PTWRITE packet generation disabled.
+
+        - 1: PTWRITE packet generation enabled.
+
+    - bit: 13
+      name: BRANCH_EN
+      alternative_name: BRANCH_ENABLED
+      short_description: BranchEn
+      long_description: |
+        - 0: Disable COFI-based packets.
+
+        - 1: Enable COFI-based packets: FUP, TIP, TIP.PGE, TIP.PGD, TNT, MODE.Exec, MODE.TSX.
+      see: Vol3C[35.2.5.4(Branch Enable (BranchEn))]
+
+    - bit: 14-17
+      name: MTC_FREQ
+      alternative_name: MTC_FREQUENCY
+      short_description: MTCFreq
+      long_description: |
+        Defines MTC packet Frequency, which is based on the core crystal clock, or Always Running
+        Timer (ART). MTC will be sent each time the selected ART bit toggles. The following Encodings
+        are defined:
+
+        0: ART(0), 1: ART(1), 2: ART(2), 3: ART(3), 4: ART(4), 5: ART(5), 6: ART(6), 7: ART(7),
+        8: ART(8), 9: ART(9), 10: ART(10), 11: ART(11), 12: ART(12), 13: ART(13), 14: ART(14), 15:
+        ART(15)
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[3] = 1)
+        Reserved if CPUID.(EAX=14H, ECX=0):EBX.MTC[bit 3] = 0
+      see: Vol3C[35.3.1(Detection of Intel Processor Trace and Capability Enumeration)]
+
+    - bit: 19-22
+      name: CYC_THRESH
+      alternative_name: CYC_THRESHOLD
+      short_description: CYCThresh
+      long_description: |
+        CYC packet threshold. CYC packets will be sent with the first
+        eligible packet after N cycles have passed since the last CYC packet. If CycThresh is 0 then
+        N=0, otherwise N is defined as 2(CycThresh-1). The following Encodings are defined:
+
+        0: 0, 1: 1, 2: 2, 3: 4, 4: 8, 5: 16, 6: 32, 7: 64,
+        8: 128, 9: 256, 10: 512, 11: 1024, 12: 2048, 13: 4096, 14: 8192, 15: 16384
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[1] = 1)
+        Reserved if CPUID.(EAX=14H, ECX=0):EBX.CPSB_CAM[bit 1] = 0
+      see:
+      - Vol3C[35.3.6(Cycle-Accurate Mode)]
+      - Vol3C[35.3.1(Detection of Intel Processor Trace and Capability Enumeration)]
+
+    - bit: 24-27
+      name: PSB_FREQ
+      alternative_name: PSB_FREQUENCY
+      short_description: PSBFreq
+      long_description: |
+        Indicates the frequency of PSB packets. PSB packet frequency is based on the number of Intel
+        PT packet bytes output, so this field allows the user to determine the increment of
+        IA32_IA32_RTIT_STATUS.PacketByteCnt that should cause a PSB to be generated. Note that
+        PSB insertion is not precise, but the average output bytes per PSB should approximate the
+        SW selected period. The following Encodings are defined:
+
+        0: 2K, 1: 4K, 2: 8K, 3: 16K, 4: 32K, 5: 64K, 6: 128K, 7: 256K,
+        8: 512K, 9: 1M, 10: 2M, 11: 4M, 12: 8M, 13: 16M, 14: 32M, 15: 64M
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[1] = 1)
+        Reserved if CPUID.(EAX=14H, ECX=0):EBX.CPSB_CAM[bit 1] = 0
+      see: Vol3C[35.3.1(Detection of Intel Processor Trace and Capability Enumeration)]
+
+    - bit: 32-35
+      name: ADDR0_CFG
+      short_description: ADDR0_CFG
+      long_description: |
+        Configures the base/limit register pair IA32_RTIT_ADDR0_A/B based on the following
+        encodings:
+
+        - 0: ADDR0 range unused.
+
+        - 1: The [IA32_RTIT_ADDR0_A..IA32_RTIT_ADDR0_B] range defines a FilterEn range. FilterEn
+          will only be set when the IP is within this range, though other FilterEn ranges can additionally
+          be used.
+
+        - 2: The [IA32_RTIT_ADDR0_A..IA32_RTIT_ADDR0_B] range defines a TraceStop range.
+          TraceStop will be asserted if code branches into this range.
+
+        - 3..15: Reserved (#GP).
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 0)
+        Reserved if CPUID.(EAX=14H, ECX=1):EBX.RANGECNT[2:0] >= 0
+      see:
+      - Vol3C[35.2.4.3(Filtering by IP)]
+      - Vol3C[35.4.2.10(Core:Bus Ratio (CBR) Packet)]
+
+    - bit: 36-39
+      name: ADDR1_CFG
+      short_description: ADDR1_CFG
+      long_description: |
+        Configures the base/limit register pair IA32_RTIT_ADDR1_A/B based on the following
+        encodings:
+
+        - 0: ADDR1 range unused.
+
+        - 1: The [IA32_RTIT_ADDR1_A..IA32_RTIT_ADDR1_B] range defines a FilterEn range. FilterEn
+          will only be set when the IP is within this range, though other FilterEn ranges can additionally
+          be used.
+
+        - 2: The [IA32_RTIT_ADDR1_A..IA32_RTIT_ADDR1_B] range defines a TraceStop range.
+          TraceStop will be asserted if code branches into this range.
+
+        - 3..15: Reserved (#GP).
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 1)
+        Reserved if CPUID.(EAX=14H, ECX=1):EBX.RANGECNT[2:0] < 2
+      see:
+      - Vol3C[35.2.4.3(Filtering by IP)]
+      - Vol3C[35.4.2.10(Core:Bus Ratio (CBR) Packet)]
+
+    - bit: 40-43
+      name: ADDR2_CFG
+      short_description: ADDR2_CFG
+      long_description: |
+        Configures the base/limit register pair IA32_RTIT_ADDR2_A/B based on the following
+        encodings:
+
+        - 0: ADDR2 range unused.
+
+        - 1: The [IA32_RTIT_ADDR2_A..IA32_RTIT_ADDR2_B] range defines a FilterEn range. FilterEn
+          will only be set when the IP is within this range, though other FilterEn ranges can additionally
+          be used.
+
+        - 2: The [IA32_RTIT_ADDR2_A..IA32_RTIT_ADDR2_B] range defines a TraceStop range.
+          TraceStop will be asserted if code branches into this range.
+
+        - 3..15: Reserved (#GP).
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 2)
+        Reserved if CPUID.(EAX=14H, ECX=1):EBX.RANGECNT[2:0] < 3
+      see:
+      - Vol3C[35.2.4.3(Filtering by IP)]
+      - Vol3C[35.4.2.10(Core:Bus Ratio (CBR) Packet)]
+
+    - bit: 44-47
+      name: ADDR3_CFG
+      short_description: ADDR3_CFG
+      long_description: |
+        Configures the base/limit register pair IA32_RTIT_ADDR3_A/B based on the following
+        encodings:
+
+        - 0: ADDR3 range unused.
+
+        - 1: The [IA32_RTIT_ADDR3_A..IA32_RTIT_ADDR3_B] range defines a FilterEn range. FilterEn
+          will only be set when the IP is within this range, though other FilterEn ranges can additionally
+          be used.
+
+        - 2: The [IA32_RTIT_ADDR3_A..IA32_RTIT_ADDR3_B] range defines a TraceStop range.
+          TraceStop will be asserted if code branches into this range.
+
+        - 3..15: Reserved (#GP).
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 3)
+        Reserved if CPUID.(EAX=14H, ECX=1):EBX.RANGECNT[2:0] < 4
+      see:
+      - Vol3C[35.2.4.3(Filtering by IP)]
+      - Vol3C[35.4.2.10(Core:Bus Ratio (CBR) Packet)]
+
+    - bit: 56
+      name: INJECT_PSB_PMI_ON_ENABLE
+      short_description: InjectPsbPmiOnEnable
+      long_description: |
+        - 1: Enables use of IA32_RTIT_STATUS bits PendPSB[6] and PendTopaPMI[7].
+
+        - 0: IA32_RTIT_STATUS bits 6 and 7 are ignored.
+      remarks: |
+        Reserved if CPUID.(EAX=14H, ECX=0):EBX.INJECTPSBPMI[6] = 0
+      see: Vol3C[35.2.7.4(IA32_RTIT_STATUS MSR)]
+
+- value: 0x571
+  name: RTIT_STATUS
+  description: Tracing Status Register.
+  access: R/W
+  remarks: |
+    If (CPUID.(EAX=07H, ECX=0):EBX[25] = 1)
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: FILTER_EN
+      alternative_name: FILTER_ENABLED
+      short_description: FilterEn (writes ignored)
+      long_description: |
+        This bit is written by the processor, and indicates that tracing is allowed for the current IP.
+        Writes are ignored.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[2] = 1)
+      see: Vol3C[35.2.5.5(Filter Enable (FilterEn))]
+
+    - bit: 1
+      name: CONTEX_EN
+      alternative_name: CONTEXT_ENABLED
+      short_description: ContexEn (writes ignored)
+      long_description: |
+        The processor sets this bit to indicate that tracing is allowed for the current context.
+        Writes are ignored.
+      see: Vol3C[35.2.5.3(Context Enable (ContextEn))]
+
+    - bit: 2
+      name: TRIGGER_EN
+      alternative_name: TRIGGER_ENABLED
+      short_description: TriggerEn (writes ignored)
+      long_description: |
+        The processor sets this bit to indicate that tracing is enabled.
+        Writes are ignored.
+      see: Vol3C[35.2.5.2(Trigger Enable (TriggerEn))]
+
+    - bit: 4
+      name: ERROR
+      short_description: Error
+      long_description: |
+        The processor sets this bit to indicate that an operational error has been encountered. When
+        this bit is set, TriggerEn is cleared to 0 and packet generation is disabled.
+
+        When TraceEn is cleared, software can write this bit. Once it is set, only software can clear it.
+        It is not recommended that software ever set this bit, except in cases where it is restoring a
+        prior saved state.
+      see: Vol3C[35.2.6.2(Table of Physical Addresses (ToPA) | ToPA Errors)]
+
+    - bit: 5
+      name: STOPPED
+      short_description: Stopped
+      long_description: |
+        The processor sets this bit to indicate that a ToPA Stop condition has been encountered.
+        When this bit is set, TriggerEn is cleared to 0 and packet generation is disabled.
+
+        When TraceEn is cleared, software can write this bit. Once it is set, only software can clear it.
+        It is not recommended that software ever set this bit, except in cases where it is restoring a
+        prior saved state.
+      see: Vol3C[35.2.6.2(Table of Physical Addresses (ToPA) | ToPA STOP)]
+
+    - bit: 6
+      name: PEND_PSB
+      short_description: Pend PSB
+      long_description: |
+        If IA32_RTIT_CTL.InjectPsbPmiOnEnable[56] = 1, the processor sets this bit when the
+        threshold for a PSB+ to be inserted has been reached. The processor will clear this bit when
+        the PSB+ has been inserted into the trace. If PendPSB = 1 and InjectPsbPmiOnEnable = 1
+        when IA32_RTIT_CTL.TraceEn[0] transitions from 0 to 1, a PSB+ will be inserted into the
+        trace.
+      remarks: |
+        If CPUID.(EAX=14H, ECX=0):EBX.INJECTPSBPMI[6] = 1
+
+    - bit: 7
+      name: PEND_TOPA_PMI
+      short_description: Pend ToPA PMI
+      long_description: |
+        If IA32_RTIT_CTL.InjectPsbPmiOnEnable[56] = 1, the processor sets this bit when the
+        threshold for a ToPA PMI to be inserted has been reached. Software should clear this bit once
+        the ToPA PMI has been handled. If PendTopaPMI = 1 and
+        InjectPsbPmiOnEnable = 1 when IA32_RTIT_CTL.TraceEn[0] transitions from 0 to 1, a PMI will
+        be pended.
+      remarks: |
+        If CPUID.(EAX=14H, ECX=0):EBX.INJECTPSBPMI[6] = 1
+      see: Vol3C[35.2.6.2(Table of Physical Addresses (ToPA) | ToPA PMI)]
+
+    - bit: 32-48
+      name: PACKET_BYTE_CNT
+      alternative_name: PACKET_BYTE_COUNT
+      short_description: PacketByteCnt
+      long_description: |
+        This field is written by the processor, and holds a count of packet bytes that have been sent
+        out. The processor also uses this field to determine when the next PSB packet should be
+        inserted. Note that the processor may clear or modify this field at any time while
+        IA32_RTIT_CTL.TraceEn=1. It will have a stable value when IA32_RTIT_CTL.TraceEn=0.
+      remarks: |
+        If (CPUID.(EAX=07H, ECX=0):EBX[1] > 3)
+      see: Vol3C[35.4.2.17(Packet Stream Boundary (PSB) Packet)]
+
+- value: 0x572
+  name: RTIT_CR3_MATCH
+  short_description: Trace Filter CR3 Match Register.
+  long_description: |
+    The IA32_RTIT_CR3_MATCH register is compared against CR3 when IA32_RTIT_CTL.CR3Filter is 1. Bits 63:5 hold
+    the CR3 address value to match, bits 4:0 are reserved to 0.
+  access: R/W
+  remarks: |
+    If (CPUID.(EAX=07H, ECX=0):EBX[25] = 1)
+  see: Vol3C[35.2.4.2(Filtering by CR3)]
+  reference: Vol3C[35.2.7.6(IA32_RTIT_CR3_MATCH MSR)]
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 5-63
+      short_name: CR3
+      long_name: CR3_VALUE_TO_MATCH
+      description: CR3[63:5] value to match.
+
+- name: RTIT_ADDR
+  short_description: IA32_RTIT_ADDR(x)
+  long_description: |
+    The role of the IA32_RTIT_ADDRn_A/B register pairs, for each n, is determined by the corresponding ADDRn_CFG
+    fields in IA32_RTIT_CTL. The number of these register pairs is enumerated by
+    CPUID.(EAX=14H, ECX=1):EAX.RANGECNT[2:0].
+  type: group
+  remarks: |
+    If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > n)
+  see: Vol3C[35.2.7.2(IA32_RTIT_CTL MSR)]
+  reference: Vol3C[35.2.7.5(IA32_RTIT_ADDRn_A and IA32_RTIT_ADDRn_B MSRs)]
+  fields:
+  - name: RTIT_ADDR_A
+    short_description: IA32_RTIT_ADDR(n)_A
+    long_description: Region n Start Address.
+    access: R/W
+    type: group
+    remarks: |
+      If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > n)
+    fields:
+    - value: 0x580
+      name: RTIT_ADDR0_A
+    - value: 0x582
+      name: RTIT_ADDR1_A
+    - value: 0x584
+      name: RTIT_ADDR2_A
+    - value: 0x586
+      name: RTIT_ADDR3_A
+
+  - name: RTIT_ADDR_B
+    short_description: IA32_RTIT_ADDR(n)_B
+    long_description: Region n End Address.
+    access: R/W
+    type: group
+    remarks: |
+      If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > n)
+    fields:
+    - value: 0x581
+      name: RTIT_ADDR0_B
+    - value: 0x583
+      name: RTIT_ADDR1_B
+    - value: 0x585
+      name: RTIT_ADDR2_B
+    - value: 0x587
+      name: RTIT_ADDR3_B
+
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-47
+      name: VIRTUAL_ADDRESS
+      description: Virtual Address.
+
+    - bit: 48-63
+      name: SIGN_EXT_VA
+      description: SignExt_VA.
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x600 - 0x6FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0x600
+  name: DS_AREA
+  description: |
+    DS Save Area. Points to the linear address of the first byte of the
+    DS buffer management area, which is used to manage the BTS and PEBS buffers.
+
+    Returns:
+
+    - [63:0] The linear address of the first byte of the DS buffer management area, if IA-32e mode is active.
+
+    - [31:0] The linear address of the first byte of the DS buffer management area, if not in IA-32e mode.
+
+    - [63:32] Reserved if not in IA-32e mode.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.01H:EDX.DS[21] = 1
+  see: Vol3B[18.6.3.4(Debug Store (DS) Mechanism)]
+
+- value: 0x6A0
+  name: U_CET
+  description: Configure User Mode CET
+  access: R/W
+  remarks: |
+    - Bits 1:0 are defined if CPUID.(EAX=07H,ECX=0H):ECX.CET_SS[07] = 1.
+    - Bits 5:2 and bits 63:10 are defined if CPUID.(EAX=07H,ECX=0H):EDX.CET_IBT[20] = 1.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: SH_STK_EN
+      description: When set to 1, enable shadow stacks at CPL3.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 1
+      name: WR_SHSTK_EN
+      description: When set to 1, enables the WRSSD/WRSSQ instructions.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 2
+      name: ENDBR_EN
+      description: When set to 1, enables indirect branch tracking
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 3
+      name: LEG_IW_EN
+      description: Enable legacy compatibility treatment for indirect branch tracking.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 4
+      name: NO_TRACK_EN
+      description: When set to 1, enables use of no-track prefix for indirect branch tracking.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 5
+      name: SUPPRESS_DIS
+      description: When set to 1, disables suppression of CET indirect branch tracking on legacy compatibility.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 10
+      name: SUPPRESS
+      description: |
+        When set to 1, indirect branch tracking is suppressed. This bit can be written to 1 only if
+        TRACKER is written as IDLE.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 11
+      name: TRACKER
+      description: |
+        Value of the indirect branch tracking state machine. Values: IDLE (0), WAIT_FOR_ENDBRANCH(1).
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 12-63
+      name: EB_LEG_BITMAP_BASE
+      description: |
+        Linear address bits 63:12 of a legacy code page bitmap used for legacy compatibility when
+        indirect branch tracking is enabled. If the processor does not support Intel 64 architecture,
+        these fields have only 32 bits; bits 63:32 of the MSRs are reserved. On processors that support
+        Intel 64 architecture this value cannot represent a non-canonical address. In protected mode,
+        only 31:0 are loaded. The linear address written must be aligned to 8 bytes and bits 2:0 must
+        be 0 (hardware requires bits 1:0 to be 0).
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+- value: 0x6A2
+  name: S_CET
+  description: Configure Supervisor Mode CET
+  access: R/W
+  remarks: |
+    - Bits 1:0 are defined if CPUID.(EAX=07H,ECX=0H):ECX.CET_SS[07] = 1.
+    - Bits 5:2 and bits 63:10 are defined if CPUID.(EAX=07H,ECX=0H):EDX.CET_IBT[20] = 1.
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: SH_STK_EN
+      description: When set to 1, enable shadow stacks at CPL0.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 1
+      name: WR_SHSTK_EN
+      description: When set to 1, enables the WRSSD/WRSSQ instructions.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 2
+      name: ENDBR_EN
+      description: When set to 1, enables indirect branch tracking
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 3
+      name: LEG_IW_EN
+      description: Enable legacy compatibility treatment for indirect branch tracking.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 4
+      name: NO_TRACK_EN
+      description: When set to 1, enables use of no-track prefix for indirect branch tracking.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 5
+      name: SUPPRESS_DIS
+      description: When set to 1, disables suppression of CET indirect branch tracking on legacy compatibility.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 10
+      name: SUPPRESS
+      description: |
+        When set to 1, indirect branch tracking is suppressed. This bit can be written to 1 only if
+        TRACKER is written as IDLE.
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 11
+      name: TRACKER
+      description: |
+        Value of the indirect branch tracking state machine. Values: IDLE (0), WAIT_FOR_ENDBRANCH(1).
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+    - bit: 12-63
+      name: EB_LEG_BITMAP_BASE
+      description: |
+        Linear address bits 63:12 of a legacy code page bitmap used for legacy compatibility when
+        indirect branch tracking is enabled. If the processor does not support Intel 64 architecture,
+        these fields have only 32 bits; bits 63:32 of the MSRs are reserved. On processors that support
+        Intel 64 architecture this value cannot represent a non-canonical address. In protected mode,
+        only 31:0 are loaded. The linear address written must be aligned to 8 bytes and bits 2:0 must
+        be 0 (hardware requires bits 1:0 to be 0).
+      see: Vol1[18(CONTROL-FLOW ENFORCEMENT TECHNOLOGY (CET))]
+
+- value: 0x6A4
+  name: PL0_SSP
+  description: |
+    Linear address to be loaded into SSP on transition to privilege level 0.
+
+    If the processor does not support Intel 64 architecture, these fields have only 32 bits; bits
+    63:32 of the MSRs are reserved. On processors that support Intel 64 architecture this value cannot
+    represent a non-canonical address. In protected mode, only 31:0 are loaded. The linear address
+    written must be aligned to 8 bytes and bits 2:0 must be 0 (hardware requires bits 1:0 to be 0).
+  access: R/W
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H):ECX.CET_SS[07] = 1
+
+- value: 0x6A5
+  name: PL1_SSP
+  description: |
+    Linear address to be loaded into SSP on transition to privilege level 1.
+
+    If the processor does not support Intel 64 architecture, these fields have only 32 bits; bits
+    63:32 of the MSRs are reserved. On processors that support Intel 64 architecture this value cannot
+    represent a non-canonical address. In protected mode, only 31:0 are loaded. The linear address
+    written must be aligned to 8 bytes and bits 2:0 must be 0 (hardware requires bits 1:0 to be 0).
+  access: R/W
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H):ECX.CET_SS[07] = 1
+
+- value: 0x6A6
+  name: PL2_SSP
+  description: |
+    Linear address to be loaded into SSP on transition to privilege level 2.
+
+    If the processor does not support Intel 64 architecture, these fields have only 32 bits; bits
+    63:32 of the MSRs are reserved. On processors that support Intel 64 architecture this value cannot
+    represent a non-canonical address. In protected mode, only 31:0 are loaded. The linear address
+    written must be aligned to 8 bytes and bits 2:0 must be 0 (hardware requires bits 1:0 to be 0).
+  access: R/W
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H):ECX.CET_SS[07] = 1
+
+- value: 0x6A7
+  name: PL3_SSP
+  description: |
+    Linear address to be loaded into SSP on transition to privilege level 3.
+
+    If the processor does not support Intel 64 architecture, these fields have only 32 bits; bits
+    63:32 of the MSRs are reserved. On processors that support Intel 64 architecture this value cannot
+    represent a non-canonical address. In protected mode, only 31:0 are loaded. The linear address
+    written must be aligned to 8 bytes and bits 2:0 must be 0 (hardware requires bits 1:0 to be 0).
+  access: R/W
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H):ECX.CET_SS[07] = 1
+
+- value: 0x6A8
+  name: INTERRUPT_SSP_TABLE_ADDR
+  description: |
+    Linear address of a table of seven shadow stack pointers that are selected in IA-32e mode using
+    the IST index (when not 0) from the interrupt gate descriptor.
+
+    This MSR is not present on processors that do not support Intel 64 architecture. This field cannot
+    represent a non-canonical address.
+  access: R/W
+  remarks: |
+    If CPUID.(EAX=07H, ECX=0H):ECX.CET_SS[07] = 1
+
+- value: 0x6E0
+  name: TSC_DEADLINE
+  description: TSC Target of Local APIC’s TSC Deadline Mode.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.01H:ECX.[24] = 1
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x700 - 0x7FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0x770
+  name: PM_ENABLE
+  description: Enable/disable HWP.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.06H:EAX.[7] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: HWP_ENABLE
+      description: HWP_ENABLE.
+      access: R/W1-Once
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.2(Enabling HWP)]
+
+- value: 0x771
+  name: HWP_CAPABILITIES
+  description: HWP Performance Range Enumeration.
+  access: RO
+  todo: More description
+  remarks: |
+    If CPUID.06H:EAX.[7] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      name: HIGHEST_PERFORMANCE
+      description: Highest_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.3(HWP Performance Range and Dynamic Capabilities)]
+
+    - bit: 8-15
+      name: GUARANTEED_PERFORMANCE
+      description: Guaranteed_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.3(HWP Performance Range and Dynamic Capabilities)]
+
+    - bit: 16-23
+      name: MOST_EFFICIENT_PERFORMANCE
+      description: Most_Efficient_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.3(HWP Performance Range and Dynamic Capabilities)]
+
+    - bit: 24-31
+      name: LOWEST_PERFORMANCE
+      description: Lowest_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.3(HWP Performance Range and Dynamic Capabilities)]
+
+
+- value: 0x772
+  name: HWP_REQUEST_PKG
+  description: Power Management Control Hints for All Logical Processors in a Package.
+  access: R/W
+  todo: More description + alternative_type Struct
+  remarks: |
+    If CPUID.06H:EAX.[11] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      name: MINIMUM_PERFORMANCE
+      description: Minimum_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[11] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 8-15
+      name: MAXIMUM_PERFORMANCE
+      description: Maximum_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[11] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 16-23
+      name: DESIRED_PERFORMANCE
+      description: Desired_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[11] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 24-31
+      name: ENERGY_PERFORMANCE_PREFERENCE
+      description: Energy_Performance_Preference.
+      remarks: |
+        If CPUID.06H:EAX.[11] = 1 && CPUID.06H:EAX.[10] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 32-41
+      name: ACTIVITY_WINDOW
+      description: Activity_Window.
+      remarks: |
+        If CPUID.06H:EAX.[11] = 1 && CPUID.06H:EAX.[9] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+- value: 0x773
+  name: HWP_INTERRUPT
+  description: Control HWP Native Interrupts.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.06H:EAX.[8] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: EN_GUARANTEED_PERFORMANCE_CHANGE
+      description: EN_Guaranteed_Performance_Change.
+      remarks: |
+        If CPUID.06H:EAX.[8] = 1
+      see: Vol3B[14.4.6(HWP Notifications)]
+
+    - bit: 1
+      name: EN_EXCURSION_MINIMUM
+      description: EN_Excursion_Minimum.
+      remarks: |
+        If CPUID.06H:EAX.[8] = 1
+      see: Vol3B[14.4.6(HWP Notifications)]
+
+- value: 0x774
+  name: HWP_REQUEST
+  description: Power Management Control Hints to a Logical Processor.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.06H:EAX.[7] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      name: MINIMUM_PERFORMANCE
+      description: Minimum_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 8-15
+      name: MAXIMUM_PERFORMANCE
+      description: Maximum_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 16-23
+      name: DESIRED_PERFORMANCE
+      description: Desired_Performance.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 24-31
+      name: ENERGY_PERFORMANCE_PREFERENCE
+      description: Energy_Performance_Preference.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1 && CPUID.06H:EAX.[10] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 32-41
+      name: ACTIVITY_WINDOW
+      description: Activity_Window.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1 && CPUID.06H:EAX.[9] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+    - bit: 42
+      name: PACKAGE_CONTROL
+      description: Package_Control.
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1 && CPUID.06H:EAX.[11] = 1
+      see: Vol3B[14.4.4(Managing HWP)]
+
+- value: 0x777
+  name: HWP_STATUS
+  description: Log bits indicating changes to Guaranteed & excursions to Minimum.
+  access: R/W
+  todo: More description
+  remarks: |
+    If CPUID.06H:EAX.[7] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: GUARANTEED_PERFORMANCE_CHANGE
+      description: Guaranteed_Performance_Change.
+      access: R/WC0
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.5(HWP Feedback)]
+
+    - bit: 2
+      name: EXCURSION_TO_MINIMUM
+      description: Excursion_To_Minimum.
+      access: R/WC0
+      remarks: |
+        If CPUID.06H:EAX.[7] = 1
+      see: Vol3B[14.4.5(HWP Feedback)]
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0x800 - 0x8FF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0x802
+  name: X2APIC_APICID
+  description: x2APIC ID Register.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX[21] = 1 && IA32_APIC_BASE.[10] = 1
+  see: Vol3A[10.12(EXTENDED XAPIC (X2APIC))]
+
+- value: 0x803
+  name: X2APIC_VERSION
+  description: x2APIC Version Register.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x808
+  name: X2APIC_TPR
+  description: x2APIC Task Priority Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x80A
+  name: X2APIC_PPR
+  description: x2APIC Processor Priority Register.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x80B
+  name: X2APIC_EOI
+  description: x2APIC EOI Register.
+  access: W/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x80D
+  name: X2APIC_LDR
+  description: x2APIC Logical Destination Register.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x80F
+  name: X2APIC_SIVR
+  description: x2APIC Spurious Interrupt Vector Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- name: X2APIC_ISR
+  short_description: IA32_X2APIC_ISR(n)
+  long_description: x2APIC In-Service Register Bits (n * 32 + 31):(n * 32).
+  access: R/O
+  type: group
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+  fields:
+  - value: 0x810
+    name: X2APIC_ISR0
+  - value: 0x811
+    name: X2APIC_ISR1
+  - value: 0x812
+    name: X2APIC_ISR2
+  - value: 0x813
+    name: X2APIC_ISR3
+  - value: 0x814
+    name: X2APIC_ISR4
+  - value: 0x815
+    name: X2APIC_ISR5
+  - value: 0x816
+    name: X2APIC_ISR6
+  - value: 0x817
+    name: X2APIC_ISR7
+
+- name: X2APIC_TMR
+  short_description: IA32_X2APIC_TMR(n)
+  long_description: x2APIC Trigger Mode Register Bits (n * 32 + 31):(n * 32).
+  access: R/O
+  type: group
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+  fields:
+  - value: 0x818
+    name: X2APIC_TMR0
+  - value: 0x819
+    name: X2APIC_TMR1
+  - value: 0x81A
+    name: X2APIC_TMR2
+  - value: 0x81B
+    name: X2APIC_TMR3
+  - value: 0x81C
+    name: X2APIC_TMR4
+  - value: 0x81D
+    name: X2APIC_TMR5
+  - value: 0x81E
+    name: X2APIC_TMR6
+  - value: 0x81F
+    name: X2APIC_TMR7
+
+- name: X2APIC_IRR
+  short_description: IA32_X2APIC_IRR(n)
+  long_description: x2APIC Interrupt Request Register Bits (n * 32 + 31):(n * 32).
+  access: R/O
+  type: group
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+  fields:
+  - value: 0x820
+    name: X2APIC_IRR0
+  - value: 0x821
+    name: X2APIC_IRR1
+  - value: 0x822
+    name: X2APIC_IRR2
+  - value: 0x823
+    name: X2APIC_IRR3
+  - value: 0x824
+    name: X2APIC_IRR4
+  - value: 0x825
+    name: X2APIC_IRR5
+  - value: 0x826
+    name: X2APIC_IRR6
+  - value: 0x827
+    name: X2APIC_IRR7
+
+- value: 0x828
+  name: X2APIC_ESR
+  description: x2APIC Error Status Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x82F
+  name: X2APIC_LVT_CMCI
+  description: x2APIC LVT Corrected Machine Check Interrupt Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x830
+  name: X2APIC_ICR
+  description: x2APIC Interrupt Command Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x832
+  name: X2APIC_LVT_TIMER
+  description: x2APIC LVT Timer Interrupt Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x833
+  name: X2APIC_LVT_THERMAL
+  description: x2APIC LVT Thermal Sensor Interrupt Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x834
+  name: X2APIC_LVT_PMI
+  description: x2APIC LVT Performance Monitor Interrupt Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x835
+  name: X2APIC_LVT_LINT0
+  description: x2APIC LVT LINT0 Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x836
+  name: X2APIC_LVT_LINT1
+  description: x2APIC LVT LINT1 Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x837
+  name: X2APIC_LVT_ERROR
+  description: x2APIC LVT Error Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x838
+  name: X2APIC_INIT_COUNT
+  description: x2APIC Initial Count Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x839
+  name: X2APIC_CUR_COUNT
+  description: x2APIC Current Count Register.
+  access: R/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x83E
+  name: X2APIC_DIV_CONF
+  description: x2APIC Divide Configuration Register.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+- value: 0x83F
+  name: X2APIC_SELF_IPI
+  description: x2APIC Self IPI Register.
+  access: W/O
+  remarks: |
+    If CPUID.01H:ECX.[21] = 1 && IA32_APIC_BASE.[10] = 1
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0xC00 - 0xCFF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0xC80
+  name: DEBUG_INTERFACE
+  description: Silicon Debug Feature Control.
+  access: R/W
+  remarks: |
+    If CPUID.01H:ECX.[11] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: ENABLE
+      short_description: Enable
+      long_description: |
+        BIOS set 1 to enable Silicon debug features. Default is 0.
+      access: R/W
+      remarks: |
+        If CPUID.01H:ECX.[11] = 1
+
+    - bit: 30
+      name: LOCK
+      short_description: Lock
+      long_description: |
+        If 1, locks any further change to the MSR. The lock bit is set automatically
+        on the first SMI assertion even if not explicitly set by BIOS. Default is 0.
+      access: R/W
+      remarks: |
+        If CPUID.01H:ECX.[11] = 1
+
+    - bit: 31
+      name: DEBUG_OCCURRED
+      short_description: Debug Occurred
+      long_description: |
+        This “sticky bit” is set by hardware to indicate the status of bit 0. Default is 0.
+      access: R/O
+      remarks: |
+        If CPUID.01H:ECX.[11] = 1
+
+
+- value: 0xC81
+  name: L3_QOS_CFG
+  description: L3 QOS Configuration.
+  access: R/W
+  remarks: |
+    If ( CPUID.(EAX=10H, ECX=1):ECX.[2] = 1 )
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: ENABLE
+      short_description: Enable
+      long_description: |
+        Set 1 to enable L3 CAT masks and COS to operate in Code and Data Prioritization (CDP) mode.
+      access: R/W
+
+- value: 0xC82
+  name: L2_QOS_CFG
+  description: L2 QOS Configuration.
+  access: R/W
+  remarks: |
+    If ( CPUID.(EAX=10H, ECX=2):ECX.[2] = 1 )
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: ENABLE
+      short_description: Enable
+      long_description: |
+        Set 1 to enable L2 CAT masks and COS to operate in Code and Data Prioritization (CDP) mode.
+      access: R/W
+
+- value: 0xC8D
+  name: QM_EVTSEL
+  description: Monitoring Event Select Register.
+  access: R/W
+  remarks: |
+    If ( CPUID.(EAX=07H, ECX=0):EBX.[12] = 1 )
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-7
+      name: EVENT_ID
+      short_description: Event ID
+      long_description: |
+        ID of a supported monitoring event to report via IA32_QM_CTR.
+
+    - bit: 32-63
+      name: RESOURCE_MONITORING_ID
+      short_description: Resource Monitoring ID
+      long_description: |
+        ID for monitoring hardware to report monitored data via IA32_QM_CTR.
+      remarks: |
+        Bits [N+31:32]
+        N = Ceil (Log2 (CPUID.(EAX= 0FH,ECX=0H).EBX[31:0] + 1))
+
+- value: 0xC8E
+  name: QM_CTR
+  description: Monitoring Counter Register.
+  access: R/O
+  remarks: |
+    If ( CPUID.(EAX=07H, ECX=0):EBX.[12] = 1 )
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-61
+      name: RESOURCE_MONITORED_DATA
+      description: |
+        Resource Monitored Data.
+
+    - bit: 62
+      name: UNAVAILABLE
+      short_description: Unavailable
+      long_description: |
+        If 1, indicates data for this RMID is not available or not monitored for this resource or RMID.
+
+    - bit: 63
+      name: ERROR
+      short_description: Error
+      long_description: |
+        If 1, indicates an unsupported RMID or event type was written to IA32_PQR_QM_EVTSEL.
+
+- value: 0xC8F
+  name: PQR_ASSOC
+  description: Resource Association Register.
+  access: R/W
+  remarks: |
+    If ( (CPUID.(EAX=07H, ECX=0):EBX[12] = 1) or (CPUID.(EAX=07H, ECX=0):EBX[15] = 1 ) )
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      name: RESOURCE_MONITORING_ID
+      short_description: Resource Monitoring ID
+      long_description: |
+        ID for monitoring hardware to track internal operation, e.g., memory access.
+      access: R/W
+      remarks: |
+        Bits [N-1:0]
+        N = Ceil (Log2 (CPUID.(EAX= 0FH, ECX=0H).EBX[31:0] +1))
+        31:N Reserved
+
+    - bit: 32-63
+      name: COS
+      short_description: COS
+      long_description: |
+        The class of service (COS) to enforce (on writes); returns the current COS when read.
+      access: R/W
+      remarks: |
+        If ( CPUID.(EAX=07H, ECX=0):EBX.[15] = 1 )
+
+#
+# C90H - D8FH
+# Reserved MSR Address Space for CAT
+# Mask Registers
+# See Section 17.19.4.1, “Enumeration and Detection Support of Cache Allocation Technology”.
+#
+
+#                                                                                           #
+# ######################################################################################### #
+#                                       0xD00 - 0xDFF                                       #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0xD90
+  name: BNDCFGS
+  description: Supervisor State of MPX Configuration.
+  access: R/W
+  remarks: |
+    If (CPUID.(EAX=07H, ECX=0H):EBX[14] = 1)
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: EN
+      long_name: ENABLE
+      description: Enable Intel MPX in supervisor mode.
+
+    - bit: 1
+      short_name: BNDPRESERVE
+      long_name: BND_PRESERVE
+      description: |
+        Preserve the bounds registers for near branch instructions in the absence of the BND prefix.
+
+    - bit: 12-63
+      short_name: BND_BASE_ADDR
+      long_name: BOUND_DIRECTORY_BASE_ADDRESS
+      description: Base Address of Bound Directory.
+
+- value: 0xDA0
+  name: XSS
+  description: Extended Supervisor State Mask.
+  access: R/W
+  remarks: |
+    If ( CPUID.(0DH, 1):EAX.[3] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 8
+      name: TRACE_PACKET_CONFIGURATION_STATE
+      description: Trace Packet Configuration State.
+      access: R/W
+
+- value: 0xDB0
+  name: PKG_HDC_CTL
+  description: Package Level Enable/disable HDC.
+  access: R/W
+  remarks: |
+    If CPUID.06H:EAX.[13] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: HDC_PKG_ENABLE
+      short_description: HDC_Pkg_Enable
+      long_description: |
+        Force HDC idling or wake up HDC-idled logical processors in the package.
+      access: R/W
+      remarks: |
+        If CPUID.06H:EAX.[13] = 1
+      see: Vol3B[14.5.2(Package level Enabling HDC)]
+
+- value: 0xDB1
+  name: PM_CTL1
+  description: Enable/disable HWP.
+  access: R/W
+  remarks: |
+    If CPUID.06H:EAX.[13] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      name: HDC_ALLOW_BLOCK
+      short_description: HDC_Allow_Block
+      long_description: |
+        Allow/Block this logical processor for package level HDC control.
+      access: R/W
+      remarks: |
+        If CPUID.06H:EAX.[13] = 1
+      see: Vol3B[14.5.3(Logical-Processor Level HDC Control)]
+
+- value: 0xDB2
+  name: THREAD_STALL
+  description: Per-Logical_Processor HDC Idle Residency.
+  access: R/0
+  remarks: |
+    If CPUID.06H:EAX.[13] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: struct
+    size: 64
+    fields:
+    - size: 64
+      name: STALL_CYCLE_CNT
+      alternative_name: STALL_CYCLE_COUNT
+      short_description: Stall_Cycle_Cnt
+      long_description: Stalled cycles due to HDC forced idle on this logical processor.
+      access: R/W
+      remarks: |
+        If CPUID.06H:EAX.[13] = 1
+      see: Vol3B[14.5.4.1(IA32_THREAD_STALL)]
+
+#
+# 4000_0000H - 4000_00FFH
+# Reserved MSR Address Space All existing and future processors will not
+# implement MSRs in this range.
+#
+
+#                                                                                           #
+# ######################################################################################### #
+#                                  0xC0000000 - 0xFFFFFFFF                                  #
+# ######################################################################################### #
+#                                                                                           #
+
+- value: 0xC0000080
+  name: EFER
+  description: Extended Feature Enables.
+  remarks: |
+    If CPUID.06H:EAX.[13] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0
+      short_name: SCE
+      long_name: SYSCALL_ENABLE
+      short_description: SYSCALL Enable
+      long_description: Enables SYSCALL/SYSRET instructions in 64-bit mode.
+      access: R/W
+
+    - bit: 8
+      short_name: LME
+      long_name: IA32E_MODE_ENABLE
+      short_description: IA-32e Mode Enable
+      long_description: Enables IA-32e mode operation.
+      access: R/W
+
+    - bit: 10
+      short_name: LMA
+      long_name: IA32E_MODE_ACTIVE
+      short_description: IA-32e Mode Active
+      long_description: Indicates IA-32e mode is active when set.
+      access: R
+
+    - bit: 11
+      short_name: NXE
+      long_name: EXECUTE_DISABLE_BIT_ENABLE
+      description: Execute Disable Bit Enable.
+      access: R/W
+
+- value: 0xC0000081
+  name: STAR
+  description: System Call Target Address.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000082
+  name: LSTAR
+  short_description: IA-32e Mode System Call Target Address
+  long_description: |
+    Target RIP for the called procedure when SYSCALL is executed in 64-bit mode.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000083
+  name: CSTAR
+  short_description: IA-32e Mode System Call Target Address
+  long_description: |
+    Not used, as the SYSCALL instruction is not recognized in compatibility mode.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000084
+  name: FMASK
+  description: System Call Flag Mask.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000100
+  name: FS_BASE
+  description: Map of BASE Address of FS.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000101
+  name: GS_BASE
+  description: Map of BASE Address of GS.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000102
+  name: KERNEL_GS_BASE
+  description: Swap Target of BASE Address of GS.
+  access: R/W
+  remarks: |
+    If CPUID.80000001:EDX.[29] = 1
+
+- value: 0xC0000103
+  name: TSC_AUX
+  description: Auxiliary TSC.
+  access: RW
+  remarks: |
+    If CPUID.80000001H: EDX[27] = 1 or CPUID.(EAX=7,ECX=0):ECX[bit 22] = 1
+  fields:
+  - name_with_suffix: REGISTER
+    type: bitfield
+    size: 64
+    fields:
+    - bit: 0-31
+      short_name: AUX
+      long_name: TSC_AUXILIARY_SIGNATURE
+      description: AUX. Auxiliary signature of TSC.

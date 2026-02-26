@@ -1,0 +1,90 @@
+- name: MEMORY_TYPE
+  short_description: Memory caching type.
+  long_description: |
+    The processor allows any area of system memory to be cached in the L1, L2, and L3 caches. In individual pages or
+    regions of system memory, it allows the type of caching (also called memory type) to be specified.
+  children_name_with_prefix: MEMORY_TYPE
+  type: group
+  see:
+  - Vol3A[11.11(MEMORY TYPE RANGE REGISTERS (MTRRS))]
+  - Vol3A[11.5(CACHE CONTROL)]
+  reference: Vol3A[11.3(METHODS OF CACHING AVAILABLE)]
+  fields:
+  - value: 0
+    short_name: UC
+    long_name: UNCACHEABLE
+    short_description: Strong Uncacheable (UC)
+    long_description: |
+      System memory locations are not cached. All reads and writes appear on the
+      system bus and are executed in program order without reordering. No speculative memory accesses, pagetable
+      walks, or prefetches of speculated branch targets are made. This type of cache-control is useful for
+      memory-mapped I/O devices. When used with normal RAM, it greatly reduces processor performance.
+
+  - value: 1
+    short_name: WC
+    long_name: WRITE_COMBINING
+    short_description: Write Combining (WC)
+    long_description: |
+      System memory locations are not cached (as with uncacheable memory) and
+      coherency is not enforced by the processor’s bus coherency protocol. Speculative reads are allowed. Writes
+      may be delayed and combined in the write combining buffer (WC buffer) to reduce memory accesses. If the WC
+      buffer is partially filled, the writes may be delayed until the next occurrence of a serializing event; such as, an
+      SFENCE or MFENCE instruction, CPUID execution, a read or write to uncached memory, an interrupt
+      occurrence, or a LOCK instruction execution. This type of cache-control is appropriate for video frame buffers,
+      where the order of writes is unimportant as long as the writes update memory so they can be seen on the
+      graphics display. This memory type is available in the Pentium Pro and Pentium II
+      processors by programming the MTRRs; or in processor families starting from the Pentium III processors by
+      programming the MTRRs or by selecting it through the PAT.
+    see: Vol3A[11.3.1(Buffering of Write Combining Memory Locations)]
+
+  - value: 4
+    short_name: WT
+    long_name: WRITE_THROUGH
+    short_description: Write-through (WT)
+    long_description: |
+      Writes and reads to and from system memory are cached. Reads come from cache
+      lines on cache hits; read misses cause cache fills. Speculative reads are allowed. All writes are written to a
+      cache line (when possible) and through to system memory. When writing through to memory, invalid cache
+      lines are never filled, and valid cache lines are either filled or invalidated. Write combining is allowed. This type
+      of cache-control is appropriate for frame buffers or when there are devices on the system bus that access
+      system memory, but do not perform snooping of memory accesses. It enforces coherency between caches in
+      the processors and system memory.
+
+  - value: 5
+    short_name: WP
+    long_name: WRITE_PROTECTED
+    short_description: Write protected (WP)
+    long_description: |
+      Reads come from cache lines when possible, and read misses cause cache fills.
+      Writes are propagated to the system bus and cause corresponding cache lines on all processors on the bus to
+      be invalidated. Speculative reads are allowed. This memory type is available in processor families starting from
+      the P6 family processors by programming the MTRRs.
+
+  - value: 6
+    short_name: WB
+    long_name: WRITE_BACK
+    short_description: Write-back (WB)
+    long_description: |
+      Writes and reads to and from system memory are cached. Reads come from cache lines
+      on cache hits; read misses cause cache fills. Speculative reads are allowed. Write misses cause cache line fills
+      (in processor families starting with the P6 family processors), and writes are performed entirely in the cache,
+      when possible. Write combining is allowed. The write-back memory type reduces bus traffic by eliminating
+      many unnecessary writes to system memory. Writes to a cache line are not immediately forwarded to system
+      memory; instead, they are accumulated in the cache. The modified cache lines are written to system memory
+      later, when a write-back operation is performed. Write-back operations are triggered when cache lines need to
+      be deallocated, such as when new cache lines are being allocated in a cache that is already full. They also are
+      triggered by the mechanisms used to maintain cache consistency. This type of cache-control provides the best
+      performance, but it requires that all devices that access system memory on the system bus be able to snoop
+      memory accesses to insure system memory and cache coherency.
+
+  - value: 7
+    short_name: UC_MINUS
+    long_name: UNCACHEABLE_MINUS
+    short_description: Uncacheable (UC-)
+    long_description: |
+      Has same characteristics as the strong uncacheable (UC) memory type, except that this memory
+      type can be overridden by programming the MTRRs for the WC memory type. This memory type is available
+      in processor families starting from the Pentium III processors and can only be selected through the PAT.
+
+  - value: 0xFF
+    name: INVALID

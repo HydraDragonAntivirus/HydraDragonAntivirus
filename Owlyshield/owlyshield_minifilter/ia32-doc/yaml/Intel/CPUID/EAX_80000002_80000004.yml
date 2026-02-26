@@ -1,0 +1,121 @@
+- value: 0x80000002
+  name: BRAND_STRING1
+  description: Extended Function CPUID Information.
+
+- value: 0x80000003
+  name: BRAND_STRING2
+  description: Extended Function CPUID Information.
+
+- value: 0x80000004
+  name: BRAND_STRING3
+  description: Extended Function CPUID Information.
+
+- short_name: EAX_80000002
+  long_name: EAX_80000002
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_1
+      description: Processor Brand String.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_2
+      description: Processor Brand String Continued.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_3
+      description: Processor Brand String Continued.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_4
+      description: Processor Brand String Continued.
+
+- short_name: EAX_80000003
+  long_name: EAX_80000003
+  description: Extended Function CPUID Information.
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_5
+      description: Processor Brand String Continued.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_6
+      description: Processor Brand String Continued.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_7
+      description: Processor Brand String Continued.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_8
+      description: Processor Brand String Continued.
+
+- short_name: EAX_80000004
+  long_name: EAX_80000004
+  description: Extended Function CPUID Information.
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_9
+      description: Processor Brand String Continued.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_10
+      description: Processor Brand String Continued.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_11
+      description: Processor Brand String Continued.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: PROCESSOR_BRAND_STRING_12
+      description: Processor Brand String Continued.

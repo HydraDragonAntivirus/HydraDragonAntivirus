@@ -3,9 +3,18 @@
 #include <ntifs.h>
 
 #if defined(_M_AMD64)
-#include "../HyperDbg/hyperdbg/hyperhv/pch.h"
-#include "../HyperDbg/hyperdbg/hyperhv/header/vmm/vmx/Hv.h"
-#include "../HyperDbg/hyperdbg/hyperhv/header/vmm/vmx/Vmx.h"
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
+#define SCRIPT_ENGINE_KERNEL_MODE
+#define HYPERDBG_KERNEL_MODE
+#define HYPERDBG_VMM
+#define HYPERDBG_HYPEREVADE
+#include "SDK/HyperDbgSdk.h"
+#include "SDK/modules/VMM.h"
+#include "SDK/modules/HyperEvade.h"
+#include "SDK/imports/kernel/HyperDbgVmmImports.h"
+#include "SDK/imports/kernel/HyperDbgHyperEvade.h"
 #endif
 
 #ifdef __cplusplus

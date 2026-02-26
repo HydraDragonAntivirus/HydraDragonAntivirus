@@ -227,7 +227,8 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
-    <EnableInf2cat>true</EnableInf2cat>
+    <EnableInf2cat>false</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
     <TimeStampServer>http://timestamp.globalsign.com/scripts/timstamp.dll</TimeStampServer>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugApp|x64'">
@@ -235,11 +236,14 @@
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <TargetName>Application</TargetName>
     <EnableInf2cat>false</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug App|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <TargetName>Application</TargetName>
+    <EnableInf2cat>false</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -247,6 +251,8 @@
     <TimeStampServer>
     </TimeStampServer>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <EnableInf2cat>false</EnableInf2cat>
+    <SkipPackageVerification>true</SkipPackageVerification>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -302,6 +308,7 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>
@@ -321,6 +328,7 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -333,6 +341,7 @@
       <WarningLevel>Level4</WarningLevel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -341,6 +350,8 @@
       <AdditionalDependencies>fltmgr.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\HyperDbg\hyperdbg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>__DATE__=&quot;Jan 01 1970&quot;;__TIME__=&quot;00:00:00&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdc11</LanguageStandard_C>
       <Optimization>MaxSpeed</Optimization>

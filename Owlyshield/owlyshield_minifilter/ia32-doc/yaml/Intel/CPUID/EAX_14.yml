@@ -1,0 +1,19 @@
+- short_name: EAX_14
+  long_name: EAX_14
+  short_description: EAX = 0x14
+  long_description: |
+    When CPUID executes with EAX set to 14H and ECX = 0H, the processor returns information about Intel Processor
+    Trace extensions.
+
+    When CPUID executes with EAX set to 14H and ECX = n (n > 0 and less than the number of non-zero bits in
+    CPUID.(EAX=14H, ECX= 0H).EAX), the processor returns information about packet generation in Intel Processor
+    Trace.
+  type: group
+  fields:
+  - value: 0x14
+    short_name: INTEL_PROCESSOR_TRACE
+    long_name: INTEL_PROCESSOR_TRACE_INFORMATION
+
+  include:
+  - EAX_14_ECX_00
+  - EAX_14_ECX_01

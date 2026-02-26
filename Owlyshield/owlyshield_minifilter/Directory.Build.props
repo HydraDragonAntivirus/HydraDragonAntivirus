@@ -1,0 +1,7 @@
+<Project>
+  <ItemDefinitionGroup Condition="Exists('$(MSBuildThisFileDirectory)ia32-doc\out\ia32.h')">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);$(MSBuildThisFileDirectory)ia32-doc;$(MSBuildThisFileDirectory)ia32-doc\out;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

@@ -1,0 +1,8 @@
+- name: MODEL_SPECIFIC_REGISTERS
+  short_description: Model Specific Registers
+  children_name_with_prefix: IA32
+  todo: Long description
+  type: group
+  reference: Vol2A[3.2(CPUID)]
+  include:
+  - ArchitecturalMsr

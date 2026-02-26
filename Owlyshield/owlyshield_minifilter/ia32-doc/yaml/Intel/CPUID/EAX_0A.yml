@@ -1,0 +1,89 @@
+- value: 0x0A
+  name: ARCHITECTURAL_PERFORMANCE_MONITORING
+  short_description: Architectural Performance Monitoring Leaf
+  long_description: |
+    When CPUID executes with EAX set to 0AH, the processor returns information about support for architectural
+    performance monitoring capabilities. Architectural performance monitoring is supported if the version ID is greater than Pn 0.
+    For each version of architectural performance monitoring capability, software must enumerate this leaf to discover
+    the programming facilities and the architectural performance events available in the processor.
+  see: Vol3C[23(Introduction to Virtual-Machine Extensions)]
+
+- short_name: EAX_0A
+  long_name: EAX_0A
+  type: struct
+  fields:
+  - name: EAX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-7
+      name: VERSION_ID_OF_ARCHITECTURAL_PERFORMANCE_MONITORING
+      description: Version ID of architectural performance monitoring.
+
+    - bit: 8-15
+      name: NUMBER_OF_PERFORMANCE_MONITORING_COUNTER_PER_LOGICAL_PROCESSOR
+      description: Number of general-purpose performance monitoring counter per logical processor.
+
+    - bit: 16-23
+      name: BIT_WIDTH_OF_PERFORMANCE_MONITORING_COUNTER
+      description: Bit width of general-purpose, performance monitoring counter.
+
+    - bit: 24-31
+      name: EBX_BIT_VECTOR_LENGTH
+      description: Length of EBX bit vector to enumerate architectural performance monitoring events.
+
+  - name: EBX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0
+      name: CORE_CYCLE_EVENT_NOT_AVAILABLE
+      description: Core cycle event not available if 1.
+
+    - bit: 1
+      name: INSTRUCTION_RETIRED_EVENT_NOT_AVAILABLE
+      description: Instruction retired event not available if 1.
+
+    - bit: 2
+      name: REFERENCE_CYCLES_EVENT_NOT_AVAILABLE
+      description: Reference cycles event not available if 1.
+
+    - bit: 3
+      name: LAST_LEVEL_CACHE_REFERENCE_EVENT_NOT_AVAILABLE
+      description: Last-level cache reference event not available if 1.
+
+    - bit: 4
+      name: LAST_LEVEL_CACHE_MISSES_EVENT_NOT_AVAILABLE
+      description: Last-level cache misses event not available if 1.
+
+    - bit: 5
+      name: BRANCH_INSTRUCTION_RETIRED_EVENT_NOT_AVAILABLE
+      description: Branch instruction retired event not available if 1.
+
+    - bit: 6
+      name: BRANCH_MISPREDICT_RETIRED_EVENT_NOT_AVAILABLE
+      description: Branch mispredict retired event not available if 1.
+
+  - name: ECX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-31
+      name: RESERVED
+      description: ECX is reserved.
+
+  - name: EDX
+    type: bitfield
+    size: 32
+    fields:
+    - bit: 0-4
+      name: NUMBER_OF_FIXED_FUNCTION_PERFORMANCE_COUNTERS
+      description: Number of fixed-function performance counters (if Version ID > 1).
+
+    - bit: 5-12
+      name: BIT_WIDTH_OF_FIXED_FUNCTION_PERFORMANCE_COUNTERS
+      description: Bit width of fixed-function performance counters (if Version ID > 1).
+
+    - bit: 15
+      name: ANY_THREAD_DEPRECATION
+      description: AnyThread deprecation.
