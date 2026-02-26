@@ -14,10 +14,13 @@ use windows::Win32::Storage::InstallableFileSystems::{
 
 use std::os::raw::{c_uchar, c_ulong, c_ulonglong, c_ushort};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
 use std::os::windows::ffi::OsStringExt;
+use win_pe_inspection::inspect_ntdll_syscalls;
 
 use crate::shared_def::{
     DriverComMessageType,
@@ -28,6 +31,52 @@ use crate::shared_def::{
 };
 
 pub type BufPath = [wchar_t; 520];
+
+static NTDLL_SYSCALL_MAP: OnceLock<HashMap<u32, String>> = OnceLock::new();
+
+fn is_syscall_number_label(label: &str) -> bool {
+    let up = label.to_ascii_uppercase();
+    up.contains("TRANSPARENT_SYSCALL_HOOK") || up.starts_with("SYSCALL_HOOK_EFER_SYSCALL")
+}
+
+fn is_already_resolved_api(label: &str) -> bool {
+    let lower = label.to_ascii_lowercase();
+    lower.contains(".dll!") || lower.starts_with("nt!")
+}
+
+fn syscall_id_from_raw_arg1(raw_arg1: u64) -> u32 {
+    (raw_arg1 & 0xFFFF_FFFF) as u32
+}
+
+fn get_ntdll_syscall_map() -> &'static HashMap<u32, String> {
+    NTDLL_SYSCALL_MAP.get_or_init(|| {
+        let mut map = HashMap::new();
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        let ntdll_path = Path::new(&system_root).join("System32").join("ntdll.dll");
+
+        if let Ok(entries) = inspect_ntdll_syscalls(&ntdll_path) {
+            for e in entries {
+                map.entry(e.id).or_insert(e.api);
+            }
+        }
+        map
+    })
+}
+
+fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64) -> String {
+    let trimmed = raw_label.trim();
+    if trimmed.is_empty() || is_already_resolved_api(trimmed) || !is_syscall_number_label(trimmed) {
+        return trimmed.to_string();
+    }
+
+    let syscall_id = syscall_id_from_raw_arg1(raw_arg1);
+    let map = get_ntdll_syscall_map();
+    if let Some(api) = map.get(&syscall_id) {
+        format!("ntdll.dll!{} (syscall=0x{:X})", api, syscall_id)
+    } else {
+        format!("ntdll.dll!syscall_0x{:X}", syscall_id)
+    }
+}
 
 /// The usermode app (this app) can send several messages types to the driver. See [`DriverComMessageType`]
 /// for details.
@@ -441,12 +490,13 @@ impl UnicodeString {
 impl CKernelEventInfo {
     /// Convert C kernel event info to Rust KernelEventInfo
     pub fn to_kernel_event_info(&self) -> KernelEventInfo { // AMENDED: Fix return type
-        let object_name = if self.object_name[0] != 0 {
+        let raw_object_name = if self.object_name[0] != 0 {
             let len = self.object_name.iter().position(|&c| c == 0).unwrap_or(520);
             String::from_utf16_lossy(&self.object_name[..len])
         } else {
             String::new()
         };
+        let object_name = resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1);
         
         KernelEventInfo { // AMENDED: Fix struct construction
             event_type: self.event_type,
