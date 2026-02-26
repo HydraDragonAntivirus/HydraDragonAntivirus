@@ -112,6 +112,14 @@ fn inspect_pe_aux<Pe: ImageNtHeaders>(
 }
 
 pub fn inspect_ntdll_syscalls(path: &Path) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
+    inspect_syscalls(path, &["Nt"])
+}
+
+pub fn inspect_win32u_syscalls(path: &Path) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
+    inspect_syscalls(path, &["NtUser", "NtGdi", "NtDComposition", "NtDxgk"])
+}
+
+pub fn inspect_syscalls(path: &Path, export_prefixes: &[&str]) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
     let bin_data = fs::read(path)?;
     let obj_data = object::File::parse(&*bin_data)?;
     let arch = obj_data.architecture();
@@ -119,11 +127,11 @@ pub fn inspect_ntdll_syscalls(path: &Path) -> Result<Vec<NtSyscallEntry>, Box<dy
         match addr_size {
             AddressSize::U32 => {
                 let obj_pe: PeFile32 = PeFile::parse(&*bin_data)?;
-                inspect_ntdll_syscalls_aux(&bin_data, &obj_pe)
+                inspect_syscalls_aux(&bin_data, &obj_pe, export_prefixes)
             }
             AddressSize::U64 => {
                 let obj_pe: PeFile64 = PeFile::parse(&*bin_data)?;
-                inspect_ntdll_syscalls_aux(&bin_data, &obj_pe)
+                inspect_syscalls_aux(&bin_data, &obj_pe, export_prefixes)
             }
             _ => Err(Box::new(ArchNotImplementedError)),
         }
@@ -132,16 +140,23 @@ pub fn inspect_ntdll_syscalls(path: &Path) -> Result<Vec<NtSyscallEntry>, Box<dy
     }
 }
 
-fn inspect_ntdll_syscalls_aux<Pe: ImageNtHeaders>(
+fn export_matches_prefixes(name: &[u8], export_prefixes: &[&str]) -> bool {
+    export_prefixes
+        .iter()
+        .any(|prefix| name.starts_with(prefix.as_bytes()))
+}
+
+fn inspect_syscalls_aux<Pe: ImageNtHeaders>(
     bin_data: &Vec<u8>,
     obj_pe: &PeFile<Pe>,
+    export_prefixes: &[&str],
 ) -> Result<Vec<NtSyscallEntry>, Box<dyn Error>> {
     let image_base = obj_pe.relative_address_base();
     let mut map: HashMap<u32, String> = HashMap::new();
 
     for export in obj_pe.exports()? {
         let name_bytes = export.name();
-        if !name_bytes.starts_with(b"Nt") {
+        if !export_matches_prefixes(name_bytes, export_prefixes) {
             continue;
         }
 

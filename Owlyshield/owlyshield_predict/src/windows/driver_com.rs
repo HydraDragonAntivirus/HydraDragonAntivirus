@@ -20,20 +20,21 @@ use std::time::SystemTime;
 
 use windows::Win32::Storage::FileSystem::FILE_ID_INFO;
 use std::os::windows::ffi::OsStringExt;
-use win_pe_inspection::inspect_ntdll_syscalls;
+use win_pe_inspection::{inspect_ntdll_syscalls, inspect_win32u_syscalls};
 
 use crate::shared_def::{
     DriverComMessageType,
     FileId,
     IOMessage,
     RuntimeFeatures,
+    kernel_raw_event_api_hint,
     kernel_raw_event_name,
     KernelEventInfo, // AMENDED: Fix typo
 };
 
 pub type BufPath = [wchar_t; 520];
 
-static NTDLL_SYSCALL_MAP: OnceLock<HashMap<u32, String>> = OnceLock::new();
+static SYSCALL_MAP: OnceLock<HashMap<u32, String>> = OnceLock::new();
 
 fn is_syscall_number_label(label: &str) -> bool {
     let up = label.to_ascii_uppercase();
@@ -49,15 +50,22 @@ fn syscall_id_from_raw_arg1(raw_arg1: u64) -> u32 {
     (raw_arg1 & 0xFFFF_FFFF) as u32
 }
 
-fn get_ntdll_syscall_map() -> &'static HashMap<u32, String> {
-    NTDLL_SYSCALL_MAP.get_or_init(|| {
+fn get_syscall_map() -> &'static HashMap<u32, String> {
+    SYSCALL_MAP.get_or_init(|| {
         let mut map = HashMap::new();
         let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
         let ntdll_path = Path::new(&system_root).join("System32").join("ntdll.dll");
+        let win32u_path = Path::new(&system_root).join("System32").join("win32u.dll");
 
         if let Ok(entries) = inspect_ntdll_syscalls(&ntdll_path) {
             for e in entries {
-                map.entry(e.id).or_insert(e.api);
+                map.entry(e.id).or_insert(format!("ntdll.dll!{}", e.api));
+            }
+        }
+
+        if let Ok(entries) = inspect_win32u_syscalls(&win32u_path) {
+            for e in entries {
+                map.entry(e.id).or_insert(format!("win32u.dll!{}", e.api));
             }
         }
         map
@@ -67,6 +75,9 @@ fn get_ntdll_syscall_map() -> &'static HashMap<u32, String> {
 fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u32) -> String {
     let trimmed = raw_label.trim();
     if trimmed.is_empty() {
+        if let Some(api_name) = kernel_raw_event_api_hint(raw_event_type) {
+            return api_name.to_string();
+        }
         if let Some(name) = kernel_raw_event_name(raw_event_type) {
             return name.to_string();
         }
@@ -82,11 +93,11 @@ fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u
     }
 
     let syscall_id = syscall_id_from_raw_arg1(raw_arg1);
-    let map = get_ntdll_syscall_map();
+    let map = get_syscall_map();
     if let Some(api) = map.get(&syscall_id) {
-        format!("ntdll.dll!{} (syscall=0x{:X})", api, syscall_id)
+        format!("{api} (syscall=0x{:X})", syscall_id)
     } else {
-        format!("ntdll.dll!syscall_0x{:X}", syscall_id)
+        format!("syscall_0x{:X}", syscall_id)
     }
 }
 

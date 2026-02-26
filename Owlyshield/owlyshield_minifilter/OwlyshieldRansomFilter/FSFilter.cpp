@@ -411,7 +411,7 @@ VOID ThreadCreationCallback(
             PIRP_ENTRY newEntry = new IRP_ENTRY();
             if (newEntry != NULL) {
                 PDRIVER_MESSAGE newItem = &newEntry->data;
-                newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD; // 12
+                newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD; // 13
                 
                 // Attribute to the attacker (source process)
                 if (sourceFound) {
@@ -430,6 +430,13 @@ VOID ThreadCreationCallback(
                 newItem->KernelEventInfo.SourceProcessId = (ULONG)(ULONG_PTR)currentPid;
                 newItem->KernelEventInfo.TargetProcessId = (ULONG)(ULONG_PTR)ProcessId;
                 KeQuerySystemTimePrecise((PLARGE_INTEGER)&newItem->KernelEventInfo.Timestamp);
+                newItem->KernelEventInfo.ThreadHandle = ThreadId;
+                newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)ThreadId;
+                newItem->KernelEventInfo.AccessMask = 0x0002; // PROCESS_CREATE_THREAD
+                newItem->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
+                (VOID)RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName,
+                                        RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName),
+                                        L"ntdll.dll!NtCreateThreadEx");
                 
                 if (!driverData->AddIrpMessage(newEntry)) {
                     delete newEntry;

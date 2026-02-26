@@ -36,6 +36,9 @@ Environment:
 #define PROCESS_CREATE_THREAD 0x0002
 #define PROCESS_VM_WRITE 0x0020
 #define PROCESS_VM_READ 0x0010
+#ifndef PROCESS_VM_OPERATION
+#define PROCESS_VM_OPERATION 0x0008
+#endif
 #ifndef PROCESS_ALL_ACCESS
 #define PROCESS_ALL_ACCESS 0x001FFFFF
 #endif
@@ -45,6 +48,67 @@ extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
 
 // Forward declaration for helper function
 static BOOLEAN IsExecutableProtection(ULONG Protect);
+static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG TargetPid);
+static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName);
+static PCWSTR KernelEventDefaultApiLabel(_In_ ULONG EventType);
+
+static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item,
+                                      _In_ ULONG EventType,
+                                      _In_ ULONG SourcePid,
+                                      _In_ ULONG TargetPid)
+{
+    LARGE_INTEGER timestamp;
+
+    if (Item == NULL)
+    {
+        return;
+    }
+
+    KeQuerySystemTime(&timestamp);
+    Item->KernelEventInfo.EventType = EventType;
+    Item->KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
+    Item->KernelEventInfo.SourceProcessId = SourcePid;
+    Item->KernelEventInfo.TargetProcessId = TargetPid;
+    Item->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
+}
+
+static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName)
+{
+    if (Item == NULL)
+    {
+        return;
+    }
+
+    RtlZeroMemory(Item->KernelEventInfo.ObjectName, sizeof(Item->KernelEventInfo.ObjectName));
+    if (EventName != NULL && EventName[0] != L'\0')
+    {
+        (VOID)RtlStringCchCopyW(Item->KernelEventInfo.ObjectName,
+                                RTL_NUMBER_OF(Item->KernelEventInfo.ObjectName),
+                                EventName);
+    }
+}
+
+static PCWSTR KernelEventDefaultApiLabel(_In_ ULONG EventType)
+{
+    switch (EventType)
+    {
+    case IRP_KERNEL_REMOTE_THREAD:
+    case IRP_KERNEL_CREATE_THREAD:
+        return L"ntdll.dll!NtCreateThreadEx";
+    case IRP_KERNEL_WRITE_MEMORY:
+        return L"ntdll.dll!NtWriteVirtualMemory";
+    case IRP_KERNEL_PROTECT_MEMORY:
+        return L"ntdll.dll!NtProtectVirtualMemory";
+    case IRP_KERNEL_QUEUE_APC:
+        return L"ntdll.dll!NtQueueApcThread";
+    case IRP_KERNEL_CREATE_SECTION:
+        return L"ntdll.dll!NtCreateSection";
+    case IRP_KERNEL_MAP_SECTION:
+        return L"ntdll.dll!NtMapViewOfSection";
+    default:
+        return L"";
+    }
+}
 
 //
 // --- Globals for ObRegisterCallbacks ---
@@ -483,31 +547,18 @@ NTSTATUS OnKernelApiEvent(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_HYPERVISOR_EVENT;
 
-    LARGE_INTEGER timestamp;
-    KeQuerySystemTime(&timestamp);
-
     // Preserve full kernel/hypervisor metadata while emitting one generic opcode.
-    newItem->KernelEventInfo.EventType = EventType;
-    newItem->KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = normalizedTargetPid;
+    PopulateKernelEventCommon(newItem, EventType, SourcePid, normalizedTargetPid);
     newItem->KernelEventInfo.RawArgument1 = EventArg1;
     newItem->KernelEventInfo.RawArgument2 = EventArg2;
     newItem->KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
     newItem->KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
     newItem->KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
-    newItem->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
 
     PCWSTR effectiveName = (FunctionName != NULL && FunctionName[0] != L'\0')
                                ? FunctionName
-                               : L"";
-    RtlZeroMemory(newItem->KernelEventInfo.ObjectName, sizeof(newItem->KernelEventInfo.ObjectName));
-    if (effectiveName[0] != L'\0') {
-        RtlCopyMemory(newItem->KernelEventInfo.ObjectName,
-                      effectiveName,
-                      min(wcslen(effectiveName) * sizeof(WCHAR),
-                          sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
-    }
+                               : KernelEventDefaultApiLabel(EventType);
+    SetKernelEventObjectName(newItem, effectiveName);
 
     DbgPrint("!!! ProcessProtection: Hypervisor event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p\n",
              EventType,
@@ -557,12 +608,14 @@ NTSTATUS OnMemoryWrite(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_KERNEL_WRITE_MEMORY;
 
-    newItem->KernelEventInfo.EventType = IRP_KERNEL_WRITE_MEMORY;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    PopulateKernelEventCommon(newItem, IRP_KERNEL_WRITE_MEMORY, SourcePid, TargetPid);
     newItem->KernelEventInfo.MemoryAddress = TargetAddress;
     newItem->KernelEventInfo.MemorySize = Size;
     newItem->KernelEventInfo.IsExecutableMemory = IsExecutableMemory;
+    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)TargetAddress;
+    newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)Size;
+    newItem->KernelEventInfo.AccessMask = PROCESS_VM_WRITE;
+    SetKernelEventObjectName(newItem, L"ntdll.dll!NtWriteVirtualMemory");
 
     DbgPrint("!!! ProcessProtection: Memory write detected - Source PID %lu -> Target PID %lu (Address: %p, Size: %zu, Executable: %u)\n",
         SourcePid, TargetPid, TargetAddress, Size, IsExecutableMemory);
@@ -607,13 +660,15 @@ NTSTATUS OnMemoryProtectionChange(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_KERNEL_PROTECT_MEMORY;
 
-    newItem->KernelEventInfo.EventType = IRP_KERNEL_PROTECT_MEMORY;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    PopulateKernelEventCommon(newItem, IRP_KERNEL_PROTECT_MEMORY, SourcePid, TargetPid);
     newItem->KernelEventInfo.MemoryAddress = BaseAddress;
     newItem->KernelEventInfo.MemorySize = RegionSize;
     newItem->KernelEventInfo.MemoryProtection = NewProtection;
     newItem->KernelEventInfo.IsExecutableMemory = IsExecutableProtection(NewProtection);
+    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)BaseAddress;
+    newItem->KernelEventInfo.RawArgument2 = (((ULONG_PTR)NewProtection) << 32) | ((ULONG_PTR)OldProtection & 0xffffffffull);
+    newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
+    SetKernelEventObjectName(newItem, L"ntdll.dll!NtProtectVirtualMemory");
 
     DbgPrint("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: 0x%X, Executable: %u)\n",
         SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
@@ -655,10 +710,11 @@ NTSTATUS OnThreadCreation(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_KERNEL_REMOTE_THREAD;
 
-    newItem->KernelEventInfo.EventType = IRP_KERNEL_REMOTE_THREAD;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    PopulateKernelEventCommon(newItem, IRP_KERNEL_REMOTE_THREAD, SourcePid, TargetPid);
     newItem->KernelEventInfo.ThreadStartRoutine = StartRoutine;
+    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)StartRoutine;
+    newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
+    SetKernelEventObjectName(newItem, L"ntdll.dll!NtCreateThreadEx");
 
     DbgPrint("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
         SourcePid, TargetPid, StartRoutine);
@@ -701,11 +757,12 @@ NTSTATUS OnApcQueueing(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_KERNEL_QUEUE_APC;
 
-    newItem->KernelEventInfo.EventType = IRP_KERNEL_QUEUE_APC;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    PopulateKernelEventCommon(newItem, IRP_KERNEL_QUEUE_APC, SourcePid, TargetPid);
     newItem->KernelEventInfo.ThreadHandle = ThreadHandle;
     newItem->KernelEventInfo.ThreadStartRoutine = ApcRoutine;
+    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)ThreadHandle;
+    newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)ApcRoutine;
+    SetKernelEventObjectName(newItem, L"ntdll.dll!NtQueueApcThread");
 
     DbgPrint("!!! ProcessProtection: APC queued - Source PID %lu -> Target PID %lu (Thread: %p, APC: %p)\n",
         SourcePid, TargetPid, ThreadHandle, ApcRoutine);
@@ -750,15 +807,15 @@ NTSTATUS OnSectionOperation(
     UCHAR irpOp = (OperationType == 1) ? (UCHAR)IRP_KERNEL_CREATE_SECTION : (UCHAR)IRP_KERNEL_MAP_SECTION;
     newItem->IRP_OP = irpOp;
 
-    newItem->KernelEventInfo.EventType = irpOp;
-    newItem->KernelEventInfo.SourceProcessId = SourcePid;
-    newItem->KernelEventInfo.TargetProcessId = TargetPid;
+    PopulateKernelEventCommon(newItem, irpOp, SourcePid, TargetPid);
+    newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)OperationType;
+    SetKernelEventObjectName(newItem, (OperationType == 1) ? L"ntdll.dll!NtCreateSection" : L"ntdll.dll!NtMapViewOfSection");
 
     if (SectionName != NULL) {
-        USHORT copyLen = (USHORT)wcslen(SectionName) * sizeof(WCHAR);
-        if (copyLen > (MAX_FILE_NAME_LENGTH - 1) * sizeof(WCHAR))
-            copyLen = (MAX_FILE_NAME_LENGTH - 1) * sizeof(WCHAR);
-        RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName, MAX_FILE_NAME_LENGTH, SectionName);
+        (VOID)RtlStringCchCopyW(newEntry->Buffer, RTL_NUMBER_OF(newEntry->Buffer), SectionName);
+        newEntry->filePath.Buffer = newEntry->Buffer;
+        newEntry->filePath.Length = (USHORT)(wcslen(newEntry->Buffer) * sizeof(WCHAR));
+        newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
     }
 
     DbgPrint("!!! ProcessProtection: Section operation - Source PID %lu -> Target PID %lu (Type: %u, Name: %ws)\n",

@@ -14,7 +14,7 @@ use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
-use crate::shared_def::{IrpMajorOp, kernel_raw_event_name};
+use crate::shared_def::{IrpMajorOp, kernel_raw_event_api_hint, kernel_raw_event_name};
 
 pub fn run() {
     Logging::init();
@@ -279,8 +279,9 @@ pub fn run() {
                                     iomsg.irp_op as u32
                                 };
                                 let api_name = if from_payload.is_empty() {
-                                    kernel_raw_event_name(raw_ty)
+                                    kernel_raw_event_api_hint(raw_ty)
                                         .map(|name| name.to_string())
+                                        .or_else(|| kernel_raw_event_name(raw_ty).map(|name| name.to_string()))
                                         .unwrap_or_else(|| format!("RawEventType({raw_ty})"))
                                 } else {
                                     from_payload.to_string()

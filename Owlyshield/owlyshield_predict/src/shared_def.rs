@@ -137,6 +137,18 @@ pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
     }
 }
 
+pub fn kernel_raw_event_api_hint(raw_event_type: u32) -> Option<&'static str> {
+    match raw_event_type {
+        IRP_KERNEL_REMOTE_THREAD | IRP_KERNEL_CREATE_THREAD => Some("ntdll.dll!NtCreateThreadEx"),
+        IRP_KERNEL_WRITE_MEMORY => Some("ntdll.dll!NtWriteVirtualMemory"),
+        IRP_KERNEL_PROTECT_MEMORY => Some("ntdll.dll!NtProtectVirtualMemory"),
+        IRP_KERNEL_QUEUE_APC => Some("ntdll.dll!NtQueueApcThread"),
+        IRP_KERNEL_CREATE_SECTION => Some("ntdll.dll!NtCreateSection"),
+        IRP_KERNEL_MAP_SECTION => Some("ntdll.dll!NtMapViewOfSection"),
+        _ => None,
+    }
+}
+
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
 #[derive(Debug)]
 pub enum DriveType {
