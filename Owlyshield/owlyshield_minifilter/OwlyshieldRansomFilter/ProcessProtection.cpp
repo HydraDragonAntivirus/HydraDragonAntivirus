@@ -50,7 +50,7 @@ extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
 static BOOLEAN IsExecutableProtection(ULONG Protect);
 static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG TargetPid);
 static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName);
-static PCWSTR KernelEventDefaultApiLabel(_In_ ULONG EventType);
+static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType);
 
 static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item,
                                       _In_ ULONG EventType,
@@ -88,23 +88,24 @@ static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PC
     }
 }
 
-static PCWSTR KernelEventDefaultApiLabel(_In_ ULONG EventType)
+static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType)
 {
     switch (EventType)
     {
     case IRP_KERNEL_REMOTE_THREAD:
+        return L"IRP_KERNEL_REMOTE_THREAD";
     case IRP_KERNEL_CREATE_THREAD:
-        return L"ntdll.dll!NtCreateThreadEx";
+        return L"IRP_KERNEL_CREATE_THREAD";
     case IRP_KERNEL_WRITE_MEMORY:
-        return L"ntdll.dll!NtWriteVirtualMemory";
+        return L"IRP_KERNEL_WRITE_MEMORY";
     case IRP_KERNEL_PROTECT_MEMORY:
-        return L"ntdll.dll!NtProtectVirtualMemory";
+        return L"IRP_KERNEL_PROTECT_MEMORY";
     case IRP_KERNEL_QUEUE_APC:
-        return L"ntdll.dll!NtQueueApcThread";
+        return L"IRP_KERNEL_QUEUE_APC";
     case IRP_KERNEL_CREATE_SECTION:
-        return L"ntdll.dll!NtCreateSection";
+        return L"IRP_KERNEL_CREATE_SECTION";
     case IRP_KERNEL_MAP_SECTION:
-        return L"ntdll.dll!NtMapViewOfSection";
+        return L"IRP_KERNEL_MAP_SECTION";
     default:
         return L"";
     }
@@ -557,7 +558,7 @@ NTSTATUS OnKernelApiEvent(
 
     PCWSTR effectiveName = (FunctionName != NULL && FunctionName[0] != L'\0')
                                ? FunctionName
-                               : KernelEventDefaultApiLabel(EventType);
+                               : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
     DbgPrint("!!! ProcessProtection: Hypervisor event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p\n",
@@ -615,7 +616,7 @@ NTSTATUS OnMemoryWrite(
     newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)TargetAddress;
     newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)Size;
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_WRITE;
-    SetKernelEventObjectName(newItem, L"ntdll.dll!NtWriteVirtualMemory");
+    SetKernelEventObjectName(newItem, L"IRP_KERNEL_WRITE_MEMORY");
 
     DbgPrint("!!! ProcessProtection: Memory write detected - Source PID %lu -> Target PID %lu (Address: %p, Size: %zu, Executable: %u)\n",
         SourcePid, TargetPid, TargetAddress, Size, IsExecutableMemory);
@@ -668,7 +669,7 @@ NTSTATUS OnMemoryProtectionChange(
     newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)BaseAddress;
     newItem->KernelEventInfo.RawArgument2 = (((ULONG_PTR)NewProtection) << 32) | ((ULONG_PTR)OldProtection & 0xffffffffull);
     newItem->KernelEventInfo.AccessMask = PROCESS_VM_OPERATION;
-    SetKernelEventObjectName(newItem, L"ntdll.dll!NtProtectVirtualMemory");
+    SetKernelEventObjectName(newItem, L"IRP_KERNEL_PROTECT_MEMORY");
 
     DbgPrint("!!! ProcessProtection: Memory protection change - Source PID %lu -> Target PID %lu (Old: 0x%X, New: 0x%X, Executable: %u)\n",
         SourcePid, TargetPid, OldProtection, NewProtection, IsExecutableProtection(NewProtection));
@@ -714,7 +715,7 @@ NTSTATUS OnThreadCreation(
     newItem->KernelEventInfo.ThreadStartRoutine = StartRoutine;
     newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)StartRoutine;
     newItem->KernelEventInfo.AccessMask = PROCESS_CREATE_THREAD;
-    SetKernelEventObjectName(newItem, L"ntdll.dll!NtCreateThreadEx");
+    SetKernelEventObjectName(newItem, L"IRP_KERNEL_REMOTE_THREAD");
 
     DbgPrint("!!! ProcessProtection: Remote thread creation - Source PID %lu -> Target PID %lu (Start: %p)\n",
         SourcePid, TargetPid, StartRoutine);
@@ -762,7 +763,7 @@ NTSTATUS OnApcQueueing(
     newItem->KernelEventInfo.ThreadStartRoutine = ApcRoutine;
     newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)ThreadHandle;
     newItem->KernelEventInfo.RawArgument2 = (ULONG_PTR)ApcRoutine;
-    SetKernelEventObjectName(newItem, L"ntdll.dll!NtQueueApcThread");
+    SetKernelEventObjectName(newItem, L"IRP_KERNEL_QUEUE_APC");
 
     DbgPrint("!!! ProcessProtection: APC queued - Source PID %lu -> Target PID %lu (Thread: %p, APC: %p)\n",
         SourcePid, TargetPid, ThreadHandle, ApcRoutine);
@@ -809,7 +810,7 @@ NTSTATUS OnSectionOperation(
 
     PopulateKernelEventCommon(newItem, irpOp, SourcePid, TargetPid);
     newItem->KernelEventInfo.RawArgument1 = (ULONG_PTR)OperationType;
-    SetKernelEventObjectName(newItem, (OperationType == 1) ? L"ntdll.dll!NtCreateSection" : L"ntdll.dll!NtMapViewOfSection");
+    SetKernelEventObjectName(newItem, (OperationType == 1) ? L"IRP_KERNEL_CREATE_SECTION" : L"IRP_KERNEL_MAP_SECTION");
 
     if (SectionName != NULL) {
         (VOID)RtlStringCchCopyW(newEntry->Buffer, RTL_NUMBER_OF(newEntry->Buffer), SectionName);

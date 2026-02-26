@@ -436,7 +436,7 @@ VOID ThreadCreationCallback(
                 newItem->KernelEventInfo.OperationStatus = STATUS_SUCCESS;
                 (VOID)RtlStringCchCopyW(newItem->KernelEventInfo.ObjectName,
                                         RTL_NUMBER_OF(newItem->KernelEventInfo.ObjectName),
-                                        L"ntdll.dll!NtCreateThreadEx");
+                                        L"IRP_KERNEL_REMOTE_THREAD");
                 
                 if (!driverData->AddIrpMessage(newEntry)) {
                     delete newEntry;

@@ -27,7 +27,6 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    kernel_raw_event_api_hint,
     kernel_raw_event_name,
     KernelEventInfo, // AMENDED: Fix typo
 };
@@ -75,9 +74,6 @@ fn get_syscall_map() -> &'static HashMap<u32, String> {
 fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u32) -> String {
     let trimmed = raw_label.trim();
     if trimmed.is_empty() {
-        if let Some(api_name) = kernel_raw_event_api_hint(raw_event_type) {
-            return api_name.to_string();
-        }
         if let Some(name) = kernel_raw_event_name(raw_event_type) {
             return name.to_string();
         }
