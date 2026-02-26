@@ -14,7 +14,7 @@ use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
-use crate::shared_def::{IrpMajorOp, kernel_raw_event_name};
+use crate::shared_def::{IrpMajorOp, known_raw_event_name};
 
 pub fn run() {
     Logging::init();
@@ -31,7 +31,7 @@ pub fn run() {
     driver
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
-    Logging::info("[VMM MODE] Skipping startup MESSAGE_ADD_HOOK registration; consuming hypervisor events directly");
+    Logging::info("[VMM MODE] Dynamic MESSAGE_ADD_HOOK registration is enabled");
 
     let mut vecnew: Vec<u8> = Vec::with_capacity(65536);
 
@@ -254,6 +254,10 @@ pub fn run() {
         let mut opcode_counts: [u64; 32] = [0; 32];
         let mut total_msgs: u64 = 0;
         let mut last_diag = std::time::Instant::now();
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        let mut hyper_api_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        let mut hyper_raw_counts: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
         
         loop {
             match driver.get_irp(&mut vecnew) {
@@ -279,19 +283,39 @@ pub fn run() {
                                     iomsg.irp_op as u32
                                 };
                                 let api_name = if from_payload.is_empty() {
-                                    kernel_raw_event_name(raw_ty)
+                                    known_raw_event_name(raw_ty)
                                         .map(|name| name.to_string())
                                         .unwrap_or_else(|| format!("RawEventType({raw_ty})"))
                                 } else {
                                     from_payload.to_string()
                                 };
-                                let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent)
-                                    || iomsg.irp_op >= 12
-                                    || raw_ty >= 12;
+                                let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent);
+                                let is_kernel_telemetry_event = iomsg.irp_op >= 13;
 
                                 if is_hypervisor_event {
+                                    *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
+                                    *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
                                     Logging::info(&format!(
                                         "[DIAG] HYPERVISOR EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" path={} cmd=\"{}\"",
+                                        irp,
+                                        op,
+                                        raw_ty,
+                                        iomsg.pid,
+                                        iomsg.gid,
+                                        iomsg.kernel_event_info.source_process_id,
+                                        iomsg.kernel_event_info.target_process_id,
+                                        iomsg.kernel_event_info.raw_argument1,
+                                        iomsg.kernel_event_info.raw_argument2,
+                                        iomsg.kernel_event_info.memory_address,
+                                        iomsg.kernel_event_info.memory_size,
+                                        iomsg.kernel_event_info.operation_status as u32,
+                                        api_name,
+                                        &iomsg.filepathstr,
+                                        iomsg.runtime_features.command_line
+                                    ));
+                                } else if is_kernel_telemetry_event {
+                                    Logging::info(&format!(
+                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" path={} cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,
@@ -362,24 +386,62 @@ pub fn run() {
                         summary.push_str(&format!("{}={} ", names[i], opcode_counts[i]));
                     }
                 }
-                let kernel_api_total: u64 = opcode_counts
+                let hypervisor_total = opcode_counts[12];
+                let kernel_telemetry_total: u64 = opcode_counts
                     .iter()
                     .enumerate()
-                    .skip(12)
+                    .skip(13)
                     .map(|(_, c)| *c)
                     .sum();
-                if kernel_api_total > 0 {
-                    summary.push_str(&format!("KrnHyperEvent={} ", kernel_api_total));
+                if hypervisor_total > 0 {
+                    summary.push_str(&format!("Hypervisor={} ", hypervisor_total));
+                }
+                if kernel_telemetry_total > 0 {
+                    summary.push_str(&format!("KernelTelemetry={} ", kernel_telemetry_total));
+                }
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if hypervisor_total > 0 {
+                    let mut top_raw: Vec<(u32, u64)> = hyper_raw_counts.iter().map(|(k, v)| (*k, *v)).collect();
+                    top_raw.sort_by(|a, b| b.1.cmp(&a.1));
+                    if !top_raw.is_empty() {
+                        let raw_text = top_raw
+                            .iter()
+                            .take(5)
+                            .map(|(raw, count)| format!("{}={}", raw, count))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        summary.push_str(&format!("RawTop=[{}] ", raw_text));
+                    }
+
+                    let mut top_api: Vec<(String, u64)> = hyper_api_counts
+                        .iter()
+                        .map(|(k, v)| (k.clone(), *v))
+                        .collect();
+                    top_api.sort_by(|a, b| b.1.cmp(&a.1));
+                    if !top_api.is_empty() {
+                        let api_text = top_api
+                            .iter()
+                            .take(5)
+                            .map(|(api, count)| format!("{}={}", api, count))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        summary.push_str(&format!("ApiTop=[{}] ", api_text));
+                    }
                 }
                 Logging::info(&summary);
                 
-                // Check specifically for kernel/hypervisor events.
-                if kernel_api_total == 0 {
-                    Logging::warning("[DIAG] ZERO kernel/hypervisor events (opcodes 12+) received from driver!");
+                // Check specifically for hypervisor opcode stream.
+                if hypervisor_total == 0 {
+                    Logging::warning("[DIAG] ZERO hypervisor events (opcode 12) received from driver!");
                 }
                 
                 opcode_counts = [0; 32];
                 total_msgs = 0;
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                {
+                    hyper_api_counts.clear();
+                    hyper_raw_counts.clear();
+                }
                 last_diag = std::time::Instant::now();
             }
         }

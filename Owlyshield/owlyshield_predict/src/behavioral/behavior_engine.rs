@@ -7,7 +7,7 @@ use serde_yaml::Value as YamlValue;
 use regex::Regex;
 use std::cell::RefCell;
 
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, kernel_raw_event_name};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, known_raw_event_name};
 use crate::process::ProcessRecord;
 use crate::logging::Logging;
 use crate::config::Config;
@@ -144,7 +144,7 @@ impl IrpStatistics {
             IrpMajorOp::IrpHypervisorEvent => {
                 self.hypervisor_event_count += 1;
                 let event_name = if rec.function_name.is_empty() {
-                    kernel_raw_event_name(rec.irp_type as u32)
+                    known_raw_event_name(rec.irp_type as u32)
                         .map(|name| name.to_string())
                         .unwrap_or_else(|| "IRP_HYPERVISOR_EVENT".to_string())
                 } else {
@@ -1105,7 +1105,7 @@ impl ProcessBehaviorState {
         };
         
         self.irp_stats.record_operation(&rec);
-        let normalized_irp_op = if irp_op >= 12 { 12 } else { irp_op };
+        let normalized_irp_op = if irp_op == 12 { 12 } else { irp_op };
         
         if normalized_irp_op == 12 {
             self.hypervisor_event_count += 1;
@@ -1115,7 +1115,7 @@ impl ProcessBehaviorState {
                 irp_op as u32
             };
             let event_name = if normalized_kernel_api.is_empty() {
-                kernel_raw_event_name(raw_event_type)
+                known_raw_event_name(raw_event_type)
                     .map(|name| name.to_string())
                     .unwrap_or_else(|| format!("RawEventType({raw_event_type})"))
             } else {

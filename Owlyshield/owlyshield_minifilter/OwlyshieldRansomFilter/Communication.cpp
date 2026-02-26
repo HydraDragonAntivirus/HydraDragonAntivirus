@@ -1,5 +1,6 @@
 #include "Communication.h"
 #include "FsFilter.h"
+#include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
 #define OWLY_HV_EVENT_QUEUE_TAG 'vHwO'
@@ -575,8 +576,58 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
     // NEW: Add Generic Hook Config
     else if (message->type == MESSAGE_ADD_HOOK)
     {
-        DbgPrint("!!! FS : MESSAGE_ADD_HOOK received but user-mode hook engine is removed; unsupported\n");
-        return STATUS_NOT_SUPPORTED;
+        HOOK_CONFIG_DATA config;
+        ANSI_STRING asFunc;
+        UNICODE_STRING usFunc;
+        NTSTATUS status;
+
+        RtlZeroMemory(&config, sizeof(config));
+        RtlCopyMemory(config.ModuleName,
+                      message->path,
+                      min(sizeof(config.ModuleName), sizeof(message->path)));
+        config.ModuleName[RTL_NUMBER_OF(config.ModuleName) - 1] = L'\0';
+
+        RtlInitUnicodeString(&usFunc, message->quarantine_path);
+        asFunc.Buffer = config.FunctionName;
+        asFunc.Length = 0;
+        asFunc.MaximumLength = (USHORT)sizeof(config.FunctionName);
+        status = RtlUnicodeStringToAnsiString(&asFunc, &usFunc, FALSE);
+        if (!NT_SUCCESS(status))
+        {
+            DbgPrint("!!! FS : MESSAGE_ADD_HOOK function conversion failed: 0x%X\n", status);
+            return status;
+        }
+        if (asFunc.Length < asFunc.MaximumLength)
+        {
+            asFunc.Buffer[asFunc.Length] = '\0';
+        }
+        else
+        {
+            config.FunctionName[RTL_NUMBER_OF(config.FunctionName) - 1] = '\0';
+        }
+
+        config.EventId = (ULONG)message->gid;
+        if (config.EventId == 0)
+        {
+            config.EventId = 0x6000u;
+        }
+
+        status = AddCustomHook(&config);
+        if (!NT_SUCCESS(status))
+        {
+            DbgPrint("!!! FS : MESSAGE_ADD_HOOK AddCustomHook failed: 0x%X\n", status);
+            return status;
+        }
+
+        return STATUS_SUCCESS;
+    }
+    else if (message->type == MESSAGE_HOOK_PROCESS)
+    {
+        if (message->pid == 0)
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
+        return UserModeHookProcess(message->pid);
     }
 
     return STATUS_INTERNAL_ERROR;

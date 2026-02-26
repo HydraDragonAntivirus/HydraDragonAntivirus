@@ -20,6 +20,7 @@ Environment:
 #include "FsFilter.h"
 #include "Regedit.h"
 #include "ProcessProtection.h"
+#include "UserModeHookEngine.h"
 #include "OwlyVmmBridge.h"
 
 #pragma prefast(disable : __WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
@@ -306,7 +307,14 @@ Return Value:
 
     DbgPrint("!!! FSFilter: Initializing advanced monitoring systems...\n");
 
-    // 1. Initialize VMM-based monitoring core (no per-process user-mode hooking).
+    // 1. Initialize user-mode hook engine for dynamic API hook events.
+    status = UserModeHookEngineInitialize();
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: Failed to initialize user-mode hook engine: 0x%X (non-fatal)\n", status);
+    }
+
+    // 2. Initialize VMM-based monitoring core.
     status = OwlyVmmInitialize();
     if (!NT_SUCCESS(status))
     {
@@ -327,7 +335,7 @@ Return Value:
     DbgPrint("!!! FSFilter: Enumerating existing processes for initial process baseline\n");
     EnumerateExistingProcesses();
 
-    // 2. Register thread creation callback
+    // 3. Register thread creation callback
     //    Detects remote thread injection (NtCreateThreadEx from different process)
     status = PsSetCreateThreadNotifyRoutine(ThreadCreationCallback);
     if (!NT_SUCCESS(status))
@@ -339,7 +347,7 @@ Return Value:
         DbgPrint("!!! FSFilter: Thread creation monitoring enabled\n");
     }
 
-    // 3. Register image load callback
+    // 4. Register image load callback
     //    Detects DLL injection and driver loading
     status = PsSetLoadImageNotifyRoutine(ImageLoadCallback);
     if (!NT_SUCCESS(status))
@@ -359,7 +367,7 @@ Return Value:
     DbgPrint("!!! FSFilter: - DLL/driver loading (PsSetLoadImageNotifyRoutine)\n");
     DbgPrint("!!! FSFilter: - File operations (Minifilter callbacks)\n");
     DbgPrint("!!! FSFilter: - Registry operations (CmRegisterCallback)\n");
-    DbgPrint("!!! FSFilter: - Memory operations (VMM/hypervisor backend)\n");
+    DbgPrint("!!! FSFilter: - Memory operations (VMM/hypervisor + dynamic API hooks)\n");
     DbgPrint("!!! FSFilter: ========================================\n");
 
     // ====================================================================
@@ -467,7 +475,12 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     }
 
 
-    // 2. User Mode Image Load telemetry (no process hook injection)
+    if (driverData == NULL || driverData->isFilterClosed())
+    {
+        return;
+    }
+
+    // 2. User mode image load telemetry + dynamic API hook refresh.
     
     // Check if this is an executable file (.exe or .dll)
     BOOLEAN isExecutable = FALSE;
@@ -482,8 +495,12 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
 
     if (isExecutable)
     {
-        DbgPrint("!!! FSFilter: Executable loaded in PID %lu: %wZ (no-hook mode)\n",
-                 (ULONG)(ULONG_PTR)ProcessId, FullImageName);
+        BOOLEAN found = FALSE;
+        (VOID)driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
+        if (found)
+        {
+            (VOID)UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
+        }
     }
 }
 
@@ -606,6 +623,8 @@ Return Value:
     PAGED_CODE();
 
     DbgPrint("FSFilter: Unloading driver\n");
+
+    UserModeHookEngineCleanup();
 
     // VMM Cleanup
     OwlyVmmUninitialize();
@@ -2222,6 +2241,8 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
     {
         DbgPrint("!!! FSFilter: Terminate Process, Process: %d pid\n", (ULONG)(ULONG_PTR)ProcessId);
 
+        (VOID)UserModeUnhookProcess((ULONG)(ULONG_PTR)ProcessId);
+
         BOOLEAN found = FALSE;
         ULONGLONG gid = driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
         if (found) {
@@ -2351,11 +2372,20 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 }
 
                 PCWSTR functionName = NULL;
+                WCHAR resolvedHookName[MAX_FILE_NAME_LENGTH] = {0};
 
                 if (incomingWideName && incomingWideName[0] != L'\0') {
                     functionName = incomingWideName;
                 } else {
-                    functionName = L"";
+                    if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
+                        resolvedHookName[0] != L'\0')
+                    {
+                        functionName = resolvedHookName;
+                    }
+                    else
+                    {
+                        functionName = L"";
+                    }
                 }
 
                 // Log event using existing mechanism

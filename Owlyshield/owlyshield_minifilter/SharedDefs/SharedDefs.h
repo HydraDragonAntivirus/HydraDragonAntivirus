@@ -128,7 +128,7 @@ enum IRP_MAJOR_OP
 };
 
 // Distinct raw kernel/hypervisor event ids (kept in 13..19 range).
-// User-mode still classifies all 12+ as IrpHypervisorEvent.
+// User-mode keeps these opcodes distinct from IRP_HYPERVISOR_EVENT.
 #define IRP_KERNEL_REMOTE_THREAD 13
 #define IRP_KERNEL_WRITE_MEMORY 14
 #define IRP_KERNEL_PROTECT_MEMORY 15
@@ -141,7 +141,7 @@ enum IRP_MAJOR_OP
 
 typedef struct _HOOK_CONFIG_DATA {
     WCHAR ModuleName[64];
-    CHAR FunctionName[64];
+    CHAR FunctionName[256];
     ULONG EventId;
 } HOOK_CONFIG_DATA, *PHOOK_CONFIG_DATA;
 

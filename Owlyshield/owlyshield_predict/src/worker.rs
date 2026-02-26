@@ -753,11 +753,13 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hooks_registered: bool,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        dynamic_hook_event_map: std::collections::HashMap<u8, String>,
+        dynamic_hook_event_map: std::collections::HashMap<u32, String>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_registered_apis: HashSet<String>,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        next_dynamic_hook_event_id: u8,
+        next_dynamic_hook_event_id: u32,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_registration_blocked: bool,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
     }
@@ -765,9 +767,7 @@ pub mod worker_instance {
     impl<'a> Worker<'a> {
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        const DYNAMIC_HOOK_EVENT_ID_START: u8 = 25;
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        const DYNAMIC_HOOK_EVENT_ID_END: u8 = 239;
+        const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
 
         #[cfg(feature = "realtime_learning")]
         fn realtime_learning_output_dir(config: &Config) -> &str {
@@ -780,6 +780,16 @@ pub mod worker_instance {
             }
 
             "./ml_data/realtime"
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn default_dynamic_hook_event_map() -> std::collections::HashMap<u32, String> {
+            std::collections::HashMap::new()
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn default_registered_dynamic_apis() -> HashSet<String> {
+            HashSet::new()
         }
 
         /// Normalize unstable kernel GIDs to keep per-process tracking coherent.
@@ -879,11 +889,13 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hooks_registered: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                dynamic_hook_event_map: std::collections::HashMap::new(),
+                dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                dynamic_registered_apis: HashSet::new(),
+                dynamic_registered_apis: Self::default_registered_dynamic_apis(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_registration_blocked: false,
                 threat_handler: None,
                 driver: None,
             }
@@ -1325,11 +1337,13 @@ pub mod worker_instance {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hooks_registered: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                dynamic_hook_event_map: std::collections::HashMap::new(),
+                dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                dynamic_registered_apis: HashSet::new(),
+                dynamic_registered_apis: Self::default_registered_dynamic_apis(),
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_registration_blocked: false,
                 threat_handler: None,
                 driver: None,
             }
@@ -1341,16 +1355,21 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                // Hypervisor mode: classify all 12+ opcodes as one stream while preserving raw type.
+                // Only opcode 12 is the hypervisor/user-hook stream.
                 let raw_event_type = if iomsg.kernel_event_info.event_type != 0 {
                     iomsg.kernel_event_info.event_type
                 } else {
                     iomsg.irp_op as u32
                 };
 
-                if raw_event_type >= 12 || iomsg.irp_op >= 12 {
-                    iomsg.irp_op = 12;
+                if iomsg.irp_op == 12 {
                     iomsg.kernel_event_info.event_type = raw_event_type;
+
+                    if iomsg.kernel_event_info.object_name.trim().is_empty() {
+                        if let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type) {
+                            iomsg.kernel_event_info.object_name = mapped_api.clone();
+                        }
+                    }
 
                     if iomsg.kernel_event_info.source_process_id == 0 {
                         iomsg.kernel_event_info.source_process_id = if iomsg.attacker_pid != 0 {
@@ -1380,6 +1399,11 @@ pub mod worker_instance {
                         iomsg.runtime_features.command_line = precord.command_line.clone();
                     }
                 }
+            }
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if is_process_create {
+                self.register_dynamic_hooks_for_process(iomsg.pid);
             }
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
@@ -1610,40 +1634,28 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn resolve_or_allocate_dynamic_event_id(&mut self, api_spec: &str) -> u8 {
+        fn resolve_or_allocate_dynamic_event_id(&mut self, api_spec: &str) -> Option<u32> {
             if let Some((event_id, _)) = self
                 .dynamic_hook_event_map
                 .iter()
                 .find(|(_, existing_api)| existing_api.eq_ignore_ascii_case(api_spec))
             {
-                return *event_id;
+                return Some(*event_id);
             }
 
-            let slots = (Self::DYNAMIC_HOOK_EVENT_ID_END - Self::DYNAMIC_HOOK_EVENT_ID_START) as usize + 1;
-            let mut candidate = self.next_dynamic_hook_event_id;
+            let mut candidate = self
+                .next_dynamic_hook_event_id
+                .max(Self::DYNAMIC_HOOK_EVENT_ID_START);
 
-            for _ in 0..slots {
-                if candidate < Self::DYNAMIC_HOOK_EVENT_ID_START || candidate > Self::DYNAMIC_HOOK_EVENT_ID_END {
-                    candidate = Self::DYNAMIC_HOOK_EVENT_ID_START;
+            while self.dynamic_hook_event_map.contains_key(&candidate) {
+                if candidate == u32::MAX {
+                    return None;
                 }
-
-                if !self.dynamic_hook_event_map.contains_key(&candidate) {
-                    self.next_dynamic_hook_event_id = if candidate >= Self::DYNAMIC_HOOK_EVENT_ID_END {
-                        Self::DYNAMIC_HOOK_EVENT_ID_START
-                    } else {
-                        candidate + 1
-                    };
-                    return candidate;
-                }
-
-                candidate = if candidate >= Self::DYNAMIC_HOOK_EVENT_ID_END {
-                    Self::DYNAMIC_HOOK_EVENT_ID_START
-                } else {
-                    candidate + 1
-                };
+                candidate += 1;
             }
 
-            23
+            self.next_dynamic_hook_event_id = candidate.saturating_add(1);
+            Some(candidate)
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
@@ -1742,13 +1754,111 @@ pub mod worker_instance {
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
-            if !self.dynamic_hooks_registered {
-                Logging::info("[DYNAMIC HOOK] API hook registration is disabled");
-                self.dynamic_hooks_registered = true;
-                self.dynamic_hook_event_map.clear();
-                self.dynamic_registered_apis.clear();
+            if pid == 0 {
+                return;
             }
-            let _ = pid;
+
+            if self.dynamic_hook_registration_blocked {
+                return;
+            }
+
+            let Some(driver) = self.driver else {
+                Logging::warning(&format!("[DYNAMIC HOOK] Driver not available, cannot hook PID {}", pid));
+                return;
+            };
+
+            let monitored_apis = self.collect_dynamic_hook_api_targets(pid);
+            if monitored_apis.is_empty() {
+                return;
+            }
+
+            let mut registered_count = 0;
+            let mut already_registered_count = 0;
+            let mut failed_count = 0;
+            let mut wildcard_count = 0;
+
+            for api_spec in monitored_apis {
+                if self.is_api_already_registered(&api_spec) {
+                    already_registered_count += 1;
+                    continue;
+                }
+
+                let Some(event_id) = self.resolve_or_allocate_dynamic_event_id(&api_spec) else {
+                    self.dynamic_hook_registration_blocked = true;
+                    Logging::warning("[DYNAMIC HOOK] Event-id pool exhausted; stopping new registrations");
+                    break;
+                };
+
+                let (module, function) = if let Some(idx) = api_spec.find('!') {
+                    (
+                        Self::normalize_hook_module_name(&api_spec[..idx]),
+                        api_spec[idx + 1..].to_string(),
+                    )
+                } else {
+                    wildcard_count += 1;
+                    ("*".to_string(), api_spec.clone())
+                };
+
+                // SharedDefs.HOOK_CONFIG_DATA currently supports ModuleName[64] and FunctionName[256].
+                if module != "*" && module.len() >= 64 {
+                    failed_count += 1;
+                    Logging::warning(&format!(
+                        "[DYNAMIC HOOK] Skip PID {} module name too long ({} chars): {}",
+                        pid,
+                        module.len(),
+                        module
+                    ));
+                    continue;
+                }
+                if function.len() >= 256 {
+                    failed_count += 1;
+                    Logging::warning(&format!(
+                        "[DYNAMIC HOOK] Skip PID {} function name too long ({} chars): {}!{}",
+                        pid,
+                        function.len(),
+                        module,
+                        function
+                    ));
+                    continue;
+                }
+
+                match driver.add_hook_target(&module, &function, event_id) {
+                    Ok(_) => {
+                        self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
+                        self.dynamic_hook_event_map.insert(event_id, api_spec);
+                        registered_count += 1;
+                    }
+                    Err(e) => {
+                        let hr = e.code().0 as u32;
+                        if hr == 0x800705AA || hr == 0x8007000E {
+                            self.dynamic_hook_registration_blocked = true;
+                            Logging::error(&format!(
+                                "[DYNAMIC HOOK] Resource exhaustion while registering PID {} (hr=0x{:08X}); pausing new hooks",
+                                pid, hr
+                            ));
+                            break;
+                        }
+                        failed_count += 1;
+                        Logging::error(&format!(
+                            "[DYNAMIC HOOK] Failed registration PID {} event {} {}!{}: {}",
+                            pid, event_id, module, function, e
+                        ));
+                    }
+                }
+            }
+
+            if let Err(e) = driver.hook_process(pid) {
+                Logging::error(&format!(
+                    "[DYNAMIC HOOK] Failed to apply hooks to PID {}: {}",
+                    pid, e
+                ));
+            }
+
+            self.dynamic_hooks_registered = true;
+            Logging::info(&format!(
+                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={}",
+                pid, registered_count, already_registered_count, failed_count, wildcard_count
+            ));
         }
     }
 }

@@ -57,6 +57,7 @@ pub enum DriverComMessageType {
     MessageKillAndRemoveGid, // NEW: Kill process and delete file
     MessageRevertRegistryChanges,
     MessageAddHook,
+    MessageHookProcess,
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).
@@ -91,6 +92,20 @@ pub enum IrpMajorOp {
     IrpProcessHandleOpen,
     /// Single normalized event for all hypervisor-origin activity
     IrpHypervisorEvent,
+    /// Kernel process-protection signal: remote thread creation
+    IrpKernelRemoteThread,
+    /// Kernel process-protection signal: write memory
+    IrpKernelWriteMemory,
+    /// Kernel process-protection signal: change memory protection
+    IrpKernelProtectMemory,
+    /// Kernel process-protection signal: create thread
+    IrpKernelCreateThread,
+    /// Kernel process-protection signal: queue APC
+    IrpKernelQueueApc,
+    /// Kernel process-protection signal: create section
+    IrpKernelCreateSection,
+    /// Kernel process-protection signal: map section
+    IrpKernelMapSection,
 }
 
 impl IrpMajorOp {
@@ -109,8 +124,18 @@ impl IrpMajorOp {
             10 => IrpMajorOp::IrpProcessExit,
             11 => IrpMajorOp::IrpProcessHandleOpen,
             
-            // Hypervisor/kernel events are normalized to one fallback opcode.
-            12..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
+            // Hypervisor origin stream opcode.
+            12 => IrpMajorOp::IrpHypervisorEvent,
+            // Process-protection kernel telemetry (keep distinct from hypervisor stream).
+            13 => IrpMajorOp::IrpKernelRemoteThread,
+            14 => IrpMajorOp::IrpKernelWriteMemory,
+            15 => IrpMajorOp::IrpKernelProtectMemory,
+            16 => IrpMajorOp::IrpKernelCreateThread,
+            17 => IrpMajorOp::IrpKernelQueueApc,
+            18 => IrpMajorOp::IrpKernelCreateSection,
+            19 => IrpMajorOp::IrpKernelMapSection,
+            // Forward compatibility for any future opcodes.
+            20..=u8::MAX => IrpMajorOp::IrpHypervisorEvent,
         }
     }
 }
@@ -135,6 +160,10 @@ pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
         IRP_KERNEL_MAP_SECTION => Some("IRP_KERNEL_MAP_SECTION"),
         _ => None,
     }
+}
+
+pub fn known_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
+    kernel_raw_event_name(raw_event_type)
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).

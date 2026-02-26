@@ -27,7 +27,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
-    kernel_raw_event_name,
+    known_raw_event_name,
     KernelEventInfo, // AMENDED: Fix typo
 };
 
@@ -74,14 +74,10 @@ fn get_syscall_map() -> &'static HashMap<u32, String> {
 fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u32) -> String {
     let trimmed = raw_label.trim();
     if trimmed.is_empty() {
-        if let Some(name) = kernel_raw_event_name(raw_event_type) {
+        if let Some(name) = known_raw_event_name(raw_event_type) {
             return name.to_string();
         }
-        return if raw_event_type >= 12 {
-            format!("RawEventType({raw_event_type})")
-        } else {
-            String::new()
-        };
+        return String::new();
     }
 
     if is_already_resolved_api(trimmed) || !is_syscall_number_label(trimmed) {
@@ -340,7 +336,7 @@ impl Driver {
     /// Dynamically add a hook target to the driver.
     /// * `module`: DLL name (e.g., "user32.dll")
     /// * `function`: Function name (e.g., "MessageBoxW")
-    /// * `event_id`: Custom event ID to report when hooked (defaults to 23 if 0)
+    /// * `event_id`: Custom event ID to report when hooked (driver default is 0x6000 when 0)
     pub fn add_hook_target(&self, module: &str, function: &str, event_id: u32) -> Result<(), Error> {
         self.add_hook_target_for_pid(0, module, function, event_id)
     }
@@ -352,6 +348,29 @@ impl Driver {
             gid: event_id as u64,
             path: Driver::string_to_commessage_buffer(module),
             quarantine_path: Driver::string_to_commessage_buffer(function),
+        };
+        let mut res_size: u32 = 0;
+
+        unsafe {
+            FilterSendMessage(
+                self.handle,
+                ptr::addr_of_mut!(msg) as *mut c_void,
+                mem::size_of::<DriverComMessage>() as c_ulong,
+                None,
+                0,
+                ptr::addr_of_mut!(res_size) as *mut u32,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn hook_process(&self, pid: u32) -> Result<(), Error> {
+        let mut msg = DriverComMessage {
+            r#type: DriverComMessageType::MessageHookProcess as c_ulong,
+            pid: pid as c_ulong,
+            gid: 0,
+            path: [0; 520],
+            quarantine_path: [0; 520],
         };
         let mut res_size: u32 = 0;
 
