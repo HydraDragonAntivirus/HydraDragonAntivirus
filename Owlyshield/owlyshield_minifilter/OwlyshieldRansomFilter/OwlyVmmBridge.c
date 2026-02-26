@@ -1,7 +1,5 @@
 #include "OwlyVmmBridge.h"
 
-#if defined(_M_AMD64)
-
 static BOOLEAN g_OwlyVmmInitialized = FALSE;
 
 static BOOLEAN
@@ -369,18 +367,3 @@ DisassemblerLengthDisassembleEngineByProcessId(PVOID Address, BOOLEAN Is32Bit, U
     UNREFERENCED_PARAMETER(ProcessId);
     return 1;
 }
-
-#else
-
-NTSTATUS
-OwlyVmmInitialize(VOID)
-{
-    return STATUS_NOT_SUPPORTED;
-}
-
-VOID
-OwlyVmmUninitialize(VOID)
-{
-}
-
-#endif
