@@ -3,35 +3,14 @@
 #include <fltKernel.h>
 #include <stdio.h>
 
+#ifdef __cplusplus
 #include "../SharedDefs/SharedDefs.h"
 #include "DriverData.h"
+#endif
 
-struct CommHandler {
-    //  Server-side communicate ports.
-    PFLT_PORT ServerPort;
-
-    //  port for a connection to user-mode
-    PFLT_PORT ClientPort;
-
-    //  The filter handle that results from a call to
-    PFLT_FILTER Filter;
-
-    //  A flag that indicating that the filter is connected
-    BOOLEAN CommClosed;
-
-    //  User process that connected to the port
-
-    ULONG UserProcess;
-
-    CommHandler(PFLT_FILTER Filter) :
-        ServerPort(NULL),
-        ClientPort(NULL),
-        Filter(Filter),
-        CommClosed(TRUE),
-        UserProcess(0) {}
-};
-
-extern CommHandler* commHandle;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 NTSTATUS InitCommData();
 
@@ -63,3 +42,47 @@ NTSTATUS RWFNewMessage(
 // AMFDissconnect: Handles user mode application which dissconnects from the driver
 
 VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie);
+
+// Independent hypervisor event queue for VMM bridge (C callable).
+BOOLEAN QueueHypervisorEvent(_In_ ULONG RawEventType,
+                             _In_opt_z_ PCWSTR EventName,
+                             _In_ ULONG_PTR EventArg1,
+                             _In_ ULONG_PTR EventArg2);
+
+VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID OutputBuffer,
+                                 _In_ ULONG OutputBufferLength,
+                                 _Inout_ PULONG ReturnOutputBufferLength);
+
+VOID ResetQueuedHypervisorEvents(VOID);
+
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+struct CommHandler {
+    //  Server-side communicate ports.
+    PFLT_PORT ServerPort;
+
+    //  port for a connection to user-mode
+    PFLT_PORT ClientPort;
+
+    //  The filter handle that results from a call to
+    PFLT_FILTER Filter;
+
+    //  A flag that indicating that the filter is connected
+    BOOLEAN CommClosed;
+
+    //  User process that connected to the port
+    ULONG UserProcess;
+
+    CommHandler(PFLT_FILTER Filter) :
+        ServerPort(NULL),
+        ClientPort(NULL),
+        Filter(Filter),
+        CommClosed(TRUE),
+        UserProcess(0) {}
+};
+
+extern CommHandler* commHandle;
+#endif

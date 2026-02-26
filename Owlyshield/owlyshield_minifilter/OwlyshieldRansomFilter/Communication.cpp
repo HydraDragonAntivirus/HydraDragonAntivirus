@@ -1,5 +1,195 @@
 #include "Communication.h"
 #include "FsFilter.h"
+#include <ntstrsafe.h>
+
+#define OWLY_HV_EVENT_QUEUE_TAG 'vHwO'
+
+typedef struct _OWLY_HV_EVENT_ENTRY
+{
+    LIST_ENTRY     Entry;
+    DRIVER_MESSAGE Message;
+} OWLY_HV_EVENT_ENTRY, *POWLY_HV_EVENT_ENTRY;
+
+static LIST_ENTRY g_OwlyHvEventQueue;
+static KSPIN_LOCK g_OwlyHvEventQueueLock;
+static BOOLEAN    g_OwlyHvEventQueueInitialized = FALSE;
+static ULONG      g_OwlyHvEventQueueSize        = 0;
+
+static VOID
+EnsureQueuedHypervisorEventsInitialized(VOID)
+{
+    if (!g_OwlyHvEventQueueInitialized)
+    {
+        InitializeListHead(&g_OwlyHvEventQueue);
+        KeInitializeSpinLock(&g_OwlyHvEventQueueLock);
+        g_OwlyHvEventQueueSize        = 0;
+        g_OwlyHvEventQueueInitialized = TRUE;
+    }
+}
+
+BOOLEAN
+QueueHypervisorEvent(_In_ ULONG RawEventType,
+                     _In_opt_z_ PCWSTR EventName,
+                     _In_ ULONG_PTR EventArg1,
+                     _In_ ULONG_PTR EventArg2)
+{
+    KIRQL oldIrql;
+    ULONG currentPid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    POWLY_HV_EVENT_ENTRY newEntry;
+    LARGE_INTEGER timestamp;
+
+    EnsureQueuedHypervisorEventsInitialized();
+
+    newEntry = (POWLY_HV_EVENT_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                                      sizeof(OWLY_HV_EVENT_ENTRY),
+                                                      OWLY_HV_EVENT_QUEUE_TAG);
+    if (newEntry == NULL)
+    {
+        return FALSE;
+    }
+
+    RtlZeroMemory(newEntry, sizeof(OWLY_HV_EVENT_ENTRY));
+
+    newEntry->Message.PID         = currentPid;
+    newEntry->Message.AttackerPID = currentPid;
+    newEntry->Message.IRP_OP      = IRP_HYPERVISOR_EVENT;
+
+    KeQuerySystemTime(&timestamp);
+    newEntry->Message.KernelEventInfo.EventType       = RawEventType;
+    newEntry->Message.KernelEventInfo.Timestamp       = (ULONGLONG)timestamp.QuadPart;
+    newEntry->Message.KernelEventInfo.SourceProcessId = currentPid;
+    newEntry->Message.KernelEventInfo.TargetProcessId = currentPid;
+    newEntry->Message.KernelEventInfo.RawArgument1    = EventArg1;
+    newEntry->Message.KernelEventInfo.RawArgument2    = EventArg2;
+    newEntry->Message.KernelEventInfo.MemoryAddress   = (PVOID)EventArg2;
+    newEntry->Message.KernelEventInfo.ThreadHandle    = (HANDLE)EventArg1;
+    newEntry->Message.KernelEventInfo.AccessMask      = (ACCESS_MASK)EventArg1;
+    newEntry->Message.KernelEventInfo.OperationStatus = STATUS_SUCCESS;
+
+    if (EventName != NULL && EventName[0] != L'\0')
+    {
+        size_t eventNameLength = wcsnlen(EventName, MAX_FILE_NAME_LENGTH - 1);
+        if (eventNameLength > 0)
+        {
+            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName,
+                          EventName,
+                          eventNameLength * sizeof(WCHAR));
+        }
+    }
+
+    KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
+    if (g_OwlyHvEventQueueSize >= MAX_OPS_SAVE)
+    {
+        KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+        ExFreePoolWithTag(newEntry, OWLY_HV_EVENT_QUEUE_TAG);
+        return FALSE;
+    }
+
+    InsertTailList(&g_OwlyHvEventQueue, &newEntry->Entry);
+    g_OwlyHvEventQueueSize++;
+    KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+    return TRUE;
+}
+
+VOID
+ResetQueuedHypervisorEvents(VOID)
+{
+    KIRQL oldIrql;
+    LIST_ENTRY localList;
+
+    if (!g_OwlyHvEventQueueInitialized)
+    {
+        return;
+    }
+
+    InitializeListHead(&localList);
+
+    KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
+    while (!IsListEmpty(&g_OwlyHvEventQueue))
+    {
+        PLIST_ENTRY entry = RemoveHeadList(&g_OwlyHvEventQueue);
+        InsertTailList(&localList, entry);
+    }
+    g_OwlyHvEventQueueSize = 0;
+    KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+
+    while (!IsListEmpty(&localList))
+    {
+        PLIST_ENTRY          entry = RemoveHeadList(&localList);
+        POWLY_HV_EVENT_ENTRY item  = CONTAINING_RECORD(entry, OWLY_HV_EVENT_ENTRY, Entry);
+        ExFreePoolWithTag(item, OWLY_HV_EVENT_QUEUE_TAG);
+    }
+}
+
+VOID
+DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID OutputBuffer,
+                            _In_ ULONG OutputBufferLength,
+                            _Inout_ PULONG ReturnOutputBufferLength)
+{
+    PRWD_REPLY_IRPS outHeader;
+
+    if (OutputBuffer == NULL || ReturnOutputBufferLength == NULL || OutputBufferLength < sizeof(RWD_REPLY_IRPS))
+    {
+        return;
+    }
+
+    if (!g_OwlyHvEventQueueInitialized)
+    {
+        return;
+    }
+
+    outHeader = (PRWD_REPLY_IRPS)OutputBuffer;
+    if (*ReturnOutputBufferLength < sizeof(RWD_REPLY_IRPS))
+    {
+        RtlZeroMemory(outHeader, sizeof(RWD_REPLY_IRPS));
+        outHeader->dataSize = sizeof(RWD_REPLY_IRPS);
+        outHeader->data     = nullptr;
+        outHeader->num_ops  = 0;
+        *ReturnOutputBufferLength = sizeof(RWD_REPLY_IRPS);
+    }
+
+    while (*ReturnOutputBufferLength + sizeof(DRIVER_MESSAGE) <= OutputBufferLength)
+    {
+        KIRQL                oldIrql;
+        POWLY_HV_EVENT_ENTRY item = NULL;
+        PDRIVER_MESSAGE      outMsg;
+        PCHAR                writePtr;
+
+        KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
+        if (!IsListEmpty(&g_OwlyHvEventQueue))
+        {
+            PLIST_ENTRY entry = RemoveHeadList(&g_OwlyHvEventQueue);
+            item = CONTAINING_RECORD(entry, OWLY_HV_EVENT_ENTRY, Entry);
+            g_OwlyHvEventQueueSize--;
+        }
+        KeReleaseSpinLock(&g_OwlyHvEventQueueLock, oldIrql);
+
+        if (item == NULL)
+        {
+            break;
+        }
+
+        writePtr = (PCHAR)OutputBuffer + *ReturnOutputBufferLength;
+        outMsg   = (PDRIVER_MESSAGE)writePtr;
+
+        item->Message.filePath.Buffer        = nullptr;
+        item->Message.filePath.Length        = 0;
+        item->Message.filePath.MaximumLength = 0;
+        item->Message.next                   = nullptr;
+
+        RtlCopyMemory(outMsg, &item->Message, sizeof(DRIVER_MESSAGE));
+        ExFreePoolWithTag(item, OWLY_HV_EVENT_QUEUE_TAG);
+
+        *ReturnOutputBufferLength += sizeof(DRIVER_MESSAGE);
+        outHeader->addSize(sizeof(DRIVER_MESSAGE));
+        outHeader->addOp();
+    }
+
+    if (outHeader->numOps())
+    {
+        outHeader->data = (PDRIVER_MESSAGE)((PCHAR)OutputBuffer + sizeof(RWD_REPLY_IRPS));
+    }
+}
 
 NTSTATUS InitCommData(
 
@@ -9,6 +199,7 @@ NTSTATUS InitCommData(
     OBJECT_ATTRIBUTES oa;
     UNICODE_STRING uniString;
     PSECURITY_DESCRIPTOR sd;
+    EnsureQueuedHypervisorEventsInitialized();
     //
     //  Create a communication port.
     //
@@ -59,6 +250,7 @@ void CommClose()
     }
     commHandle->UserProcess = NULL;
     commHandle->CommClosed = TRUE;
+    ResetQueuedHypervisorEvents();
 }
 
 NTSTATUS
@@ -312,6 +504,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
             return STATUS_INVALID_PARAMETER;
         }
         driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
+        DrainQueuedHypervisorEvents(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         return STATUS_SUCCESS;
     }
     else if (message->type == MESSAGE_SET_PID)
