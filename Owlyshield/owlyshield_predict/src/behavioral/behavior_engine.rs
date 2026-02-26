@@ -455,6 +455,26 @@ fn build_path_variants(norm_path: &str, raw_path: &str) -> Vec<String> {
     variants.into_iter().filter(|v| !v.is_empty()).collect()
 }
 
+fn normalize_hypervisor_api_label(raw: &str) -> String {
+    let mut value = raw.trim().to_string();
+    if let Some(idx) = value.find(" (syscall=0x") {
+        value.truncate(idx);
+    }
+    value.trim().to_string()
+}
+
+fn api_function_alias(raw: &str) -> Option<String> {
+    let normalized = normalize_hypervisor_api_label(raw);
+    if normalized.is_empty() {
+        return None;
+    }
+    normalized
+        .rsplit('!')
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn normalize_extension_token(extension: &str) -> String {
     extension
         .trim()
@@ -592,6 +612,50 @@ pub struct NamedConditionGroup {
     pub detect_hypervisor_event: bool,
     #[serde(default)]
     pub hypervisor_event_threshold: usize,
+
+    // Detailed hypervisor payload filtering
+    #[serde(default)]
+    pub hypervisor_raw_event_types: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_source_pids: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_target_pids: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg1_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg2_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_addresses: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_address_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_address_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_sizes: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_size_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_size_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_memory_protections: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_is_executable_memory: Option<bool>,
+    #[serde(default)]
+    pub hypervisor_thread_handles: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_thread_start_routines: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_access_masks: Vec<u32>,
+    #[serde(default)]
+    pub hypervisor_operation_statuses: Vec<i32>,
     
     #[serde(default = "default_zero")]
     pub min_matches: usize,
@@ -1025,6 +1089,7 @@ impl ProcessBehaviorState {
     
     /// Record IRP operation with full context and track normalized hypervisor events
     pub fn record_irp_operation(&mut self, msg: &IOMessage, irp_op: u8) {
+        let normalized_kernel_api = normalize_hypervisor_api_label(&msg.kernel_event_info.object_name);
         let rec = IrpOperationRecord {
             timestamp: SystemTime::now(),
             irp_type: irp_op,
@@ -1034,7 +1099,7 @@ impl ProcessBehaviorState {
             entropy: msg.entropy,
             bytes_transferred: msg.mem_sized_used,
             target_pid: msg.pid,
-            function_name: msg.kernel_event_info.object_name.clone(),
+            function_name: normalized_kernel_api.clone(),
         };
         
         self.irp_stats.record_operation(&rec);
@@ -1047,23 +1112,27 @@ impl ProcessBehaviorState {
             } else {
                 irp_op as u32
             };
-            let event_name = if msg.kernel_event_info.object_name.trim().is_empty() {
+            let event_name = if normalized_kernel_api.is_empty() {
                 format!("RawEventType({raw_event_type})")
             } else {
-                msg.kernel_event_info.object_name.clone()
+                normalized_kernel_api.clone()
             };
             self.detected_apis.insert(event_name.clone());
-            self.all_apis_called.insert(event_name);
+            self.all_apis_called.insert(event_name.clone());
+            if let Some(alias) = api_function_alias(&event_name) {
+                self.detected_apis.insert(alias.clone());
+                self.all_apis_called.insert(alias);
+            }
 
             Logging::info(&format!(
-                "[HYPERVISOR EVENT] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} raw_name=\"{}\" count={}",
+                "[HYPERVISOR EVENT] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} api=\"{}\" count={}",
                 raw_event_type,
                 msg.pid,
                 msg.kernel_event_info.source_process_id,
                 msg.kernel_event_info.target_process_id,
                 msg.kernel_event_info.raw_argument1,
                 msg.kernel_event_info.raw_argument2,
-                msg.kernel_event_info.object_name,
+                event_name,
                 self.hypervisor_event_count
             ));
         }
@@ -1354,8 +1423,11 @@ impl BehaviorEngine {
     }
 
     fn normalize_api_signature(raw: &str) -> (String, bool) {
-        let mut value = raw.trim().to_lowercase();
+        let mut value = normalize_hypervisor_api_label(raw).to_lowercase();
         let mut has_path = false;
+        if value.is_empty() {
+            return (value, false);
+        }
         if let Some(idx) = value.rfind('!') {
             let (module_part, function_part) = value.split_at(idx);
             let function_name = function_part.trim_start_matches('!');
@@ -1364,6 +1436,123 @@ impl BehaviorEngine {
             value = format!("{}!{}", module_name, function_name);
         }
         (value, has_path)
+    }
+
+    fn matches_u32_list(filter: &[u32], value: u32) -> bool {
+        filter.is_empty() || filter.contains(&value)
+    }
+
+    fn matches_u64_list(filter: &[u64], value: u64) -> bool {
+        filter.is_empty() || filter.contains(&value)
+    }
+
+    fn matches_i32_list(filter: &[i32], value: i32) -> bool {
+        filter.is_empty() || filter.contains(&value)
+    }
+
+    fn matches_u64_range(value: u64, min: Option<u64>, max: Option<u64>) -> bool {
+        if let Some(min_v) = min {
+            if value < min_v {
+                return false;
+            }
+        }
+        if let Some(max_v) = max {
+            if value > max_v {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn has_hypervisor_payload_conditions(cond_group: &NamedConditionGroup) -> bool {
+        !cond_group.hypervisor_raw_event_types.is_empty()
+            || !cond_group.hypervisor_source_pids.is_empty()
+            || !cond_group.hypervisor_target_pids.is_empty()
+            || !cond_group.hypervisor_raw_arg1_values.is_empty()
+            || !cond_group.hypervisor_raw_arg2_values.is_empty()
+            || cond_group.hypervisor_raw_arg1_min.is_some()
+            || cond_group.hypervisor_raw_arg1_max.is_some()
+            || cond_group.hypervisor_raw_arg2_min.is_some()
+            || cond_group.hypervisor_raw_arg2_max.is_some()
+            || !cond_group.hypervisor_memory_addresses.is_empty()
+            || cond_group.hypervisor_memory_address_min.is_some()
+            || cond_group.hypervisor_memory_address_max.is_some()
+            || !cond_group.hypervisor_memory_sizes.is_empty()
+            || cond_group.hypervisor_memory_size_min.is_some()
+            || cond_group.hypervisor_memory_size_max.is_some()
+            || !cond_group.hypervisor_memory_protections.is_empty()
+            || cond_group.hypervisor_is_executable_memory.is_some()
+            || !cond_group.hypervisor_thread_handles.is_empty()
+            || !cond_group.hypervisor_thread_start_routines.is_empty()
+            || !cond_group.hypervisor_access_masks.is_empty()
+            || !cond_group.hypervisor_operation_statuses.is_empty()
+    }
+
+    fn matches_hypervisor_payload_conditions(
+        cond_group: &NamedConditionGroup,
+        msg: &IOMessage,
+        irp_op: &IrpMajorOp,
+    ) -> bool {
+        if *irp_op != IrpMajorOp::IrpHypervisorEvent {
+            return false;
+        }
+
+        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+            msg.kernel_event_info.event_type
+        } else {
+            msg.irp_op as u32
+        };
+        let source_pid = msg.kernel_event_info.source_process_id;
+        let target_pid = msg.kernel_event_info.target_process_id;
+        let raw_arg1 = msg.kernel_event_info.raw_argument1;
+        let raw_arg2 = msg.kernel_event_info.raw_argument2;
+        let memory_address = msg.kernel_event_info.memory_address;
+        let memory_size = msg.kernel_event_info.memory_size as u64;
+        let memory_protection = msg.kernel_event_info.memory_protection;
+        let is_executable_memory = msg.kernel_event_info.is_executable_memory;
+        let thread_handle = msg.kernel_event_info.thread_handle;
+        let thread_start_routine = msg.kernel_event_info.thread_start_routine;
+        let access_mask = msg.kernel_event_info.access_mask;
+        let operation_status = msg.kernel_event_info.operation_status;
+
+        Self::matches_u32_list(&cond_group.hypervisor_raw_event_types, raw_event_type)
+            && Self::matches_u32_list(&cond_group.hypervisor_source_pids, source_pid)
+            && Self::matches_u32_list(&cond_group.hypervisor_target_pids, target_pid)
+            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg1_values, raw_arg1)
+            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg2_values, raw_arg2)
+            && Self::matches_u64_range(
+                raw_arg1,
+                cond_group.hypervisor_raw_arg1_min,
+                cond_group.hypervisor_raw_arg1_max,
+            )
+            && Self::matches_u64_range(
+                raw_arg2,
+                cond_group.hypervisor_raw_arg2_min,
+                cond_group.hypervisor_raw_arg2_max,
+            )
+            && Self::matches_u64_list(&cond_group.hypervisor_memory_addresses, memory_address)
+            && Self::matches_u64_range(
+                memory_address,
+                cond_group.hypervisor_memory_address_min,
+                cond_group.hypervisor_memory_address_max,
+            )
+            && Self::matches_u64_list(&cond_group.hypervisor_memory_sizes, memory_size)
+            && Self::matches_u64_range(
+                memory_size,
+                cond_group.hypervisor_memory_size_min,
+                cond_group.hypervisor_memory_size_max,
+            )
+            && Self::matches_u32_list(&cond_group.hypervisor_memory_protections, memory_protection)
+            && cond_group
+                .hypervisor_is_executable_memory
+                .map_or(true, |required| required == is_executable_memory)
+            && Self::matches_u64_list(&cond_group.hypervisor_thread_handles, thread_handle)
+            && Self::matches_u64_list(
+                &cond_group.hypervisor_thread_start_routines,
+                thread_start_routine,
+            )
+            && Self::matches_u32_list(&cond_group.hypervisor_access_masks, access_mask)
+            && Self::matches_i32_list(&cond_group.hypervisor_operation_statuses, operation_status)
     }
 
     fn finalize_rules(&self, raw_rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
@@ -1707,12 +1896,14 @@ impl BehaviorEngine {
                 let mut matched = false;
 
                 let has_api_conditions = !cond_group.apis.is_empty() || 
+                                         !cond_group.hypervisor_event_labels.is_empty() ||
                                          !cond_group.scheduled_task_apis.is_empty() || 
                                          !cond_group.anti_debug_apis.is_empty() || 
                                          !cond_group.anti_vm_apis.is_empty();
 
                 if has_api_conditions {
                     let api_iter = cond_group.apis.iter()
+                        .chain(cond_group.hypervisor_event_labels.iter())
                         .chain(cond_group.scheduled_task_apis.iter())
                         .chain(cond_group.anti_debug_apis.iter())
                         .chain(cond_group.anti_vm_apis.iter());
@@ -1736,6 +1927,27 @@ impl BehaviorEngine {
                         Logging::info(&format!(
                             "[BehaviorEngine] Condition '{}' - API match for PID {}: {} APIs detected: {}",
                             cond_name, state.pid, matched_apis.len(), api_names
+                        ));
+                    }
+                }
+
+                if !matched && Self::has_hypervisor_payload_conditions(cond_group) {
+                    if Self::matches_hypervisor_payload_conditions(cond_group, msg, irp_op) {
+                        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+                            msg.kernel_event_info.event_type
+                        } else {
+                            msg.irp_op as u32
+                        };
+                        matched = true;
+                        Logging::info(&format!(
+                            "[BehaviorEngine] Condition '{}' - Hypervisor payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X}",
+                            cond_name,
+                            state.pid,
+                            raw_event_type,
+                            msg.kernel_event_info.source_process_id,
+                            msg.kernel_event_info.target_process_id,
+                            msg.kernel_event_info.raw_argument1,
+                            msg.kernel_event_info.raw_argument2
                         ));
                     }
                 }

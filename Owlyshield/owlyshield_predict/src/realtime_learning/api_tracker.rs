@@ -7,6 +7,14 @@ use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+fn normalize_hypervisor_api_label(raw: &str) -> String {
+    let mut value = raw.trim().to_string();
+    if let Some(idx) = value.find(" (syscall=0x") {
+        value.truncate(idx);
+    }
+    value.trim().to_string()
+}
+
 /// Tracks API usage for a specific process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiTracker {
@@ -393,9 +401,9 @@ impl ApiTracker {
     fn resolve_api_name(&self, msg: &IOMessage, fallback: &str) -> String {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         {
-            let api = msg.kernel_event_info.object_name.trim();
+            let api = normalize_hypervisor_api_label(msg.kernel_event_info.object_name.trim());
             if !api.is_empty() {
-                return api.to_string();
+                return api;
             }
         }
         if !msg.filepathstr.trim().is_empty() {
