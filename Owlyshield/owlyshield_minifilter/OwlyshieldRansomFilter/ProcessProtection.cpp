@@ -500,11 +500,14 @@ NTSTATUS OnKernelApiEvent(
 
     PCWSTR effectiveName = (FunctionName != NULL && FunctionName[0] != L'\0')
                                ? FunctionName
-                               : L"HypervisorEventFallback";
-    RtlCopyMemory(newItem->KernelEventInfo.ObjectName,
-                  effectiveName,
-                  min(wcslen(effectiveName) * sizeof(WCHAR),
-                      sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
+                               : L"";
+    RtlZeroMemory(newItem->KernelEventInfo.ObjectName, sizeof(newItem->KernelEventInfo.ObjectName));
+    if (effectiveName[0] != L'\0') {
+        RtlCopyMemory(newItem->KernelEventInfo.ObjectName,
+                      effectiveName,
+                      min(wcslen(effectiveName) * sizeof(WCHAR),
+                          sizeof(newItem->KernelEventInfo.ObjectName) - sizeof(WCHAR)));
+    }
 
     DbgPrint("!!! ProcessProtection: Hypervisor event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p\n",
              EventType,

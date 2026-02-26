@@ -272,27 +272,13 @@ pub fn run() {
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                             {
-                                let from_payload = iomsg.ntdll_event_info.object_name.trim();
-                                let raw_ty = if iomsg.ntdll_event_info.event_type != 0 {
-                                    iomsg.ntdll_event_info.event_type
+                                let from_payload = iomsg.kernel_event_info.object_name.trim();
+                                let raw_ty = if iomsg.kernel_event_info.event_type != 0 {
+                                    iomsg.kernel_event_info.event_type
                                 } else {
                                     iomsg.irp_op as u32
                                 };
-                                let normalized_name = if !from_payload.is_empty() {
-                                    if let Some(raw_dynamic_id) = from_payload
-                                        .strip_prefix("DynamicApiEvent(")
-                                        .and_then(|s| s.strip_suffix(')'))
-                                    {
-                                        match raw_dynamic_id.trim().parse::<u32>() {
-                                            Ok(parsed_id) => format!("KernelEvent({parsed_id})"),
-                                            Err(_) => from_payload.to_string(),
-                                        }
-                                    } else {
-                                        from_payload.to_string()
-                                    }
-                                } else {
-                                    format!("KernelEvent({raw_ty})")
-                                };
+                                let api_name = from_payload;
                                 let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent)
                                     || iomsg.irp_op >= 12
                                     || raw_ty >= 12;
@@ -305,14 +291,14 @@ pub fn run() {
                                         raw_ty,
                                         iomsg.pid,
                                         iomsg.gid,
-                                        iomsg.ntdll_event_info.source_process_id,
-                                        iomsg.ntdll_event_info.target_process_id,
-                                        iomsg.ntdll_event_info.raw_argument1,
-                                        iomsg.ntdll_event_info.raw_argument2,
-                                        iomsg.ntdll_event_info.memory_address,
-                                        iomsg.ntdll_event_info.memory_size,
-                                        iomsg.ntdll_event_info.operation_status as u32,
-                                        normalized_name,
+                                        iomsg.kernel_event_info.source_process_id,
+                                        iomsg.kernel_event_info.target_process_id,
+                                        iomsg.kernel_event_info.raw_argument1,
+                                        iomsg.kernel_event_info.raw_argument2,
+                                        iomsg.kernel_event_info.memory_address,
+                                        iomsg.kernel_event_info.memory_size,
+                                        iomsg.kernel_event_info.operation_status as u32,
+                                        api_name,
                                         &iomsg.filepathstr,
                                         iomsg.runtime_features.command_line
                                     ));

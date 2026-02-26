@@ -319,8 +319,8 @@ impl ApiTracker {
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 {
                     self.operation_sequence.push(OperationType::ProcessHandleOpen {
-                        source_pid: msg.ntdll_event_info.source_process_id,
-                        target_pid: msg.ntdll_event_info.target_process_id,
+                        source_pid: msg.kernel_event_info.source_process_id,
+                        target_pid: msg.kernel_event_info.target_process_id,
                     });
                 }
                 #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
@@ -356,17 +356,17 @@ impl ApiTracker {
         self.kernel_operations.total_kernel_events += 1;
 
         let op_name = "IrpHypervisorEvent".to_string();
-        let event_name = self.resolve_api_name(msg, "HypervisorEventFallback");
+        let event_name = self.resolve_api_name(msg, "");
         let category = self.api_category_from_kernel_op(&op, &event_name);
         self.track_api_call(event_name.clone(), category, Some(msg.filepathstr.clone()));
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         let (target_pid, mem_size, status, raw_event_type) = (
-            msg.ntdll_event_info.target_process_id,
-            msg.ntdll_event_info.memory_size as u64,
-            msg.ntdll_event_info.operation_status,
-            if msg.ntdll_event_info.event_type != 0 {
-                msg.ntdll_event_info.event_type
+            msg.kernel_event_info.target_process_id,
+            msg.kernel_event_info.memory_size as u64,
+            msg.kernel_event_info.operation_status,
+            if msg.kernel_event_info.event_type != 0 {
+                msg.kernel_event_info.event_type
             } else {
                 msg.irp_op as u32
             },
@@ -393,7 +393,7 @@ impl ApiTracker {
     fn resolve_api_name(&self, msg: &IOMessage, fallback: &str) -> String {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         {
-            let api = msg.ntdll_event_info.object_name.trim();
+            let api = msg.kernel_event_info.object_name.trim();
             if !api.is_empty() {
                 return api.to_string();
             }

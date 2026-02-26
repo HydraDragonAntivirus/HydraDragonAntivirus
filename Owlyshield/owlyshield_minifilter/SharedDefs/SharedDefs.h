@@ -127,14 +127,15 @@ enum IRP_MAJOR_OP
     IRP_HYPERVISOR_EVENT,
 };
 
-// Unified aliases: all kernel/hypervisor paths emit the same opcode.
-#define IRP_KERNEL_REMOTE_THREAD IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_WRITE_MEMORY IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_PROTECT_MEMORY IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_CREATE_THREAD IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_QUEUE_APC IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_CREATE_SECTION IRP_HYPERVISOR_EVENT
-#define IRP_KERNEL_MAP_SECTION IRP_HYPERVISOR_EVENT
+// Distinct raw kernel/hypervisor event ids (kept in 13..19 range).
+// User-mode still classifies all 12+ as IrpHypervisorEvent.
+#define IRP_KERNEL_REMOTE_THREAD 13
+#define IRP_KERNEL_WRITE_MEMORY 14
+#define IRP_KERNEL_PROTECT_MEMORY 15
+#define IRP_KERNEL_CREATE_THREAD 16
+#define IRP_KERNEL_QUEUE_APC 17
+#define IRP_KERNEL_CREATE_SECTION 18
+#define IRP_KERNEL_MAP_SECTION 19
 // Define IOCTL for Dynamic Hook Configuration
 #define IOCTL_ADD_HOOK_TARGET CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
@@ -155,7 +156,7 @@ enum THREAT_ACTION_TYPE
     THREAT_ACTION_KILL_ONLY = 1
 };
 
-typedef struct _NTDLL_EVENT_INFO
+typedef struct _KERNEL_EVENT_INFO
 {
     ULONG EventType;
     ULONGLONG Timestamp;
@@ -178,10 +179,7 @@ typedef struct _NTDLL_EVENT_INFO
 
     ACCESS_MASK AccessMask;
     NTSTATUS OperationStatus;
-} NTDLL_EVENT_INFO, *PNTDLL_EVENT_INFO;
-
-// Alias to satisfy KERNEL_EVENT_INFO usage
-typedef NTDLL_EVENT_INFO KERNEL_EVENT_INFO;
+} KERNEL_EVENT_INFO, *PKERNEL_EVENT_INFO;
 
 typedef struct _DRIVER_MESSAGE
 {
@@ -207,11 +205,7 @@ typedef struct _DRIVER_MESSAGE
     ULONG AttackerPID;
     ULONGLONG AttackerGid;
 
-    // Union to resolve E0135 (No member KernelEventInfo)
-    union {
-        NTDLL_EVENT_INFO NtdllEventInfo;
-        NTDLL_EVENT_INFO KernelEventInfo;
-    };
+    KERNEL_EVENT_INFO KernelEventInfo;
 
     PVOID next;
 

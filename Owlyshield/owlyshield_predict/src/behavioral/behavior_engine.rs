@@ -143,7 +143,11 @@ impl IrpStatistics {
             // Hypervisor/kernel events are tracked as one fallback class.
             IrpMajorOp::IrpHypervisorEvent => {
                 self.hypervisor_event_count += 1;
-                let event_name = "HypervisorEventFallback";
+                let event_name = if rec.function_name.is_empty() {
+                    format!("RawEventType({})", rec.irp_type as u32)
+                } else {
+                    rec.function_name.clone()
+                };
                 let details = if rec.function_name.is_empty() {
                     "Hypervisor Event".to_string()
                 } else {
@@ -154,7 +158,7 @@ impl IrpStatistics {
                     IrpMajorOp::IrpHypervisorEvent,
                     &details,
                 );
-                self.all_apis_called.insert(event_name.to_string());
+                self.all_apis_called.insert(event_name);
             },
             
             _ => {},
@@ -1030,7 +1034,7 @@ impl ProcessBehaviorState {
             entropy: msg.entropy,
             bytes_transferred: msg.mem_sized_used,
             target_pid: msg.pid,
-            function_name: msg.ntdll_event_info.object_name.clone(),
+            function_name: msg.kernel_event_info.object_name.clone(),
         };
         
         self.irp_stats.record_operation(&rec);
@@ -1038,23 +1042,28 @@ impl ProcessBehaviorState {
         
         if normalized_irp_op == 12 {
             self.hypervisor_event_count += 1;
-            self.detected_apis.insert("HypervisorEventFallback".to_string());
-            self.all_apis_called.insert("HypervisorEventFallback".to_string());
-            let raw_event_type = if msg.ntdll_event_info.event_type != 0 {
-                msg.ntdll_event_info.event_type
+            let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+                msg.kernel_event_info.event_type
             } else {
                 irp_op as u32
             };
+            let event_name = if msg.kernel_event_info.object_name.trim().is_empty() {
+                format!("RawEventType({raw_event_type})")
+            } else {
+                msg.kernel_event_info.object_name.clone()
+            };
+            self.detected_apis.insert(event_name.clone());
+            self.all_apis_called.insert(event_name);
 
             Logging::info(&format!(
                 "[HYPERVISOR EVENT] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} raw_name=\"{}\" count={}",
                 raw_event_type,
                 msg.pid,
-                msg.ntdll_event_info.source_process_id,
-                msg.ntdll_event_info.target_process_id,
-                msg.ntdll_event_info.raw_argument1,
-                msg.ntdll_event_info.raw_argument2,
-                msg.ntdll_event_info.object_name,
+                msg.kernel_event_info.source_process_id,
+                msg.kernel_event_info.target_process_id,
+                msg.kernel_event_info.raw_argument1,
+                msg.kernel_event_info.raw_argument2,
+                msg.kernel_event_info.object_name,
                 self.hypervisor_event_count
             ));
         }

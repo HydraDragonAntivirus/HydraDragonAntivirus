@@ -1341,54 +1341,26 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                if iomsg.ntdll_event_info.event_type != 0
-                    && iomsg.ntdll_event_info.event_type <= u8::MAX as u32
-                {
-                    let _ = self.apply_dynamic_event_mapping(
-                        iomsg,
-                        iomsg.ntdll_event_info.event_type as u8,
-                    );
-                }
-
-                let _ = self.apply_dynamic_event_mapping(iomsg, iomsg.irp_op);
-
-                if let Some(dynamic_event_id) = Self::parse_dynamic_api_placeholder_event_id(
-                    iomsg.ntdll_event_info.object_name.trim(),
-                ) {
-                    if iomsg.ntdll_event_info.event_type == 0 {
-                        iomsg.ntdll_event_info.event_type = dynamic_event_id as u32;
-                    }
-
-                    if !self.apply_dynamic_event_mapping(iomsg, dynamic_event_id) {
-                        iomsg.ntdll_event_info.object_name =
-                            format!("KernelEvent({dynamic_event_id})");
-                    }
-                }
-
-                // Hypervisor mode: any kernel API event is classified as one generic fallback opcode.
-                // Raw event type is preserved in ntdll_event_info.event_type.
-                let raw_event_type = if iomsg.ntdll_event_info.event_type != 0 {
-                    iomsg.ntdll_event_info.event_type
+                // Hypervisor mode: classify all 12+ opcodes as one stream while preserving raw type.
+                let raw_event_type = if iomsg.kernel_event_info.event_type != 0 {
+                    iomsg.kernel_event_info.event_type
                 } else {
                     iomsg.irp_op as u32
                 };
 
                 if raw_event_type >= 12 || iomsg.irp_op >= 12 {
                     iomsg.irp_op = 12;
-                    iomsg.ntdll_event_info.event_type = raw_event_type;
+                    iomsg.kernel_event_info.event_type = raw_event_type;
 
-                    if iomsg.ntdll_event_info.source_process_id == 0 {
-                        iomsg.ntdll_event_info.source_process_id = if iomsg.attacker_pid != 0 {
+                    if iomsg.kernel_event_info.source_process_id == 0 {
+                        iomsg.kernel_event_info.source_process_id = if iomsg.attacker_pid != 0 {
                             iomsg.attacker_pid
                         } else {
                             iomsg.pid
                         };
                     }
-                    if iomsg.ntdll_event_info.target_process_id == 0 {
-                        iomsg.ntdll_event_info.target_process_id = iomsg.pid;
-                    }
-                    if iomsg.ntdll_event_info.object_name.trim().is_empty() {
-                        iomsg.ntdll_event_info.object_name = "HypervisorEventFallback".to_string();
+                    if iomsg.kernel_event_info.target_process_id == 0 {
+                        iomsg.kernel_event_info.target_process_id = iomsg.pid;
                     }
                 }
             }
@@ -1635,36 +1607,6 @@ pub mod worker_instance {
         fn is_api_already_registered(&self, api_spec: &str) -> bool {
             self.dynamic_registered_apis
                 .contains(&api_spec.to_ascii_lowercase())
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn parse_dynamic_api_placeholder_event_id(name: &str) -> Option<u8> {
-            let raw_id = name
-                .strip_prefix("DynamicApiEvent(")?
-                .strip_suffix(')')?
-                .trim();
-            raw_id.parse::<u8>().ok()
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn apply_dynamic_event_mapping(&self, iomsg: &mut IOMessage, event_id: u8) -> bool {
-            let Some(api_name) = self.dynamic_hook_event_map.get(&event_id).cloned() else {
-                return false;
-            };
-
-            iomsg.irp_op = IrpMajorOp::IrpHypervisorEvent as u8;
-            if iomsg.ntdll_event_info.event_type == 0 {
-                iomsg.ntdll_event_info.event_type = event_id as u32;
-            }
-
-            let current_name = iomsg.ntdll_event_info.object_name.trim();
-            if current_name.is_empty()
-                || Self::parse_dynamic_api_placeholder_event_id(current_name).is_some()
-            {
-                iomsg.ntdll_event_info.object_name = api_name;
-            }
-
-            true
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]

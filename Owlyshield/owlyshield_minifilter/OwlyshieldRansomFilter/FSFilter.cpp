@@ -2348,7 +2348,7 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 if (incomingWideName && incomingWideName[0] != L'\0') {
                     functionName = incomingWideName;
                 } else {
-                    functionName = L"HypervisorEventFallback";
+                    functionName = L"";
                 }
 
                 // Log event using existing mechanism
