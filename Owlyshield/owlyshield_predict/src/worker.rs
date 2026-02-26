@@ -1341,13 +1341,27 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
-                if let Some(api_name) = self.dynamic_hook_event_map.get(&iomsg.irp_op).cloned() {
-                    iomsg.irp_op = 12;
+                if iomsg.ntdll_event_info.event_type != 0
+                    && iomsg.ntdll_event_info.event_type <= u8::MAX as u32
+                {
+                    let _ = self.apply_dynamic_event_mapping(
+                        iomsg,
+                        iomsg.ntdll_event_info.event_type as u8,
+                    );
+                }
+
+                let _ = self.apply_dynamic_event_mapping(iomsg, iomsg.irp_op);
+
+                if let Some(dynamic_event_id) = Self::parse_dynamic_api_placeholder_event_id(
+                    iomsg.ntdll_event_info.object_name.trim(),
+                ) {
                     if iomsg.ntdll_event_info.event_type == 0 {
-                        iomsg.ntdll_event_info.event_type = iomsg.irp_op as u32;
+                        iomsg.ntdll_event_info.event_type = dynamic_event_id as u32;
                     }
-                    if iomsg.ntdll_event_info.object_name.trim().is_empty() {
-                        iomsg.ntdll_event_info.object_name = api_name;
+
+                    if !self.apply_dynamic_event_mapping(iomsg, dynamic_event_id) {
+                        iomsg.ntdll_event_info.object_name =
+                            format!("KernelEvent({dynamic_event_id})");
                     }
                 }
 
@@ -1394,12 +1408,6 @@ pub mod worker_instance {
                         iomsg.runtime_features.command_line = precord.command_line.clone();
                     }
                 }
-            }
-            
-            // Register dynamic hooks for the new process before borrowing precord
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            if is_process_create {
-                self.register_dynamic_hooks_for_process(iomsg.pid);
             }
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
@@ -1630,6 +1638,36 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn parse_dynamic_api_placeholder_event_id(name: &str) -> Option<u8> {
+            let raw_id = name
+                .strip_prefix("DynamicApiEvent(")?
+                .strip_suffix(')')?
+                .trim();
+            raw_id.parse::<u8>().ok()
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn apply_dynamic_event_mapping(&self, iomsg: &mut IOMessage, event_id: u8) -> bool {
+            let Some(api_name) = self.dynamic_hook_event_map.get(&event_id).cloned() else {
+                return false;
+            };
+
+            iomsg.irp_op = IrpMajorOp::IrpHypervisorEvent as u8;
+            if iomsg.ntdll_event_info.event_type == 0 {
+                iomsg.ntdll_event_info.event_type = event_id as u32;
+            }
+
+            let current_name = iomsg.ntdll_event_info.object_name.trim();
+            if current_name.is_empty()
+                || Self::parse_dynamic_api_placeholder_event_id(current_name).is_some()
+            {
+                iomsg.ntdll_event_info.object_name = api_name;
+            }
+
+            true
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn resolve_or_allocate_dynamic_event_id(&mut self, api_spec: &str) -> u8 {
             if let Some((event_id, _)) = self
                 .dynamic_hook_event_map
@@ -1763,8 +1801,10 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
             if !self.dynamic_hooks_registered {
-                Logging::info("[DYNAMIC HOOK] MESSAGE_ADD_HOOK registration disabled; using hypervisor event stream only");
+                Logging::info("[DYNAMIC HOOK] API hook registration is disabled");
                 self.dynamic_hooks_registered = true;
+                self.dynamic_hook_event_map.clear();
+                self.dynamic_registered_apis.clear();
             }
             let _ = pid;
         }

@@ -268,35 +268,75 @@ pub fn run() {
                             if op < 32 { opcode_counts[op] += 1; }
                             total_msgs += 1;
                             
-                            // Log every event from the driver (hypervisor events are normalized to opcode 12).
+                            // Log every event from the driver.
                             let irp = IrpMajorOp::from_byte(iomsg.irp_op);
                             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                            let (api_name, raw_event_type) = {
+                            {
                                 let from_payload = iomsg.ntdll_event_info.object_name.trim();
-                                let normalized_name = if !from_payload.is_empty() {
-                                    from_payload.to_string()
-                                } else {
-                                    "HypervisorEventFallback".to_string()
-                                };
                                 let raw_ty = if iomsg.ntdll_event_info.event_type != 0 {
                                     iomsg.ntdll_event_info.event_type
                                 } else {
                                     iomsg.irp_op as u32
                                 };
-                                (normalized_name, raw_ty)
-                            };
-                            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-                            let (api_name, raw_event_type) = (String::new(), iomsg.irp_op as u32);
+                                let normalized_name = if !from_payload.is_empty() {
+                                    if let Some(raw_dynamic_id) = from_payload
+                                        .strip_prefix("DynamicApiEvent(")
+                                        .and_then(|s| s.strip_suffix(')'))
+                                    {
+                                        match raw_dynamic_id.trim().parse::<u32>() {
+                                            Ok(parsed_id) => format!("KernelEvent({parsed_id})"),
+                                            Err(_) => from_payload.to_string(),
+                                        }
+                                    } else {
+                                        from_payload.to_string()
+                                    }
+                                } else {
+                                    format!("KernelEvent({raw_ty})")
+                                };
+                                let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent)
+                                    || iomsg.irp_op >= 12
+                                    || raw_ty >= 12;
 
+                                if is_hypervisor_event {
+                                    Logging::info(&format!(
+                                        "[DIAG] HYPERVISOR EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" path={} cmd=\"{}\"",
+                                        irp,
+                                        op,
+                                        raw_ty,
+                                        iomsg.pid,
+                                        iomsg.gid,
+                                        iomsg.ntdll_event_info.source_process_id,
+                                        iomsg.ntdll_event_info.target_process_id,
+                                        iomsg.ntdll_event_info.raw_argument1,
+                                        iomsg.ntdll_event_info.raw_argument2,
+                                        iomsg.ntdll_event_info.memory_address,
+                                        iomsg.ntdll_event_info.memory_size,
+                                        iomsg.ntdll_event_info.operation_status as u32,
+                                        normalized_name,
+                                        &iomsg.filepathstr,
+                                        iomsg.runtime_features.command_line
+                                    ));
+                                } else {
+                                    Logging::info(&format!(
+                                        "[DIAG] EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} cmd=\"{}\"",
+                                        irp,
+                                        op,
+                                        iomsg.pid,
+                                        iomsg.gid,
+                                        &iomsg.filepathstr,
+                                        iomsg.runtime_features.command_line
+                                    ));
+                                }
+                            }
+
+                            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
                             Logging::info(&format!(
-                                "[DIAG] EVENT RECEIVED: op={:?} opcode={} raw_event_type={} pid={} gid={} path={} api=\"{}\" cmd=\"{}\"",
+                                "[DIAG] EVENT RECEIVED: op={:?} opcode={} pid={} gid={} path={} cmd=\"{}\"",
                                 irp,
                                 op,
-                                raw_event_type,
                                 iomsg.pid,
                                 iomsg.gid,
                                 &iomsg.filepathstr,
-                                api_name,
                                 iomsg.runtime_features.command_line
                             ));
 
