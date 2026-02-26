@@ -27,6 +27,7 @@ use crate::shared_def::{
     FileId,
     IOMessage,
     RuntimeFeatures,
+    kernel_raw_event_name,
     KernelEventInfo, // AMENDED: Fix typo
 };
 
@@ -63,9 +64,20 @@ fn get_ntdll_syscall_map() -> &'static HashMap<u32, String> {
     })
 }
 
-fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64) -> String {
+fn resolve_hypervisor_api_name(raw_label: &str, raw_arg1: u64, raw_event_type: u32) -> String {
     let trimmed = raw_label.trim();
-    if trimmed.is_empty() || is_already_resolved_api(trimmed) || !is_syscall_number_label(trimmed) {
+    if trimmed.is_empty() {
+        if let Some(name) = kernel_raw_event_name(raw_event_type) {
+            return name.to_string();
+        }
+        return if raw_event_type >= 12 {
+            format!("RawEventType({raw_event_type})")
+        } else {
+            String::new()
+        };
+    }
+
+    if is_already_resolved_api(trimmed) || !is_syscall_number_label(trimmed) {
         return trimmed.to_string();
     }
 
@@ -496,7 +508,7 @@ impl CKernelEventInfo {
         } else {
             String::new()
         };
-        let object_name = resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1);
+        let object_name = resolve_hypervisor_api_name(&raw_object_name, self.raw_argument1, self.event_type);
         
         KernelEventInfo { // AMENDED: Fix struct construction
             event_type: self.event_type,

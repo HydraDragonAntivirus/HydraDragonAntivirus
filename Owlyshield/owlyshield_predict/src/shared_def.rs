@@ -115,6 +115,28 @@ impl IrpMajorOp {
     }
 }
 
+pub const IRP_KERNEL_REMOTE_THREAD: u32 = 13;
+pub const IRP_KERNEL_WRITE_MEMORY: u32 = 14;
+pub const IRP_KERNEL_PROTECT_MEMORY: u32 = 15;
+pub const IRP_KERNEL_CREATE_THREAD: u32 = 16;
+pub const IRP_KERNEL_QUEUE_APC: u32 = 17;
+pub const IRP_KERNEL_CREATE_SECTION: u32 = 18;
+pub const IRP_KERNEL_MAP_SECTION: u32 = 19;
+
+pub fn kernel_raw_event_name(raw_event_type: u32) -> Option<&'static str> {
+    match raw_event_type {
+        12 => Some("IRP_HYPERVISOR_EVENT"),
+        IRP_KERNEL_REMOTE_THREAD => Some("IRP_KERNEL_REMOTE_THREAD"),
+        IRP_KERNEL_WRITE_MEMORY => Some("IRP_KERNEL_WRITE_MEMORY"),
+        IRP_KERNEL_PROTECT_MEMORY => Some("IRP_KERNEL_PROTECT_MEMORY"),
+        IRP_KERNEL_CREATE_THREAD => Some("IRP_KERNEL_CREATE_THREAD"),
+        IRP_KERNEL_QUEUE_APC => Some("IRP_KERNEL_QUEUE_APC"),
+        IRP_KERNEL_CREATE_SECTION => Some("IRP_KERNEL_CREATE_SECTION"),
+        IRP_KERNEL_MAP_SECTION => Some("IRP_KERNEL_MAP_SECTION"),
+        _ => None,
+    }
+}
+
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
 #[derive(Debug)]
 pub enum DriveType {

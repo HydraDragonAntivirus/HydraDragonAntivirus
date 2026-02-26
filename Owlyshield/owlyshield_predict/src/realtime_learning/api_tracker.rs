@@ -3,7 +3,7 @@
 //! Tracks Windows API usage patterns from kernel driver messages
 
 use crate::process::ProcessRecord;
-use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp};
+use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, kernel_raw_event_name};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -404,6 +404,14 @@ impl ApiTracker {
             let api = normalize_hypervisor_api_label(msg.kernel_event_info.object_name.trim());
             if !api.is_empty() {
                 return api;
+            }
+            let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+                msg.kernel_event_info.event_type
+            } else {
+                msg.irp_op as u32
+            };
+            if let Some(name) = kernel_raw_event_name(raw_event_type) {
+                return name.to_string();
             }
         }
         if !msg.filepathstr.trim().is_empty() {

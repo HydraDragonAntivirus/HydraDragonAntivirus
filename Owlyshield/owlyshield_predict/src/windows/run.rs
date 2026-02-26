@@ -14,7 +14,7 @@ use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
 use crate::threathandling::WindowsThreatHandler;
-use crate::shared_def::IrpMajorOp;
+use crate::shared_def::{IrpMajorOp, kernel_raw_event_name};
 
 pub fn run() {
     Logging::init();
@@ -278,7 +278,13 @@ pub fn run() {
                                 } else {
                                     iomsg.irp_op as u32
                                 };
-                                let api_name = from_payload;
+                                let api_name = if from_payload.is_empty() {
+                                    kernel_raw_event_name(raw_ty)
+                                        .map(|name| name.to_string())
+                                        .unwrap_or_else(|| format!("RawEventType({raw_ty})"))
+                                } else {
+                                    from_payload.to_string()
+                                };
                                 let is_hypervisor_event = matches!(irp, IrpMajorOp::IrpHypervisorEvent)
                                     || iomsg.irp_op >= 12
                                     || raw_ty >= 12;
