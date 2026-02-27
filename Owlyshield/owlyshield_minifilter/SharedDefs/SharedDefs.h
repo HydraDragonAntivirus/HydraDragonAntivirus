@@ -28,6 +28,9 @@ Environment :
 
 const WCHAR *const ComPortName = L"\\RWFilter";
 
+// Shared dynamic-hook exclusion rule file path (kernel/user-mode deployment target).
+#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\default_rules.txt"
+
 // Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH
 #define MAX_FILE_NAME_LENGTH 520

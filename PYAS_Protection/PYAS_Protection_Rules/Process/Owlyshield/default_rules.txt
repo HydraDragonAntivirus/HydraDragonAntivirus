@@ -1,0 +1,18 @@
+﻿# Dynamic hook exclude rules (normalized/contains match, case-insensitive)
+# Put full path fragments under C:\ only.
+
+c:\windows\system32\smss.exe
+c:\windows\system32\csrss.exe
+c:\windows\system32\wininit.exe
+c:\windows\system32\winlogon.exe
+c:\windows\system32\lsass.exe
+c:\windows\system32\services.exe
+c:\windows\system32\svchost.exe
+c:\windows\system32\fontdrvhost.exe
+c:\windows\system32\sihost.exe
+c:\windows\system32\dwm.exe
+
+# Owlyshield-specific examples
+c:\program files\hydradragonantivirus\owlyshield_predict.exe
+c:\desktop\sanctum\
+c:\appdata\roaming\sanctum\

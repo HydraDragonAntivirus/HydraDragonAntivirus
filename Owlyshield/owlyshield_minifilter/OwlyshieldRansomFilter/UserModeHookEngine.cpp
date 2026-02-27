@@ -34,11 +34,13 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, 
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
 typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                              _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
-                                              _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
-                                              _In_ ULONG Options);
+                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
+                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
+                                               _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
+typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
+typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
 
 //
 // Global Function Pointers
@@ -48,6 +50,8 @@ PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
 PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
+PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
+PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 extern PDEVICE_OBJECT g_HookDeviceObject;
@@ -56,6 +60,87 @@ extern PDEVICE_OBJECT g_HookDeviceObject;
 HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
+
+#define HOOK_RULE_POOL_TAG 'rKhO'
+#define HOOK_RULE_MAX_FILE_SIZE (64 * 1024)
+#define HOOK_RULE_MAX_LINE_CHARS 512
+
+typedef struct _HOOK_EXCLUDE_RULE_SET
+{
+    PWSTR *Rules;
+    ULONG Count;
+    ULONG Capacity;
+    FAST_MUTEX Mutex;
+    BOOLEAN MutexInitialized;
+    BOOLEAN Loaded;
+} HOOK_EXCLUDE_RULE_SET, *PHOOK_EXCLUDE_RULE_SET;
+
+static HOOK_EXCLUDE_RULE_SET g_HookExcludeRules = {0};
+
+static VOID EnsureHookExcludeRuleMutex(VOID)
+{
+    if (!g_HookExcludeRules.MutexInitialized)
+    {
+        ExInitializeFastMutex(&g_HookExcludeRules.Mutex);
+        g_HookExcludeRules.MutexInitialized = TRUE;
+    }
+}
+
+static VOID FreeHookExcludeRulesUnlocked(VOID)
+{
+    if (g_HookExcludeRules.Rules != NULL)
+    {
+        for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
+        {
+            PWSTR current = g_HookExcludeRules.Rules[i];
+            if (current != NULL)
+            {
+                ExFreePoolWithTag(current, HOOK_RULE_POOL_TAG);
+            }
+        }
+        ExFreePoolWithTag(g_HookExcludeRules.Rules, HOOK_RULE_POOL_TAG);
+    }
+
+    g_HookExcludeRules.Rules = NULL;
+    g_HookExcludeRules.Count = 0;
+    g_HookExcludeRules.Capacity = 0;
+}
+
+static NTSTATUS EnsureHookExcludeRuleCapacityUnlocked(_In_ ULONG RequiredCount)
+{
+    PWSTR *newArray;
+    SIZE_T allocSize;
+    ULONG newCapacity;
+
+    if (g_HookExcludeRules.Capacity >= RequiredCount)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    newCapacity = (g_HookExcludeRules.Capacity == 0) ? 8 : g_HookExcludeRules.Capacity * 2;
+    if (newCapacity < RequiredCount)
+    {
+        newCapacity = RequiredCount;
+    }
+
+    allocSize = sizeof(PWSTR) * newCapacity;
+    newArray = (PWSTR *)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, HOOK_RULE_POOL_TAG);
+    if (newArray == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(newArray, allocSize);
+    if (g_HookExcludeRules.Rules != NULL && g_HookExcludeRules.Count > 0)
+    {
+        RtlCopyMemory(newArray, g_HookExcludeRules.Rules, sizeof(PWSTR) * g_HookExcludeRules.Count);
+        ExFreePoolWithTag(g_HookExcludeRules.Rules, HOOK_RULE_POOL_TAG);
+    }
+
+    g_HookExcludeRules.Rules = newArray;
+    g_HookExcludeRules.Capacity = newCapacity;
+    return STATUS_SUCCESS;
+}
 
 static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buffer,
                                 _In_ SIZE_T BufferLength,
@@ -76,6 +161,408 @@ static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buff
     }
 
     return (SIZE_T)-1;
+}
+
+static BOOLEAN NormalizeKernelPathLower(_In_ PCUNICODE_STRING InputPath,
+                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                                        _Out_ PUNICODE_STRING NormalizedPath)
+{
+    USHORT charsToCopy;
+
+    if (InputPath == NULL ||
+        OutputBuffer == NULL ||
+        NormalizedPath == NULL ||
+        InputPath->Buffer == NULL ||
+        InputPath->Length == 0)
+    {
+        return FALSE;
+    }
+
+    charsToCopy = InputPath->Length / sizeof(WCHAR);
+    if (charsToCopy >= MAX_FILE_NAME_LENGTH)
+    {
+        charsToCopy = MAX_FILE_NAME_LENGTH - 1;
+    }
+
+    for (USHORT i = 0; i < charsToCopy; ++i)
+    {
+        WCHAR ch = InputPath->Buffer[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        OutputBuffer[i] = RtlDowncaseUnicodeChar(ch);
+    }
+    OutputBuffer[charsToCopy] = L'\0';
+
+    if (charsToCopy >= 4 &&
+        OutputBuffer[0] == L'\\' &&
+        OutputBuffer[1] == L'?' &&
+        OutputBuffer[2] == L'?' &&
+        OutputBuffer[3] == L'\\')
+    {
+        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (charsToCopy - 4 + 1) * sizeof(WCHAR));
+        charsToCopy -= 4;
+    }
+
+    NormalizedPath->Buffer = OutputBuffer;
+    NormalizedPath->Length = charsToCopy * sizeof(WCHAR);
+    NormalizedPath->MaximumLength = (charsToCopy + 1) * sizeof(WCHAR);
+    return TRUE;
+}
+
+static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
+{
+    WCHAR normalizedLine[HOOK_RULE_MAX_LINE_CHARS];
+    SIZE_T lineLen = 0;
+    SIZE_T start = 0;
+    SIZE_T end = RuleChars;
+    NTSTATUS status;
+
+    if (RuleText == NULL || RuleChars == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+    while (end > start &&
+           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r'))
+    {
+        end--;
+    }
+    if (end <= start)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
+    {
+        WCHAR ch = RuleText[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
+    }
+    normalizedLine[lineLen] = L'\0';
+
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'?' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'\\' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+
+    if (lineLen == 0 || normalizedLine[0] == L'#')
+    {
+        return STATUS_SUCCESS;
+    }
+    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
+    {
+        if (_wcsicmp(g_HookExcludeRules.Rules[i], normalizedLine) == 0)
+        {
+            return STATUS_SUCCESS;
+        }
+    }
+
+    status = EnsureHookExcludeRuleCapacityUnlocked(g_HookExcludeRules.Count + 1);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    {
+        SIZE_T allocSize = (lineLen + 1) * sizeof(WCHAR);
+        PWSTR newRule = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, HOOK_RULE_POOL_TAG);
+        if (newRule == NULL)
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        RtlZeroMemory(newRule, allocSize);
+        RtlCopyMemory(newRule, normalizedLine, lineLen * sizeof(WCHAR));
+        newRule[lineLen] = L'\0';
+        g_HookExcludeRules.Rules[g_HookExcludeRules.Count++] = newRule;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
+{
+    if (Buffer == NULL || BytesRead == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if (BytesRead >= 2 && Buffer[0] == 0xFF && Buffer[1] == 0xFE)
+    {
+        PWCHAR utf16Buffer = (PWCHAR)(Buffer + 2);
+        ULONG utf16Chars = (BytesRead - 2) / sizeof(WCHAR);
+        ULONG start = 0;
+        for (ULONG i = 0; i <= utf16Chars; ++i)
+        {
+            BOOLEAN isDelimiter = (i == utf16Chars) || utf16Buffer[i] == L'\n' || utf16Buffer[i] == L'\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    (VOID)AddHookExcludeRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
+                }
+                start = i + 1;
+            }
+        }
+        return STATUS_SUCCESS;
+    }
+
+    {
+        ULONG start = 0;
+        for (ULONG i = 0; i <= BytesRead; ++i)
+        {
+            BOOLEAN isDelimiter = (i == BytesRead) || Buffer[i] == '\n' || Buffer[i] == '\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    WCHAR lineBuffer[HOOK_RULE_MAX_LINE_CHARS];
+                    SIZE_T lineLen = 0;
+                    for (ULONG j = start; j < i && lineLen + 1 < RTL_NUMBER_OF(lineBuffer); ++j)
+                    {
+                        lineBuffer[lineLen++] = (WCHAR)Buffer[j];
+                    }
+                    lineBuffer[lineLen] = L'\0';
+                    (VOID)AddHookExcludeRuleNormalizedUnlocked(lineBuffer, lineLen);
+                }
+                start = i + 1;
+            }
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
+{
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK ioStatus;
+    FILE_STANDARD_INFORMATION fileInfo;
+    HANDLE fileHandle = NULL;
+    NTSTATUS status;
+    PUCHAR buffer = NULL;
+    ULONG bufferSize;
+
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwCreateFile(&fileHandle,
+                          GENERIC_READ,
+                          &oa,
+                          &ioStatus,
+                          NULL,
+                          FILE_ATTRIBUTE_NORMAL,
+                          FILE_SHARE_READ,
+                          FILE_OPEN,
+                          FILE_SYNCHRONOUS_IO_NONALERT,
+                          NULL,
+                          0);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
+    status = ZwQueryInformationFile(fileHandle,
+                                    &ioStatus,
+                                    &fileInfo,
+                                    sizeof(fileInfo),
+                                    FileStandardInformation);
+    if (!NT_SUCCESS(status))
+    {
+        ZwClose(fileHandle);
+        return status;
+    }
+
+    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > HOOK_RULE_MAX_FILE_SIZE)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
+    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, HOOK_RULE_POOL_TAG);
+    if (buffer == NULL)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    RtlZeroMemory(buffer, bufferSize);
+
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwReadFile(fileHandle,
+                        NULL,
+                        NULL,
+                        NULL,
+                        &ioStatus,
+                        buffer,
+                        bufferSize,
+                        NULL,
+                        NULL);
+    if (NT_SUCCESS(status))
+    {
+        (VOID)AppendHookExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
+    }
+
+    ExFreePoolWithTag(buffer, HOOK_RULE_POOL_TAG);
+    ZwClose(fileHandle);
+    return status;
+}
+
+static VOID EnsureHookExcludeRulesLoaded(VOID)
+{
+    static const PCWSTR ruleFiles[] = {
+        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
+    };
+
+    EnsureHookExcludeRuleMutex();
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    if (!g_HookExcludeRules.Loaded)
+    {
+        FreeHookExcludeRulesUnlocked();
+        for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
+        {
+            UNICODE_STRING ruleFile;
+            RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
+            (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
+        }
+        g_HookExcludeRules.Loaded = TRUE;
+    }
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+}
+
+static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
+{
+    BOOLEAN matched = FALSE;
+
+    if (NormalizedPath == NULL ||
+        NormalizedPath->Buffer == NULL ||
+        NormalizedPath->Length < 3 * sizeof(WCHAR))
+    {
+        return FALSE;
+    }
+
+    // Strictly enforce C:\ for user-defined exclusions.
+    if (!(NormalizedPath->Buffer[0] == L'c' &&
+          NormalizedPath->Buffer[1] == L':' &&
+          NormalizedPath->Buffer[2] == L'\\'))
+    {
+        return FALSE;
+    }
+
+    EnsureHookExcludeRulesLoaded();
+    EnsureHookExcludeRuleMutex();
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
+    {
+        PCWSTR rule = g_HookExcludeRules.Rules[i];
+        if (rule != NULL && rule[0] != L'\0' && wcsstr(NormalizedPath->Buffer, rule) != NULL)
+        {
+            matched = TRUE;
+            break;
+        }
+    }
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+
+    return matched;
+}
+
+static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process)
+{
+    PUNICODE_STRING processImagePath = NULL;
+    UNICODE_STRING normalizedPath;
+    WCHAR normalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    NTSTATUS status;
+
+    if (Process == NULL)
+    {
+        return FALSE;
+    }
+
+    status = SeLocateProcessImageName(Process, &processImagePath);
+    if (!NT_SUCCESS(status) ||
+        processImagePath == NULL ||
+        processImagePath->Buffer == NULL ||
+        processImagePath->Length == 0)
+    {
+        if (processImagePath != NULL)
+        {
+            ExFreePool(processImagePath);
+        }
+        return FALSE;
+    }
+
+    if (!NormalizeKernelPathLower(processImagePath, normalizedPathBuffer, &normalizedPath))
+    {
+        ExFreePool(processImagePath);
+        return FALSE;
+    }
+
+    // No hardcoded process-path allow/deny list: rules-only.
+    BOOLEAN isSensitive = IsNormalizedPathExcludedByHookRules(&normalizedPath);
+    ExFreePool(processImagePath);
+    return isSensitive;
+}
+
+static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG ProcessId)
+{
+    if (Process == NULL)
+    {
+        return TRUE;
+    }
+
+    if (ProcessId <= 4)
+    {
+        return TRUE;
+    }
+
+    if (fnPsIsProtectedProcess != NULL && fnPsIsProtectedProcess(Process))
+    {
+        return TRUE;
+    }
+
+    if (fnPsIsProtectedProcessLight != NULL && fnPsIsProtectedProcessLight(Process))
+    {
+        return TRUE;
+    }
+
+    if (IsSensitiveSystemPathForHookingProcess(Process))
+    {
+        return TRUE;
+    }
+
+    return FALSE;
 }
 
 static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_CONFIG_DATA* B)
@@ -321,6 +808,12 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
          DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
+    // Resolve optional process protection helpers (best-effort).
+    RtlInitUnicodeString(&routineName, L"PsIsProtectedProcess");
+    fnPsIsProtectedProcess = (PPS_IS_PROTECTED_PROCESS)MmGetSystemRoutineAddress(&routineName);
+    RtlInitUnicodeString(&routineName, L"PsIsProtectedProcessLight");
+    fnPsIsProtectedProcessLight = (PPS_IS_PROTECTED_PROCESS_LIGHT)MmGetSystemRoutineAddress(&routineName);
+
     // ---------------------------------------------------------------------
     // Allocate Engine
     // ---------------------------------------------------------------------
@@ -378,6 +871,12 @@ VOID UserModeHookEngineCleanup(VOID)
     g_CustomHookCount = 0;
     RtlZeroMemory(g_GlobalCustomHooks, sizeof(g_GlobalCustomHooks));
     ExReleaseFastMutex(&g_ConfigMutex);
+
+    EnsureHookExcludeRuleMutex();
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    FreeHookExcludeRulesUnlocked();
+    g_HookExcludeRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
@@ -819,6 +1318,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
     if (!NT_SUCCESS(status))
         return status;
+
+    if (ShouldSkipHookingProcess(process, ProcessId))
+    {
+        ObDereferenceObject(process);
+        return STATUS_ACCESS_DENIED;
+    }
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 

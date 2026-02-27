@@ -760,6 +760,8 @@ pub mod worker_instance {
         next_dynamic_hook_event_id: u32,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hook_registration_blocked: bool,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_blocked_pids: HashSet<u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
     }
@@ -896,6 +898,8 @@ pub mod worker_instance {
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_registration_blocked: false,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_blocked_pids: HashSet::new(),
                 threat_handler: None,
                 driver: None,
             }
@@ -1344,6 +1348,8 @@ pub mod worker_instance {
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_registration_blocked: false,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_blocked_pids: HashSet::new(),
                 threat_handler: None,
                 driver: None,
             }
@@ -1753,8 +1759,29 @@ pub mod worker_instance {
         /// Register high-interest API hooks for a specific PID
         /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn should_skip_dynamic_hooks_for_pid(&mut self, pid: u32) -> Option<String> {
+            if pid <= 4 {
+                return Some("system pid".to_string());
+            }
+
+            if self.dynamic_hook_blocked_pids.contains(&pid) {
+                return Some("previously blocked by mitigation policy".to_string());
+            }
+
+            None
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
             if pid == 0 {
+                return;
+            }
+
+            if let Some(reason) = self.should_skip_dynamic_hooks_for_pid(pid) {
+                Logging::debug(&format!(
+                    "[DYNAMIC HOOK] Skip PID {}: {}",
+                    pid, reason
+                ));
                 return;
             }
 
@@ -1847,11 +1874,34 @@ pub mod worker_instance {
                 }
             }
 
-            if let Err(e) = driver.hook_process(pid) {
-                Logging::error(&format!(
-                    "[DYNAMIC HOOK] Failed to apply hooks to PID {}: {}",
-                    pid, e
-                ));
+            if registered_count > 0 || already_registered_count > 0 {
+                if let Err(e) = driver.hook_process(pid) {
+                    let hr = e.code().0 as u32;
+                    if hr == 0x80070677 {
+                        self.dynamic_hook_blocked_pids.insert(pid);
+                        Logging::warning(&format!(
+                            "[DYNAMIC HOOK] Skip PID {}: process mitigation blocks dynamic code (hr=0x{:08X})",
+                            pid, hr
+                        ));
+                    } else if hr == 0x80070005 {
+                        self.dynamic_hook_blocked_pids.insert(pid);
+                        Logging::warning(&format!(
+                            "[DYNAMIC HOOK] Skip PID {}: access denied (likely protected/critical process) (hr=0x{:08X})",
+                            pid, hr
+                        ));
+                    } else if hr == 0x80070016 {
+                        self.dynamic_hook_blocked_pids.insert(pid);
+                        Logging::warning(&format!(
+                            "[DYNAMIC HOOK] Skip PID {}: driver command not recognized for this target (hr=0x{:08X})",
+                            pid, hr
+                        ));
+                    } else {
+                        Logging::error(&format!(
+                            "[DYNAMIC HOOK] Failed to apply hooks to PID {}: {}",
+                            pid, e
+                        ));
+                    }
+                }
             }
 
             self.dynamic_hooks_registered = true;
