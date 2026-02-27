@@ -4,7 +4,7 @@ import pickle
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
