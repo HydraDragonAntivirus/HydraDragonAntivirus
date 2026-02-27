@@ -12,7 +12,7 @@ import argparse
 from tqdm import tqdm
 import time
 from collections import Counter
-import ast as python_ast
+import ast as python_ast # noqa: F401
 import esprima  # JavaScript AST parser
 from hydra_logger import logger
 
