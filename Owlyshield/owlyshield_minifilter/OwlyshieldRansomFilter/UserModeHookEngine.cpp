@@ -659,16 +659,52 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     HookEntry->ShellcodeSize = regionSize;
     HookEntry->ShellcodeUsed = 0;
 
-    // 2. Create Handle
+    // 2. Create a real FILE handle in target process handle table so NtDeviceIoControlFile can use it.
     HANDLE targetHandle = NULL;
-    status = ObOpenObjectByPointer(g_HookDeviceObject, 
-                                   OBJ_CASE_INSENSITIVE, 
-                                   NULL, 
-                                   GENERIC_READ | GENERIC_WRITE, 
-                                   *IoFileObjectType, 
-                                   KernelMode, 
-                                   &targetHandle);
-                                   
+    IO_STATUS_BLOCK ioStatus = {0};
+    UNICODE_STRING hookDevicePath;
+    OBJECT_ATTRIBUTES oa;
+    static const PCWSTR hookDevicePaths[] = {
+        L"\\DosDevices\\OwlyshieldHook",
+        L"\\??\\OwlyshieldHook",
+        L"\\Device\\OwlyshieldHook"
+    };
+
+    if (g_HookDeviceObject == NULL)
+    {
+        if (fnZwFreeVirtualMemory)
+        {
+            SIZE_T freeSize = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
+        }
+        KeUnstackDetachProcess(&apcState);
+        return STATUS_DEVICE_DOES_NOT_EXIST;
+    }
+
+    status = STATUS_OBJECT_NAME_NOT_FOUND;
+    for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
+    {
+        RtlInitUnicodeString(&hookDevicePath, hookDevicePaths[i]);
+        InitializeObjectAttributes(&oa, &hookDevicePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+
+        status = ZwCreateFile(&targetHandle,
+                              FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                              &oa,
+                              &ioStatus,
+                              NULL,
+                              FILE_ATTRIBUTE_NORMAL,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              FILE_OPEN,
+                              FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                              NULL,
+                              0);
+        if (NT_SUCCESS(status))
+        {
+            break;
+        }
+    }
+                                    
     if (!NT_SUCCESS(status)) {
         if (fnZwFreeVirtualMemory) {
             SIZE_T freeSize = 0;
@@ -721,6 +757,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     SIZE_T ntdllSize = 0;
     PVOID ntdllBase = NULL;
     PVOID targetNtDeviceIo = NULL;
+    BOOLEAN existingHookEntry = FALSE;
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return STATUS_DEVICE_NOT_READY;
@@ -731,41 +768,82 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
-    // Find free slot
+    // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (!g_UserHookEngine->Processes[i].IsHooked)
+        if (g_UserHookEngine->Processes[i].IsHooked &&
+            g_UserHookEngine->Processes[i].ProcessId == ProcessId)
         {
             hookEntry = &g_UserHookEngine->Processes[i];
+            existingHookEntry = TRUE;
             break;
         }
     }
 
-    if (hookEntry == NULL)
+    if (!existingHookEntry)
     {
-        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        ObDereferenceObject(process);
-        return STATUS_INSUFFICIENT_RESOURCES;
+        // Find free slot
+        for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+        {
+            if (!g_UserHookEngine->Processes[i].IsHooked)
+            {
+                hookEntry = &g_UserHookEngine->Processes[i];
+                break;
+            }
+        }
+
+        if (hookEntry == NULL)
+        {
+            ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+            ObDereferenceObject(process);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY)); // Clear it
+        hookEntry->ProcessId = ProcessId;
+        hookEntry->ProcessObject = process;
+
+        ExAcquireFastMutex(&g_ConfigMutex);
+        customHookCountSnapshot = g_CustomHookCount;
+        ExReleaseFastMutex(&g_ConfigMutex);
+        if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
+        {
+            customHookCountSnapshot = MAX_CUSTOM_HOOKS;
+        }
+        hookEntry->CustomHookCapacity = customHookCountSnapshot;
+
+        // 1. Initialize Infrastructure (Alloc + Handle)
+        status = InitializeShellcodeInfrastructure(process, hookEntry);
+        if (!NT_SUCCESS(status))
+        {
+            goto HookProcessFailure;
+        }
+
+        if (hookEntry->CustomHookCapacity > 0)
+        {
+            SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
+            hookEntry->CustomHooks =
+                (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
+            if (hookEntry->CustomHooks == NULL)
+            {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto HookProcessFailure;
+            }
+            RtlZeroMemory(hookEntry->CustomHooks, customHooksBytes);
+        }
     }
-
-    RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY)); // Clear it
-    hookEntry->ProcessId = ProcessId;
-    hookEntry->ProcessObject = process;
-
-    ExAcquireFastMutex(&g_ConfigMutex);
-    customHookCountSnapshot = g_CustomHookCount;
-    ExReleaseFastMutex(&g_ConfigMutex);
-    if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
+    else
     {
-        customHookCountSnapshot = MAX_CUSTOM_HOOKS;
-    }
-    hookEntry->CustomHookCapacity = customHookCountSnapshot;
-
-    // 1. Initialize Infrastructure (Alloc + Handle)
-    status = InitializeShellcodeInfrastructure(process, hookEntry);
-    if (!NT_SUCCESS(status))
-    {
-        goto HookProcessFailure;
+        // This is a refresh call triggered after additional image loads.
+        // Keep existing infrastructure and only try unresolved hooks.
+        if (hookEntry->CustomHooks == NULL ||
+            hookEntry->CustomHookCapacity == 0 ||
+            hookEntry->ShellcodeBase == NULL ||
+            hookEntry->DriverDeviceHandle == NULL)
+        {
+            status = STATUS_INVALID_DEVICE_STATE;
+            goto HookProcessFailure;
+        }
     }
 
     // 2. Resolve NtDeviceIoControlFile (Needed for communication)
@@ -788,26 +866,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
          goto HookProcessFailure;
     }
 
-    // 3. Inject Hooks (Generic!)
-    // Now we can hook ANY function in ANY dll.
-    
-    // No built-in hardcoded API hooks.
-    // Hooks are applied only from user-mode dynamic configuration (g_GlobalCustomHooks).
-    
-    // Custom Hooks (Dynamic)
-    if (hookEntry->CustomHookCapacity > 0)
-    {
-        SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
-        hookEntry->CustomHooks =
-            (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
-        if (hookEntry->CustomHooks == NULL)
-        {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            goto HookProcessFailure;
-        }
-        RtlZeroMemory(hookEntry->CustomHooks, customHooksBytes);
-    }
-
+    // 3. Inject Hooks (Dynamic only)
     ExAcquireFastMutex(&g_ConfigMutex);
     customHookCountToApply = g_CustomHookCount;
     if (customHookCountToApply > hookEntry->CustomHookCapacity)
@@ -816,26 +875,51 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     }
     for (ULONG i = 0; i < customHookCountToApply; i++)
     {
-        ResolveAndHook(process,
-                       hookEntry,
-                       g_GlobalCustomHooks[i].ModuleName,
-                       g_GlobalCustomHooks[i].FunctionName,
-                       &hookEntry->CustomHooks[i],
-                       g_GlobalCustomHooks[i].EventId,
-                       targetNtDeviceIo);
+        NTSTATUS hookStatus = ResolveAndHook(process,
+                                             hookEntry,
+                                             g_GlobalCustomHooks[i].ModuleName,
+                                             g_GlobalCustomHooks[i].FunctionName,
+                                             &hookEntry->CustomHooks[i],
+                                             g_GlobalCustomHooks[i].EventId,
+                                             targetNtDeviceIo);
+        // Missing module/export is expected during refresh cycles; keep processing remaining entries.
+        if (!NT_SUCCESS(hookStatus) &&
+            hookStatus != STATUS_NOT_FOUND &&
+            hookStatus != STATUS_PROCEDURE_NOT_FOUND)
+        {
+            status = hookStatus;
+            ExReleaseFastMutex(&g_ConfigMutex);
+            goto HookProcessFailure;
+        }
     }
     ExReleaseFastMutex(&g_ConfigMutex);
 
-    hookEntry->IsHooked = TRUE;
-    g_UserHookEngine->HookedProcessCount++;
-    DbgPrint("UserModeHook: Shellcodes Injected into PID %lu (Generic + %lu Custom)\n",
+    if (!existingHookEntry)
+    {
+        hookEntry->IsHooked = TRUE;
+        g_UserHookEngine->HookedProcessCount++;
+    }
+
+    DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s, %lu Custom)\n",
              ProcessId,
+             existingHookEntry ? "refresh" : "initial",
              customHookCountToApply);
 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+    if (existingHookEntry)
+    {
+        ObDereferenceObject(process);
+    }
     return STATUS_SUCCESS;
 
 HookProcessFailure:
+    if (existingHookEntry)
+    {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return status;
+    }
+
     if (hookEntry != NULL)
     {
         if (hookEntry->CustomHooks != NULL)
@@ -847,7 +931,10 @@ HookProcessFailure:
 
         if (hookEntry->DriverDeviceHandle != NULL)
         {
+            KAPC_STATE closeApcState;
+            KeStackAttachProcess((PRKPROCESS)process, &closeApcState);
             ZwClose(hookEntry->DriverDeviceHandle);
+            KeUnstackDetachProcess(&closeApcState);
             hookEntry->DriverDeviceHandle = NULL;
         }
 
