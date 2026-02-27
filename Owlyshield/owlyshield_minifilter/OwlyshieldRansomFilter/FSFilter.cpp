@@ -71,6 +71,345 @@ NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 
+#define PYAS_RULE_POOL_TAG 'rPyO'
+#define PYAS_RULE_MAX_FILE_SIZE (64 * 1024)
+#define PYAS_RULE_MAX_LINE_CHARS 512
+
+typedef struct _PYAS_WHITELIST_RULE_SET
+{
+    PWSTR *Rules;
+    ULONG Count;
+    ULONG Capacity;
+    FAST_MUTEX Mutex;
+    BOOLEAN MutexInitialized;
+    BOOLEAN Loaded;
+} PYAS_WHITELIST_RULE_SET, *PPYAS_WHITELIST_RULE_SET;
+
+static PYAS_WHITELIST_RULE_SET g_PyasWhitelistRules = {0};
+
+static VOID FSEnsurePyasRuleMutex(VOID)
+{
+    if (!g_PyasWhitelistRules.MutexInitialized)
+    {
+        ExInitializeFastMutex(&g_PyasWhitelistRules.Mutex);
+        g_PyasWhitelistRules.MutexInitialized = TRUE;
+    }
+}
+
+static VOID FSFreePyasWhitelistRulesUnlocked(VOID)
+{
+    if (g_PyasWhitelistRules.Rules != NULL)
+    {
+        for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
+        {
+            PWSTR rule = g_PyasWhitelistRules.Rules[i];
+            if (rule != NULL)
+            {
+                ExFreePoolWithTag(rule, PYAS_RULE_POOL_TAG);
+            }
+        }
+        ExFreePoolWithTag(g_PyasWhitelistRules.Rules, PYAS_RULE_POOL_TAG);
+    }
+
+    g_PyasWhitelistRules.Rules = NULL;
+    g_PyasWhitelistRules.Count = 0;
+    g_PyasWhitelistRules.Capacity = 0;
+}
+
+static NTSTATUS FSEnsurePyasRuleCapacityUnlocked(_In_ ULONG RequiredCount)
+{
+    PWSTR *newArray;
+    SIZE_T allocSize;
+    ULONG newCapacity;
+
+    if (g_PyasWhitelistRules.Capacity >= RequiredCount)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    newCapacity = (g_PyasWhitelistRules.Capacity == 0) ? 8 : g_PyasWhitelistRules.Capacity * 2;
+    if (newCapacity < RequiredCount)
+    {
+        newCapacity = RequiredCount;
+    }
+
+    allocSize = sizeof(PWSTR) * newCapacity;
+    newArray = (PWSTR *)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, PYAS_RULE_POOL_TAG);
+    if (newArray == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(newArray, allocSize);
+    if (g_PyasWhitelistRules.Rules != NULL && g_PyasWhitelistRules.Count > 0)
+    {
+        RtlCopyMemory(newArray, g_PyasWhitelistRules.Rules, sizeof(PWSTR) * g_PyasWhitelistRules.Count);
+        ExFreePoolWithTag(g_PyasWhitelistRules.Rules, PYAS_RULE_POOL_TAG);
+    }
+
+    g_PyasWhitelistRules.Rules = newArray;
+    g_PyasWhitelistRules.Capacity = newCapacity;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
+{
+    WCHAR normalizedLine[PYAS_RULE_MAX_LINE_CHARS];
+    SIZE_T lineLen = 0;
+    SIZE_T start = 0;
+    SIZE_T end = RuleChars;
+    NTSTATUS status;
+
+    if (RuleText == NULL || RuleChars == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+    while (end > start &&
+           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
+    {
+        end--;
+    }
+    if (end <= start)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
+    {
+        WCHAR ch = RuleText[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
+    }
+    normalizedLine[lineLen] = L'\0';
+
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'?' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'\\' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+
+    if (lineLen == 0 || normalizedLine[0] == L'#')
+    {
+        return STATUS_SUCCESS;
+    }
+    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
+    {
+        if (_wcsicmp(g_PyasWhitelistRules.Rules[i], normalizedLine) == 0)
+        {
+            return STATUS_SUCCESS;
+        }
+    }
+
+    status = FSEnsurePyasRuleCapacityUnlocked(g_PyasWhitelistRules.Count + 1);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    {
+        SIZE_T allocSize = (lineLen + 1) * sizeof(WCHAR);
+        PWSTR newRule = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, PYAS_RULE_POOL_TAG);
+        if (newRule == NULL)
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(newRule, allocSize);
+        RtlCopyMemory(newRule, normalizedLine, lineLen * sizeof(WCHAR));
+        newRule[lineLen] = L'\0';
+        g_PyasWhitelistRules.Rules[g_PyasWhitelistRules.Count++] = newRule;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS FSAppendPyasRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
+{
+    if (Buffer == NULL || BytesRead == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if (BytesRead >= 2 && Buffer[0] == 0xFF && Buffer[1] == 0xFE)
+    {
+        PWCHAR utf16Buffer = (PWCHAR)(Buffer + 2);
+        ULONG utf16Chars = (BytesRead - 2) / sizeof(WCHAR);
+        ULONG start = 0;
+        for (ULONG i = 0; i <= utf16Chars; ++i)
+        {
+            BOOLEAN isDelimiter = (i == utf16Chars) || utf16Buffer[i] == L'\n' || utf16Buffer[i] == L'\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    (VOID)FSAddPyasWhitelistRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
+                }
+                start = i + 1;
+            }
+        }
+        return STATUS_SUCCESS;
+    }
+
+    {
+        ULONG start = 0;
+        for (ULONG i = 0; i <= BytesRead; ++i)
+        {
+            BOOLEAN isDelimiter = (i == BytesRead) || Buffer[i] == '\n' || Buffer[i] == '\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    WCHAR lineBuffer[PYAS_RULE_MAX_LINE_CHARS];
+                    SIZE_T lineLen = 0;
+                    for (ULONG j = start; j < i && lineLen + 1 < RTL_NUMBER_OF(lineBuffer); ++j)
+                    {
+                        lineBuffer[lineLen++] = (WCHAR)Buffer[j];
+                    }
+                    lineBuffer[lineLen] = L'\0';
+                    (VOID)FSAddPyasWhitelistRuleNormalizedUnlocked(lineBuffer, lineLen);
+                }
+                start = i + 1;
+            }
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
+{
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK ioStatus;
+    FILE_STANDARD_INFORMATION fileInfo;
+    HANDLE fileHandle = NULL;
+    PUCHAR buffer = NULL;
+    ULONG bufferSize;
+    NTSTATUS status;
+
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwCreateFile(&fileHandle,
+                          GENERIC_READ,
+                          &oa,
+                          &ioStatus,
+                          NULL,
+                          FILE_ATTRIBUTE_NORMAL,
+                          FILE_SHARE_READ,
+                          FILE_OPEN,
+                          FILE_SYNCHRONOUS_IO_NONALERT,
+                          NULL,
+                          0);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
+    status = ZwQueryInformationFile(fileHandle,
+                                    &ioStatus,
+                                    &fileInfo,
+                                    sizeof(fileInfo),
+                                    FileStandardInformation);
+    if (!NT_SUCCESS(status))
+    {
+        ZwClose(fileHandle);
+        return status;
+    }
+
+    if (fileInfo.EndOfFile.QuadPart <= 0 || fileInfo.EndOfFile.QuadPart > PYAS_RULE_MAX_FILE_SIZE)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
+    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, PYAS_RULE_POOL_TAG);
+    if (buffer == NULL)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    RtlZeroMemory(buffer, bufferSize);
+
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwReadFile(fileHandle,
+                        NULL,
+                        NULL,
+                        NULL,
+                        &ioStatus,
+                        buffer,
+                        bufferSize,
+                        NULL,
+                        NULL);
+    if (NT_SUCCESS(status))
+    {
+        (VOID)FSAppendPyasRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
+    }
+
+    ExFreePoolWithTag(buffer, PYAS_RULE_POOL_TAG);
+    ZwClose(fileHandle);
+    return status;
+}
+
+static VOID FSLoadPyasWhitelistRules(VOID)
+{
+    UNICODE_STRING ruleFilePath;
+
+    FSEnsurePyasRuleMutex();
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    if (g_PyasWhitelistRules.Loaded)
+    {
+        ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+        return;
+    }
+
+    FSFreePyasWhitelistRulesUnlocked();
+    RtlInitUnicodeString(&ruleFilePath, OWLY_FSFILTER_RULE_FILE_KERNEL);
+    (VOID)FSLoadPyasWhitelistRulesFromFileUnlocked(&ruleFilePath);
+    g_PyasWhitelistRules.Loaded = TRUE;
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+}
+
+static VOID FSCleanupPyasWhitelistRules(VOID)
+{
+    FSEnsurePyasRuleMutex();
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasWhitelistRulesUnlocked();
+    g_PyasWhitelistRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+}
+
 //
 //  Constant FLT_REGISTRATION structure for our filter.
 //  initializes the callback routines our filter wants to register
@@ -297,6 +636,9 @@ Return Value:
     UNICODE_STRING quarantinePathString;
     RtlInitUnicodeString(&quarantinePathString, L"\\??\\C:\\ProgramData\\HydraDragonAntivirus\\Quarantine");
     driverData->SetQuarantinePath(&quarantinePathString);
+
+    // Load PYAS whitelist rules once at startup; FsFilter uses these to ignore incoming whitelist scope.
+    FSLoadPyasWhitelistRules();
 
     // ====================================================================
     // Initialize monitoring systems
@@ -625,6 +967,7 @@ Return Value:
     DbgPrint("FSFilter: Unloading driver\n");
 
     UserModeHookEngineCleanup();
+    FSCleanupPyasWhitelistRules();
 
     // VMM Cleanup
     OwlyVmmUninitialize();
@@ -1686,9 +2029,59 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 }
 
 BOOLEAN
+FSNormalizePathForRuleMatch(_In_ PCUNICODE_STRING InputPath,
+                            _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                            _Out_ PUNICODE_STRING NormalizedPath)
+{
+    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
+}
+
+BOOLEAN
+FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path)
+{
+    WCHAR normalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING normalizedPath;
+    BOOLEAN matched = FALSE;
+
+    if (Path == NULL || Path->Buffer == NULL || Path->Length == 0)
+    {
+        return FALSE;
+    }
+
+    if (KeGetCurrentIrql() == PASSIVE_LEVEL && !g_PyasWhitelistRules.Loaded)
+    {
+        FSLoadPyasWhitelistRules();
+    }
+
+    if (!FSNormalizePathForRuleMatch(Path, normalizedPathBuffer, &normalizedPath))
+    {
+        return FALSE;
+    }
+
+    FSEnsurePyasRuleMutex();
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    for (ULONG i = 0; i < g_PyasWhitelistRules.Count; ++i)
+    {
+        PCWSTR rule = g_PyasWhitelistRules.Rules[i];
+        if (rule != NULL && rule[0] != L'\0' && wcsstr(normalizedPath.Buffer, rule) != NULL)
+        {
+            matched = TRUE;
+            break;
+        }
+    }
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+
+    return matched;
+}
+
+BOOLEAN
 FSIsFileNameInScanDirs(CONST PUNICODE_STRING path)
 {
-    // ASSERT(driverData != NULL);
+    if (FSShouldIgnorePyasWhitelistPath(path))
+    {
+        return FALSE;
+    }
+
     return driverData->IsContainingDirectory(path);
 }
 

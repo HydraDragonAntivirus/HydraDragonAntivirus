@@ -29,12 +29,109 @@ Environment :
 const WCHAR *const ComPortName = L"\\RWFilter";
 
 // Shared dynamic-hook exclusion rule file path (kernel/user-mode deployment target).
-#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\default_rules.txt"
+#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\DynamicHook\\default_rules.txt"
+// Shared FsFilter rule file path (kernel-side ignore list).
+#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\FSFilter\\default_rules.txt"
 
 // Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH
 #define MAX_FILE_NAME_LENGTH 520
 #endif
+
+// Global path normalization helper (shared by kernel components).
+// - lowercases
+// - '/' -> '\'
+// - strips leading "\??\" / "\\?\"
+// - maps "\Device\HarddiskVolumeX\..." to "c:\..."
+static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING InputPath,
+                                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                                                        _Out_ PUNICODE_STRING NormalizedPath)
+{
+    static const WCHAR kDevicePrefix[] = L"\\device\\harddiskvolume";
+    const USHORT kDevicePrefixLen = (USHORT)(RTL_NUMBER_OF(kDevicePrefix) - 1);
+    USHORT charsToCopy;
+
+    if (InputPath == NULL ||
+        OutputBuffer == NULL ||
+        NormalizedPath == NULL ||
+        InputPath->Buffer == NULL ||
+        InputPath->Length == 0)
+    {
+        return FALSE;
+    }
+
+    charsToCopy = InputPath->Length / sizeof(WCHAR);
+    if (charsToCopy >= MAX_FILE_NAME_LENGTH)
+    {
+        charsToCopy = MAX_FILE_NAME_LENGTH - 1;
+    }
+
+    for (USHORT i = 0; i < charsToCopy; ++i)
+    {
+        WCHAR ch = InputPath->Buffer[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        OutputBuffer[i] = RtlDowncaseUnicodeChar(ch);
+    }
+    OutputBuffer[charsToCopy] = L'\0';
+
+    if (charsToCopy >= 4 &&
+        OutputBuffer[0] == L'\\' &&
+        OutputBuffer[1] == L'?' &&
+        OutputBuffer[2] == L'?' &&
+        OutputBuffer[3] == L'\\')
+    {
+        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (charsToCopy - 4 + 1) * sizeof(WCHAR));
+        charsToCopy -= 4;
+    }
+    else if (charsToCopy >= 4 &&
+             OutputBuffer[0] == L'\\' &&
+             OutputBuffer[1] == L'\\' &&
+             OutputBuffer[2] == L'?' &&
+             OutputBuffer[3] == L'\\')
+    {
+        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (charsToCopy - 4 + 1) * sizeof(WCHAR));
+        charsToCopy -= 4;
+    }
+
+    if (charsToCopy > kDevicePrefixLen &&
+        RtlCompareMemory(OutputBuffer, kDevicePrefix, kDevicePrefixLen * sizeof(WCHAR)) == (kDevicePrefixLen * sizeof(WCHAR)))
+    {
+        USHORT i = kDevicePrefixLen;
+        while (i < charsToCopy && OutputBuffer[i] >= L'0' && OutputBuffer[i] <= L'9')
+        {
+            ++i;
+        }
+
+        if (i < charsToCopy && OutputBuffer[i] == L'\\')
+        {
+            USHORT tailStart = i + 1;
+            USHORT tailLen = (tailStart <= charsToCopy) ? (charsToCopy - tailStart) : 0;
+            if (tailLen + 3 >= MAX_FILE_NAME_LENGTH)
+            {
+                tailLen = MAX_FILE_NAME_LENGTH - 4;
+            }
+
+            if (tailLen > 0)
+            {
+                RtlMoveMemory(OutputBuffer + 3, OutputBuffer + tailStart, tailLen * sizeof(WCHAR));
+            }
+
+            OutputBuffer[0] = L'c';
+            OutputBuffer[1] = L':';
+            OutputBuffer[2] = L'\\';
+            charsToCopy = (USHORT)(3 + tailLen);
+            OutputBuffer[charsToCopy] = L'\0';
+        }
+    }
+
+    NormalizedPath->Buffer = OutputBuffer;
+    NormalizedPath->Length = charsToCopy * sizeof(WCHAR);
+    NormalizedPath->MaximumLength = (charsToCopy + 1) * sizeof(WCHAR);
+    return TRUE;
+}
 
 // Define IOCTL for Shellcode -> Driver communication
 #define FILE_DEVICE_OWLYSHIELD 0x8000

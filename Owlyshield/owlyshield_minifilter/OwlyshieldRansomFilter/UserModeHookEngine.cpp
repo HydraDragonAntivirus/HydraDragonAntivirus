@@ -167,48 +167,7 @@ static BOOLEAN NormalizeKernelPathLower(_In_ PCUNICODE_STRING InputPath,
                                         _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
                                         _Out_ PUNICODE_STRING NormalizedPath)
 {
-    USHORT charsToCopy;
-
-    if (InputPath == NULL ||
-        OutputBuffer == NULL ||
-        NormalizedPath == NULL ||
-        InputPath->Buffer == NULL ||
-        InputPath->Length == 0)
-    {
-        return FALSE;
-    }
-
-    charsToCopy = InputPath->Length / sizeof(WCHAR);
-    if (charsToCopy >= MAX_FILE_NAME_LENGTH)
-    {
-        charsToCopy = MAX_FILE_NAME_LENGTH - 1;
-    }
-
-    for (USHORT i = 0; i < charsToCopy; ++i)
-    {
-        WCHAR ch = InputPath->Buffer[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        OutputBuffer[i] = RtlDowncaseUnicodeChar(ch);
-    }
-    OutputBuffer[charsToCopy] = L'\0';
-
-    if (charsToCopy >= 4 &&
-        OutputBuffer[0] == L'\\' &&
-        OutputBuffer[1] == L'?' &&
-        OutputBuffer[2] == L'?' &&
-        OutputBuffer[3] == L'\\')
-    {
-        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (charsToCopy - 4 + 1) * sizeof(WCHAR));
-        charsToCopy -= 4;
-    }
-
-    NormalizedPath->Buffer = OutputBuffer;
-    NormalizedPath->Length = charsToCopy * sizeof(WCHAR);
-    NormalizedPath->MaximumLength = (charsToCopy + 1) * sizeof(WCHAR);
-    return TRUE;
+    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
 }
 
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
