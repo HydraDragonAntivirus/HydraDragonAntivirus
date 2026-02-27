@@ -137,7 +137,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
  ## Sigma-HQ - Hayabusa
- - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.7.0 (hayabusa-3.7.0-win-x64.zip)
+ - https://github.com/Yamato-Security/hayabusa/releases/tag/v3.8.1 (hayabusa-3.8.1-win-x64.zip)
 
  ## IMPORTANT
 - Any logs will be removed when you restart the programme. So be careful!
