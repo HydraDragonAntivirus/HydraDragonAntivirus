@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import json
@@ -12,16 +12,8 @@ import win32api
 import pywintypes
 from typing import Any, Optional
 from .hydra_logger import logger
-from .notify_user import (
-    notify_user_mbr_alert,
-    notify_user_self_defense_file,
-    notify_user_self_defense_process,
-    notify_user_self_defense_registry,
-)
 from .path_and_variables import (
     PIPE_AV_TO_EDR,
-    PIPE_MBR_ALERT,
-    PIPE_SELF_DEFENSE_ALERT,
     READ_BUFFER_SIZE,
 )
 
@@ -146,17 +138,6 @@ def _sync_is_protected_path(candidate_path: str) -> bool:
 
     return False
 
-
-def _sync_close_handle(handle):
-    try:
-        win32file.CloseHandle(handle)
-    except Exception:
-        try:
-            handle.close()
-        except Exception:
-            pass
-
-
 # -------------------------
 # Async wrappers for helpers (every top-level function is async)
 # -------------------------
@@ -192,7 +173,7 @@ async def _process_threat_event(event: Any) -> None:
         file_path: Optional[str] = event.get("file_path")
         virus_name: Optional[str] = event.get("virus_name")
         is_malicious: bool = bool(event.get("is_malicious", False))
-        action_required: str = event.get("action_required", "monitor")
+        action_required: str = event.get("action_required", "kill_and_quarantine")
 
         # Normalize path if it's an NT path
         if file_path:
@@ -316,238 +297,6 @@ async def monitor_threat_events_from_av(pipe_name: str = PIPE_AV_TO_EDR) -> None
     logger.info("[EDR] AV->EDR pipe listener started in dedicated thread")
 
 # ============================================================================#
-# MBR alert processing
-# ============================================================================#
-
-async def _process_mbr_alert(data: bytes):
-    try:
-        offending_path = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
-
-        # Normalize NT path
-        offending_path = await normalize_nt_path(offending_path)
-
-        logger.critical(f"Received MBR write alert from kernel. Offending process: {offending_path}")
-        # call notification (expected async)
-        await notify_user_mbr_alert(offending_path)
-    except Exception as e:
-        logger.exception(f"Error processing MBR alert: {e}")
-
-
-async def monitor_mbr_alerts_from_kernel(pipe_name: str = PIPE_MBR_ALERT):
-    logger.info(f"Starting MBR alert listener from MBRFilter.sys on: {pipe_name}")
-
-    loop = asyncio.get_running_loop()
-
-    def pipe_worker():
-        """Worker in dedicated thread"""
-        while True:
-            pipe = None
-            try:
-                logger.debug(f"[MBR] Attempting to create pipe: {pipe_name}")
-                pipe = win32pipe.CreateNamedPipe(
-                    pipe_name,
-                    win32pipe.PIPE_ACCESS_INBOUND,
-                    win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                    win32pipe.PIPE_UNLIMITED_INSTANCES,
-                    65536,
-                    65536,
-                    0,
-                    None,
-                )
-                logger.info("Waiting for MBRFilter.sys to send alerts...")
-                win32pipe.ConnectNamedPipe(pipe, None)
-                logger.info("MBRFilter.sys connected to MBR alert pipe.")
-
-                try:
-                    hr, data = win32file.ReadFile(pipe, 4096)
-                except pywintypes.error as e:
-                    logger.debug(f"ReadFile error in MBR listener: {e}")
-                    data = None
-
-                if data:
-                    try:
-                        future = asyncio.run_coroutine_threadsafe(
-                            _process_mbr_alert(data),
-                            loop
-                        )
-                        # Don't wait for result to avoid blocking, but add callback for errors
-                        future.add_done_callback(lambda f:
-                            logger.error(f"Error in _process_mbr_alert: {f.exception()}")
-                            if f.exception() else None
-                        )
-                    except Exception as schedule_error:
-                        logger.error(f"Failed to schedule MBR alert processing: {schedule_error}")
-
-            except pywintypes.error as e:
-                winerror = getattr(e, 'winerror', None)
-                if winerror in [109, 232]:
-                    logger.warning("MBRFilter.sys disconnected from MBR alert pipe.")
-                elif winerror == -2147483643:  # STATUS_OBJECT_NAME_NOT_FOUND
-                    logger.error(f"[MBR] Failed to create pipe '{pipe_name}': STATUS_OBJECT_NAME_NOT_FOUND - Check pipe name format and permissions")
-                    import time
-                    time.sleep(5)  # Wait before retrying
-                else:
-                    logger.error(f"[MBR] Windows API Error (winerror={winerror}): {e}")
-            except Exception as e:
-                logger.exception(f"[MBR] Unexpected error in MBR alert listener: {e}")
-                import time
-                time.sleep(5)  # Wait before retrying
-            finally:
-                if pipe:
-                    try:
-                        win32pipe.DisconnectNamedPipe(pipe)
-                        win32file.CloseHandle(pipe)
-                    except Exception as disconnect_error:
-                        logger.debug(f"[MBR] Failed to close MBR alert pipe cleanly: {disconnect_error}")
-
-    thread = threading.Thread(target=pipe_worker, daemon=True, name="MBRAlertPipe")
-    thread.start()
-    logger.info("[MBR] Listener started in dedicated thread")
-
-
-# ============================================================================#
-# Self-defense alert processing
-# ============================================================================#
-
-async def _process_self_defense_alert(data: bytes):
-    """Process self-defense alerts with comprehensive error handling to prevent crashes."""
-    try:
-        # Decode the raw message
-        message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
-        logger.debug(f"Raw self-defense alert: {message_str}")
-
-        # FIX: Escape backslashes before JSON parsing
-        # Replace single backslashes with double backslashes for JSON
-        message_str_escaped = message_str.replace('\\', '\\\\')
-
-        # However, if the string already has escaped backslashes, this would double-escape
-        # Better approach: use raw string decoding with json.loads(strict=False)
-        try:
-            alert_data = await asyncio.to_thread(json.loads, message_str)
-        except json.JSONDecodeError:
-            # If normal parsing fails, try with escaped backslashes
-            logger.warning("JSON parse failed, attempting with escaped backslashes")
-            alert_data = await asyncio.to_thread(json.loads, message_str_escaped)
-
-        # Normalize NT paths from kernel
-        protected_file = await normalize_nt_path(alert_data.get("protected_file", "Unknown"))
-        attacker_path = await normalize_nt_path(alert_data.get("attacker_path", "Unknown"))
-        attacker_pid = alert_data.get("attacker_pid", 0)
-        attack_type = alert_data.get("attack_type", "FILE_TAMPERING")
-        operation = alert_data.get("operation", "")
-        target_pid = alert_data.get("target_pid", 0)
-
-        logger.info(
-            f"Self-Defense Notification: {attack_type} - "
-            f"Process {attacker_path} (Detected PID: {attacker_pid} Target PID: {target_pid}) "
-            f"attempted to access {protected_file}"
-        )
-
-        # Handle different attack types
-        if attack_type == "REGISTRY_TAMPERING":
-            await notify_user_self_defense_registry(
-                registry_path=protected_file,
-                attacker_path=attacker_path,
-                attacker_pid=attacker_pid,
-                operation=operation,
-            )
-        elif attack_type == "PROCESS_KILL":
-            await notify_user_self_defense_process(
-                protected_process=protected_file,
-                attacker_path=attacker_path,
-                attacker_pid=attacker_pid,
-            )
-        elif attack_type in ["FILE_TAMPERING", "HANDLE_HIJACK"]:
-            await notify_user_self_defense_file(
-                file_path=protected_file,
-                attacker_path=attacker_path,
-                attacker_pid=attacker_pid,
-            )
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse self-defense alert JSON: {e}")
-        try:
-            message_str = await asyncio.to_thread(lambda: data.decode("utf-16-le").strip("\x00"))
-            # Log hex dump for debugging
-            logger.debug(f"Raw bytes (first 200): {data[:200].hex()}")
-        except Exception as decode_error:
-            logger.error(f"Could not decode raw alert data: {decode_error}")
-    except Exception as e:
-        logger.exception(f"Error processing self-defense alert: {e}")
-
-async def monitor_self_defense_alerts_from_kernel(pipe_name: str = PIPE_SELF_DEFENSE_ALERT):
-    logger.info(f"Starting self-defense alert listener on: {pipe_name}")
-
-    loop = asyncio.get_running_loop()
-
-    def pipe_worker():
-        """Worker in dedicated thread"""
-        while True:
-            pipe = None
-            try:
-                logger.debug(f"[Self-Defense] Attempting to create pipe: {pipe_name}")
-                pipe = win32pipe.CreateNamedPipe(
-                    pipe_name,
-                    win32pipe.PIPE_ACCESS_INBOUND,
-                    win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                    win32pipe.PIPE_UNLIMITED_INSTANCES,
-                    65536,
-                    65536,
-                    0,
-                    None,
-                )
-                logger.info("Waiting for self-defense drivers to send alerts...")
-                win32pipe.ConnectNamedPipe(pipe, None)
-                logger.debug("Self-defense driver connected to alert pipe.")
-
-                try:
-                    hr, data = win32file.ReadFile(pipe, 4096)
-                except pywintypes.error as e:
-                    logger.debug(f"ReadFile error in self-defense listener: {e}")
-                    data = None
-
-                if data:
-                    try:
-                        future = asyncio.run_coroutine_threadsafe(
-                            _process_self_defense_alert(data),
-                            loop
-                        )
-                        # Don't wait for result to avoid blocking, but add callback for errors
-                        future.add_done_callback(lambda f:
-                            logger.error(f"Error in _process_self_defense_alert: {f.exception()}")
-                            if f.exception() else None
-                        )
-                    except Exception as schedule_error:
-                        logger.error(f"Failed to schedule self-defense alert processing: {schedule_error}")
-
-            except pywintypes.error as e:
-                winerror = getattr(e, 'winerror', None)
-                if winerror in [109, 232]:
-                    logger.debug("Self-defense driver disconnected from alert pipe.")
-                elif winerror == -2147483643:  # STATUS_OBJECT_NAME_NOT_FOUND
-                    logger.error(f"[Self-Defense] Failed to create pipe '{pipe_name}': STATUS_OBJECT_NAME_NOT_FOUND - Check pipe name format and permissions")
-                    import time
-                    time.sleep(5)  # Wait before retrying
-                else:
-                    logger.error(f"[Self-Defense] Windows API Error (winerror={winerror}): {e}")
-            except Exception as e:
-                logger.exception(f"[Self-Defense] Unexpected error in self-defense alert listener: {e}")
-                import time
-                time.sleep(5)  # Wait before retrying
-            finally:
-                if pipe:
-                    try:
-                        win32pipe.DisconnectNamedPipe(pipe)
-                        win32file.CloseHandle(pipe)
-                    except Exception as disconnect_error:
-                        logger.debug(f"[Self-Defense] Failed to close self-defense pipe cleanly: {disconnect_error}")
-
-    thread = threading.Thread(target=pipe_worker, daemon=True, name="SelfDefensePipe")
-    thread.start()
-    logger.info("[Self-Defense] Listener started in dedicated thread")
-
-
-# ============================================================================#
 # Integration Startup
 # ============================================================================#
 
@@ -561,18 +310,11 @@ async def start_all_pipe_listeners():
     task1 = loop.create_task(monitor_threat_events_from_av(), name="AV-to-EDR-ThreatListener")
     logger.info(f"[PIPE-START] Task1 created: {task1}")
 
-    logger.info("[PIPE-START] Creating MBR listener task...")
-    task2 = loop.create_task(monitor_mbr_alerts_from_kernel(), name="MBR-Alert-Listener")
-    logger.info(f"[PIPE-START] Task2 created: {task2}")
-
-    logger.info("[PIPE-START] Creating Self-Defense listener task...")
-    task3 = loop.create_task(monitor_self_defense_alerts_from_kernel(), name="Self-Defense-Alert-Listener")
-    logger.info(f"[PIPE-START] Task3 created: {task3}")
-
-    logger.info("[PIPE-START] All pipe listeners started successfully (AV->EDR, MBR, Self-Defense).")
+    logger.info("[PIPE-START] AV->EDR pipe listener started successfully.")
 
     # Force event loop to process tasks
     await asyncio.sleep(0)
-    logger.info(f"[PIPE-START] After yield - Task states: task1.done()={task1.done()}, task2.done()={task2.done()}, task3.done()={task3.done()}")
+    logger.info(f"[PIPE-START] After yield - Task states: task1.done()={task1.done()}")
 
-    return [task1, task2, task3]
+    return [task1]
+

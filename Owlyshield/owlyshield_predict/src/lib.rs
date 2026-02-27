@@ -5,6 +5,9 @@ extern crate num;
 #[macro_use]
 extern crate num_derive;
 
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+use std::{env, path::Path, sync::OnceLock};
+
 // --- Module Definitions ---
 
 pub mod actions_on_kill;
@@ -30,6 +33,10 @@ pub mod worker;
 #[cfg(feature = "realtime_learning")]
 pub mod realtime_learning;
 
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+#[path = "windows/av_integration.rs"]
+pub mod av_integration;
+
 // Platform-Specific Modules via sub-mod files
 #[cfg(target_os = "windows")]
 pub mod windows;
@@ -40,6 +47,31 @@ pub mod linux;
 // Support for service and other features
 #[cfg(target_os = "windows")]
 pub mod services;
+
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+pub static HYDRA_DRAGON_ENABLED: OnceLock<bool> = OnceLock::new();
+
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+pub fn is_hydra_dragon_enabled() -> bool {
+    *HYDRA_DRAGON_ENABLED.get_or_init(|| {
+        env::var("ProgramFiles")
+            .map(|pf| Path::new(&pf).join("HydraDragonAntivirus").exists())
+            .unwrap_or(false)
+    })
+}
+
+#[cfg(all(target_os = "windows", feature = "hydradragon"))]
+pub fn init_hydra_dragon(
+    config: &crate::config::Config,
+) -> Option<av_integration::AVIntegration> {
+    if is_hydra_dragon_enabled() {
+        use crate::worker::predictor::PredictorMalware;
+        let predictor_malware = PredictorMalware::new(config);
+        Some(av_integration::AVIntegration::new(config, predictor_malware))
+    } else {
+        None
+    }
+}
 
 // --- Bridge Module Exports (Alignment with main.rs root namespace) ---
 // This resolves `crate::Symbol` and `crate::module::Symbol` imports in submodules.

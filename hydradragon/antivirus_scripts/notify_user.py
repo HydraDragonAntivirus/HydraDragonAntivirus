@@ -168,37 +168,6 @@ async def _add_malicious_hash(file_path: str, virus_name: str) -> None:
 
     await asyncio.to_thread(_sync_compute_and_store, file_path, virus_name)
 
-
-# --- NEW: Notification function for MBR Protection Alerts ---
-async def notify_user_mbr_alert(file_path: str) -> None:
-    """
-    Async: Notify the user about a blocked MBR write attempt and send a critical alert to the EDR.
-    """
-    try:
-        notification_message = (
-            f"A process attempted to modify the Master Boot Record (MBR) and was blocked.\n\n"
-            f"Offending Process: {file_path}"
-        )
-
-        # send desktop notification offloaded
-        logger.critical(notification_message)
-
-        # Define threat and send it to the EDR
-        threat_name = "Radical MBR Change Attempt"
-
-        # Add hash and forward (both async)
-        await _add_malicious_hash(file_path, threat_name)
-        await _send_to_edr(
-            file_path, 
-            threat_name, 
-            detection_type="mbr_write", # MODIFIED
-            action="kill_and_quarantine"
-        )
-
-    except Exception as e:
-        logger.exception(f"notify_user_mbr_alert failed: {e}")
-
-
 # --- Notification Functions (Now fully async) ---
 
 async def notify_user(file_path, virus_name, engine_detected, main_file_path: Optional[str] = None) -> None:
@@ -597,67 +566,3 @@ async def notify_user_for_uefi(file_path, virus_name, main_file_path: Optional[s
         )
     except Exception as e:
         logger.exception(f"notify_user_for_uefi failed: {e}")
-
-
-# ============================================================================
-# Self-Defense Alert Notifications (async)
-# ============================================================================
-
-async def notify_user_self_defense_file(file_path: str, attacker_path: str, attacker_pid: int, main_file_path: Optional[str] = None) -> None:
-    """
-    Notify user about file tampering attempt blocked by self-defense driver.
-    """
-    try:
-        notification_message = f"File tampering attempt blocked: {file_path}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        logger.critical(notification_message)
-        virus_name = f"Self-Defense Alert: File Tampering by PID {attacker_pid}"
-        await _add_malicious_hash(attacker_path, virus_name)
-        await _send_to_edr(
-            attacker_path, 
-            virus_name, 
-            detection_type="self_defense_file", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
-        )
-    except Exception as e:
-        logger.exception(f"notify_user_self_defense_file failed: {e}")
-
-
-async def notify_user_self_defense_process(protected_process: str, attacker_path: str, attacker_pid: int, main_file_path: Optional[str] = None) -> None:
-    """
-    Notify user about process kill attempt blocked by self-defense driver.
-    """
-    try:
-        notification_message = f"Process kill attempt blocked: {protected_process}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        logger.critical(notification_message)
-        virus_name = f"Self-Defense Alert: Process Kill Attempt by PID {attacker_pid}"
-        await _add_malicious_hash(attacker_path, virus_name)
-        await _send_to_edr(
-            attacker_path, 
-            virus_name, 
-            detection_type="self_defense_process", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
-        )
-    except Exception as e:
-        logger.exception(f"notify_user_self_defense_process failed: {e}")
-
-
-async def notify_user_self_defense_registry(registry_path: str, attacker_path: str, attacker_pid: int, operation: str, main_file_path: Optional[str] = None) -> None:
-    """
-    Notify user about registry tampering attempt blocked by self-defense driver.
-    """
-    try:
-        notification_message = f"Registry tampering attempt blocked: {registry_path}\nOperation: {operation}\nAttacker Process: {attacker_path}\nAttacker PID: {attacker_pid}"
-        logger.critical(notification_message)
-        virus_name = f"Self-Defense Alert: Registry {operation} Attempt by PID {attacker_pid}"
-        await _add_malicious_hash(attacker_path, virus_name)
-        await _send_to_edr(
-            attacker_path, 
-            virus_name, 
-            detection_type="self_defense_registry", # MODIFIED
-            action="kill_and_quarantine", 
-            main_file_path=main_file_path
-        )
-    except Exception as e:
-        logger.exception(f"notify_user_self_defense_registry failed: {e}")
