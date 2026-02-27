@@ -1,6 +1,3 @@
-\??\C:\Program Files\HydraDragonAntivirus\
-\Desktop\Sanctum\
-\AppData\Roaming\Sanctum\
 \??\C:\Windows\explorer.exe
 \\SOFTWARE\\OwlyShield
 \\Services\\SimplePYASProtection
@@ -8,4 +5,9 @@
 \\Services\\sanctum_ppl_runner"
 \\Services\\MBRFilter
 \SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon
-# TODO add drivers comes from INF file installation
+
+# HydraDragonAntivirus-specific examples
+c:\program files\hydradragonantivirus
+desktop\sanctum\
+appdata\roaming\sanctum\
+c:\windows\system32\tasks\hydradragonantivirus

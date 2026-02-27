@@ -12,7 +12,8 @@ c:\windows\system32\fontdrvhost.exe
 c:\windows\system32\sihost.exe
 c:\windows\system32\dwm.exe
 
-# Owlyshield-specific examples
-c:\program files\hydradragonantivirus\owlyshield_predict.exe
-c:\desktop\sanctum\
-c:\appdata\roaming\sanctum\
+# HydraDragonAntivirus-specific examples
+c:\program files\hydradragonantivirus
+desktop\sanctum\
+appdata\roaming\sanctum\
+c:\windows\system32\tasks\hydradragonantivirus

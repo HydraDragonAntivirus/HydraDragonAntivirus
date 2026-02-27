@@ -1,5 +1,6 @@
 #include "ProtectionRules.h"
 #include "Driver_Common.h"
+#include <ntstrsafe.h>
 
 // Native directory path for loading rule files
 #define RULE_DIRECTORY L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection_Rules\\"
@@ -50,13 +51,52 @@ static NTSTATUS EnsureRuleCapacity(PPROTECTION_RULE_SET RuleSet, ULONG RequiredC
 
 static NTSTATUS AddRuleString(PPROTECTION_RULE_SET RuleSet, PCWSTR RuleText, SIZE_T CharacterCount)
 {
-    NTSTATUS status = EnsureRuleCapacity(RuleSet, RuleSet->Count + 1);
-    if (!NT_SUCCESS(status))
+    if (!RuleSet || !RuleText || CharacterCount == 0)
     {
-        return status;
+        return STATUS_SUCCESS;
     }
 
-    SIZE_T allocSize = (CharacterCount + 1) * sizeof(WCHAR);
+    SIZE_T start = 0;
+    SIZE_T end = CharacterCount;
+    SIZE_T commentPos = (SIZE_T)-1;
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+
+    for (SIZE_T i = start; i < end; ++i)
+    {
+        if (RuleText[i] == L'#')
+        {
+            commentPos = i;
+            break;
+        }
+        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
+        {
+            commentPos = i;
+            break;
+        }
+    }
+
+    if (commentPos != (SIZE_T)-1)
+    {
+        end = commentPos;
+    }
+
+    while (end > start &&
+           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
+    {
+        end--;
+    }
+
+    if (end <= start)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    SIZE_T normalizedLen = end - start;
+    SIZE_T allocSize = (normalizedLen + 1) * sizeof(WCHAR);
     PWCHAR buffer = (PWCHAR)ExAllocatePoolWithTag(NonPagedPoolNx, allocSize, RULE_POOL_TAG);
     if (!buffer)
     {
@@ -64,8 +104,32 @@ static NTSTATUS AddRuleString(PPROTECTION_RULE_SET RuleSet, PCWSTR RuleText, SIZ
     }
 
     RtlZeroMemory(buffer, allocSize);
-    RtlCopyMemory(buffer, RuleText, CharacterCount * sizeof(WCHAR));
-    buffer[CharacterCount] = L'\0';
+    for (SIZE_T i = 0; i < normalizedLen; ++i)
+    {
+        WCHAR ch = RuleText[start + i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        buffer[i] = ch;
+    }
+    buffer[normalizedLen] = L'\0';
+
+    for (ULONG i = 0; i < RuleSet->Count; ++i)
+    {
+        if (RuleSet->Rules[i] && _wcsicmp(RuleSet->Rules[i], buffer) == 0)
+        {
+            ExFreePoolWithTag(buffer, RULE_POOL_TAG);
+            return STATUS_SUCCESS;
+        }
+    }
+
+    NTSTATUS status = EnsureRuleCapacity(RuleSet, RuleSet->Count + 1);
+    if (!NT_SUCCESS(status))
+    {
+        ExFreePoolWithTag(buffer, RULE_POOL_TAG);
+        return status;
+    }
 
     RuleSet->Rules[RuleSet->Count++] = buffer;
     return STATUS_SUCCESS;
@@ -569,4 +633,3 @@ BOOLEAN IsPathProtected(_In_ PCWSTR Path)
     // Legacy support: default to File rules
     return IsPathProtectedByType(Path, RuleTypeFile);
 }
-

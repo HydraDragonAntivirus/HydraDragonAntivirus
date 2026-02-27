@@ -179,7 +179,12 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Inf Include="SimplePYASProtection.inf" />
+    <Inf Include="SimplePYASProtection.inf">
+      <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
+      <DateStamp>10/20/2025</DateStamp>
+      <SpecifyDriverVerDirectiveVersion>true</SpecifyDriverVerDirectiveVersion>
+      <TimeStamp>1.0.0.0</TimeStamp>
+    </Inf>
   </ItemGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />

@@ -158,6 +158,7 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) P
     SIZE_T lineLen = 0;
     SIZE_T start = 0;
     SIZE_T end = RuleChars;
+    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
     if (RuleText == NULL || RuleChars == 0)
@@ -169,6 +170,25 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) P
     {
         start++;
     }
+
+    for (SIZE_T i = start; i < end; ++i)
+    {
+        if (RuleText[i] == L'#')
+        {
+            commentPos = i;
+            break;
+        }
+        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
+        {
+            commentPos = i;
+            break;
+        }
+    }
+    if (commentPos != (SIZE_T)-1)
+    {
+        end = commentPos;
+    }
+
     while (end > start &&
            (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
     {
