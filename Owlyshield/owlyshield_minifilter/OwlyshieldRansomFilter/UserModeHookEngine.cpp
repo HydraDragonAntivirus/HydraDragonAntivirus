@@ -57,6 +57,27 @@ HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
 ULONG g_CustomHookCount = 0;
 FAST_MUTEX g_ConfigMutex;
 
+static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buffer,
+                                _In_ SIZE_T BufferLength,
+                                _In_reads_bytes_(PatternLength) const UCHAR *Pattern,
+                                _In_ SIZE_T PatternLength)
+{
+    if (Buffer == NULL || Pattern == NULL || PatternLength == 0 || BufferLength < PatternLength)
+    {
+        return (SIZE_T)-1;
+    }
+
+    for (SIZE_T i = 0; i <= BufferLength - PatternLength; ++i)
+    {
+        if (RtlCompareMemory(Buffer + i, Pattern, PatternLength) == PatternLength)
+        {
+            return i;
+        }
+    }
+
+    return (SIZE_T)-1;
+}
+
 static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_CONFIG_DATA* B)
 {
     ANSI_STRING aFunc;
@@ -550,7 +571,7 @@ NTSTATUS InjectSingleHook(
     _In_ PVOID TargetNtDeviceIo
 )
 {
-    NTSTATUS status;
+    NTSTATUS status = STATUS_SUCCESS;
     KAPC_STATE apcState;
     
     if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
@@ -568,27 +589,50 @@ NTSTATUS InjectSingleHook(
     // 1. Prepare Shellcode (Copy and Patch)
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
     RtlCopyMemory(shellcode, g_ShellcodeTemplate, sizeof(shellcode));
-    
-    // Patch EventType (0x11...)
-    *(PULONG)(shellcode + 27) = EventId;
-    
-    // Patch ProcessId (0x22...)
-    *(PULONG)(shellcode + 35) = ProcessId;
-    
-    // Patch Handle (0x33...)
-    *(PHANDLE)(shellcode + 88) = HookEntry->DriverDeviceHandle;
-    
-    // Patch NtDeviceIoControlFile Address (0x44...)
-    *(PVOID*)(shellcode + 102) = TargetNtDeviceIo;
-    
-    // Patch Stolen Bytes (At 122, 14 bytes) from HookDef->Address
-    RtlCopyMemory(shellcode + 122, HookDef->Address, 14); // Read directly
-    
-    // Save original bytes locally
-    RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, 14);
 
-    // Patch Return Address (0x55...) -> Addr + 14
-    *(PVOID*)(shellcode + 140) = (PVOID)((ULONG_PTR)HookDef->Address + 14);
+    // Patch placeholders by signatures (no fragile hardcoded offsets).
+    {
+        static const UCHAR kEventSig[] = {0xC7, 0x04, 0x24, 0x11, 0x11, 0x11, 0x11};
+        static const UCHAR kPidSig[]   = {0xC7, 0x44, 0x24, 0x04, 0x22, 0x22, 0x22, 0x22};
+        static const UCHAR kHandleSig[] = {
+            0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33
+        };
+        static const UCHAR kNtIoSig[] = {
+            0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44
+        };
+        static const UCHAR kRetSig[] = {
+            0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55
+        };
+
+        SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig, sizeof(kEventSig));
+        SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig, sizeof(kPidSig));
+        SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig, sizeof(kHandleSig));
+        SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig, sizeof(kNtIoSig));
+        SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig, sizeof(kRetSig));
+
+        if (offEvent == (SIZE_T)-1 ||
+            offPid == (SIZE_T)-1 ||
+            offHandle == (SIZE_T)-1 ||
+            offNtIo == (SIZE_T)-1 ||
+            offRet == (SIZE_T)-1 ||
+            offRet < USERMODE_HOOK_SIZE)
+        {
+            KeUnstackDetachProcess(&apcState);
+            return STATUS_INVALID_IMAGE_FORMAT;
+        }
+
+        *(PULONG)(shellcode + offEvent + 3) = EventId;
+        *(PULONG)(shellcode + offPid + 4) = ProcessId;
+        *(PHANDLE)(shellcode + offHandle + 2) = HookEntry->DriverDeviceHandle;
+        *(PVOID *)(shellcode + offNtIo + 2) = TargetNtDeviceIo;
+
+        // Save original bytes locally and embed them right before the return-jump stub.
+        RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
+        RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE), HookDef->Address, USERMODE_HOOK_SIZE);
+
+        // Patch return target to "original function + stolen bytes".
+        *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE);
+    }
 
     // Write Shellcode to Target at specific offset
     RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
@@ -615,6 +659,16 @@ NTSTATUS InjectSingleHook(
             HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
             HookDef->IsHooked = TRUE;
         }
+        else
+        {
+            KeUnstackDetachProcess(&apcState);
+            return status;
+        }
+    }
+    else
+    {
+        KeUnstackDetachProcess(&apcState);
+        return STATUS_NOT_SUPPORTED;
     }
 
     KeUnstackDetachProcess(&apcState);
