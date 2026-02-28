@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import ctypes, os, sys, time, threading, psutil, platform
 import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext, messagebox
+from tkinter import ttk, filedialog, scrolledtext
 from ctypes import wintypes
 
 # --- Windows API Setup ---
