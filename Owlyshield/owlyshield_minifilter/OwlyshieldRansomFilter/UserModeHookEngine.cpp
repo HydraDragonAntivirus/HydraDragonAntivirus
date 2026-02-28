@@ -868,12 +868,9 @@ VOID UserModeHookEngineCleanup(VOID)
 PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
-    KAPC_STATE apcState;
 
     if (ModuleSize != NULL)
         *ModuleSize = 0;
-
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     __try
     {
@@ -917,7 +914,6 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
         moduleBase = NULL;
     }
 
-    KeUnstackDetachProcess(&apcState);
     return moduleBase;
 }
 
@@ -978,19 +974,17 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
 NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _In_ PVOID DetourAddress,
                              _Out_writes_bytes_(USERMODE_HOOK_SIZE) PUCHAR OriginalBytes)
 {
-    KAPC_STATE apcState;
     NTSTATUS status = STATUS_SUCCESS;
     PVOID baseAddress = TargetAddress;
     SIZE_T regionSize = USERMODE_HOOK_SIZE;
     ULONG oldProtect = 0;
     ULONG newProtect = PAGE_EXECUTE_READWRITE;
+    UNREFERENCED_PARAMETER(Process);
 
     if (!DetourAddress)
         return STATUS_INVALID_PARAMETER;
 
     DbgPrint("!!! UserModeHook: Hooking %p -> Detour %p\n", TargetAddress, DetourAddress);
-
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     __try
     {
@@ -1029,7 +1023,6 @@ NTSTATUS InstallUsermodeHook(_In_ PEPROCESS Process, _In_ PVOID TargetAddress, _
         status = STATUS_ACCESS_VIOLATION;
     }
 
-    KeUnstackDetachProcess(&apcState);
     return status;
 }
 
@@ -1050,7 +1043,7 @@ NTSTATUS InjectSingleHook(
 )
 {
     NTSTATUS status = STATUS_SUCCESS;
-    KAPC_STATE apcState;
+    UNREFERENCED_PARAMETER(Process);
     
     if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
     if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
@@ -1061,8 +1054,6 @@ NTSTATUS InjectSingleHook(
     }
     
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
-
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     // 1. Prepare Shellcode (Copy and Patch)
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
@@ -1095,7 +1086,6 @@ NTSTATUS InjectSingleHook(
             offRet == (SIZE_T)-1 ||
             offRet < USERMODE_HOOK_SIZE)
         {
-            KeUnstackDetachProcess(&apcState);
             return STATUS_INVALID_IMAGE_FORMAT;
         }
 
@@ -1139,17 +1129,14 @@ NTSTATUS InjectSingleHook(
         }
         else
         {
-            KeUnstackDetachProcess(&apcState);
             return status;
         }
     }
     else
     {
-        KeUnstackDetachProcess(&apcState);
         return STATUS_NOT_SUPPORTED;
     }
 
-    KeUnstackDetachProcess(&apcState);
     return STATUS_SUCCESS;
 }
 
@@ -1173,8 +1160,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-
     // 1. Allocate Shellcode Memory
     if (fnZwAllocateVirtualMemory) {
         status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -1183,7 +1168,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
 
     if (!NT_SUCCESS(status)) {
-        KeUnstackDetachProcess(&apcState);
         return status;
     }
     
@@ -1209,7 +1193,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             SIZE_T freeSize = 0;
             fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
         }
-        KeUnstackDetachProcess(&apcState);
         return STATUS_DEVICE_DOES_NOT_EXIST;
     }
 
@@ -1242,12 +1225,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             SIZE_T freeSize = 0;
             fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
         }
-        KeUnstackDetachProcess(&apcState);
         return status;
     }
     
     HookEntry->DriverDeviceHandle = targetHandle;
-    KeUnstackDetachProcess(&apcState);
     return STATUS_SUCCESS;
 }
 
@@ -1268,11 +1249,7 @@ NTSTATUS ResolveAndHook(
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
     
-    // Attach to resolve export
-    KAPC_STATE apcState;
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
     HookDef->Address = FindExportedFunction(modBase, FunctionName);
-    KeUnstackDetachProcess(&apcState);
 
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
@@ -1350,87 +1327,71 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         }
         hookEntry->CustomHookCapacity = customHookCountSnapshot;
 
-        // 1. Initialize Infrastructure (Alloc + Handle)
-        status = InitializeShellcodeInfrastructure(process, hookEntry);
-        if (!NT_SUCCESS(status))
-        {
-            goto HookProcessFailure;
-        }
-
-        if (hookEntry->CustomHookCapacity > 0)
-        {
-            SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
-            hookEntry->CustomHooks =
-                (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
-            if (hookEntry->CustomHooks == NULL)
+        // single attachment for all resolving/hooking
+        KAPC_STATE apcState;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        __try {
+            // 1. Initialize Infrastructure (Alloc + Handle)
+            status = InitializeShellcodeInfrastructure(process, hookEntry);
+            if (!NT_SUCCESS(status))
             {
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto HookProcessFailure;
+                __leave;
             }
-            RtlZeroMemory(hookEntry->CustomHooks, customHooksBytes);
-        }
-    }
-    else
-    {
-        // This is a refresh call triggered after additional image loads.
-        // Keep existing infrastructure and only try unresolved hooks.
-        if (hookEntry->CustomHooks == NULL ||
-            hookEntry->CustomHookCapacity == 0 ||
-            hookEntry->ShellcodeBase == NULL ||
-            hookEntry->DriverDeviceHandle == NULL)
-        {
-            status = STATUS_INVALID_DEVICE_STATE;
-            goto HookProcessFailure;
-        }
-    }
 
-    // 2. Resolve NtDeviceIoControlFile (Needed for communication)
-    // We strictly need this from ntdll.dll
-    ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", &ntdllSize);
-    if (!ntdllBase)
-    {
-         status = STATUS_NOT_FOUND;
-         goto HookProcessFailure;
-    }
-    
-    KAPC_STATE apcState;
-    KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
-    KeUnstackDetachProcess(&apcState);
-    
-    if (!targetNtDeviceIo)
-    {
-         status = STATUS_NOT_FOUND;
-         goto HookProcessFailure;
-    }
+            if (hookEntry->CustomHookCapacity > 0)
+            {
+                SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
+                hookEntry->CustomHooks =
+                    (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
+                if (hookEntry->CustomHooks == NULL)
+                {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    __leave;
+                }
+                RtlZeroMemory(hookEntry->CustomHooks, customHooksBytes);
+            }
 
-    // 3. Inject Hooks (Dynamic only)
-    ExAcquireFastMutex(&g_ConfigMutex);
-    customHookCountToApply = g_CustomHookCount;
-    if (customHookCountToApply > hookEntry->CustomHookCapacity)
-    {
-        customHookCountToApply = hookEntry->CustomHookCapacity;
-    }
-    for (ULONG i = 0; i < customHookCountToApply; i++)
-    {
-        NTSTATUS hookStatus = ResolveAndHook(process,
-                                             hookEntry,
-                                             g_GlobalCustomHooks[i].ModuleName,
-                                             g_GlobalCustomHooks[i].FunctionName,
-                                             &hookEntry->CustomHooks[i],
-                                             g_GlobalCustomHooks[i].EventId,
-                                             targetNtDeviceIo);
-        // Missing module/export is expected during refresh cycles; keep processing remaining entries.
-        if (!NT_SUCCESS(hookStatus) &&
-            hookStatus != STATUS_NOT_FOUND &&
-            hookStatus != STATUS_PROCEDURE_NOT_FOUND)
-        {
-            status = hookStatus;
+            // Resolve NtDeviceIoControlFile (Needed for communication)
+            targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
+            if (!targetNtDeviceIo)
+            {
+                 status = STATUS_NOT_FOUND;
+                 __leave;
+            }
+
+            // 3. Inject Hooks (Dynamic only)
+            ExAcquireFastMutex(&g_ConfigMutex);
+            customHookCountToApply = g_CustomHookCount;
+            if (customHookCountToApply > hookEntry->CustomHookCapacity)
+            {
+                customHookCountToApply = hookEntry->CustomHookCapacity;
+            }
+            for (ULONG i = 0; i < customHookCountToApply; i++)
+            {
+                NTSTATUS hookStatus = ResolveAndHook(process,
+                                                     hookEntry,
+                                                     g_GlobalCustomHooks[i].ModuleName,
+                                                     g_GlobalCustomHooks[i].FunctionName,
+                                                     &hookEntry->CustomHooks[i],
+                                                     g_GlobalCustomHooks[i].EventId,
+                                                     targetNtDeviceIo);
+                // Missing module/export is expected during refresh cycles; keep processing remaining entries.
+                if (!NT_SUCCESS(hookStatus) &&
+                    hookStatus != STATUS_NOT_FOUND &&
+                    hookStatus != STATUS_PROCEDURE_NOT_FOUND)
+                {
+                    status = hookStatus;
+                    ExReleaseFastMutex(&g_ConfigMutex);
+                    __leave;
+                }
+            }
             ExReleaseFastMutex(&g_ConfigMutex);
-            goto HookProcessFailure;
         }
-    }
-    ExReleaseFastMutex(&g_ConfigMutex);
+        __finally {
+            KeUnstackDetachProcess(&apcState);
+        }
+    
+    if (!NT_SUCCESS(status)) goto HookProcessFailure;
 
     if (!existingHookEntry)
     {
@@ -1467,23 +1428,27 @@ HookProcessFailure:
             hookEntry->CustomHookCapacity = 0;
         }
 
-        if (hookEntry->DriverDeviceHandle != NULL)
+        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
         {
-            KAPC_STATE closeApcState;
-            KeStackAttachProcess((PRKPROCESS)process, &closeApcState);
-            ZwClose(hookEntry->DriverDeviceHandle);
-            KeUnstackDetachProcess(&closeApcState);
-            hookEntry->DriverDeviceHandle = NULL;
-        }
+            KAPC_STATE cleanupApcState;
+            KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
+            __try {
+                if (hookEntry->DriverDeviceHandle != NULL)
+                {
+                    ZwClose(hookEntry->DriverDeviceHandle);
+                    hookEntry->DriverDeviceHandle = NULL;
+                }
 
-        if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
-        {
-            KAPC_STATE freeApcState;
-            SIZE_T freeSize = 0;
-            KeStackAttachProcess((PRKPROCESS)process, &freeApcState);
-            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
-            KeUnstackDetachProcess(&freeApcState);
-            hookEntry->ShellcodeBase = NULL;
+                if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                {
+                    SIZE_T freeSize = 0;
+                    fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                    hookEntry->ShellcodeBase = NULL;
+                }
+            }
+            __finally {
+                KeUnstackDetachProcess(&cleanupApcState);
+            }
         }
 
         hookEntry->ProcessObject = NULL;
@@ -1508,10 +1473,8 @@ VOID UnhookSingleFunction(
 )
 {
     NTSTATUS status;
-    KAPC_STATE apcState;
+    UNREFERENCED_PARAMETER(Process);
     if (!HookDef->IsHooked || !HookDef->Address) return;
-
-    KeStackAttachProcess((PRKPROCESS)Process, &apcState);
 
     // Restore Original Bytes
     PVOID pageAddr = HookDef->Address;
@@ -1526,8 +1489,6 @@ VOID UnhookSingleFunction(
             HookDef->IsHooked = FALSE;
         }
     }
-
-    KeUnstackDetachProcess(&apcState);
 }
 
 
@@ -1562,32 +1523,35 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
     if (NT_SUCCESS(status))
     {
-        // Unhook all functions
-        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
-        {
-            if (hookEntry->CustomHooks != NULL)
-            {
-                UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
-            }
-        }
-        
-        // Free Shellcode Memory using ZwFreeVirtualMemory
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        
-        if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
-            SIZE_T size = 0;
-            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
-            hookEntry->ShellcodeBase = NULL;
+        __try {
+            // Unhook all functions
+            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
+            {
+                if (hookEntry->CustomHooks != NULL)
+                {
+                    UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+                }
+            }
+            
+            // Free Shellcode Memory using ZwFreeVirtualMemory
+            if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
+                SIZE_T size = 0;
+                fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
+                hookEntry->ShellcodeBase = NULL;
+            }
+            
+            // Close Handle
+            if (hookEntry->DriverDeviceHandle) {
+                ZwClose(hookEntry->DriverDeviceHandle);
+                hookEntry->DriverDeviceHandle = NULL;
+            }
+        }
+        __finally {
+            KeUnstackDetachProcess(&apcState);
         }
         
-        // Close Handle
-        if (hookEntry->DriverDeviceHandle) {
-            ZwClose(hookEntry->DriverDeviceHandle);
-            hookEntry->DriverDeviceHandle = NULL;
-        }
-
-        KeUnstackDetachProcess(&apcState);
         ObDereferenceObject(process);
     }
 
