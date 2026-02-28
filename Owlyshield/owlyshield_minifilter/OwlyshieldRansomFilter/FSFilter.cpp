@@ -843,19 +843,19 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
     }
 
     // 2. User mode image load telemetry + dynamic API hook refresh.
-    
-    // Check if this is an executable file (.exe or .dll)
-    BOOLEAN isExecutable = FALSE;
-    if (FullImageName->Length > 8) // At least ".exe" or ".dll"
+    // Avoid running full hook refresh on every DLL load; this can stall process loader paths.
+    // Keep refresh for main process image only (.exe).
+    BOOLEAN isProcessImage = FALSE;
+    if (FullImageName->Length > 8) // At least ".exe"
     {
         PWCH pathEnd = (PWCH)((PUCHAR)FullImageName->Buffer + FullImageName->Length - (4 * sizeof(WCHAR)));
-        if (_wcsnicmp(pathEnd, L".dll", 4) == 0 || _wcsnicmp(pathEnd, L".exe", 4) == 0)
+        if (_wcsnicmp(pathEnd, L".exe", 4) == 0)
         {
-            isExecutable = TRUE;
+            isProcessImage = TRUE;
         }
     }
 
-    if (isExecutable)
+    if (isProcessImage)
     {
         BOOLEAN found = FALSE;
         (VOID)driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);

@@ -85,7 +85,7 @@ class BytecodeDecompiler:
                             lines.append(f"    return {val}")
             
             if not lines:
-                return "    # Complex logic detected. See .pyc for raw bytecode.\n    pass"
+                return "    # Complex logic detected.\n    pass"
                 
             return "\n".join(lines)
         except Exception as e:
@@ -595,43 +595,6 @@ class ModuleReconstructor:
         
         output_path.write_text("\n".join(content), encoding='utf-8', errors='ignore')
 
-        # Also save the PYC (Standard Bytecode)
-        self.save_pyc(name, mod)
-
-    def save_pyc(self, name, mod):
-        try:
-            pyc_path = self.backup_dir / "RAW_BYTECODE" / f"{name.replace('.', '_')}.pyc"
-            code = None
-            
-            # Priority 1: Try to get module-level code from loader
-            if hasattr(mod, '__loader__') and hasattr(mod.__loader__, 'get_code'):
-                try:
-                    code = mod.__loader__.get_code(name)
-                except:
-                    pass
-            
-            # Priority 2: Check if module itself has __code__
-            if not code and hasattr(mod, '__code__'): 
-                code = mod.__code__
-            
-            # Priority 3: Find any code object in the module
-            if not code:
-                for n in list(dir(mod)):
-                    a = getattr(mod, n, None)
-                    if hasattr(a, '__code__'):
-                        code = a.__code__
-                        break
-            
-            if code:
-                with open(pyc_path, 'wb') as f:
-                    f.write(importlib.util.MAGIC_NUMBER)
-                    f.write(struct.pack('<I', int(time.time())))
-                    if sys.version_info >= (3, 7): 
-                        f.write(struct.pack('<I', 0))
-                    f.write(marshal.dumps(code))
-        except: 
-            pass
-    
     def generate_compiled_report(self):
         """Generate a report of all compiled modules found"""
         if not self.compiled_modules:
@@ -723,7 +686,7 @@ def run_decompiler():
     log_file.write(f"Target Dir: {backup_dir}\n")
 
     # Create directories
-    for d in ["RECONSTRUCTED_SOURCE", "RAW_BYTECODE", "STRUCTURE"]:
+    for d in ["RECONSTRUCTED_SOURCE"]:
         p = backup_dir / d
         p.mkdir(parents=True, exist_ok=True)
         log_file.write(f"Created: {p}\n")
