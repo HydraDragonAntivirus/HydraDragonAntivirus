@@ -284,3 +284,6 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry);
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config);
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch);
+
+typedef NTSTATUS(NTAPI* PPS_SUSPEND_PROCESS)(_In_ PEPROCESS Process);
+typedef NTSTATUS(NTAPI* PPS_RESUME_PROCESS)(_In_ PEPROCESS Process);

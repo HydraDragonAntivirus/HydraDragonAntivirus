@@ -1542,11 +1542,27 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     PEPROCESS process = NULL;
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
     NTSTATUS status;
+    KAPC_STATE apcState;
+    BOOLEAN isSuspended = FALSE;
+
+    // 1. Resolve Suspend/Resume routines dynamically if not already done
+    UNICODE_STRING routineName;
+    static PPS_SUSPEND_PROCESS fnPsSuspendProcess = NULL;
+    static PPS_RESUME_PROCESS fnPsResumeProcess = NULL;
+
+    if (fnPsSuspendProcess == NULL) {
+        RtlInitUnicodeString(&routineName, L"PsSuspendProcess");
+        fnPsSuspendProcess = (PPS_SUSPEND_PROCESS)MmGetSystemRoutineAddress(&routineName);
+    }
+    if (fnPsResumeProcess == NULL) {
+        RtlInitUnicodeString(&routineName, L"PsResumeProcess");
+        fnPsResumeProcess = (PPS_RESUME_PROCESS)MmGetSystemRoutineAddress(&routineName);
+    }
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
 
-    // 1. Acquire Mutex to find the entry and mark it as busy
+    // 2. Lock the engine to find the process slot
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
@@ -1564,56 +1580,72 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         return STATUS_NOT_FOUND;
     }
 
-    // Mark as in-progress and no longer hooked so other threads ignore it
+    // Mark as busy so no other thread tries to hook/unhook this PID
     hookEntry->IsInProgress = TRUE;
     hookEntry->IsHooked = FALSE;
+    
     if (g_UserHookEngine->HookedProcessCount > 0)
-    {
         g_UserHookEngine->HookedProcessCount--;
-    }
 
-    // DROP THE MUTEX BEFORE DOING ANY HEAVY LIFTING OR ZW* CALLS
+    // RELEASE MUTEX: We are moving to PASSIVE_LEVEL operations
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
-    DbgPrint("!!! UserModeHook: Unhooking process %lu at PASSIVE_LEVEL\n", ProcessId);
-
-    // 2. Perform process attachment and cleanup safely at PASSIVE_LEVEL
+    // 3. Lookup the Process Object
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (NT_SUCCESS(status))
-    {
-        KAPC_STATE apcState;
-        KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        __try {
-            // Unhook all functions
-            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
-            {
-                if (hookEntry->CustomHooks != NULL)
-                {
-                    UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
-                }
-            }
-            
-            // Free Shellcode Memory using ZwFreeVirtualMemory
-            if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
-                SIZE_T size = 0;
-                fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
-                hookEntry->ShellcodeBase = NULL;
-            }
-            
-            // Close Handle
-            if (hookEntry->DriverDeviceHandle) {
-                ZwClose(hookEntry->DriverDeviceHandle);
-                hookEntry->DriverDeviceHandle = NULL;
-            }
-        }
-        __finally {
-            KeUnstackDetachProcess(&apcState);
-        }
-        
-        ObDereferenceObject(process);
+    if (!NT_SUCCESS(status)) {
+        // If the process is already dead, we just need to clean up our internal tracking
+        goto FinalCleanup;
     }
 
-    // 3. Cleanup allocated arrays outside lock
+    // 4. SUSPEND THE PROCESS
+    // This stops user-mode threads from executing while we restore the bytes
+    if (fnPsSuspendProcess) {
+        status = fnPsSuspendProcess(process);
+        if (NT_SUCCESS(status)) {
+            isSuspended = TRUE;
+        }
+    }
+
+    // 5. ATTACH AND RESTORE
+    KeStackAttachProcess((PRKPROCESS)process, &apcState);
+    __try 
+    {
+        // Restore original bytes for every hooked function
+        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
+        {
+            if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
+            {
+                UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+            }
+        }
+        
+        // Free the trampoline/shellcode memory
+        if (hookEntry->ShellcodeBase && fnZwFreeVirtualMemory) {
+            SIZE_T size = 0; // Set to 0 with MEM_RELEASE to free the whole region
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &size, MEM_RELEASE);
+            hookEntry->ShellcodeBase = NULL;
+        }
+        
+        // Close the cross-process handle to our driver
+        if (hookEntry->DriverDeviceHandle) {
+            ZwClose(hookEntry->DriverDeviceHandle);
+            hookEntry->DriverDeviceHandle = NULL;
+        }
+    }
+    __finally 
+    {
+        KeUnstackDetachProcess(&apcState);
+    }
+
+    // 6. RESUME THE PROCESS
+    if (isSuspended && fnPsResumeProcess) {
+        fnPsResumeProcess(process);
+    }
+
+    ObDereferenceObject(process);
+
+FinalCleanup:
+    // 7. Pool Cleanup (Outside the Attach/Detach block)
     if (hookEntry->CustomHooks != NULL)
     {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
@@ -1626,7 +1658,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         hookEntry->ProcessObject = NULL;
     }
 
-    // 4. Re-acquire the mutex to finalize clearing the slot
+    // 8. Finalize the entry removal
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
