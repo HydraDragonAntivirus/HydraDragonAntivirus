@@ -248,6 +248,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     ULONG ProcessId;
     PEPROCESS ProcessObject;
     BOOLEAN IsHooked;
+    BOOLEAN IsInProgress;
     // Generic: No single base. We find base per hook if needed.
     // PVOID NtdllBase; 
     // SIZE_T NtdllSize;

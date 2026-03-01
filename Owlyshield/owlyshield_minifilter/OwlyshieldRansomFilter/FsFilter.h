@@ -29,6 +29,8 @@ Environment:
 #include "KernelString.h"
 #include "ShanonEntropy.h"
 
+extern "C" UCHAR* PsGetProcessImageFileName(PEPROCESS Process);
+
 NTSTATUS
 FSUnloadDriver(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 

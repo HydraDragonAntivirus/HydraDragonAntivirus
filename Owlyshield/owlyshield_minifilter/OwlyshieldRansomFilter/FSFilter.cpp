@@ -1826,6 +1826,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     hr = CopyFileIdInfo(Data, newItem);
     if (!NT_SUCCESS(hr))
     {
+        FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
@@ -1833,6 +1834,7 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     hr = GetFileNameInfo(FltObjects, FilePath, nameInfo);
     if (!NT_SUCCESS(hr))
     {
+        FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
         return FLT_POSTOP_FINISHED_PROCESSING;
     }

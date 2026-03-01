@@ -1286,7 +1286,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId)
         {
             hookEntry = &g_UserHookEngine->Processes[i];
             existingHookEntry = TRUE;
@@ -1299,7 +1299,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         // Find free slot
         for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
         {
-            if (!g_UserHookEngine->Processes[i].IsHooked)
+            if (!g_UserHookEngine->Processes[i].IsHooked && !g_UserHookEngine->Processes[i].IsInProgress)
             {
                 hookEntry = &g_UserHookEngine->Processes[i];
                 break;
@@ -1320,17 +1320,31 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         ExAcquireFastMutex(&g_ConfigMutex);
         customHookCountSnapshot = g_CustomHookCount;
         ExReleaseFastMutex(&g_ConfigMutex);
+
         if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
         {
             customHookCountSnapshot = MAX_CUSTOM_HOOKS;
         }
         hookEntry->CustomHookCapacity = customHookCountSnapshot;
+    }
 
-        // single attachment for all resolving/hooking
-        KAPC_STATE apcState;
-        KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        __try
-        {
+    // Check if already in progress to avoid concurrent hooking of the same PID
+    if (hookEntry->IsInProgress)
+    {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return STATUS_SUCCESS; // Already being processed
+    }
+
+    hookEntry->IsInProgress = TRUE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    // Single attachment for all resolving/hooking - OUTSIDE global lock
+    KAPC_STATE apcState;
+    KeStackAttachProcess((PRKPROCESS)process, &apcState);
+    __try
+    {
+        // ... (existing logic continues)
             // 1. Initialize Infrastructure (Alloc + Handle)
             status = InitializeShellcodeInfrastructure(process, hookEntry);
             if (!NT_SUCCESS(status))
@@ -1386,26 +1400,36 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             KeUnstackDetachProcess(&apcState);
         }
 
-        if (!NT_SUCCESS(status))
-            goto HookProcessFailure;
-
-        if (!existingHookEntry)
+        ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+        hookEntry->IsInProgress = FALSE;
+        if (NT_SUCCESS(status))
         {
             hookEntry->IsHooked = TRUE;
-            g_UserHookEngine->HookedProcessCount++;
+            if (!existingHookEntry)
+            {
+                g_UserHookEngine->HookedProcessCount++;
+            }
         }
-
-        DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s, %lu Custom)\n", ProcessId,
-                 existingHookEntry ? "refresh" : "initial", customHookCountToApply);
-
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        if (existingHookEntry)
-        {
-            ObDereferenceObject(process);
-        }
-        return STATUS_SUCCESS;
 
-    HookProcessFailure:
+        if (NT_SUCCESS(status))
+        {
+            DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
+                     existingHookEntry ? "refresh" : "initial");
+        }
+        else
+        {
+            goto HookProcessFailure;
+        }
+
+        ObDereferenceObject(process);
+        return status;
+
+HookProcessFailure:
+    // Ensure busy flag is cleared on failure too
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    hookEntry->IsInProgress = FALSE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         if (existingHookEntry)
         {
             ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
