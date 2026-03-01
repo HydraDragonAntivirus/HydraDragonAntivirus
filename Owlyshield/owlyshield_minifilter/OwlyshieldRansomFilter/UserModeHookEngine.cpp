@@ -77,13 +77,13 @@ typedef struct _HOOK_EXCLUDE_RULE_SET
 
 static HOOK_EXCLUDE_RULE_SET g_HookExcludeRules = {0};
 
-// FIX (Bug 4): Mutex is now initialized unconditionally in UserModeHookEngineInitialize
-// at driver load time (PASSIVE_LEVEL, single-threaded), so this helper is a safe no-op.
-// It is kept so call sites compile without change.
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
-    // Intentionally empty: ExInitializeFastMutex is called in UserModeHookEngineInitialize.
-    UNREFERENCED_PARAMETER(g_HookExcludeRules.MutexInitialized);
+    if (!g_HookExcludeRules.MutexInitialized)
+    {
+        ExInitializeFastMutex(&g_HookExcludeRules.Mutex);
+        g_HookExcludeRules.MutexInitialized = TRUE;
+    }
 }
 
 static VOID FreeHookExcludeRulesUnlocked(VOID)
@@ -421,42 +421,24 @@ static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FileP
 
 static VOID EnsureHookExcludeRulesLoaded(VOID)
 {
-    // FIX (Bug 2): FAST_MUTEX raises IRQL to APC_LEVEL and disables APCs.
-    // ZwCreateFile (FILE_SYNCHRONOUS_IO_NONALERT) requires an APC to signal
-    // I/O completion. Calling it while holding a FAST_MUTEX therefore deadlocks.
-    //
-    // Fix: Claim ownership of the load by setting Loaded=TRUE while holding
-    // the mutex, then RELEASE the mutex before doing any I/O. Because Loaded
-    // is set before we start, no racing thread will attempt a second load.
-    // The actual file reads happen lock-free at PASSIVE_LEVEL with APCs enabled.
-
     static const PCWSTR ruleFiles[] = {
         OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
     };
 
-    BOOLEAN needLoad = FALSE;
-
-    // Phase 1: decide under the lock whether this thread owns the load.
+    EnsureHookExcludeRuleMutex();
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
     if (!g_HookExcludeRules.Loaded)
     {
-        g_HookExcludeRules.Loaded = TRUE;   // claim; racing threads will skip
-        FreeHookExcludeRulesUnlocked();     // clear any stale data
-        needLoad = TRUE;
+        FreeHookExcludeRulesUnlocked();
+        for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
+        {
+            UNICODE_STRING ruleFile;
+            RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
+            (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
+        }
+        g_HookExcludeRules.Loaded = TRUE;
     }
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-
-    if (!needLoad)
-        return;
-
-    // Phase 2: do actual file I/O with NO mutex held (APCs fully enabled).
-    // Only this thread reaches here; the Loaded flag acts as a one-shot barrier.
-    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
-    {
-        UNICODE_STRING ruleFile;
-        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
-    }
 }
 
 static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
@@ -801,9 +783,8 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // Resolve ZwFreeVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
     fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
-    // FIX (Bug 3): was incorrectly checking fnZwDuplicateObject here instead of fnZwFreeVirtualMemory
-    if (!fnZwFreeVirtualMemory) {
-         DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
+    if (!fnZwDuplicateObject) {
+         DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
     // Resolve optional process protection helpers (best-effort).
@@ -827,13 +808,6 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     RtlZeroMemory(g_UserHookEngine, sizeof(USERMODE_HOOK_ENGINE));
     ExInitializeFastMutex(&g_UserHookEngine->EngineMutex);
     ExInitializeFastMutex(&g_ConfigMutex);
-
-    // FIX (Bug 4): Initialize the exclude-rules mutex here, unconditionally, at
-    // PASSIVE_LEVEL before any concurrent code runs. This eliminates the racy
-    // lazy-init pattern in EnsureHookExcludeRuleMutex where two threads could
-    // both observe MutexInitialized==FALSE and corrupt the mutex object.
-    ExInitializeFastMutex(&g_HookExcludeRules.Mutex);
-    g_HookExcludeRules.MutexInitialized = TRUE;
     g_CustomHookCount = 0;
     RtlZeroMemory(g_GlobalCustomHooks, sizeof(g_GlobalCustomHooks));
     g_UserHookEngine->IsInitialized = TRUE;
@@ -1172,8 +1146,8 @@ NTSTATUS InjectSingleHook(
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     NTSTATUS status;
-    KAPC_STATE apcState;
     PVOID baseAddress = NULL;
+    UNREFERENCED_PARAMETER(Process);
     SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
@@ -1289,7 +1263,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
     ULONG customHookCountSnapshot = 0;
     ULONG customHookCountToApply = 0;
-    SIZE_T ntdllSize = 0;
     PVOID ntdllBase = NULL;
     PVOID targetNtDeviceIo = NULL;
     BOOLEAN existingHookEntry = FALSE;
@@ -1391,6 +1364,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             }
 
             // Resolve NtDeviceIoControlFile (Needed for communication)
+            ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
             targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
             if (!targetNtDeviceIo)
             {
@@ -1442,80 +1416,67 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         {
             DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
                      existingHookEntry ? "refresh" : "initial");
-            ObDereferenceObject(process);
-            return status;
         }
-
-        // ----------------------------------------------------------------
-        // FIX (Bug 1): The original code jumped here with goto after the
-        // mutex had already been acquired AND released at lines 1403-1413
-        // above, then erroneously called ExReleaseFastMutex TWICE MORE
-        // (once unconditionally and once inside the existingHookEntry branch)
-        // with no matching Acquire — corrupting the mutex and causing the
-        // freeze/BSOD.
-        //
-        // Correct pattern: the mutex was already released above. We only
-        // re-acquire it at the very end when we zero the entry slot.
-        // ----------------------------------------------------------------
-
-HookProcessFailure:
-        // IsInProgress was already cleared in the block above (success path
-        // sets it too). If we arrived via goto the block above ran and
-        // released the mutex cleanly. Nothing to release here.
-
-        if (existingHookEntry)
+        else
         {
-            // For re-hook attempts, leave the existing entry untouched.
-            ObDereferenceObject(process);
-            return status;
-        }
-
-        // Clean up the new entry we were building.
-        if (hookEntry != NULL)
-        {
-            if (hookEntry->CustomHooks != NULL)
-            {
-                ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
-                hookEntry->CustomHooks = NULL;
-                hookEntry->CustomHookCapacity = 0;
-            }
-
-            if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
-            {
-                KAPC_STATE cleanupApcState;
-                KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
-                __try
-                {
-                    if (hookEntry->DriverDeviceHandle != NULL)
-                    {
-                        ZwClose(hookEntry->DriverDeviceHandle);
-                        hookEntry->DriverDeviceHandle = NULL;
-                    }
-
-                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
-                    {
-                        SIZE_T freeSize = 0;
-                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
-                        hookEntry->ShellcodeBase = NULL;
-                    }
-                }
-                __finally
-                {
-                    KeUnstackDetachProcess(&cleanupApcState);
-                }
-            }
-
-            // Hold mutex while zeroing the slot so another thread cannot
-            // pick up a half-cleared entry.
-            ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-            hookEntry->ProcessObject = NULL;
-            RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
-            ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+            goto HookProcessFailure;
         }
 
         ObDereferenceObject(process);
         return status;
+
+HookProcessFailure:
+    // Ensure busy flag is cleared on failure
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    hookEntry->IsInProgress = FALSE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    if (existingHookEntry)
+    {
+        ObDereferenceObject(process);
+        return status;
     }
+
+    if (hookEntry != NULL)
+    {
+        if (hookEntry->CustomHooks != NULL)
+        {
+            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+            hookEntry->CustomHooks = NULL;
+            hookEntry->CustomHookCapacity = 0;
+        }
+
+        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
+        {
+            KAPC_STATE cleanupApcState;
+            KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
+            __try
+            {
+                if (hookEntry->DriverDeviceHandle != NULL)
+                {
+                    ZwClose(hookEntry->DriverDeviceHandle);
+                    hookEntry->DriverDeviceHandle = NULL;
+                }
+
+                if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                {
+                    SIZE_T freeSize = 0;
+                    fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                    hookEntry->ShellcodeBase = NULL;
+                }
+            }
+            __finally
+            {
+                KeUnstackDetachProcess(&cleanupApcState);
+            }
+        }
+
+        hookEntry->ProcessObject = NULL;
+        RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+    }
+
+    ObDereferenceObject(process);
+    return status;
 }
 //
 // Unhook
