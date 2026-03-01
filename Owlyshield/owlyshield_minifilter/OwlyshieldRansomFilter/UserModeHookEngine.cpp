@@ -1335,6 +1335,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         hookEntry->ProcessId = ProcessId;
         hookEntry->ProcessObject = process;
 
+        // Explicitly reference the object for the global array
+        ObReferenceObject(process);
+    
         ExAcquireFastMutex(&g_ConfigMutex);
         customHookCountSnapshot = g_CustomHookCount;
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -1488,6 +1491,11 @@ HookProcessFailure:
             {
                 KeUnstackDetachProcess(&cleanupApcState);
             }
+        }
+
+        // Drop the global array's reference before clearing the entry
+        if (hookEntry->ProcessObject != NULL) {
+            ObDereferenceObject(hookEntry->ProcessObject);
         }
 
         hookEntry->ProcessObject = NULL;
