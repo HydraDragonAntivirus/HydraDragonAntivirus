@@ -1518,19 +1518,25 @@ VOID UnhookSingleFunction(
 )
 {
     NTSTATUS status;
-    UNREFERENCED_PARAMETER(Process);
-    if (!HookDef->IsHooked || !HookDef->Address) return;
-
-    // Restore Original Bytes
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = 14;
+    SIZE_T pageSize = 14; // Matches your USERMODE_HOOK_SIZE
     ULONG oldProt;
     
+    UNREFERENCED_PARAMETER(Process);
+    
+    if (!HookDef->IsHooked || !HookDef->Address) 
+        return;
+
+    // 1. Ensure we have RWX permissions to restore the original bytes
     if (fnZwProtectVirtualMemory) {
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
         if (NT_SUCCESS(status)) {
+            // 2. Restore Original Bytes
             RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
+            
+            // 3. Restore the original protection (usually PAGE_EXECUTE_READ)
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
+            
             HookDef->IsHooked = FALSE;
         }
     }
@@ -1542,107 +1548,86 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
     NTSTATUS status;
     KAPC_STATE apcState;
-    PVOID shellcodeBaseToFree = NULL;
+    PVOID shellcodeToFree = NULL;
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
 
-    // 1. Find the entry and mark as busy immediately
+    // PHASE 0: FIND AND LOCK SLOT
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
-    {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
-        {
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId) {
             hookEntry = &g_UserHookEngine->Processes[i];
             break;
         }
     }
 
-    if (hookEntry == NULL || hookEntry->IsInProgress)
-    {
+    if (hookEntry == NULL || hookEntry->IsInProgress) {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
     }
 
-    // Set state so no other thread touches this slot
+    // Mark as busy so no other thread tries to hook/unhook this PID simultaneously
     hookEntry->IsInProgress = TRUE;
     hookEntry->IsHooked = FALSE;
-    if (g_UserHookEngine->HookedProcessCount > 0) 
-        g_UserHookEngine->HookedProcessCount--;
+    if (g_UserHookEngine->HookedProcessCount > 0) g_UserHookEngine->HookedProcessCount--;
 
+    // RELEASE ENGINE MUTEX: Necessary for Passive-Level I/O and Delays
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
-    // 2. Resolve the process
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (!NT_SUCCESS(status)) {
-        goto FinalCleanup; // Process might have exited already
-    }
+    if (!NT_SUCCESS(status)) goto FinalCleanup;
 
-    // 3. PHASE 1: THE "RESTORATION"
-    // We put the original bytes back. After this, NO NEW THREADS will jump to our driver.
+    // PHASE 1: RESTORE ORIGINAL CODE (STOPS NEW THREADS)
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    __try 
-    {
-        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
-        {
-            if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
-            {
-                // Restore original ntdll bytes
+    __try {
+        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
+            if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked) {
                 UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
             }
         }
         
-        // Clean up the cross-process handle
         if (hookEntry->DriverDeviceHandle) {
             ZwClose(hookEntry->DriverDeviceHandle);
             hookEntry->DriverDeviceHandle = NULL;
         }
 
-        // Move shellcode pointer to a local variable and clear it in the entry
-        // This prevents double-frees if unhooking is called twice
-        shellcodeBaseToFree = hookEntry->ShellcodeBase;
-        hookEntry->ShellcodeBase = NULL;
+        // Capture address but don't free yet
+        shellcodeToFree = hookEntry->ShellcodeBase;
+        hookEntry->ShellcodeBase = NULL; 
     }
-    __finally 
-    {
+    __finally {
         KeUnstackDetachProcess(&apcState);
     }
 
-    // 4. PHASE 2: THE "DRAIN" PERIOD
-    // CRITICAL: We wait 100ms. If a thread was halfway through our shellcode 
-    // when we restored the bytes, this gives it time to finish and return 
-    // to the main app code before we delete the shellcode memory.
+    // PHASE 2: THE DRAIN (WAIT FOR IN-FLIGHT THREADS)
+    // We wait 100ms to allow threads inside the shellcode to finish and return.
     LARGE_INTEGER interval;
-    interval.QuadPart = -100 * 1000 * 10; // 100 milliseconds
+    interval.QuadPart = -100 * 1000 * 10; 
     KeDelayExecutionThread(KernelMode, FALSE, &interval);
 
-    // 5. PHASE 3: THE "DESTRUCTION"
-    // Now that the shellcode is (statistically) empty, we free it.
-    if (shellcodeBaseToFree && fnZwFreeVirtualMemory) 
-    {
+    // PHASE 3: CLEANUP MEMORY
+    if (shellcodeToFree && fnZwFreeVirtualMemory) {
         KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        SIZE_T size = 0; 
-        fnZwFreeVirtualMemory(ZwCurrentProcess(), &shellcodeBaseToFree, &size, MEM_RELEASE);
+        SIZE_T size = 0;
+        fnZwFreeVirtualMemory(ZwCurrentProcess(), &shellcodeToFree, &size, MEM_RELEASE);
         KeUnstackDetachProcess(&apcState);
     }
 
     ObDereferenceObject(process);
 
 FinalCleanup:
-    // 6. Free the kernel-mode tracking structures
-    if (hookEntry->CustomHooks != NULL)
-    {
+    // PHASE 4: POOL CLEANUP
+    if (hookEntry->CustomHooks != NULL) {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
         hookEntry->CustomHooks = NULL;
     }
-
-    if (hookEntry->ProcessObject != NULL)
-    {
+    if (hookEntry->ProcessObject != NULL) {
         ObDereferenceObject(hookEntry->ProcessObject);
         hookEntry->ProcessObject = NULL;
     }
 
-    // 7. Re-lock just to clear the slot for reuse
+    // FINAL RESET
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
