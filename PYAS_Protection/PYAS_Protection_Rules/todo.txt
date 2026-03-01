@@ -11,3 +11,5 @@ c:\program files\hydradragonantivirus
 desktop\sanctum\
 appdata\roaming\sanctum\
 c:\windows\system32\tasks\hydradragonantivirus
+
+# TODO add specific paths come from System32 drivers eg: C:\Windows\System32\drivers\owlyshieldransomfilter.sys
