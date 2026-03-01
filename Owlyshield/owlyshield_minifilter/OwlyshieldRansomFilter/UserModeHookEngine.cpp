@@ -1519,24 +1519,23 @@ VOID UnhookSingleFunction(
 {
     NTSTATUS status;
     PVOID pageAddr = HookDef->Address;
-    SIZE_T pageSize = 14; // Matches your USERMODE_HOOK_SIZE
+    SIZE_T pageSize = 14; 
     ULONG oldProt;
-    
-    UNREFERENCED_PARAMETER(Process);
     
     if (!HookDef->IsHooked || !HookDef->Address) 
         return;
 
-    // 1. Ensure we have RWX permissions to restore the original bytes
     if (fnZwProtectVirtualMemory) {
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
         if (NT_SUCCESS(status)) {
-            // 2. Restore Original Bytes
+            // Restore Original Bytes
             RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
             
-            // 3. Restore the original protection (usually PAGE_EXECUTE_READ)
+            // CRITICAL: Force the CPU to clear its execution pipeline for this memory
+            // This prevents "Instruction Prefetch" errors that cause hard resets
+            KeInvalidateAllCaches(); 
+
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
-            
             HookDef->IsHooked = FALSE;
         }
     }
@@ -1553,7 +1552,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
 
-    // PHASE 0: FIND AND LOCK SLOT
+    // 1. Lock the slot
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
         if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId) {
@@ -1567,18 +1566,21 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         return STATUS_NOT_FOUND;
     }
 
-    // Mark as busy so no other thread tries to hook/unhook this PID simultaneously
-    hookEntry->IsInProgress = TRUE;
-    hookEntry->IsHooked = FALSE;
-    if (g_UserHookEngine->HookedProcessCount > 0) g_UserHookEngine->HookedProcessCount--;
-
-    // RELEASE ENGINE MUTEX: Necessary for Passive-Level I/O and Delays
+    hookEntry->IsInProgress = TRUE; 
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
+    // 2. Lookup and Zombie Check
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
     if (!NT_SUCCESS(status)) goto FinalCleanup;
 
-    // PHASE 1: RESTORE ORIGINAL CODE (STOPS NEW THREADS)
+    // Check if process is exiting/zombie - Attaching to a dying process causes hard resets
+    if (PsGetProcessExitStatus(process) != STATUS_PENDING) {
+        ObDereferenceObject(process);
+        goto FinalCleanup;
+    }
+
+    // 3. PHASE 1: RESTORE BYTES
+    KeEnterCriticalRegion(); // Disable kernel APCs during attachment
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     __try {
         for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
@@ -1591,45 +1593,41 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
             ZwClose(hookEntry->DriverDeviceHandle);
             hookEntry->DriverDeviceHandle = NULL;
         }
-
-        // Capture address but don't free yet
         shellcodeToFree = hookEntry->ShellcodeBase;
-        hookEntry->ShellcodeBase = NULL; 
     }
     __finally {
         KeUnstackDetachProcess(&apcState);
+        KeLeaveCriticalRegion();
     }
 
-    // PHASE 2: THE DRAIN (WAIT FOR IN-FLIGHT THREADS)
-    // We wait 100ms to allow threads inside the shellcode to finish and return.
-    LARGE_INTEGER interval;
-    interval.QuadPart = -100 * 1000 * 10; 
-    KeDelayExecutionThread(KernelMode, FALSE, &interval);
+    // 4. PHASE 2: SAFETY DRAIN
+    // Give threads 100ms to exit the shellcode before we delete it
+    if (shellcodeToFree) {
+        LARGE_INTEGER interval;
+        interval.QuadPart = -100 * 1000 * 10; 
+        KeDelayExecutionThread(KernelMode, FALSE, &interval);
 
-    // PHASE 3: CLEANUP MEMORY
-    if (shellcodeToFree && fnZwFreeVirtualMemory) {
-        KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        SIZE_T size = 0;
-        fnZwFreeVirtualMemory(ZwCurrentProcess(), &shellcodeToFree, &size, MEM_RELEASE);
-        KeUnstackDetachProcess(&apcState);
+        // 5. PHASE 3: FREE SHELLCODE
+        // Re-check process health before final attachment
+        if (PsGetProcessExitStatus(process) == STATUS_PENDING) {
+            KeStackAttachProcess((PRKPROCESS)process, &apcState);
+            SIZE_T size = 0;
+            fnZwFreeVirtualMemory(ZwCurrentProcess(), &shellcodeToFree, &size, MEM_RELEASE);
+            KeUnstackDetachProcess(&apcState);
+        }
     }
 
     ObDereferenceObject(process);
 
 FinalCleanup:
-    // PHASE 4: POOL CLEANUP
+    // 6. INTERNAL CLEANUP
     if (hookEntry->CustomHooks != NULL) {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
-        hookEntry->CustomHooks = NULL;
-    }
-    if (hookEntry->ProcessObject != NULL) {
-        ObDereferenceObject(hookEntry->ProcessObject);
-        hookEntry->ProcessObject = NULL;
     }
 
-    // FINAL RESET
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+    if (g_UserHookEngine->HookedProcessCount > 0) g_UserHookEngine->HookedProcessCount--;
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
     return STATUS_SUCCESS;
