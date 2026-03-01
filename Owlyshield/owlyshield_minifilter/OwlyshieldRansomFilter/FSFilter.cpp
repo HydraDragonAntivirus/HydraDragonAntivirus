@@ -71,6 +71,22 @@ NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 
+// Work item used to offload UserModeHookProcess from ImageLoadCallback.
+// ImageLoadCallback runs in a loader lock path; calling heavy kernel operations
+// (KeStackAttachProcess, ZwAllocateVirtualMemory, ZwCreateFile) directly causes freezes.
+typedef struct _HOOK_PROCESS_WORK_ITEM {
+    WORK_QUEUE_ITEM WorkItem;
+    ULONG           ProcessId;
+} HOOK_PROCESS_WORK_ITEM, *PHOOK_PROCESS_WORK_ITEM;
+
+static VOID HookProcessWorkItemRoutine(_In_ PVOID Parameter)
+{
+    PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)Parameter;
+    if (ctx == NULL) return;
+    (VOID)UserModeHookProcess(ctx->ProcessId);
+    ExFreePoolWithTag(ctx, 'wHuM');
+}
+
 #define PYAS_RULE_POOL_TAG 'rPyO'
 #define PYAS_RULE_MAX_FILE_SIZE (64 * 1024)
 #define PYAS_RULE_MAX_LINE_CHARS 512
@@ -404,19 +420,35 @@ static NTSTATUS FSLoadPyasWhitelistRulesFromFileUnlocked(_In_ PCUNICODE_STRING F
 
 static VOID FSLoadPyasWhitelistRules(VOID)
 {
-    UNICODE_STRING ruleFilePath;
-
+    //
+    // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
+    // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to
+    // signal I/O completion. Holding the mutex during the file read causes
+    // a deadlock. Do ALL file I/O before acquiring the mutex.
+    //
     FSEnsurePyasRuleMutex();
-    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    if (g_PyasWhitelistRules.Loaded)
-    {
-        ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
-        return;
-    }
 
-    FSFreePyasWhitelistRulesUnlocked();
+    // Fast path check without I/O (safe to do under the mutex briefly)
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    BOOLEAN alreadyLoaded = g_PyasWhitelistRules.Loaded;
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+
+    if (alreadyLoaded)
+        return;
+
+    // Do file I/O entirely at PASSIVE_LEVEL, outside any mutex
+    UNICODE_STRING ruleFilePath;
     RtlInitUnicodeString(&ruleFilePath, OWLY_FSFILTER_RULE_FILE_KERNEL);
+
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
+    FSFreePyasWhitelistRulesUnlocked();
+    ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
+
+    // File I/O happens here with no mutex held
     (VOID)FSLoadPyasWhitelistRulesFromFileUnlocked(&ruleFilePath);
+
+    // Now just mark as loaded under the mutex (no I/O, safe at APC_LEVEL)
+    ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
     g_PyasWhitelistRules.Loaded = TRUE;
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
 }
@@ -861,102 +893,127 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
         (VOID)driverData->GetProcessGid((ULONG)(ULONG_PTR)ProcessId, &found);
         if (found)
         {
-            (VOID)UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
+            //
+            // FIX: Never call UserModeHookProcess directly from ImageLoadCallback.
+            // ImageLoadCallback runs while the process loader lock is held, at an
+            // elevated call depth. UserModeHookProcess does KeStackAttachProcess,
+            // ZwAllocateVirtualMemory, and ZwCreateFile - all of which can block
+            // waiting for APCs or locks already owned on the loader path → freeze.
+            // Queue a DelayedWorkQueue item so it runs on a system worker thread
+            // at PASSIVE_LEVEL with no loader lock held.
+            //
+            PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
+                POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
+            if (ctx != NULL)
+            {
+                ExInitializeWorkItem(&ctx->WorkItem, HookProcessWorkItemRoutine, ctx);
+                ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
+                ExQueueWorkItem(&ctx->WorkItem, DelayedWorkQueue);
+            }
         }
     }
 }
 
 VOID EnumerateExistingProcesses(VOID)
 {
-    // Windows PIDs are always multiples of 4.
-    // A safe upper limit for PIDs on modern Windows is usually around 65k-100k,
-    // but we can scan higher to be safe. 262144 (0x40000) is a robust limit.
-    for (ULONG pidNum = 4; pidNum < 0x40000; pidNum += 4)
+    //
+    // FIX: Replace the brute-force PID loop (65535 iterations of PsLookupProcessByProcessId)
+    // with a single ZwQuerySystemInformation(SystemProcessInformation) call. The old loop
+    // caused DriverEntry to block for several seconds, causing sc start to time out.
+    //
+    NTSTATUS status;
+    ULONG bufferSize = 64 * 1024; // Start at 64 KB; grow if needed
+    PVOID buffer = NULL;
+    ULONG returnLength = 0;
+
+    // Retry up to 4 times in case the snapshot grows between calls
+    for (int attempt = 0; attempt < 4; ++attempt)
     {
-
-        HANDLE pid = (HANDLE)(ULONG_PTR)pidNum;
-        PEPROCESS process = NULL;
-
-        // 1. Check if a process exists with this PID
-        // PsLookupProcessByProcessId is fully documented and stable.
-        NTSTATUS status = PsLookupProcessByProcessId(pid, &process);
-
-        if (NT_SUCCESS(status))
+        buffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSize, 'EPrW');
+        if (buffer == NULL)
         {
-            // Found a valid process.
-            // Skip System (4) and Idle (0) just like your original code.
-            // (Note: Loop starts at 4, so 0 is implicitly skipped, we just check 4)
-            if (pidNum != 4)
-            {
-                HANDLE procHandle = NULL;
-
-                // 2. Open a Kernel Handle to the process object
-                // ObOpenObjectByPointer is safer than ZwOpenProcess when we already have the object pointer.
-                status = ObOpenObjectByPointer(process, OBJ_KERNEL_HANDLE, NULL,
-                                               PROCESS_ALL_ACCESS, // Needed for ZwQueryInformationProcess
-                                               *PsProcessType, KernelMode, &procHandle);
-
-                if (NT_SUCCESS(status))
-                {
-                    PUNICODE_STRING procName = NULL;
-                    ULONG parentPid = 0;
-                    ULONGLONG gid = 0;
-
-                    // 3. Get Process Name (Using your existing helper)
-                    if (NT_SUCCESS(GetProcessNameByHandle(procHandle, &procName)))
-                    {
-
-                        // 4. Get Parent PID
-                        // We use ZwQueryInformationProcess with ProcessBasicInformation (Class 0)
-                        PROCESS_BASIC_INFORMATION pbi = {0};
-                        ULONG returnLength = 0;
-
-                        status = ZwQueryInformationProcess(procHandle, ProcessBasicInformation, &pbi, sizeof(pbi),
-                                                           &returnLength);
-
-                        if (NT_SUCCESS(status))
-                        {
-                            parentPid = (ULONG)pbi.InheritedFromUniqueProcessId;
-                        }
-
-                        // 5. Record in Driver Data
-                        gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
-
-                        // 6. Send to User Mode (Copy of your original logic)
-                        PIRP_ENTRY newEntry = new IRP_ENTRY();
-                        if (newEntry != NULL)
-                        {
-                            newEntry->data.PID = pidNum;
-                            newEntry->data.Gid = gid;
-                            newEntry->data.ParentPid = parentPid;
-                            newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
-
-                            USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE)
-                                                 ? procName->Length
-                                                 : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-
-                            RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
-                            newEntry->Buffer[copyLen / 2] = L'\0';
-                            newEntry->filePath.Length = copyLen;
-                            newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-                            newEntry->filePath.Buffer = newEntry->Buffer;
-
-                            if (!driverData->AddIrpMessage(newEntry))
-                            {
-                                delete newEntry;
-                            }
-                        }
-                    }
-
-                    // Cleanup Handle
-                    ZwClose(procHandle);
-                }
-            }
-
-            // Cleanup Process Object Reference from PsLookup...
-            ObDereferenceObject(process);
+            DbgPrint("!!! FSFilter: EnumerateExistingProcesses: allocation failed\n");
+            return;
         }
+
+        status = ZwQuerySystemInformation(SystemProcessInformation,
+                                          buffer, bufferSize, &returnLength);
+        if (status != STATUS_INFO_LENGTH_MISMATCH)
+            break;
+
+        // Buffer too small - free and grow
+        ExFreePoolWithTag(buffer, 'EPrW');
+        buffer = NULL;
+        bufferSize = returnLength + 4096;
     }
+
+    if (!NT_SUCCESS(status) || buffer == NULL)
+    {
+        DbgPrint("!!! FSFilter: EnumerateExistingProcesses: ZwQuerySystemInformation failed 0x%X\n", status);
+        if (buffer != NULL)
+            ExFreePoolWithTag(buffer, 'EPrW');
+        return;
+    }
+
+    PSYSTEM_PROCESS_INFORMATION entry = (PSYSTEM_PROCESS_INFORMATION)buffer;
+    for (;;)
+    {
+        ULONG pidNum = (ULONG)(ULONG_PTR)entry->UniqueProcessId;
+        ULONG parentPid = (ULONG)(ULONG_PTR)entry->InheritedFromUniqueProcessId;
+
+        // Skip Idle (0) and System (4)
+        if (pidNum > 4 && entry->ImageName.Buffer != NULL && entry->ImageName.Length > 0)
+        {
+            // Allocate a UNICODE_STRING copy for RecordNewProcess (it takes ownership)
+            USHORT allocLen = entry->ImageName.Length + sizeof(WCHAR);
+            PUNICODE_STRING procName = (PUNICODE_STRING)ExAllocatePool2(
+                POOL_FLAG_NON_PAGED,
+                sizeof(UNICODE_STRING) + allocLen,
+                'RW');
+
+            if (procName != NULL)
+            {
+                procName->Buffer = (PWCH)((PUCHAR)procName + sizeof(UNICODE_STRING));
+                procName->Length = entry->ImageName.Length;
+                procName->MaximumLength = allocLen;
+                RtlCopyMemory(procName->Buffer, entry->ImageName.Buffer, entry->ImageName.Length);
+                procName->Buffer[entry->ImageName.Length / sizeof(WCHAR)] = L'\0';
+
+                ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
+
+                PIRP_ENTRY newEntry = new IRP_ENTRY();
+                if (newEntry != NULL)
+                {
+                    newEntry->data.PID = pidNum;
+                    newEntry->data.Gid = gid;
+                    newEntry->data.ParentPid = parentPid;
+                    newEntry->data.IRP_OP = IRP_PROCESS_CREATE;
+
+                    USHORT copyLen = (procName->Length < MAX_FILE_NAME_SIZE)
+                                         ? procName->Length
+                                         : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
+
+                    RtlCopyMemory(newEntry->Buffer, procName->Buffer, copyLen);
+                    newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
+                    newEntry->filePath.Length = copyLen;
+                    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+                    newEntry->filePath.Buffer = newEntry->Buffer;
+
+                    if (!driverData->AddIrpMessage(newEntry))
+                    {
+                        delete newEntry;
+                    }
+                }
+                // procName is owned by RecordNewProcess, don't free here
+            }
+        }
+
+        if (entry->NextEntryOffset == 0)
+            break;
+        entry = (PSYSTEM_PROCESS_INFORMATION)((PUCHAR)entry + entry->NextEntryOffset);
+    }
+
+    ExFreePoolWithTag(buffer, 'EPrW');
 }
 
 NTSTATUS

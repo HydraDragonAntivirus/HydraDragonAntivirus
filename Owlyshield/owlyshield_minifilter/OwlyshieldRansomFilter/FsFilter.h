@@ -109,7 +109,7 @@ VOID AddRemProcessRoutineEx(
     _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
 );
 
-_IRQL_raises_(DISPATCH_LEVEL) VOID AddRemProcessRoutineLegacy(
+VOID AddRemProcessRoutineLegacy(
     _In_ HANDLE ParentId,
     _In_ HANDLE ProcessId,
     _In_ BOOLEAN Create

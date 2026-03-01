@@ -425,19 +425,38 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
         OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
     };
 
+    //
+    // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
+    // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to signal
+    // I/O completion. Holding the mutex during the file read was a guaranteed
+    // deadlock. Do ALL file I/O before acquiring the mutex.
+    //
     EnsureHookExcludeRuleMutex();
+
+    // Fast path check (brief mutex hold, no I/O)
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
-    if (!g_HookExcludeRules.Loaded)
+    BOOLEAN alreadyLoaded = g_HookExcludeRules.Loaded;
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+
+    if (alreadyLoaded)
+        return;
+
+    // Reset rule storage under the mutex (no I/O, safe at APC_LEVEL)
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    FreeHookExcludeRulesUnlocked();
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+
+    // File I/O happens here with NO mutex held (PASSIVE_LEVEL, APCs enabled)
+    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {
-        FreeHookExcludeRulesUnlocked();
-        for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
-        {
-            UNICODE_STRING ruleFile;
-            RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-            (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
-        }
-        g_HookExcludeRules.Loaded = TRUE;
+        UNICODE_STRING ruleFile;
+        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
+        (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
     }
+
+    // Mark loaded under the mutex (no I/O, safe at APC_LEVEL)
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    g_HookExcludeRules.Loaded = TRUE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 }
 
