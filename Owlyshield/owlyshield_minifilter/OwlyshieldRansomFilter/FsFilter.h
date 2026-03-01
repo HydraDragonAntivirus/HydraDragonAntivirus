@@ -125,3 +125,63 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath);
 // Global variables in drivers should be avoided when possible
 // If needed, it should be properly initialized and synchronized
 extern UNICODE_STRING GvolumeData;
+
+// -------------------------------------------------------------------------
+// Manual declarations for ZwQuerySystemInformation + SYSTEM_PROCESS_INFORMATION
+//
+// These are NOT reliably exposed by any standard WDK kernel-mode header
+// (<ntddk.h>, <ntifs.h>, <wdm.h>) across all WDK versions. Declaring them
+// manually here is the standard approach used in all production kernel drivers
+// that need process enumeration, matching how ZwQueryInformationProcess is
+// already handled in this codebase.
+// -------------------------------------------------------------------------
+
+typedef enum _SYSTEM_INFORMATION_CLASS_LOCAL {
+    SystemProcessInformationLocal = 5
+} SYSTEM_INFORMATION_CLASS_LOCAL;
+
+typedef struct _SYSTEM_PROCESS_INFORMATION {
+    ULONG           NextEntryOffset;
+    ULONG           NumberOfThreads;
+    LARGE_INTEGER   WorkingSetPrivateSize;
+    ULONG           HardFaultCount;
+    ULONG           NumberOfThreadsHighWatermark;
+    ULONGLONG       CycleTime;
+    LARGE_INTEGER   CreateTime;
+    LARGE_INTEGER   UserTime;
+    LARGE_INTEGER   KernelTime;
+    UNICODE_STRING  ImageName;
+    LONG            BasePriority;
+    HANDLE          UniqueProcessId;
+    HANDLE          InheritedFromUniqueProcessId;
+    ULONG           HandleCount;
+    ULONG           SessionId;
+    ULONG_PTR       UniqueProcessKey;
+    SIZE_T          PeakVirtualSize;
+    SIZE_T          VirtualSize;
+    ULONG           PageFaultCount;
+    SIZE_T          PeakWorkingSetSize;
+    SIZE_T          WorkingSetSize;
+    SIZE_T          QuotaPeakPagedPoolUsage;
+    SIZE_T          QuotaPagedPoolUsage;
+    SIZE_T          QuotaPeakNonPagedPoolUsage;
+    SIZE_T          QuotaNonPagedPoolUsage;
+    SIZE_T          PagefileUsage;
+    SIZE_T          PeakPagefileUsage;
+    SIZE_T          PrivatePageCount;
+    LARGE_INTEGER   ReadOperationCount;
+    LARGE_INTEGER   WriteOperationCount;
+    LARGE_INTEGER   OtherOperationCount;
+    LARGE_INTEGER   ReadTransferCount;
+    LARGE_INTEGER   WriteTransferCount;
+    LARGE_INTEGER   OtherTransferCount;
+} SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
+
+typedef NTSTATUS (NTAPI *PZW_QUERY_SYSTEM_INFORMATION)(
+    _In_      ULONG SystemInformationClass,
+    _Inout_   PVOID SystemInformation,
+    _In_      ULONG SystemInformationLength,
+    _Out_opt_ PULONG ReturnLength
+);
+
+static PZW_QUERY_SYSTEM_INFORMATION g_fnZwQuerySystemInformation = NULL;

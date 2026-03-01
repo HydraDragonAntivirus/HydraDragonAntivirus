@@ -554,6 +554,18 @@ Return Value:
         }
     }
 
+    // Resolve ZwQuerySystemInformation dynamically - not reliably declared in WDK headers
+    if (g_fnZwQuerySystemInformation == NULL)
+    {
+        UNICODE_STRING routineName = RTL_CONSTANT_STRING(L"ZwQuerySystemInformation");
+        g_fnZwQuerySystemInformation = (PZW_QUERY_SYSTEM_INFORMATION)MmGetSystemRoutineAddress(&routineName);
+        if (g_fnZwQuerySystemInformation == NULL)
+        {
+            DbgPrint("!!! FSFilter: Cannot resolve ZwQuerySystemInformation. Driver will not load.\n");
+            return STATUS_UNSUCCESSFUL;
+        }
+    }
+
     //
     //  Default to NonPagedPoolNx for non paged pool allocations where supported.
     //
@@ -921,6 +933,12 @@ VOID EnumerateExistingProcesses(VOID)
     // with a single ZwQuerySystemInformation(SystemProcessInformation) call. The old loop
     // caused DriverEntry to block for several seconds, causing sc start to time out.
     //
+    if (g_fnZwQuerySystemInformation == NULL)
+    {
+        DbgPrint("!!! FSFilter: EnumerateExistingProcesses: ZwQuerySystemInformation not resolved\n");
+        return;
+    }
+
     NTSTATUS status;
     ULONG bufferSize = 64 * 1024; // Start at 64 KB; grow if needed
     PVOID buffer = NULL;
@@ -936,8 +954,8 @@ VOID EnumerateExistingProcesses(VOID)
             return;
         }
 
-        status = ZwQuerySystemInformation(SystemProcessInformation,
-                                          buffer, bufferSize, &returnLength);
+        status = g_fnZwQuerySystemInformation(SystemProcessInformationLocal,
+                                              buffer, bufferSize, &returnLength);
         if (status != STATUS_INFO_LENGTH_MISMATCH)
             break;
 
