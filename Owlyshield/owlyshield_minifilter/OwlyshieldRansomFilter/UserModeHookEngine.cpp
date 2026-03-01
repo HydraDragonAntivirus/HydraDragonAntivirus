@@ -1286,8 +1286,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked &&
-            g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
         {
             hookEntry = &g_UserHookEngine->Processes[i];
             existingHookEntry = TRUE;
@@ -1330,7 +1329,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         // single attachment for all resolving/hooking
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        __try {
+        __try
+        {
             // 1. Initialize Infrastructure (Alloc + Handle)
             status = InitializeShellcodeInfrastructure(process, hookEntry);
             if (!NT_SUCCESS(status))
@@ -1341,8 +1341,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             if (hookEntry->CustomHookCapacity > 0)
             {
                 SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
-                hookEntry->CustomHooks =
-                    (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
+                hookEntry->CustomHooks = (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
                 if (hookEntry->CustomHooks == NULL)
                 {
                     status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1355,8 +1354,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
             if (!targetNtDeviceIo)
             {
-                 status = STATUS_NOT_FOUND;
-                 __leave;
+                status = STATUS_NOT_FOUND;
+                __leave;
             }
 
             // 3. Inject Hooks (Dynamic only)
@@ -1368,16 +1367,11 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             }
             for (ULONG i = 0; i < customHookCountToApply; i++)
             {
-                NTSTATUS hookStatus = ResolveAndHook(process,
-                                                     hookEntry,
-                                                     g_GlobalCustomHooks[i].ModuleName,
-                                                     g_GlobalCustomHooks[i].FunctionName,
-                                                     &hookEntry->CustomHooks[i],
-                                                     g_GlobalCustomHooks[i].EventId,
-                                                     targetNtDeviceIo);
+                NTSTATUS hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
+                                                     g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                     g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
                 // Missing module/export is expected during refresh cycles; keep processing remaining entries.
-                if (!NT_SUCCESS(hookStatus) &&
-                    hookStatus != STATUS_NOT_FOUND &&
+                if (!NT_SUCCESS(hookStatus) && hookStatus != STATUS_NOT_FOUND &&
                     hookStatus != STATUS_PROCEDURE_NOT_FOUND)
                 {
                     status = hookStatus;
@@ -1387,79 +1381,81 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             }
             ExReleaseFastMutex(&g_ConfigMutex);
         }
-        __finally {
+        __finally
+        {
             KeUnstackDetachProcess(&apcState);
         }
-    
-    if (!NT_SUCCESS(status)) goto HookProcessFailure;
 
-    if (!existingHookEntry)
-    {
-        hookEntry->IsHooked = TRUE;
-        g_UserHookEngine->HookedProcessCount++;
-    }
+        if (!NT_SUCCESS(status))
+            goto HookProcessFailure;
 
-    DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s, %lu Custom)\n",
-             ProcessId,
-             existingHookEntry ? "refresh" : "initial",
-             customHookCountToApply);
+        if (!existingHookEntry)
+        {
+            hookEntry->IsHooked = TRUE;
+            g_UserHookEngine->HookedProcessCount++;
+        }
 
-    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-    if (existingHookEntry)
-    {
-        ObDereferenceObject(process);
-    }
-    return STATUS_SUCCESS;
+        DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s, %lu Custom)\n", ProcessId,
+                 existingHookEntry ? "refresh" : "initial", customHookCountToApply);
 
-HookProcessFailure:
-    if (existingHookEntry)
-    {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        if (existingHookEntry)
+        {
+            ObDereferenceObject(process);
+        }
+        return STATUS_SUCCESS;
+
+    HookProcessFailure:
+        if (existingHookEntry)
+        {
+            ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+            ObDereferenceObject(process);
+            return status;
+        }
+
+        if (hookEntry != NULL)
+        {
+            if (hookEntry->CustomHooks != NULL)
+            {
+                ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+                hookEntry->CustomHooks = NULL;
+                hookEntry->CustomHookCapacity = 0;
+            }
+
+            if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
+            {
+                KAPC_STATE cleanupApcState;
+                KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
+                __try
+                {
+                    if (hookEntry->DriverDeviceHandle != NULL)
+                    {
+                        ZwClose(hookEntry->DriverDeviceHandle);
+                        hookEntry->DriverDeviceHandle = NULL;
+                    }
+
+                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                    {
+                        SIZE_T freeSize = 0;
+                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                        hookEntry->ShellcodeBase = NULL;
+                    }
+                }
+                __finally
+                {
+                    KeUnstackDetachProcess(&cleanupApcState);
+                }
+            }
+
+            hookEntry->ProcessObject = NULL;
+            RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+        }
+
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return status;
     }
-
-    if (hookEntry != NULL)
-    {
-        if (hookEntry->CustomHooks != NULL)
-        {
-            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
-            hookEntry->CustomHooks = NULL;
-            hookEntry->CustomHookCapacity = 0;
-        }
-
-        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
-        {
-            KAPC_STATE cleanupApcState;
-            KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
-            __try {
-                if (hookEntry->DriverDeviceHandle != NULL)
-                {
-                    ZwClose(hookEntry->DriverDeviceHandle);
-                    hookEntry->DriverDeviceHandle = NULL;
-                }
-
-                if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
-                {
-                    SIZE_T freeSize = 0;
-                    fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
-                    hookEntry->ShellcodeBase = NULL;
-                }
-            }
-            __finally {
-                KeUnstackDetachProcess(&cleanupApcState);
-            }
-        }
-
-        hookEntry->ProcessObject = NULL;
-        RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
-    }
-
-    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-    ObDereferenceObject(process);
-    return status;
 }
-
 //
 // Unhook
 //
