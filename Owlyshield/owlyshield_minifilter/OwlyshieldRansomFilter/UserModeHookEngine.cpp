@@ -1546,6 +1546,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
 
+    // 1. Acquire Mutex to find the entry and mark it as busy
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
@@ -1557,14 +1558,26 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         }
     }
 
-    if (hookEntry == NULL)
+    if (hookEntry == NULL || hookEntry->IsInProgress)
     {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
     }
 
-    DbgPrint("!!! UserModeHook: Unhooking process %lu\n", ProcessId);
+    // Mark as in-progress and no longer hooked so other threads ignore it
+    hookEntry->IsInProgress = TRUE;
+    hookEntry->IsHooked = FALSE;
+    if (g_UserHookEngine->HookedProcessCount > 0)
+    {
+        g_UserHookEngine->HookedProcessCount--;
+    }
 
+    // DROP THE MUTEX BEFORE DOING ANY HEAVY LIFTING OR ZW* CALLS
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    DbgPrint("!!! UserModeHook: Unhooking process %lu at PASSIVE_LEVEL\n", ProcessId);
+
+    // 2. Perform process attachment and cleanup safely at PASSIVE_LEVEL
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
     if (NT_SUCCESS(status))
     {
@@ -1600,6 +1613,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         ObDereferenceObject(process);
     }
 
+    // 3. Cleanup allocated arrays outside lock
     if (hookEntry->CustomHooks != NULL)
     {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
@@ -1612,12 +1626,10 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         hookEntry->ProcessObject = NULL;
     }
 
+    // 4. Re-acquire the mutex to finalize clearing the slot
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
-    if (g_UserHookEngine->HookedProcessCount > 0)
-    {
-        g_UserHookEngine->HookedProcessCount--;
-    }
-
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
     return STATUS_SUCCESS;
 }
