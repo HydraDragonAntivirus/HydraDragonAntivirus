@@ -29,9 +29,9 @@ Environment :
 const WCHAR *const ComPortName = L"\\RWFilter";
 
 // Shared dynamic-hook exclusion rule file path (kernel/user-mode deployment target).
-#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\DynamicHook\\default_rules.txt"
+#define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\DynamicHook\\default_rules.txt"
 // Shared FsFilter rule file path (kernel-side ignore list).
-#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\FSFilter\\default_rules.txt"
+#define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\FSFilter\\default_rules.txt"
 
 // Fix C4005: Macro redefinition warning
 #ifndef MAX_FILE_NAME_LENGTH
