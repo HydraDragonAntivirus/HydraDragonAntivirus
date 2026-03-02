@@ -1428,9 +1428,18 @@ NTSTATUS InjectSingleHook(
         *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE);
     }
 
-    // Write Shellcode to Target at specific offset
-    RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
-    
+    // Write Shellcode to Target at specific offset.
+    // myShellcodeAddress is user-mode memory — must be guarded.
+    __try
+    {
+        ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
+        RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return STATUS_ACCESS_VIOLATION;
+    }
+
     // 2. Install Hook (JMP to Shellcode)
     PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = 14;
@@ -1444,8 +1453,19 @@ NTSTATUS InjectSingleHook(
             jmp[0] = 0xFF; jmp[1] = 0x25; 
             *(PULONG)&jmp[2] = 0;
             *(PVOID*)&jmp[6] = myShellcodeAddress;
-            
-            RtlCopyMemory(HookDef->Address, jmp, 14);
+
+            // HookDef->Address is user-mode memory — must be guarded.
+            __try
+            {
+                ProbeForWrite(HookDef->Address, 14, 1);
+                RtlCopyMemory(HookDef->Address, jmp, 14);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // Restore protection even on failure.
+                fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
+                return STATUS_ACCESS_VIOLATION;
+            }
             
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             
@@ -1620,6 +1640,17 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                 HookEntry->ShellcodeBase = NULL;
             }
         }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+            // Roll back any allocation that may have succeeded before the fault.
+            if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
+            {
+                SIZE_T freeSize = 0;
+                fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
+            }
+            HookEntry->ShellcodeBase = NULL;
+        }
         __finally
         {
             KeUnstackDetachProcess(&apcState);
@@ -1772,6 +1803,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // Single attachment for resolving exports and writing hooks
     {
     KAPC_STATE apcState;
+    BOOLEAN configMutexHeld = FALSE;   // track ownership for safe release in __finally
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     __try
     {
@@ -1786,6 +1818,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
         // Inject hooks
         ExAcquireFastMutex(&g_ConfigMutex);
+        configMutexHeld = TRUE;
             customHookCountToApply = g_CustomHookCount;
             if (customHookCountToApply > hookEntry->CustomHookCapacity)
             {
@@ -1796,21 +1829,41 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 NTSTATUS hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
                                                      g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
                                                      g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
-                // Missing module/export is expected during refresh cycles; keep processing remaining entries.
-                if (!NT_SUCCESS(hookStatus) && hookStatus != STATUS_NOT_FOUND &&
-                    hookStatus != STATUS_PROCEDURE_NOT_FOUND)
+                // Missing module/export is expected during refresh cycles.
+                // RIP-relative prologues (NOT_SUPPORTED) and inaccessible pages
+                // (ACCESS_VIOLATION) are safe to skip — keep processing remaining entries.
+                if (!NT_SUCCESS(hookStatus) &&
+                    hookStatus != STATUS_NOT_FOUND &&
+                    hookStatus != STATUS_PROCEDURE_NOT_FOUND &&
+                    hookStatus != STATUS_NOT_SUPPORTED &&
+                    hookStatus != STATUS_ACCESS_VIOLATION)
                 {
                     status = hookStatus;
                     ExReleaseFastMutex(&g_ConfigMutex);
+                    configMutexHeld = FALSE;
                     __leave;
                 }
             }
             ExReleaseFastMutex(&g_ConfigMutex);
+            configMutexHeld = FALSE;
         }
-        __finally
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Catch any exception that escaped the inner __try/__except blocks.
+        // Record it as a status so callers can see something went wrong,
+        // then fall through to __finally which will detach safely.
+        status = GetExceptionCode();
+    }
+    __finally
+    {
+        // Release the config mutex if an exception fired while we held it.
+        if (configMutexHeld)
         {
-            KeUnstackDetachProcess(&apcState);
+            ExReleaseFastMutex(&g_ConfigMutex);
+            configMutexHeld = FALSE;
         }
+        KeUnstackDetachProcess(&apcState);
+    }
 
         ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
         hookEntry->IsInProgress = FALSE;
@@ -1878,6 +1931,13 @@ HookProcessFailure:
                     hookEntry->ShellcodeBase = NULL;
                 }
             }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // Exception during cleanup — clear the fields anyway so we
+                // don't double-free on a subsequent attempt.
+                hookEntry->DriverDeviceHandle = NULL;
+                hookEntry->ShellcodeBase = NULL;
+            }
             __finally
             {
                 KeUnstackDetachProcess(&cleanupApcState);
@@ -1920,12 +1980,23 @@ VOID UnhookSingleFunction(
     if (fnZwProtectVirtualMemory) {
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
         if (NT_SUCCESS(status)) {
-            // Restore Original Bytes
-            RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
-            
-            // CRITICAL: Force the CPU to clear its execution pipeline for this memory
-            // This prevents "Instruction Prefetch" errors that cause hard resets
-            KeInvalidateAllCaches(); 
+            // Restore Original Bytes.
+            // HookDef->Address is user-mode memory — must be guarded.
+            __try
+            {
+                ProbeForWrite(HookDef->Address, 14, 1);
+                RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, 14);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // Restore protection and bail; the hook entry is already
+                // logically invalid since the process is being torn down.
+                fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
+                return;
+            }
+
+            // CRITICAL: Flush the CPU instruction pipeline for this memory.
+            KeInvalidateAllCaches();
 
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             HookDef->IsHooked = FALSE;
@@ -1972,7 +2043,6 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     }
 
     // 3. PHASE 1: RESTORE BYTES
-    KeEnterCriticalRegion(); // Disable kernel APCs during attachment
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
     __try {
         for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
@@ -1987,9 +2057,15 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         }
         shellcodeToFree = hookEntry->ShellcodeBase;
     }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // An exception during byte-restore is non-fatal for the driver —
+        // the hook entry will still be cleaned up below.
+        DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n",
+                 GetExceptionCode(), ProcessId);
+    }
     __finally {
         KeUnstackDetachProcess(&apcState);
-        KeLeaveCriticalRegion();
     }
 
     // 4. PHASE 2: SAFETY DRAIN
