@@ -1098,9 +1098,13 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
                 ProbeForRead(ldr, sizeof(PEB_LDR_DATA), 1);
                 PLIST_ENTRY listHead = &ldr->InLoadOrderModuleList;
                 PLIST_ENTRY listEntry = listHead->Flink;
+                ULONG safetyCounter = 0;
 
-                while (listEntry != listHead)
+                while (listEntry != listHead && safetyCounter++ < 1024)
                 {
+                    // Probe the LIST_ENTRY itself before deriving ldrEntry from it.
+                    ProbeForRead(listEntry, sizeof(LIST_ENTRY), sizeof(PVOID));
+
                     PLDR_DATA_TABLE_ENTRY ldrEntry =
                         CONTAINING_RECORD(listEntry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
                     ProbeForRead(ldrEntry, sizeof(LDR_DATA_TABLE_ENTRY), 1);
@@ -1116,7 +1120,8 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
                             break;
                         }
                     }
-                    listEntry = listEntry->Flink;
+                    // Read Flink AFTER probing ldrEntry (it lives inside ldrEntry's memory).
+                    listEntry = ldrEntry->InLoadOrderLinks.Flink;
                 }
             }
         }
@@ -1136,6 +1141,16 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
 {
     PVOID functionAddress = NULL;
+
+    if (ModuleBase == NULL || FunctionName == NULL)
+        return NULL;
+
+    // Pre-compute the search name length once (FunctionName is a kernel literal,
+    // safe to call strlen on directly).
+    SIZE_T targetLen = strlen(FunctionName);
+    if (targetLen == 0 || targetLen > 255)
+        return NULL;
+
     __try
     {
         PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)ModuleBase;
@@ -1143,31 +1158,81 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
+        // e_lfanew is a ULONG — validate range before pointer arithmetic.
+        if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) ||
+            dosHeader->e_lfanew > 0x10000000UL)
+            return NULL;
+
+        PIMAGE_NT_HEADERS ntHeaders =
+            (PIMAGE_NT_HEADERS)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
         ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS), 1);
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
             return NULL;
 
+        ULONG exportDirRva =
+            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+        ULONG exportDirSize =
+            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+
+        if (exportDirRva == 0 || exportDirSize < sizeof(IMAGE_EXPORT_DIRECTORY))
+            return NULL;
+
         PIMAGE_EXPORT_DIRECTORY exportDir =
-            (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase +
-                                      ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]
-                                          .VirtualAddress);
+            (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
-        PULONG addressOfFunctions = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        PULONG addressOfNames = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-        PUSHORT addressOfNameOrdinals = (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+        if (exportDir->NumberOfNames == 0 || exportDir->NumberOfFunctions == 0)
+            return NULL;
+
+        // Probe the three export tables upfront before indexing into them.
+        PULONG  addressOfFunctions =
+            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
+        PULONG  addressOfNames =
+            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+        PUSHORT addressOfNameOrdinals =
+            (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+
+        ProbeForRead(addressOfFunctions,
+                     (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
+        ProbeForRead(addressOfNames,
+                     (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+        ProbeForRead(addressOfNameOrdinals,
+                     (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
         for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
         {
-            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + addressOfNames[i]);
-            ProbeForRead((PVOID)currentName, strlen(FunctionName) + 1, 1);
+            // Validate RVA before building the pointer.
+            ULONG nameRva = addressOfNames[i];
+            if (nameRva == 0)
+                continue;
 
-            if (strcmp(currentName, FunctionName) == 0)
+            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+
+            // Probe a fixed maximum — we MUST probe currentName BEFORE calling
+            // any C-runtime string function on it.  The old code passed
+            // strlen(FunctionName) as the probe length, which probed the
+            // WRONG length and on the WRONG memory: if currentName pointed to
+            // a short or unmapped string, strlen would fault inside the probe.
+            ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+
+            // strncmp is safe here: currentName is probed for at least
+            // targetLen+1 bytes, so we won't read past the probe boundary
+            // even if the export name is shorter than targetLen.
+            if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
             {
                 USHORT ordinal = addressOfNameOrdinals[i];
-                ULONG rva = addressOfFunctions[ordinal];
-                functionAddress = (PVOID)((PUCHAR)ModuleBase + rva);
+                if (ordinal >= exportDir->NumberOfFunctions)
+                    break;  // corrupt export table
+
+                ULONG funcRva = addressOfFunctions[ordinal];
+                if (funcRva == 0)
+                    break;
+
+                // Reject forwarder RVAs (they point inside the export directory).
+                if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
+                    break;
+
+                functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
                 break;
             }
         }
@@ -1261,13 +1326,28 @@ NTSTATUS InjectSingleHook(
     if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
 
     // FIX #4: Reject hooks whose stolen bytes contain RIP-relative instructions.
-    // Re-executing such bytes from the shellcode's different VA would silently
-    // corrupt memory or jump to garbage.
-    if (ContainsUnrelocatableInstructions((const UCHAR*)HookDef->Address, USERMODE_HOOK_SIZE))
+    // ContainsUnrelocatableInstructions reads user-mode memory — must be guarded.
     {
-        DbgPrint("UserModeHook: Skipping %p — stolen bytes contain RIP-relative instructions\n",
-                 HookDef->Address);
-        return STATUS_NOT_SUPPORTED;
+        BOOLEAN unrelocatable = FALSE;
+        __try
+        {
+            ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
+            unrelocatable = ContainsUnrelocatableInstructions(
+                (const UCHAR*)HookDef->Address, USERMODE_HOOK_SIZE);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            DbgPrint("UserModeHook: ProbeForRead faulted at %p — skipping hook\n",
+                     HookDef->Address);
+            return STATUS_ACCESS_VIOLATION;
+        }
+
+        if (unrelocatable)
+        {
+            DbgPrint("UserModeHook: Skipping %p — stolen bytes contain RIP-relative instructions\n",
+                     HookDef->Address);
+            return STATUS_NOT_SUPPORTED;
+        }
     }
 
     // Calculate Offset
@@ -1330,9 +1410,19 @@ NTSTATUS InjectSingleHook(
         *(PVOID *)(shellcode + offNtIo + 2) = TargetNtDeviceIo;
 
         // Save original bytes and embed them in the stolen-instruction slot
-        // (which sits exactly USERMODE_HOOK_SIZE bytes before the return stub)
-        RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
-        RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE), HookDef->Address, USERMODE_HOOK_SIZE);
+        // (which sits exactly USERMODE_HOOK_SIZE bytes before the return stub).
+        // ProbeForRead + __try because HookDef->Address is user-mode memory.
+        __try
+        {
+            ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
+            RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
+            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE),
+                          HookDef->Address, USERMODE_HOOK_SIZE);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return STATUS_ACCESS_VIOLATION;
+        }
 
         // Patch return target to original function + stolen bytes
         *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE);
