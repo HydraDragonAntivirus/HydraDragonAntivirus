@@ -486,6 +486,81 @@ fn normalize_extension_token(extension: &str) -> String {
         .to_lowercase()
 }
 
+// =============================================================================
+// API CATEGORIZATION
+// =============================================================================
+/// Maps a "dll!function" string to a behavioural category.
+/// Categories: network, injection, process, thread, memory, file, registry,
+///             execution, crypto, evasion
+fn categorize_api(entry: &str) -> Option<&'static str> {
+    let lower = entry.to_lowercase();
+    if lower.contains("ws2_32") || lower.contains("winhttp") ||
+       lower.contains("wininet") || lower.contains("urlmon") ||
+       lower.contains("mswsock") || lower.contains("wsock32") ||
+       lower.contains("dnsapi") || lower.contains("rasapi32") ||
+       lower.contains("iphlpapi") { return Some("network"); }
+    if lower.contains("bcrypt") || lower.contains("crypt32") ||
+       lower.contains("ncrypt") { return Some("crypto"); }
+    let func = lower.rsplit('!').next().unwrap_or("");
+    const INJECTION_FNS: &[&str] = &[
+        "virtualallocex", "writeprocessmemory", "readprocessmemory",
+        "createremotethread", "createremotethreadex",
+        "ntallocatevirtualmemory", "ntwritevirtualmemory",
+        "ntreadprocessmemory", "ntmapviewofsection", "ntcreatesection",
+        "queueuserapc", "ntqueueapcthread", "setthreadcontext",
+        "ntprotectvirtualmemory", "virtualprotectex",
+    ];
+    if INJECTION_FNS.contains(&func) { return Some("injection"); }
+    const MEMORY_FNS: &[&str] = &[
+        "virtualalloc", "virtualprotect", "mapviewoffile",
+        "createfilemappinga", "createfilemappingw",
+    ];
+    if MEMORY_FNS.contains(&func) { return Some("memory"); }
+    const PROCESS_FNS: &[&str] = &[
+        "createprocessa", "createprocessw", "openprocess",
+        "terminateprocess", "ntcreateprocess", "ntcreateprocessex",
+        "ntopenprocess", "ntsuspendprocess", "ntterminateprocess",
+        "ntsetinformationprocess",
+    ];
+    if PROCESS_FNS.contains(&func) { return Some("process"); }
+    const THREAD_FNS: &[&str] = &[
+        "createthread", "ntcreatethreadex", "suspendthread", "resumethread",
+    ];
+    if THREAD_FNS.contains(&func) { return Some("thread"); }
+    const REGISTRY_FNS: &[&str] = &[
+        "regcreatekey", "regcreatekeyexa", "regcreatekeyexw",
+        "regsetvalueexa", "regsetvalueexw",
+        "regdeletekeya", "regdeletekeyw",
+        "regdeletevaluea", "regdeletevaluew",
+        "regopenKeyexa", "regopenKeyexw",
+    ];
+    if REGISTRY_FNS.contains(&func) { return Some("registry"); }
+    const EXEC_FNS: &[&str] = &[
+        "shellexecutea", "shellexecutew", "shellexecuteexa", "shellexecuteexw",
+        "loadlibrarya", "loadlibraryw", "loadlibraryexa", "loadlibraryexw",
+        "getprocaddress", "winexec",
+    ];
+    if EXEC_FNS.contains(&func) { return Some("execution"); }
+    const CRYPTO_FNS: &[&str] = &[
+        "bcryptencrypt", "bcryptdecrypt", "bcryptgeneratesymmetrickey",
+        "bcryptgenrandom", "cryptencrypt", "cryptdecrypt",
+        "cryptimportkey", "cryptgenrandom", "cryptderivekey",
+    ];
+    if CRYPTO_FNS.contains(&func) { return Some("crypto"); }
+    const EVASION_FNS: &[&str] = &[
+        "isdebuggerpresent", "checkremotedebuggerpresent",
+        "ntqueryinformationprocess", "outputdebugstringa", "outputdebugstringw",
+    ];
+    if EVASION_FNS.contains(&func) { return Some("evasion"); }
+    const FILE_FNS: &[&str] = &[
+        "createfilea", "createfilew", "deletefilea", "deletefilew",
+        "movefilea", "movefilew", "copyfilea", "copyfilew",
+        "ntcreatefile", "ntwritefile", "ntreadfile", "ntdeletefile",
+    ];
+    if FILE_FNS.contains(&func) { return Some("file"); }
+    None
+}
+
 fn build_default_extension_whitelist() -> HashSet<String> {
     let mut whitelist = HashSet::new();
     let extension_list = ExtensionList::new();
@@ -1059,6 +1134,11 @@ pub struct ProcessBehaviorState {
     // Normalized hypervisor event tracking
     pub hypervisor_event_count: u32,
     pub hypervisor_events_total: u32,
+
+    /// Per-category sets of detected API entries.
+    /// Keys: "network", "injection", "process", "thread", "memory",
+    ///        "registry", "execution", "crypto", "evasion", "file"
+    pub api_call_categories: HashMap<String, HashSet<String>>,
 }
 
 impl ProcessBehaviorState {
@@ -1085,6 +1165,8 @@ impl ProcessBehaviorState {
         // Initialize normalized hypervisor event counters
         state.hypervisor_event_count = 0;
         state.hypervisor_events_total = 0;
+
+        state.api_call_categories = HashMap::new();
         
         state
     }
@@ -1123,9 +1205,19 @@ impl ProcessBehaviorState {
             };
             self.detected_apis.insert(event_name.clone());
             self.all_apis_called.insert(event_name.clone());
+            if let Some(cat) = categorize_api(&event_name) {
+                self.api_call_categories
+                    .entry(cat.to_string()).or_default()
+                    .insert(event_name.clone());
+            }
             if let Some(alias) = api_function_alias(&event_name) {
                 self.detected_apis.insert(alias.clone());
-                self.all_apis_called.insert(alias);
+                self.all_apis_called.insert(alias.clone());
+                if let Some(cat) = categorize_api(&alias) {
+                    self.api_call_categories
+                        .entry(cat.to_string()).or_default()
+                        .insert(alias);
+                }
             }
 
             Logging::info(&format!(
@@ -1164,21 +1256,34 @@ impl ProcessBehaviorState {
         self.irp_operations.push(rec);
     }
 
-    //// TODO: Use Firewall instead of guessing dll loads for better accuracy and coverage of network activity, but this can be a useful heuristic in the meantime
-    /// Detect network APIs directly from DLL loading and operation patterns
-    pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
-        // Detect internet DLLs being loaded
-        let path_lower = msg.filepathstr.to_lowercase();
-        let ext_lower = msg.extension.to_lowercase();
-        
-        let internet_dlls = [
-            "wininet", "winhttp", "ws2_32", "mswsock", "wsock32", "urlmon"
-        ];
-        
-        for dll in &internet_dlls {
-            if path_lower.contains(dll) && ext_lower == "dll" {
-                self.network_apis_called.insert(dll.to_string());
-                self.all_apis_called.insert(dll.to_string());
+    pub fn detect_dll_loads_from_io(&mut self, msg: &IOMessage) {
+        if !msg.extension.eq_ignore_ascii_case("dll") {
+            return;
+        }
+
+        let path = std::path::Path::new(&msg.filepathstr);
+
+        if let Some(filename) = path.file_stem() {
+            let stem = filename.to_string_lossy().to_lowercase();
+
+            // Network DLL check
+            let is_network = [
+                "ws2_32", "winhttp", "wininet", "mswsock", "dnsapi"
+            ].contains(&stem.as_str());
+
+            if is_network {
+                self.network_apis_called.insert(stem.clone());
+            }
+
+            let tagged = format!("{}.dll!load", stem);
+
+            if self.all_apis_called.insert(tagged.clone()) {
+                if let Some(cat) = categorize_api(&tagged) {
+                    self.api_call_categories
+                        .entry(cat.to_string())
+                        .or_default()
+                        .insert(tagged);
+                }
             }
         }
     }
@@ -1693,7 +1798,7 @@ impl BehaviorEngine {
         
         // === STEP 2: DETECT NETWORK APIs ===
         if let Some(state) = self.process_states.get_mut(&gid) {
-            state.detect_network_apis_from_io(msg);
+            state.detect_dll_loads_from_io(msg);
         }
         
         let dev_norm = normalize_device_prefix(&msg.filepathstr);
@@ -2934,22 +3039,33 @@ impl BehaviorEngine {
     /// - network_apis_called flag from DLL monitoring
     /// - network_activity_detected flag from file system operations
     fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
+        // Fast path 1: explicit network DLL load recorded
         if !state.network_apis_called.is_empty() {
             return true;
         }
-        
+
+        // Fast path 2: minifilter flagged network activity
         if state.network_activity_detected {
             return true;
         }
-        
-        let network_modules = ["ws2_32.dll", "winhttp.dll", "wininet.dll", "mswsock.dll", "wsock32.dll"];
+
+        // Fast path 3: a real network API call came in via hook event
+        if state.api_call_categories.contains_key("network") {
+            return true;
+        }
+
+        // Fallback: scan all_apis_called for any network DLL marker
+        const NET_MARKERS: &[&str] = &[
+            "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
+            "urlmon", "dnsapi", "rasapi32", "iphlpapi",
+        ];
         for api in &state.all_apis_called {
             let api_lower = api.to_lowercase();
-            if network_modules.iter().any(|m| api_lower.contains(m)) {
+            if NET_MARKERS.iter().any(|m| api_lower.contains(m)) {
                 return true;
             }
         }
-        
+
         for path in &state.irp_stats.unique_paths_accessed {
             let path_lower = path.to_lowercase();
             // URL cache, cookies, network config files
