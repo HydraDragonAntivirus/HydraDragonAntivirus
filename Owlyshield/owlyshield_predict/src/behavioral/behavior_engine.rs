@@ -1165,7 +1165,7 @@ impl ProcessBehaviorState {
     }
 
     //// TODO: Use Firewall instead of guessing DLL loads for better accuracy and coverage.
-    /// Detect API surface from DLL load events (not network-only).
+    /// DLL-load heuristic used only for network-activity inference (not API usage).
     pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
         let ext_lower = msg.extension.to_lowercase();
         if ext_lower != "dll" {
@@ -1180,9 +1180,6 @@ impl ProcessBehaviorState {
         if stem.is_empty() {
             return;
         }
-
-        // Track every loaded DLL so API detection is not limited to network modules.
-        self.all_apis_called.insert(format!("{stem}.dll!load"));
 
         const NETWORK_DLLS: &[&str] = &[
             "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
@@ -1868,10 +1865,10 @@ impl BehaviorEngine {
             available_apis.insert(api.to_lowercase());
         }
         
-        if !state_detected_apis.is_empty() {
+        if !available_apis.is_empty() {
             Logging::info(&format!(
                 "[BehaviorEngine] Detected APIs for PID {}: {} - {}",
-                msg.pid, state_detected_apis.len(), state_detected_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                msg.pid, available_apis.len(), available_apis.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
             ));
         }
 
