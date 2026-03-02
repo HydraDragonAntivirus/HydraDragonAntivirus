@@ -486,6 +486,16 @@ fn normalize_extension_token(extension: &str) -> String {
         .to_lowercase()
 }
 
+const NETWORK_API_MARKERS: &[&str] = &[
+    "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
+    "urlmon", "dnsapi", "rasapi32", "iphlpapi",
+];
+
+fn is_network_api_label(label: &str) -> bool {
+    let lower = label.to_lowercase();
+    NETWORK_API_MARKERS.iter().any(|m| lower.contains(m))
+}
+
 fn build_default_extension_whitelist() -> HashSet<String> {
     let mut whitelist = HashSet::new();
     let extension_list = ExtensionList::new();
@@ -1123,9 +1133,15 @@ impl ProcessBehaviorState {
             };
             self.detected_apis.insert(event_name.clone());
             self.all_apis_called.insert(event_name.clone());
+            if is_network_api_label(&event_name) {
+                self.network_apis_called.insert(event_name.clone());
+            }
             if let Some(alias) = api_function_alias(&event_name) {
                 self.detected_apis.insert(alias.clone());
-                self.all_apis_called.insert(alias);
+                self.all_apis_called.insert(alias.clone());
+                if is_network_api_label(&alias) {
+                    self.network_apis_called.insert(alias);
+                }
             }
 
             Logging::info(&format!(
@@ -1181,12 +1197,9 @@ impl ProcessBehaviorState {
             return;
         }
 
-        const NETWORK_DLLS: &[&str] = &[
-            "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
-            "urlmon", "dnsapi", "rasapi32", "iphlpapi",
-        ];
-        if NETWORK_DLLS.contains(&stem.as_str()) {
-            self.network_apis_called.insert(stem);
+        if NETWORK_API_MARKERS.contains(&stem.as_str()) {
+            // Fallback-only marker when only a DLL load is seen and no concrete API call is available.
+            self.network_apis_called.insert(format!("{stem}.dll"));
         }
     }
 }
