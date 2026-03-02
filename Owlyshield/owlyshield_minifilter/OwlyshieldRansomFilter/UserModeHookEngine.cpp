@@ -1592,64 +1592,63 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-        __try
+        __try  // outer: guarantees detach
         {
-            // Allocate executable shellcode region in the target process.
-            if (fnZwAllocateVirtualMemory)
+            __try  // inner: catches exceptions from alloc/insert
             {
-                status = fnZwAllocateVirtualMemory(
-                    ZwCurrentProcess(), &baseAddress, 0,
-                    &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-            }
-            else
-            {
-                status = STATUS_NOT_IMPLEMENTED;
-            }
+                // Allocate executable shellcode region in the target process.
+                if (fnZwAllocateVirtualMemory)
+                {
+                    status = fnZwAllocateVirtualMemory(
+                        ZwCurrentProcess(), &baseAddress, 0,
+                        &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                }
+                else
+                {
+                    status = STATUS_NOT_IMPLEMENTED;
+                }
 
-            if (!NT_SUCCESS(status))
-            {
-                __leave;
+                if (!NT_SUCCESS(status))
+                {
+                    __leave;
+                }
+
+                HookEntry->ShellcodeBase  = baseAddress;
+                HookEntry->ShellcodeSize  = regionSize;
+                HookEntry->ShellcodeUsed  = 0;
+
+                // Insert the FILE_OBJECT into the target process handle table.
+                HANDLE targetHandle = NULL;
+                status = ObInsertObject(
+                    deviceFileObject,
+                    NULL,
+                    FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                    0,
+                    NULL,
+                    &targetHandle);
+
+                if (NT_SUCCESS(status))
+                {
+                    HookEntry->DriverDeviceHandle = targetHandle;
+                }
+                else
+                {
+                    SIZE_T freeSize = 0;
+                    if (fnZwFreeVirtualMemory)
+                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
+                    HookEntry->ShellcodeBase = NULL;
+                }
             }
-
-            HookEntry->ShellcodeBase  = baseAddress;
-            HookEntry->ShellcodeSize  = regionSize;
-            HookEntry->ShellcodeUsed  = 0;
-
-            // Insert the FILE_OBJECT into the CURRENT (= attached = target)
-            // process handle table.  ObInsertObject takes a reference from
-            // deviceFileObject, so we still need to dereference it below.
-            HANDLE targetHandle = NULL;
-            status = ObInsertObject(
-                deviceFileObject,
-                NULL,
-                FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                0,
-                NULL,
-                &targetHandle);
-
-            if (NT_SUCCESS(status))
+            __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                HookEntry->DriverDeviceHandle = targetHandle;
-            }
-            else
-            {
-                // Roll back shellcode allocation before leaving
-                SIZE_T freeSize = 0;
-                if (fnZwFreeVirtualMemory)
+                status = GetExceptionCode();
+                if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
+                {
+                    SIZE_T freeSize = 0;
                     fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
+                }
                 HookEntry->ShellcodeBase = NULL;
             }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            status = GetExceptionCode();
-            // Roll back any allocation that may have succeeded before the fault.
-            if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
-            {
-                SIZE_T freeSize = 0;
-                fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
-            }
-            HookEntry->ShellcodeBase = NULL;
         }
         __finally
         {
@@ -1803,22 +1802,22 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // Single attachment for resolving exports and writing hooks
     {
     KAPC_STATE apcState;
-    BOOLEAN configMutexHeld = FALSE;   // track ownership for safe release in __finally
+    BOOLEAN configMutexHeld = FALSE;
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    __try
+    __try  // outer: guarantees detach and mutex release
     {
-        // Resolve NtDeviceIoControlFile address in the target's ntdll
-        ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
-        targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
-        if (!targetNtDeviceIo)
+        __try  // inner: catches exceptions from resolve/hook calls
         {
-            status = STATUS_NOT_FOUND;
-            __leave;
-        }
+            ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
+            targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
+            if (!targetNtDeviceIo)
+            {
+                status = STATUS_NOT_FOUND;
+                __leave;
+            }
 
-        // Inject hooks
-        ExAcquireFastMutex(&g_ConfigMutex);
-        configMutexHeld = TRUE;
+            ExAcquireFastMutex(&g_ConfigMutex);
+            configMutexHeld = TRUE;
             customHookCountToApply = g_CustomHookCount;
             if (customHookCountToApply > hookEntry->CustomHookCapacity)
             {
@@ -1829,9 +1828,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 NTSTATUS hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
                                                      g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
                                                      g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
-                // Missing module/export is expected during refresh cycles.
-                // RIP-relative prologues (NOT_SUPPORTED) and inaccessible pages
-                // (ACCESS_VIOLATION) are safe to skip — keep processing remaining entries.
                 if (!NT_SUCCESS(hookStatus) &&
                     hookStatus != STATUS_NOT_FOUND &&
                     hookStatus != STATUS_PROCEDURE_NOT_FOUND &&
@@ -1847,16 +1843,13 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             ExReleaseFastMutex(&g_ConfigMutex);
             configMutexHeld = FALSE;
         }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        // Catch any exception that escaped the inner __try/__except blocks.
-        // Record it as a status so callers can see something went wrong,
-        // then fall through to __finally which will detach safely.
-        status = GetExceptionCode();
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+        }
     }
     __finally
     {
-        // Release the config mutex if an exception fired while we held it.
         if (configMutexHeld)
         {
             ExReleaseFastMutex(&g_ConfigMutex);
@@ -1916,27 +1909,28 @@ HookProcessFailure:
         {
             KAPC_STATE cleanupApcState;
             KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
-            __try
+            __try  // outer: guarantees detach
             {
-                if (hookEntry->DriverDeviceHandle != NULL)
+                __try  // inner: catches exceptions from ZwClose/ZwFree
                 {
-                    ZwClose(hookEntry->DriverDeviceHandle);
-                    hookEntry->DriverDeviceHandle = NULL;
-                }
+                    if (hookEntry->DriverDeviceHandle != NULL)
+                    {
+                        ZwClose(hookEntry->DriverDeviceHandle);
+                        hookEntry->DriverDeviceHandle = NULL;
+                    }
 
-                if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                    {
+                        SIZE_T freeSize = 0;
+                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                        hookEntry->ShellcodeBase = NULL;
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
                 {
-                    SIZE_T freeSize = 0;
-                    fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                    hookEntry->DriverDeviceHandle = NULL;
                     hookEntry->ShellcodeBase = NULL;
                 }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                // Exception during cleanup — clear the fields anyway so we
-                // don't double-free on a subsequent attempt.
-                hookEntry->DriverDeviceHandle = NULL;
-                hookEntry->ShellcodeBase = NULL;
             }
             __finally
             {
@@ -2044,27 +2038,30 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     // 3. PHASE 1: RESTORE BYTES
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    __try {
-        for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
-            if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked) {
-                UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
-            }
-        }
-        
-        if (hookEntry->DriverDeviceHandle) {
-            ZwClose(hookEntry->DriverDeviceHandle);
-            hookEntry->DriverDeviceHandle = NULL;
-        }
-        shellcodeToFree = hookEntry->ShellcodeBase;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
+    __try  // outer: guarantees detach
     {
-        // An exception during byte-restore is non-fatal for the driver —
-        // the hook entry will still be cleaned up below.
-        DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n",
-                 GetExceptionCode(), ProcessId);
+        __try  // inner: catches exceptions from UnhookSingleFunction/ZwClose
+        {
+            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
+                if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked) {
+                    UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+                }
+            }
+            
+            if (hookEntry->DriverDeviceHandle) {
+                ZwClose(hookEntry->DriverDeviceHandle);
+                hookEntry->DriverDeviceHandle = NULL;
+            }
+            shellcodeToFree = hookEntry->ShellcodeBase;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n",
+                     GetExceptionCode(), ProcessId);
+        }
     }
-    __finally {
+    __finally
+    {
         KeUnstackDetachProcess(&apcState);
     }
 
