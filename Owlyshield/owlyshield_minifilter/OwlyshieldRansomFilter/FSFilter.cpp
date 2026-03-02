@@ -2864,18 +2864,29 @@ NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
                 PCWSTR functionName = NULL;
                 WCHAR resolvedHookName[MAX_FILE_NAME_LENGTH] = {0};
 
-                if (incomingWideName && incomingWideName[0] != L'\0') {
+                BOOLEAN incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
+                BOOLEAN incomingQualified = FALSE;
+                if (incomingHasName)
+                {
+                    incomingQualified = (wcschr(incomingWideName, L'!') != NULL);
+                }
+
+                // Prefer fully-qualified module!function labels.
+                // If incoming payload is unqualified (e.g. only module stem), resolve by EventId.
+                if (incomingQualified) {
                     functionName = incomingWideName;
-                } else {
-                    if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
-                        resolvedHookName[0] != L'\0')
-                    {
-                        functionName = resolvedHookName;
-                    }
-                    else
-                    {
-                        functionName = L"";
-                    }
+                } else if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
+                           resolvedHookName[0] != L'\0')
+                {
+                    functionName = resolvedHookName;
+                }
+                else if (incomingHasName)
+                {
+                    functionName = incomingWideName;
+                }
+                else
+                {
+                    functionName = L"";
                 }
 
                 // Log event using existing mechanism
