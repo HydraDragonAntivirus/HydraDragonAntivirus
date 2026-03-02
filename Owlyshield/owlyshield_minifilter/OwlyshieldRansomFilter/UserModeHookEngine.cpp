@@ -1746,7 +1746,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
         ObDereferenceObject(process);
         return status;
-    } // end attach scope block (unreachable — goto HookProcessFailure above)
+    } // end attach scope block
+
+HookProcessFailure:
     // Ensure busy flag is cleared on failure
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     hookEntry->IsInProgress = FALSE;
@@ -1816,6 +1818,7 @@ VOID UnhookSingleFunction(
     _Inout_ PHOOK_DEF HookDef
 )
 {
+    UNREFERENCED_PARAMETER(Process);
     NTSTATUS status;
     PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = 14; 
