@@ -467,7 +467,7 @@ fn normalize_hypervisor_api_label(raw: &str) -> String {
 
 fn api_function_alias(raw: &str) -> Option<String> {
     let normalized = normalize_hypervisor_api_label(raw);
-    if normalized.is_empty() {
+    if normalized.is_empty() || !normalized.contains('!') {
         return None;
     }
     normalized
@@ -1164,22 +1164,32 @@ impl ProcessBehaviorState {
         self.irp_operations.push(rec);
     }
 
-    //// TODO: Use Firewall instead of guessing dll loads for better accuracy and coverage of network activity, but this can be a useful heuristic in the meantime
-    /// Detect network APIs directly from DLL loading and operation patterns
+    //// TODO: Use Firewall instead of guessing DLL loads for better accuracy and coverage.
+    /// Detect API surface from DLL load events (not network-only).
     pub fn detect_network_apis_from_io(&mut self, msg: &IOMessage) {
-        // Detect internet DLLs being loaded
-        let path_lower = msg.filepathstr.to_lowercase();
         let ext_lower = msg.extension.to_lowercase();
-        
-        let internet_dlls = [
-            "wininet", "winhttp", "ws2_32", "mswsock", "wsock32", "urlmon"
+        if ext_lower != "dll" {
+            return;
+        }
+
+        let path = std::path::Path::new(&msg.filepathstr);
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if stem.is_empty() {
+            return;
+        }
+
+        // Track every loaded DLL so API detection is not limited to network modules.
+        self.all_apis_called.insert(format!("{stem}.dll!load"));
+
+        const NETWORK_DLLS: &[&str] = &[
+            "ws2_32", "winhttp", "wininet", "mswsock", "wsock32",
+            "urlmon", "dnsapi", "rasapi32", "iphlpapi",
         ];
-        
-        for dll in &internet_dlls {
-            if path_lower.contains(dll) && ext_lower == "dll" {
-                self.network_apis_called.insert(dll.to_string());
-                self.all_apis_called.insert(dll.to_string());
-            }
+        if NETWORK_DLLS.contains(&stem.as_str()) {
+            self.network_apis_called.insert(stem);
         }
     }
 }
@@ -1436,7 +1446,12 @@ impl BehaviorEngine {
             let (module_part, function_part) = value.split_at(idx);
             let function_name = function_part.trim_start_matches('!');
             has_path = module_part.contains('\\') || module_part.contains('/');
-            let module_name = module_part.rsplit(['\\', '/']).next().unwrap_or(module_part);
+            let module_name = module_part
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(module_part)
+                .trim();
+            let module_name = module_name.strip_suffix(".dll").unwrap_or(module_name);
             value = format!("{}!{}", module_name, function_name);
         }
         (value, has_path)
