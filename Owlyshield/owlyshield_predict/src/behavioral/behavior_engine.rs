@@ -1394,6 +1394,17 @@ impl BehaviorEngine {
             }
         }
 
+        // Also include runtime-observed qualified API labels so dynamic hooks can
+        // expand while the engine is running, not just from static rules.
+        for state in self.process_states.values() {
+            for api in &state.all_apis_called {
+                let normalized = normalize_hypervisor_api_label(api);
+                if normalized.contains('!') {
+                    all_apis.insert(normalized);
+                }
+            }
+        }
+
         all_apis
     }
 

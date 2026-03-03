@@ -762,6 +762,14 @@ pub mod worker_instance {
         dynamic_hook_registration_blocked: bool,
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         dynamic_hook_blocked_pids: HashSet<u32>,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_last_refresh: std::collections::HashMap<u32, std::time::Instant>,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_target_generation: u64,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_applied_generation: std::collections::HashMap<u32, u64>,
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
         pub driver: Option<crate::Driver>,
     }
@@ -770,6 +778,8 @@ pub mod worker_instance {
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
 
         #[cfg(feature = "realtime_learning")]
         fn realtime_learning_output_dir(config: &Config) -> &str {
@@ -792,6 +802,32 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn default_registered_dynamic_apis() -> HashSet<String> {
             HashSet::new()
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn should_refresh_dynamic_hooks_for_pid(&mut self, pid: u32) -> bool {
+            if pid == 0 {
+                return false;
+            }
+
+            let now = std::time::Instant::now();
+            let refresh_interval = std::time::Duration::from_secs(2);
+
+            if let Some(last) = self.dynamic_hook_last_refresh.get(&pid) {
+                if now.duration_since(*last) < refresh_interval {
+                    return false;
+                }
+            }
+
+            self.dynamic_hook_last_refresh.insert(pid, now);
+            true
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn refresh_dynamic_hooks_for_pid_if_due(&mut self, pid: u32) {
+            if self.should_refresh_dynamic_hooks_for_pid(pid) {
+                self.register_dynamic_hooks_for_process(pid);
+            }
         }
 
         /// Normalize unstable kernel GIDs to keep per-process tracking coherent.
@@ -900,6 +936,14 @@ pub mod worker_instance {
                 dynamic_hook_registration_blocked: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_blocked_pids: HashSet::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_last_refresh: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_target_generation: 0,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_applied_generation: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
                 driver: None,
             }
@@ -955,7 +999,7 @@ pub mod worker_instance {
                         exepath.clone(),
                         appname.clone()
                     );
-                    self.register_dynamic_hooks_for_process(pid_u32);
+                    self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
                 }
                 
                 discovered_count += 1;
@@ -1128,6 +1172,13 @@ pub mod worker_instance {
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             {
                 self.behavior_engine.process_states.remove(&gid);
+                if let Some(precord) = precord_opt.as_ref() {
+                    for pid in &precord.pids {
+                        self.dynamic_hook_last_refresh.remove(pid);
+                        self.dynamic_hook_applied_generation.remove(pid);
+                        self.dynamic_hook_apply_failures.remove(pid);
+                    }
+                }
             }
             
             // Handle learning engine cleanup
@@ -1212,6 +1263,7 @@ pub mod worker_instance {
                     // FIX: Check if we're ALREADY tracking this PID
                     // This prevents duplicate entries when GID generation is non-deterministic
                     if let Some(_) = self.find_gid_by_pid(pid_u32) {
+                        self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
                         // Already tracking this PID - skip to avoid duplicates
                         continue;
                     }
@@ -1229,7 +1281,7 @@ pub mod worker_instance {
                     self.behavior_engine.register_process(gid, pid_u32, exepath.clone(), appname.clone());
                     let precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
                     self.process_records.insert_precord(gid, precord);
-                    self.register_dynamic_hooks_for_process(pid_u32);
+                    self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
                     
                     // Register in learning engine
                     #[cfg(feature = "realtime_learning")]
@@ -1350,6 +1402,14 @@ pub mod worker_instance {
                 dynamic_hook_registration_blocked: false,
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 dynamic_hook_blocked_pids: HashSet::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_last_refresh: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_target_generation: 0,
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_applied_generation: std::collections::HashMap::new(),
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
                 driver: None,
             }
@@ -1371,7 +1431,14 @@ pub mod worker_instance {
                 if iomsg.irp_op == 12 {
                     iomsg.kernel_event_info.event_type = raw_event_type;
 
-                    if iomsg.kernel_event_info.object_name.trim().is_empty() {
+                    let needs_name_resolution = {
+                        let object_name = iomsg.kernel_event_info.object_name.trim();
+                        let has_qualified_name = object_name.contains('!')
+                            && !object_name.starts_with('!')
+                            && !object_name.ends_with('!');
+                        object_name.is_empty() || !has_qualified_name
+                    };
+                    if needs_name_resolution {
                         if let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type) {
                             iomsg.kernel_event_info.object_name = mapped_api.clone();
                         }
@@ -1398,6 +1465,11 @@ pub mod worker_instance {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
 
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if !is_process_terminate {
+                self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
+            }
+
             // Backfill command line for events that don't carry it (e.g., kernel API hook events).
             if iomsg.runtime_features.command_line.trim().is_empty() {
                 if let Some(precord) = self.process_records.get_precord_by_gid(tracking_key) {
@@ -1409,7 +1481,7 @@ pub mod worker_instance {
 
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             if is_process_create {
-                self.register_dynamic_hooks_for_process(iomsg.pid);
+                self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
@@ -1874,33 +1946,72 @@ pub mod worker_instance {
                 }
             }
 
-            if registered_count > 0 || already_registered_count > 0 {
+            if registered_count > 0 {
+                self.dynamic_hook_target_generation =
+                    self.dynamic_hook_target_generation.saturating_add(1);
+            }
+
+            let target_generation = self.dynamic_hook_target_generation;
+            let applied_generation = self
+                .dynamic_hook_applied_generation
+                .get(&pid)
+                .copied()
+                .unwrap_or(0);
+            let has_any_targets = registered_count > 0 || already_registered_count > 0;
+            let needs_apply = has_any_targets && applied_generation < target_generation;
+
+            if needs_apply {
                 if let Err(e) = driver.hook_process(pid) {
                     let hr = e.code().0 as u32;
+                    let low_word = hr & 0xFFFF;
+                    let is_noaccess_like = hr == 0x800703E6 || hr == 0xC0000005 || low_word == 0x03E6;
                     if hr == 0x80070677 {
                         self.dynamic_hook_blocked_pids.insert(pid);
+                        self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
                             "[DYNAMIC HOOK] Skip PID {}: process mitigation blocks dynamic code (hr=0x{:08X})",
                             pid, hr
                         ));
                     } else if hr == 0x80070005 {
                         self.dynamic_hook_blocked_pids.insert(pid);
+                        self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
                             "[DYNAMIC HOOK] Skip PID {}: access denied (likely protected/critical process) (hr=0x{:08X})",
                             pid, hr
                         ));
+                    } else if is_noaccess_like {
+                        self.dynamic_hook_blocked_pids.insert(pid);
+                        self.dynamic_hook_apply_failures.remove(&pid);
+                        Logging::warning(&format!(
+                            "[DYNAMIC HOOK] Skip PID {}: NOACCESS while patching hooks (hr=0x{:08X})",
+                            pid, hr
+                        ));
                     } else if hr == 0x80070016 {
                         self.dynamic_hook_blocked_pids.insert(pid);
+                        self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
                             "[DYNAMIC HOOK] Skip PID {}: driver command not recognized for this target (hr=0x{:08X})",
                             pid, hr
                         ));
                     } else {
-                        Logging::error(&format!(
-                            "[DYNAMIC HOOK] Failed to apply hooks to PID {}: {}",
-                            pid, e
-                        ));
+                        let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
+                        *failures = failures.saturating_add(1);
+                        if *failures >= Self::DYNAMIC_HOOK_MAX_FAILURES {
+                            self.dynamic_hook_blocked_pids.insert(pid);
+                            Logging::warning(&format!(
+                                "[DYNAMIC HOOK] Skip PID {}: repeated apply failures (count={}, hr=0x{:08X})",
+                                pid, failures, hr
+                            ));
+                        } else {
+                            Logging::error(&format!(
+                                "[DYNAMIC HOOK] Failed to apply hooks to PID {} (attempt {}/{} hr=0x{:08X}): {}",
+                                pid, failures, Self::DYNAMIC_HOOK_MAX_FAILURES, hr, e
+                            ));
+                        }
                     }
+                } else {
+                    self.dynamic_hook_apply_failures.remove(&pid);
+                    self.dynamic_hook_applied_generation.insert(pid, target_generation);
                 }
             }
 
