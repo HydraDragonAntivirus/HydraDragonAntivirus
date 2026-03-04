@@ -604,20 +604,35 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 {
-    if (Config == NULL || Config->ModuleName[0] == L'\0' || Config->FunctionName[0] == '\0')
+    HOOK_CONFIG_DATA normalizedConfig;
+
+    if (Config == NULL || Config->FunctionName[0] == '\0')
     {
         return STATUS_INVALID_PARAMETER;
+    }
+
+    RtlCopyMemory(&normalizedConfig, Config, sizeof(normalizedConfig));
+    normalizedConfig.ModuleName[RTL_NUMBER_OF(normalizedConfig.ModuleName) - 1] = L'\0';
+    normalizedConfig.FunctionName[RTL_NUMBER_OF(normalizedConfig.FunctionName) - 1] = '\0';
+
+    // Accept empty module as wildcard-all-modules to avoid rejecting
+    // malformed-but-recoverable usermode API labels such as "!LoadLibraryA".
+    if (normalizedConfig.ModuleName[0] == L'\0')
+    {
+        (VOID)RtlStringCchCopyW(normalizedConfig.ModuleName,
+                                RTL_NUMBER_OF(normalizedConfig.ModuleName),
+                                L"*");
     }
 
     ExAcquireFastMutex(&g_ConfigMutex);
 
     for (ULONG i = 0; i < g_CustomHookCount; ++i)
     {
-        if (IsSameHookConfig(&g_GlobalCustomHooks[i], Config))
+        if (IsSameHookConfig(&g_GlobalCustomHooks[i], &normalizedConfig))
         {
-            if (Config->EventId != 0)
+            if (normalizedConfig.EventId != 0)
             {
-                g_GlobalCustomHooks[i].EventId = Config->EventId;
+                g_GlobalCustomHooks[i].EventId = normalizedConfig.EventId;
             }
             ExReleaseFastMutex(&g_ConfigMutex);
             return STATUS_SUCCESS;
@@ -629,7 +644,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     
-    RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], Config, sizeof(HOOK_CONFIG_DATA));
+    RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], &normalizedConfig, sizeof(HOOK_CONFIG_DATA));
     g_GlobalCustomHooks[g_CustomHookCount].ModuleName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].ModuleName) - 1] = L'\0';
     g_GlobalCustomHooks[g_CustomHookCount].FunctionName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].FunctionName) - 1] = '\0';
     if (g_GlobalCustomHooks[g_CustomHookCount].EventId == 0)
@@ -1689,6 +1704,33 @@ NTSTATUS ResolveAndHook(
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
 
+#ifndef STATUS_DYNAMIC_CODE_BLOCKED
+#define STATUS_DYNAMIC_CODE_BLOCKED ((NTSTATUS)0xC0000604L)
+#endif
+
+static BOOLEAN IsRecoverablePerHookFailure(_In_ NTSTATUS Status)
+{
+    switch (Status)
+    {
+    case STATUS_NOT_FOUND:
+    case STATUS_PROCEDURE_NOT_FOUND:
+    case STATUS_NOT_SUPPORTED:
+    case STATUS_ACCESS_VIOLATION:
+    case STATUS_ACCESS_DENIED:
+    case STATUS_INVALID_PAGE_PROTECTION:
+    case STATUS_GUARD_PAGE_VIOLATION:
+    case STATUS_PARTIAL_COPY:
+    case STATUS_INVALID_USER_BUFFER:
+    case STATUS_DATATYPE_MISALIGNMENT:
+    case STATUS_CONFLICTING_ADDRESSES:
+    case STATUS_WORKING_SET_QUOTA:
+    case STATUS_DYNAMIC_CODE_BLOCKED:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 {
     NTSTATUS status;
@@ -1699,6 +1741,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     PVOID ntdllBase = NULL;
     PVOID targetNtDeviceIo = NULL;
     BOOLEAN existingHookEntry = FALSE;
+    ULONG appliedHookCount = 0;
+    ULONG recoverableHookFailureCount = 0;
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return STATUS_DEVICE_NOT_READY;
@@ -1827,14 +1871,31 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             }
             for (ULONG i = 0; i < customHookCountToApply; i++)
             {
-                NTSTATUS hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
-                                                     g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
-                                                     g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
-                if (!NT_SUCCESS(hookStatus) &&
-                    hookStatus != STATUS_NOT_FOUND &&
-                    hookStatus != STATUS_PROCEDURE_NOT_FOUND &&
-                    hookStatus != STATUS_NOT_SUPPORTED &&
-                    hookStatus != STATUS_ACCESS_VIOLATION)
+                NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
+                __try
+                {
+                    hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
+                                                g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    hookStatus = GetExceptionCode();
+                }
+
+                if (NT_SUCCESS(hookStatus))
+                {
+                    appliedHookCount++;
+                    continue;
+                }
+
+                if (IsRecoverablePerHookFailure(hookStatus))
+                {
+                    recoverableHookFailureCount++;
+                    continue;
+                }
+
+                if (!NT_SUCCESS(hookStatus))
                 {
                     status = hookStatus;
                     ExReleaseFastMutex(&g_ConfigMutex);
@@ -1844,6 +1905,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             }
             ExReleaseFastMutex(&g_ConfigMutex);
             configMutexHeld = FALSE;
+
+            if (recoverableHookFailureCount > 0)
+            {
+                DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
+                         ProcessId, appliedHookCount, recoverableHookFailureCount);
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
