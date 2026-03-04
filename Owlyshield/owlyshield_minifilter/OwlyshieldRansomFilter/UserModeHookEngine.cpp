@@ -1704,33 +1704,6 @@ NTSTATUS ResolveAndHook(
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
 
-#ifndef STATUS_DYNAMIC_CODE_BLOCKED
-#define STATUS_DYNAMIC_CODE_BLOCKED ((NTSTATUS)0xC0000604L)
-#endif
-
-static BOOLEAN IsRecoverablePerHookFailure(_In_ NTSTATUS Status)
-{
-    switch (Status)
-    {
-    case STATUS_NOT_FOUND:
-    case STATUS_PROCEDURE_NOT_FOUND:
-    case STATUS_NOT_SUPPORTED:
-    case STATUS_ACCESS_VIOLATION:
-    case STATUS_ACCESS_DENIED:
-    case STATUS_INVALID_PAGE_PROTECTION:
-    case STATUS_GUARD_PAGE_VIOLATION:
-    case STATUS_PARTIAL_COPY:
-    case STATUS_INVALID_USER_BUFFER:
-    case STATUS_DATATYPE_MISALIGNMENT:
-    case STATUS_CONFLICTING_ADDRESSES:
-    case STATUS_WORKING_SET_QUOTA:
-    case STATUS_DYNAMIC_CODE_BLOCKED:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 {
     NTSTATUS status;
@@ -1886,12 +1859,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 if (NT_SUCCESS(hookStatus))
                 {
                     appliedHookCount++;
-                    continue;
-                }
-
-                if (IsRecoverablePerHookFailure(hookStatus))
-                {
-                    recoverableHookFailureCount++;
                     continue;
                 }
 
