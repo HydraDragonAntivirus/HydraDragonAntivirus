@@ -1545,6 +1545,43 @@ VOID UserModeHookEngineCleanup(VOID)
         (VOID)UserModeUnhookProcess(hookedPids[i]);
     }
 
+    // FIX: wait up to 1 s for IsInProgress threads to finish.
+    // Slots with IsInProgress=TRUE were not in the IsHooked list above
+    // and were therefore skipped.  They will call UserModeUnhookProcess
+    // themselves via NeedsCleanup, or we force-release below.
+    for (ULONG spin = 0; spin < 100; spin++)
+    {
+        BOOLEAN anyInProgress = FALSE;
+        ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+        for (ULONG j = 0; j < MAX_HOOKED_PROCESSES; j++) {
+            if (g_UserHookEngine->Processes[j].IsInProgress) {
+                anyInProgress = TRUE; break;
+            }
+        }
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        if (!anyInProgress) break;
+        LARGE_INTEGER w; w.QuadPart = -10LL * 1000LL * 10LL; // 10 ms
+        KeDelayExecutionThread(KernelMode, FALSE, &w);
+    }
+
+    // Final pass: force-release any surviving ProcessObject refs and
+    // CustomHooks allocations so ExFreePoolWithTag below does not leave
+    // dangling PEPROCESS refs that keep zombie objects alive after unload.
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    {
+        PPROCESS_HOOK_ENTRY e = &g_UserHookEngine->Processes[i];
+        if (e->CustomHooks != NULL) {
+            ExFreePoolWithTag(e->CustomHooks, 'cHuM');
+            e->CustomHooks = NULL;
+        }
+        if (e->ProcessObject != NULL) {
+            ObDereferenceObject(e->ProcessObject);
+            e->ProcessObject = NULL;
+        }
+    }
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
     ExAcquireFastMutex(&g_ConfigMutex);
     g_CustomHookCount = 0;
     RtlZeroMemory(g_GlobalCustomHooks, sizeof(g_GlobalCustomHooks));
@@ -3011,8 +3048,14 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         KeUnstackDetachProcess(&apcState);
     }
 
+        // FIX: read NeedsCleanup atomically with IsInProgress clear.
+        // UnhookProcess sets NeedsCleanup when it arrives while we are
+        // in-flight so it can't do the cleanup itself.  We must do it.
+        BOOLEAN needsCleanupNow = FALSE;
         ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
         hookEntry->IsInProgress = FALSE;
+        needsCleanupNow = hookEntry->NeedsCleanup;
+        if (needsCleanupNow) hookEntry->NeedsCleanup = FALSE;
         if (NT_SUCCESS(status))
         {
             hookEntry->IsHooked = TRUE;
@@ -3034,6 +3077,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         }
 
         ObDereferenceObject(process);
+
+        // Perform deferred unhook: the terminate callback fired while we
+        // were in-flight and set NeedsCleanup instead of leaking the ref.
+        if (needsCleanupNow)
+            (VOID)UserModeUnhookProcess(ProcessId);
+
         return status;
     } // end attach scope block
 
@@ -3191,12 +3240,23 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         }
     }
 
-    if (hookEntry == NULL || hookEntry->IsInProgress) {
+    if (hookEntry == NULL) {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
     }
 
-    hookEntry->IsInProgress = TRUE; 
+    if (hookEntry->IsInProgress) {
+        // FIX: process terminated while HookProcess was still in-flight.
+        // Returning STATUS_NOT_FOUND here leaves hookEntry->ProcessObject
+        // with a live ObReference — the PEPROCESS object is never freed,
+        // the process appears in the task list but can't be killed (zombie),
+        // and the system can't restart because cleanup also misses the slot.
+        hookEntry->NeedsCleanup = TRUE;
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        return STATUS_SUCCESS;
+    }
+
+    hookEntry->IsInProgress = TRUE;
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
     // 2. Lookup and Zombie Check

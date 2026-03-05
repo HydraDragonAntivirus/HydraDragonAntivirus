@@ -252,6 +252,9 @@ typedef struct _PROCESS_HOOK_ENTRY
     BOOLEAN IsHooked;
     BOOLEAN IsInProgress;
     BOOLEAN IsWow64;          // TRUE if process is WoW64 (32-bit on 64-bit Windows)
+    // Set by UserModeUnhookProcess when IsInProgress=TRUE (process died mid-hook).
+    // Checked and cleared by UserModeHookProcess when it exits — triggers deferred unhook.
+    BOOLEAN NeedsCleanup;
 
     // Dynamic hooks configured from user mode (allocated per process).
     PHOOK_DEF CustomHooks;
