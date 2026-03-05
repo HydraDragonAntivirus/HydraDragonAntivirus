@@ -64,11 +64,7 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
 // CDO Dispatch Routines
-NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp);
-NTSTATUS HookDeviceCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp);
-NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
-
-PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
+// Hook notification device managed by InitHookNotifyDevice() in Communication.cpp
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 static BOOLEAN g_ProcessNotifyRegistered = FALSE;
 static BOOLEAN g_ThreadNotifyRegistered = FALSE;
@@ -577,36 +573,6 @@ Return Value:
     //
     //  Register with filter manager.
     //
-    
-    // -------------------------------------------------------------------------
-    // Create Control Device Object (CDO) for Shellcode Communication
-    // -------------------------------------------------------------------------
-    UNICODE_STRING deviceName;
-    UNICODE_STRING symLinkName;
-    RtlInitUnicodeString(&deviceName, L"\\Device\\OwlyshieldHook");
-    RtlInitUnicodeString(&symLinkName, L"\\DosDevices\\OwlyshieldHook");
-
-    status = IoCreateDevice(DriverObject, 0, &deviceName, FILE_DEVICE_UNKNOWN, 0, FALSE, &g_HookDeviceObject);
-    if (NT_SUCCESS(status))
-    {
-        status = IoCreateSymbolicLink(&symLinkName, &deviceName);
-        if (!NT_SUCCESS(status)) {
-            IoDeleteDevice(g_HookDeviceObject);
-            g_HookDeviceObject = NULL;
-        } else {
-            // Register Dispatch Routines
-            DriverObject->MajorFunction[IRP_MJ_CREATE] = HookDeviceCreate;
-            DriverObject->MajorFunction[IRP_MJ_CLOSE] = HookDeviceClose;
-            DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HookDeviceControl;
-            
-            g_HookDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
-            DbgPrint("FSFilter: Hook Device Created Successfully\n");
-        }
-    }
-    else {
-        DbgPrint("FSFilter: Failed to create Hook Device: 0x%X\n", status);
-    }
-
     driverData = new DriverData(DriverObject);
     if (driverData == NULL)
     {
@@ -655,6 +621,16 @@ Return Value:
         return status;
     }
     driverData->setFilterStart();
+
+    // Create hook notification device on its own independent DRIVER_OBJECT via IoCreateDriver.
+    // Never call IoCreateDevice on this DriverObject or write MajorFunction entries — that
+    // causes FLTMGR_FILE_SYSTEM (0xF5) because FltMgr validates its own dispatch table.
+    status = InitHookNotifyDevice(DriverObject);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! FSFilter: InitHookNotifyDevice failed 0x%X (hook events disabled)\n", status);
+        // Non-fatal: minifilter continues without user-mode API hook notifications.
+    }
 
     //
     // FIX: Register the process notification callback AFTER all dependencies are initialized
@@ -1132,14 +1108,8 @@ Return Value:
         driverData = NULL;
     }
     
-    // Cleanup CDO
-    UNICODE_STRING symLinkName;
-    RtlInitUnicodeString(&symLinkName, L"\\DosDevices\\OwlyshieldHook");
-    IoDeleteSymbolicLink(&symLinkName);
-    if (g_HookDeviceObject) {
-        IoDeleteDevice(g_HookDeviceObject);
-        g_HookDeviceObject = NULL;
-    }
+    // Cleanup hook notification device (IoCreateDriver-based independent DriverObject).
+    CleanupHookNotifyDevice();
 
     return STATUS_SUCCESS;
 }
@@ -2792,152 +2762,4 @@ _Use_decl_annotations_
 VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
     AddRemProcessRoutineCore(ParentId, ProcessId, Create, NULL);
-}
-
-// ====================================================================
-// Hook Device Dispatch Routines
-// ====================================================================
-
-NTSTATUS HookDeviceCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-    Irp->IoStatus.Status = STATUS_SUCCESS;
-    Irp->IoStatus.Information = 0;
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-    Irp->IoStatus.Status = STATUS_SUCCESS;
-    Irp->IoStatus.Information = 0;
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS HookDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
-{
-    UNREFERENCED_PARAMETER(DeviceObject);
-    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
-    NTSTATUS status = STATUS_SUCCESS;
-    ULONG bytesWritten = 0;
-
-    typedef struct _HOOK_EVENT_DATA_WIRE80 {
-        ULONG EventType;
-        ULONG ProcessId;
-        CHAR FunctionName[64];
-        ULONG_PTR Arg1;
-    } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
-    
-    if (irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_REPORT_HOOK_EVENT)
-    {
-        if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA_WIRE80))
-        {
-            PVOID rawBuffer = Irp->AssociatedIrp.SystemBuffer;
-            if (rawBuffer) {
-                ULONG eventType = 0;
-                ULONG processId = 0;
-                PCWSTR incomingWideName = NULL;
-                ULONG_PTR rawArg1 = 0;
-                ULONG_PTR rawArg2 = 0;
-                WCHAR convertedIncomingName[64] = {0};
-    
-                if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
-                {
-                    PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
-                    eventType = eventData->EventType;
-                    processId = eventData->ProcessId;
-                    rawArg1 = eventData->Arg1;
-                    rawArg2 = eventData->Arg2;
-
-                    // Convert ANSI FunctionName to WCHAR
-                    if (eventData->FunctionName[0] != '\0')
-                    {
-                        ANSI_STRING asFunc;
-                        UNICODE_STRING usFunc;
-                        RtlInitAnsiString(&asFunc, eventData->FunctionName);
-                        usFunc.Buffer = convertedIncomingName;
-                        usFunc.Length = 0;
-                        usFunc.MaximumLength = sizeof(convertedIncomingName);
-                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
-                        {
-                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
-                            incomingWideName = convertedIncomingName;
-                        }
-                    }
-                }
-                else
-                {
-                    PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
-                    eventType = eventData80->EventType;
-                    processId = eventData80->ProcessId;
-                    rawArg1 = eventData80->Arg1;
-                    rawArg2 = 0;
-                    if (eventData80->FunctionName[0] != '\0') {
-                        ANSI_STRING asFunc;
-                        UNICODE_STRING usFunc;
-                        RtlInitAnsiString(&asFunc, eventData80->FunctionName);
-                        usFunc.Buffer = convertedIncomingName;
-                        usFunc.Length = 0;
-                        usFunc.MaximumLength = sizeof(convertedIncomingName);
-                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
-                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
-                            incomingWideName = convertedIncomingName;
-                        }
-                    }
-                }
-
-                PCWSTR functionName = NULL;
-                WCHAR resolvedHookName[MAX_FILE_NAME_LENGTH] = {0};
-
-                BOOLEAN incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
-                BOOLEAN incomingQualified = FALSE;
-                if (incomingHasName)
-                {
-                    incomingQualified = (wcschr(incomingWideName, L'!') != NULL);
-                }
-
-                // Prefer fully-qualified module!function labels.
-                // If incoming payload is unqualified (e.g. only module stem), resolve by EventId.
-                if (incomingQualified) {
-                    functionName = incomingWideName;
-                } else if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
-                           resolvedHookName[0] != L'\0')
-                {
-                    functionName = resolvedHookName;
-                }
-                else if (incomingHasName)
-                {
-                    functionName = incomingWideName;
-                }
-                else
-                {
-                    functionName = L"";
-                }
-
-                // Log event using existing mechanism
-                DbgPrint("FSFilter: Hypervisor event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
-                         processId,
-                         eventType,
-                         functionName ? functionName : L"",
-                         (PVOID)rawArg1,
-                         (PVOID)rawArg2);
-                
-                // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
-                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
-            }
-        }
-        else {
-            status = STATUS_BUFFER_TOO_SMALL;
-        }
-    }
-    else {
-        status = STATUS_INVALID_DEVICE_REQUEST;
-    }
-    
-    Irp->IoStatus.Status = status;
-    Irp->IoStatus.Information = bytesWritten;
-    IoCompleteRequest(Irp, IO_NO_INCREMENT);
-    return status;
 }

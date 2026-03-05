@@ -44,41 +44,38 @@
 // system buffer is accessed via Irp->AssociatedIrp.SystemBuffer.  No
 // ProbeForRead is needed — the data is already in kernel address space.
 //
-// DISPATCH CHAINING
-// -----------------
-// This module installs its own IRP_MJ_CREATE, IRP_MJ_CLOSE, and
-// IRP_MJ_DEVICE_CONTROL handlers on the DriverObject, saving whatever was
-// previously registered (e.g. FltMgr's default handlers from
-// FltRegisterFilter).  For IRPs not targeting g_HookNotifyDevice, the
-// saved original handlers are called unchanged.
+// INDEPENDENT DRIVER OBJECT
+// -------------------------
+// This module uses IoCreateDriver to allocate a completely independent
+// DRIVER_OBJECT for the hook notification device.  The minifilter's own
+// DriverObject (owned and validated by FltMgr) is NEVER read or written.
+// This is the only safe design: writing any MajorFunction entry on FltMgr's
+// DriverObject causes FLTMGR_FILE_SYSTEM (0xF5) because FltMgr internally
+// verifies that its own dispatch routines remain installed.
 //
 // CALL ORDER REQUIREMENT
 // ----------------------
-// InitHookNotifyDevice MUST be called AFTER FltRegisterFilter (which may
-// have installed its own MajorFunction handlers).  If called before,
-// FltRegisterFilter could overwrite the wrapper functions, breaking the
-// chain.  In practice: call InitHookNotifyDevice at the end of DriverEntry,
-// after FltStartFiltering.  Call CleanupHookNotifyDevice at the start of
-// DriverUnload, before FltUnregisterFilter.
+// InitHookNotifyDevice has NO ordering dependency on FltRegisterFilter or
+// FltStartFiltering.  It creates its own driver object via IoCreateDriver
+// and never touches the minifilter's DriverObject.
+// CleanupHookNotifyDevice likewise has no ordering dependency relative to
+// FltUnregisterFilter.  Call it anywhere in DriverUnload before returning.
 // =========================================================================
 
 #define OWLY_HOOK_DEVICE_NAME   L"\\Device\\OwlyshieldHook"
+#define OWLY_HOOK_DRIVER_NAME   L"\\Driver\\OwlyshieldHookNotify"
 #define OWLY_HOOK_SYMLINK_NAME  L"\\DosDevices\\OwlyshieldHook"
 
-static PDEVICE_OBJECT  g_HookNotifyDevice = NULL;
-
-// Saved original dispatch routines (installed by FltMgr or FSFilter.cpp).
-// We wrap these so FltMgr's own IRPs continue to work unaffected.
-static PDRIVER_DISPATCH g_OrigDispatchCreate    = NULL;
-static PDRIVER_DISPATCH g_OrigDispatchClose     = NULL;
-static PDRIVER_DISPATCH g_OrigDispatchDevCtrl   = NULL;
+static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
+static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
 
 // ----------------------------------------------------------------------------
-// CompleteIrpInline — complete an IRP synchronously without raising IRQL.
-// Call this BEFORE returning from the dispatch routine.
+// CompleteIrpInline — complete an IRP synchronously, before returning.
+// METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
+// time dispatch is called, so no deferred work is needed.
 // ----------------------------------------------------------------------------
 static NTSTATUS CompleteIrpInline(
-    _In_ PIRP    Irp,
+    _In_ PIRP     Irp,
     _In_ NTSTATUS Status,
     _In_ ULONG_PTR Info)
 {
@@ -89,8 +86,9 @@ static NTSTATUS CompleteIrpInline(
 }
 
 // ----------------------------------------------------------------------------
-// HookDeviceCreateClose — IRP_MJ_CREATE / IRP_MJ_CLOSE for our device.
-// Allows ZwCreateFile / ObInsertObject handle duplication to succeed.
+// HookDeviceCreateClose — IRP_MJ_CREATE / IRP_MJ_CLOSE
+// Accept all open/close requests; ZwCreateFile and ObInsertObject both
+// generate IRP_MJ_CREATE, which must succeed for the handle to be valid.
 // ----------------------------------------------------------------------------
 static NTSTATUS HookDeviceCreateClose(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -101,11 +99,24 @@ static NTSTATUS HookDeviceCreateClose(
 }
 
 // ----------------------------------------------------------------------------
-// HookDeviceControl — IRP_MJ_DEVICE_CONTROL for our device.
+// HookDeviceControl — IRP_MJ_DEVICE_CONTROL
 //
-// Receives HOOK_EVENT_DATA from the shellcode thread, resolves the function
-// name by EventId, and enqueues the event for delivery to user-mode via
-// MESSAGE_GET_OPS / DrainQueuedHypervisorEvents.
+// Receives HOOK_EVENT_DATA (or the legacy HOOK_EVENT_DATA_WIRE80 subset) from
+// the shellcode running inside the hooked user-mode process.
+//
+// Runs in the hooked thread's context at PASSIVE_LEVEL.
+// METHOD_BUFFERED: the I/O manager copies the caller's InputBuffer into
+// Irp->AssociatedIrp.SystemBuffer before calling here — no ProbeForRead needed.
+//
+// Async contract: IoCompleteRequest is called before returning (inline
+// completion), so NtDeviceIoControlFile in the shellcode returns STATUS_SUCCESS
+// with IoStatusBlock written while the shellcode's stack frame is still live.
+//
+// Name resolution priority:
+//   1. Fully-qualified "module!function" label in the incoming payload.
+//   2. ResolveHookNameByEventId (driver-side lookup by EventId).
+//   3. Bare (unqualified) name from the payload.
+//   4. Empty string — event is still delivered.
 // ----------------------------------------------------------------------------
 static NTSTATUS HookDeviceControl(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -113,118 +124,154 @@ static NTSTATUS HookDeviceControl(
 {
     UNREFERENCED_PARAMETER(DeviceObject);
 
-    PIO_STACK_LOCATION  stack    = IoGetCurrentIrpStackLocation(Irp);
-    ULONG               code     = stack->Parameters.DeviceIoControl.IoControlCode;
-    ULONG               inputLen = stack->Parameters.DeviceIoControl.InputBufferLength;
-    // METHOD_BUFFERED: I/O manager already copied caller's buffer here.
-    PVOID               sysBuf   = Irp->AssociatedIrp.SystemBuffer;
+    PIO_STACK_LOCATION stack    = IoGetCurrentIrpStackLocation(Irp);
+    ULONG              code     = stack->Parameters.DeviceIoControl.IoControlCode;
+    ULONG              inputLen = stack->Parameters.DeviceIoControl.InputBufferLength;
+    PVOID              sysBuf   = Irp->AssociatedIrp.SystemBuffer;
 
     if (code != IOCTL_REPORT_HOOK_EVENT)
-    {
-        // Not our IOCTL — complete with error rather than pend or forward.
-        // This device only serves the hook-notification purpose.
         return CompleteIrpInline(Irp, STATUS_INVALID_DEVICE_REQUEST, 0);
-    }
 
-    if (sysBuf == NULL || inputLen < sizeof(HOOK_EVENT_DATA))
-    {
+    // Minimum: legacy wire format (EventType + ProcessId + FunctionName[64] + Arg1)
+    typedef struct _HOOK_EVENT_DATA_WIRE80 {
+        ULONG      EventType;
+        ULONG      ProcessId;
+        CHAR       FunctionName[64];
+        ULONG_PTR  Arg1;
+    } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
+
+    if (sysBuf == NULL || inputLen < sizeof(HOOK_EVENT_DATA_WIRE80))
         return CompleteIrpInline(Irp, STATUS_BUFFER_TOO_SMALL, 0);
+
+    ULONG      eventType = 0;
+    ULONG      processId = 0;
+    ULONG_PTR  rawArg1   = 0;
+    ULONG_PTR  rawArg2   = 0;
+    WCHAR      convertedName[64] = {0};
+    PCWSTR     incomingWideName  = NULL;
+
+    if (inputLen >= sizeof(HOOK_EVENT_DATA))
+    {
+        // Full current payload
+        PHOOK_EVENT_DATA ev = (PHOOK_EVENT_DATA)sysBuf;
+        eventType = ev->EventType;
+        processId = ev->ProcessId;
+        rawArg1   = ev->Arg1;
+        rawArg2   = ev->Arg2;
+
+        if (ev->FunctionName[0] != '\0')
+        {
+            ANSI_STRING    asFunc;
+            UNICODE_STRING usFunc;
+            RtlInitAnsiString(&asFunc, ev->FunctionName);
+            usFunc.Buffer         = convertedName;
+            usFunc.Length         = 0;
+            usFunc.MaximumLength  = sizeof(convertedName);
+            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+            {
+                convertedName[RTL_NUMBER_OF(convertedName) - 1] = L'\0';
+                incomingWideName = convertedName;
+            }
+        }
+    }
+    else
+    {
+        // Legacy wire80 payload
+        PHOOK_EVENT_DATA_WIRE80 ev80 = (PHOOK_EVENT_DATA_WIRE80)sysBuf;
+        eventType = ev80->EventType;
+        processId = ev80->ProcessId;
+        rawArg1   = ev80->Arg1;
+        rawArg2   = 0;
+
+        if (ev80->FunctionName[0] != '\0')
+        {
+            ANSI_STRING    asFunc;
+            UNICODE_STRING usFunc;
+            RtlInitAnsiString(&asFunc, ev80->FunctionName);
+            usFunc.Buffer         = convertedName;
+            usFunc.Length         = 0;
+            usFunc.MaximumLength  = sizeof(convertedName);
+            if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+            {
+                convertedName[RTL_NUMBER_OF(convertedName) - 1] = L'\0';
+                incomingWideName = convertedName;
+            }
+        }
     }
 
-    PHOOK_EVENT_DATA hookEvent = (PHOOK_EVENT_DATA)sysBuf;
+    // Resolve the best function name available
+    WCHAR   resolvedName[MAX_FILE_NAME_LENGTH] = {0};
+    PCWSTR  functionName = L"";
 
-    // Resolve function name from EventId.
-    // The shellcode sets FunctionName[0] = L'\0' deliberately — name
-    // resolution happens here on the driver side using the EventId.
-    WCHAR funcName[MAX_FILE_NAME_LENGTH];
-    funcName[0] = L'\0';
-    ResolveHookNameByEventId(hookEvent->EventType, funcName, MAX_FILE_NAME_LENGTH);
+    BOOLEAN incomingHasName  = (incomingWideName != NULL && incomingWideName[0] != L'\0');
+    BOOLEAN incomingQualified = incomingHasName && (wcschr(incomingWideName, L'!') != NULL);
 
-    // Enqueue the event.  This call is at PASSIVE_LEVEL in the context of
-    // the hooked thread, so ExAllocatePool2 and KeAcquireSpinLock are safe.
-    // PsGetCurrentProcessId() (called inside QueueHypervisorEvent) returns
-    // the PID of the hooked process because this IRP arrived in that
-    // thread's context — matching hookEvent->ProcessId.
-    QueueHypervisorEvent(
-        hookEvent->EventType,
-        (funcName[0] != L'\0') ? funcName : NULL,
-        (ULONG_PTR)hookEvent->Arg1,
-        (ULONG_PTR)hookEvent->Arg2);
+    if (incomingQualified)
+    {
+        // Trust fully-qualified "module!function" labels directly
+        functionName = incomingWideName;
+    }
+    else if (ResolveHookNameByEventId(eventType, resolvedName, RTL_NUMBER_OF(resolvedName)) &&
+             resolvedName[0] != L'\0')
+    {
+        functionName = resolvedName;
+    }
+    else if (incomingHasName)
+    {
+        functionName = incomingWideName;
+    }
 
-    // Complete synchronously (see ASYNC CONTRACT in the header comment above).
+    DbgPrint("FSFilter: Hook event PID=%lu Type=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
+             processId, eventType, functionName, (PVOID)rawArg1, (PVOID)rawArg2);
+
+    // Deliver to the classification pipeline (ProcessProtection.cpp).
+    // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
+    OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
+
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
 }
 
 // ----------------------------------------------------------------------------
-// HookDeviceDispatch — unified wrapper registered on DriverObject.
-//
-// Routes IRPs targeting g_HookNotifyDevice to our handlers; all other IRPs
-// (targeting FltMgr's volume/filter devices) are forwarded to the original
-// dispatch routines saved during InitHookNotifyDevice.
+// HookNotifyDriverUnload — fires when the I/O manager drops the last
+// reference to g_HookNotifyDriverObject after IoDeleteDevice.
 // ----------------------------------------------------------------------------
-static NTSTATUS HookDeviceDispatch(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP           Irp)
+static VOID HookNotifyDriverUnload(_In_ PDRIVER_OBJECT DriverObject)
 {
-    if (DeviceObject == g_HookNotifyDevice)
-    {
-        PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
-        switch (stack->MajorFunction)
-        {
-        case IRP_MJ_CREATE:
-        case IRP_MJ_CLOSE:
-            return HookDeviceCreateClose(DeviceObject, Irp);
-        case IRP_MJ_DEVICE_CONTROL:
-            return HookDeviceControl(DeviceObject, Irp);
-        default:
-            return CompleteIrpInline(Irp, STATUS_INVALID_DEVICE_REQUEST, 0);
-        }
-    }
-
-    // Not our device — forward to the original handler.
-    PIO_STACK_LOCATION  stack = IoGetCurrentIrpStackLocation(Irp);
-    PDRIVER_DISPATCH    orig  = NULL;
-    switch (stack->MajorFunction)
-    {
-    case IRP_MJ_CREATE:         orig = g_OrigDispatchCreate;  break;
-    case IRP_MJ_CLOSE:          orig = g_OrigDispatchClose;   break;
-    case IRP_MJ_DEVICE_CONTROL: orig = g_OrigDispatchDevCtrl; break;
-    default: break;
-    }
-
-    if (orig != NULL)
-        return orig(DeviceObject, Irp);
-
-    // No original handler registered — return a safe default.
-    return CompleteIrpInline(Irp, STATUS_INVALID_DEVICE_REQUEST, 0);
+    UNREFERENCED_PARAMETER(DriverObject);
+    DbgPrint("!!! HookDevice: DriverUnload\n");
 }
 
 // ----------------------------------------------------------------------------
-// InitHookNotifyDevice — create the device and install dispatch wrappers.
+// HookNotifyDriverInit — IoCreateDriver callback.
 //
-// Must be called AFTER FltRegisterFilter / FltStartFiltering so that any
-// MajorFunction entries set by FltMgr are captured in the g_Orig* pointers
-// and correctly forwarded.
+// Receives a fresh DRIVER_OBJECT completely independent of the minifilter's
+// DriverObject.  FltMgr never sees this object, so writing MajorFunction
+// entries here cannot cause FLTMGR_FILE_SYSTEM (0xF5).
 // ----------------------------------------------------------------------------
-NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
+static NTSTATUS HookNotifyDriverInit(
+    _In_ PDRIVER_OBJECT  DriverObject,
+    _In_ PUNICODE_STRING RegistryPath)
 {
-    UNICODE_STRING devName, symName;
-    NTSTATUS       status;
+    UNREFERENCED_PARAMETER(RegistryPath);
 
+    g_HookNotifyDriverObject = DriverObject;
+    DriverObject->DriverUnload = HookNotifyDriverUnload;
+
+    DriverObject->MajorFunction[IRP_MJ_CREATE]         = HookDeviceCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = HookDeviceCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HookDeviceControl;
+
+    UNICODE_STRING devName, symName;
     RtlInitUnicodeString(&devName, OWLY_HOOK_DEVICE_NAME);
     RtlInitUnicodeString(&symName, OWLY_HOOK_SYMLINK_NAME);
 
-    // Create the device object.
-    // DO_BUFFERED_IO is required: IOCTL_REPORT_HOOK_EVENT uses METHOD_BUFFERED
-    // and the I/O manager only copies buffers when this flag is set.
-    // FILE_DEVICE_SECURE_OPEN restricts access to objects opened by name.
-    status = IoCreateDevice(
+    NTSTATUS status = IoCreateDevice(
         DriverObject,
-        0,                          // no device extension
+        0,
         &devName,
         FILE_DEVICE_UNKNOWN,
         FILE_DEVICE_SECURE_OPEN,
-        FALSE,                      // non-exclusive
+        FALSE,
         &g_HookNotifyDevice);
 
     if (!NT_SUCCESS(status))
@@ -236,8 +283,6 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     g_HookNotifyDevice->Flags |=  DO_BUFFERED_IO;
     g_HookNotifyDevice->Flags &= ~DO_DEVICE_INITIALIZING;
 
-    // Create the symbolic link so ZwCreateFile("\DosDevices\OwlyshieldHook")
-    // and "\??\OwlyshieldHook" both resolve to our device.
     status = IoCreateSymbolicLink(&symName, &devName);
     if (!NT_SUCCESS(status))
     {
@@ -247,41 +292,53 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
         return status;
     }
 
-    // Install dispatch wrappers, chaining through whatever was previously
-    // registered (FltMgr defaults, or FSFilter.cpp's own dispatch).
-    g_OrigDispatchCreate  = DriverObject->MajorFunction[IRP_MJ_CREATE];
-    g_OrigDispatchClose   = DriverObject->MajorFunction[IRP_MJ_CLOSE];
-    g_OrigDispatchDevCtrl = DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
-
-    DriverObject->MajorFunction[IRP_MJ_CREATE]         = HookDeviceDispatch;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = HookDeviceDispatch;
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HookDeviceDispatch;
-
     DbgPrint("!!! HookDevice: Ready at %S\n", OWLY_HOOK_DEVICE_NAME);
     return STATUS_SUCCESS;
 }
 
 // ----------------------------------------------------------------------------
-// CleanupHookNotifyDevice — remove the device before driver unload.
+// InitHookNotifyDevice — public entry point, called from DriverEntry.
 //
-// Must be called BEFORE FltUnregisterFilter so that the saved g_Orig*
-// pointers are still valid if FltMgr's unload path sends final IRPs.
+// IoCreateDriver allocates a fully independent DRIVER_OBJECT and calls
+// HookNotifyDriverInit synchronously.  The minifilter's DriverObject
+// (owned by FltMgr) is NEVER touched — no MajorFunction entries are
+// replaced, so FLTMGR_FILE_SYSTEM (0xF5) cannot occur.
+//
+// No ordering dependency on FltRegisterFilter or FltStartFiltering.
+// ----------------------------------------------------------------------------
+NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
+{
+    UNREFERENCED_PARAMETER(DriverObject);
+
+    UNICODE_STRING driverName;
+    RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
+
+    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
+        g_HookNotifyDevice       = NULL;
+        g_HookNotifyDriverObject = NULL;
+    }
+    return status;
+}
+
+// ----------------------------------------------------------------------------
+// CleanupHookNotifyDevice — called from DriverUnload.
+// No ordering constraint relative to FltUnregisterFilter.
 // ----------------------------------------------------------------------------
 VOID CleanupHookNotifyDevice(VOID)
 {
     if (g_HookNotifyDevice == NULL)
         return;
 
-    // Restore the original dispatch routines so FltMgr's cleanup path works.
-    // We do this by simply removing our device — once it's gone, no new IRPs
-    // can reach HookDeviceDispatch for it, but the DriverObject still has the
-    // wrapper installed for the FltMgr devices.  Those will chain to g_Orig*
-    // which now means FltMgr's original handlers, which is correct.
     UNICODE_STRING symName;
     RtlInitUnicodeString(&symName, OWLY_HOOK_SYMLINK_NAME);
     IoDeleteSymbolicLink(&symName);
+
     IoDeleteDevice(g_HookNotifyDevice);
-    g_HookNotifyDevice = NULL;
+    g_HookNotifyDevice       = NULL;
+    g_HookNotifyDriverObject = NULL;
 
     DbgPrint("!!! HookDevice: Cleaned up\n");
 }
