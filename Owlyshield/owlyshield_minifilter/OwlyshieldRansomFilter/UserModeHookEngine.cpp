@@ -16,15 +16,26 @@ Abstract:
       Shellcode written to the target VA, uses 14-byte FF 25 indirect JMP.
       Stolen instructions: first 14 bytes of the target function.
       Notification: calls 64-bit ntdll!NtDeviceIoControlFile via absolute
-      mov rax / call rax.
+      mov rax / call rax.  The device handle is opened WITHOUT
+      FILE_SYNCHRONOUS_IO_NONALERT so the call is ASYNCHRONOUS — it returns
+      STATUS_PENDING immediately after the I/O manager copies HOOK_EVENT_DATA
+      (METHOD_BUFFERED) into a system buffer.  The calling thread is NEVER
+      blocked.
 
     32-bit (WoW64) process:
       Module base resolved via PEB32 (PsGetProcessWow64Process).
       Shellcode written to the target VA, uses 5-byte E9 rel32 JMP.
       Stolen instructions: first 5 bytes of the target function.
       Notification: calls 32-bit ntdll!NtDeviceIoControlFile via 32-bit
-      stdcall (mov eax / call eax).  Stack addresses computed to account
-      for the WoW64 VA space (0x00000000–0x7FFFFFFF).
+      stdcall (mov eax / call eax).  Same async model — fire-and-forget,
+      thread never blocked.
+
+    NOTE — required changes to UserModeHookEngine.h
+    ─────────────────────────────────────────────────
+      1. Add to PROCESS_HOOK_ENTRY:   BOOLEAN IsWow64;
+      2. Add to HOOK_DEF:             ULONG   HookPatchSize;
+         (14 for 64-bit hooks, 5 for WoW64 hooks; drives unhook byte count)
+      3. Add define:                  #define USERMODE_HOOK_SIZE_32  5
 
 Environment:
 
@@ -2465,15 +2476,10 @@ NTSTATUS InjectSingleHook32(
     return STATUS_SUCCESS;
 }
 
+// Same rationale as kMandatoryExclusions64 — only the IPC function excluded.
 static const PCSTR kMandatoryExclusions32[] = {
     "NtDeviceIoControlFile",
     "ZwDeviceIoControlFile",
-    "NtClose",
-    "ZwClose",
-    "NtTerminateProcess",
-    "ZwTerminateProcess",
-    "NtTerminateThread",
-    "ZwTerminateThread",
 };
 
 // -------------------------------------------------------------------------
@@ -2513,19 +2519,31 @@ NTSTATUS ResolveAndHook32(
                                HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// FIX #3: ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT must NOT be called
-// while attached to another process via KeStackAttachProcess.  Completion of
-// synchronous I/O is delivered via a kernel APC, and the APC subsystem is
-// unreliable in a cross-process attach context, causing deadlocks or hangs.
+// ROOT CAUSE FIX — device handle opened in ASYNCHRONOUS mode.
 //
-// New design:
-//   1. Before any attachment: open a reference to the device FILE_OBJECT from
-//      system context using ObReferenceObjectByName (no I/O APC needed).
-//   2. Inside the attach: use ObInsertObject to insert the FILE_OBJECT directly
-//      into the target process handle table — a pure handle-table operation
-//      that does not involve any I/O completion.
-//   3. Allocate the shellcode region inside the attach (ZwAllocateVirtualMemory
-//      with ZwCurrentProcess() is safe; it resolves to the attached process).
+// The original design opened the device handle with FILE_SYNCHRONOUS_IO_NONALERT.
+// That flag causes NtDeviceIoControlFile (called by the shellcode in the target
+// process) to block the calling thread inside the kernel until the driver
+// completes the IRP.  Any resource that thread holds and that the driver or
+// kernel requires to make progress produces a deadlock.  Consequences observed:
+//   • Process exit hang     — teardown waits on thread stuck in IOCTL
+//   • I/O events stopping   — hooked NtWriteFile/NtReadFile thread never returns
+//   • Restart impossible    — process object not released while thread is stuck
+//
+// Fix: open the device handle WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
+//   • NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING immediately.
+//   • METHOD_BUFFERED copies HOOK_EVENT_DATA into a system buffer BEFORE queuing,
+//     so the stack payload is captured correctly even though the call is async.
+//   • The calling thread is NEVER blocked — fire-and-forget notification.
+//   • IRP completion APC fires on the next alertable wait; harmless for our use.
+//
+// The ZwCreateFile call is still placed before KeStackAttachProcess for a
+// separate reason: synchronous file I/O (needed here to obtain a FILE_OBJECT
+// reference via ObReferenceObjectByName-equivalent ZwCreateFile) must not run
+// inside a KeStackAttachProcess context because APC delivery is unreliable
+// during cross-process attachment.  The design: open FILE_OBJECT in system
+// context → ObInsertObject into target process handle table inside the attach
+// (pure handle-table operation, no I/O) → allocate shellcode inside the attach.
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
@@ -2552,6 +2570,46 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     // -----------------------------------------------------------------------
     // STEP 1 (before attach): obtain a kernel reference to the device's
     // FILE_OBJECT without performing any synchronous file I/O.
+    //
+    // CRITICAL: The device handle MUST be opened WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
+    //
+    // With FILE_SYNCHRONOUS_IO_NONALERT the I/O manager serialises all IRPs
+    // on the file object and NtDeviceIoControlFile does not return until the
+    // driver's IRP_MJ_DEVICE_CONTROL handler returns — i.e. it BLOCKS the
+    // calling thread inside the kernel.  That thread cannot release user-mode
+    // locks, cannot respond to APCs, and cannot participate in process
+    // teardown while waiting.  Any resource the thread holds that the driver
+    // or the kernel needs to make progress causes a deadlock.  This was the
+    // root cause of:
+    //   • process exit hang  (teardown waits on thread; thread blocked in IOCTL)
+    //   • I/O events stopping (hooked NtWriteFile/NtReadFile thread blocked)
+    //   • restart impossible  (process object not released because thread stuck)
+    //
+    // Without FILE_SYNCHRONOUS_IO_NONALERT:
+    //   • NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING
+    //     (or STATUS_SUCCESS if the driver completes inline) IMMEDIATELY.
+    //   • METHOD_BUFFERED still copies HOOK_EVENT_DATA from the stack into
+    //     a system buffer BEFORE queuing the IRP, so the stack-based payload
+    //     is captured correctly even though the thread does not wait.
+    //   • IRP completion APC is queued to the calling thread's APC queue and
+    //     fires on the next alertable wait — harmless for fire-and-forget.
+    //   • If the device handle is closed while an IRP is in flight, the IRP
+    //     holds its own FILE_OBJECT reference; the IRP completes or is
+    //     cancelled cleanly by the I/O manager.
+    //
+    // CONTRACT FOR Communication.cpp (IRP_MJ_DEVICE_CONTROL dispatch):
+    //   The handler for HOOK_NOTIFY_IOCTL_CODE MUST call IoCompleteRequest
+    //   BEFORE returning from its dispatch routine (synchronous completion).
+    //   This means NtDeviceIoControlFile returns STATUS_SUCCESS, not
+    //   STATUS_PENDING, and the I/O manager writes the IRP status back to
+    //   IoStatusBlock while the shellcode's stack frame is still live.
+    //
+    //   If the driver PENDS the IRP (marks pending, returns STATUS_PENDING,
+    //   and completes from a work item or DPC), NtDeviceIoControlFile would
+    //   return STATUS_PENDING and the I/O manager would later write to the
+    //   shellcode's already-unwound stack frame — a use-after-return bug.
+    //   For a simple notify IOCTL (no output data, no deferred processing),
+    //   synchronous completion is both correct and sufficient.
     // -----------------------------------------------------------------------
     PFILE_OBJECT deviceFileObject = NULL;
     {
@@ -2575,14 +2633,14 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             HANDLE tmpHandle = NULL;
             status = ZwCreateFile(
                 &tmpHandle,
-                FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                FILE_READ_DATA | FILE_WRITE_DATA,  // No SYNCHRONIZE — file is async
                 &oa,
                 &ioStatus,
                 NULL,
                 FILE_ATTRIBUTE_NORMAL,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 FILE_OPEN,
-                FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                FILE_NON_DIRECTORY_FILE,   // NO FILE_SYNCHRONOUS_IO_NONALERT — async mode
                 NULL,
                 0);
 
@@ -2592,7 +2650,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                 // into any process handle table without another ZwCreateFile.
                 status = ObReferenceObjectByHandle(
                     tmpHandle,
-                    FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                    FILE_READ_DATA | FILE_WRITE_DATA,  // matches ZwCreateFile access (no SYNCHRONIZE)
                     *IoFileObjectType,
                     KernelMode,
                     (PVOID *)&deviceFileObject,
@@ -2647,7 +2705,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                 status = ObInsertObject(
                     deviceFileObject,
                     NULL,
-                    FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                    FILE_READ_DATA | FILE_WRITE_DATA,  // no SYNCHRONIZE — async device
                     0,
                     NULL,
                     &targetHandle);
@@ -2709,47 +2767,31 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 // -------------------------------------------------------------------------
 // MANDATORY HOOK EXCLUSIONS (64-bit)
 //
-// These functions must NEVER be hooked regardless of user configuration:
+// Only NtDeviceIoControlFile / ZwDeviceIoControlFile are excluded:
 //
-//   NtDeviceIoControlFile / ZwDeviceIoControlFile
-//     The shellcode itself calls NtDeviceIoControlFile to notify the driver.
-//     Hooking it causes infinite recursion: hooked fn → shellcode →
-//     NtDeviceIoControlFile → shellcode → NtDeviceIoControlFile → ...
-//     The re-entrancy guard in the shellcode catches subsequent re-entrant
-//     calls on the same thread, but the FIRST hook installation would still
-//     intercept the driver's own IPC channel, corrupting the protocol.
+//   The shellcode calls NtDeviceIoControlFile to send HOOK_EVENT_DATA to the
+//   driver.  If this function is also in the hook list, the shellcode's own
+//   IPC call would be intercepted, sending a spurious notification about
+//   NtDeviceIoControlFile to the driver and recursing.  The re-entrancy guard
+//   (GS:[0x28] sentinel) prevents infinite recursion from the second call
+//   onward, but the first interception would still reach the driver with wrong
+//   context — corrupting the event stream.  Excluding the function entirely is
+//   cleaner and more efficient.
 //
-//   NtClose / ZwClose
-//     The DriverDeviceHandle inserted into the target process via
-//     ObInsertObject is a normal handle in the process handle table.
-//     Hooking NtClose causes the handle-close notification to re-enter
-//     the shellcode, which tries to call NtDeviceIoControlFile on an
-//     already-closing or already-invalid handle → STATUS_INVALID_HANDLE →
-//     driver I/O path sees unexpected error → hangs or silent data loss.
-//
-//   NtTerminateProcess / ZwTerminateProcess
-//   NtTerminateThread  / ZwTerminateThread
-//     During process/thread exit, Windows begins tearing down the handle
-//     table before all threads have exited.  The shellcode fires during this
-//     window and tries a synchronous NtDeviceIoControlFile call through
-//     the now-invalid DriverDeviceHandle.  The synchronous I/O wait never
-//     completes because the kernel-side IRP is never delivered → deadlock →
-//     process hangs indefinitely on exit.
-//
-// The re-entrancy guard in the shellcode mitigates re-entrant IOCTL calls
-// on the same thread but does NOT protect against the handle lifecycle and
-// process-teardown scenarios above.  The exclusion list is the definitive
-// fix for those.
+// Functions previously excluded (NtClose, NtTerminateProcess,
+// NtTerminateThread, ZwClose, ZwTerminateProcess, ZwTerminateThread) have
+// been REMOVED from this list.  They were workarounds for the synchronous
+// IOCTL blocking problem: when NtDeviceIoControlFile blocked the calling
+// thread, any hooked function called during process/thread teardown or handle
+// close would also block and deadlock.  With the device handle opened WITHOUT
+// FILE_SYNCHRONOUS_IO_NONALERT, NtDeviceIoControlFile returns STATUS_PENDING
+// immediately (fire-and-forget, METHOD_BUFFERED copies the payload first).
+// The thread is never blocked, so teardown, handle close, and termination
+// all proceed normally regardless of what functions are hooked.
 // -------------------------------------------------------------------------
 static const PCSTR kMandatoryExclusions64[] = {
     "NtDeviceIoControlFile",
     "ZwDeviceIoControlFile",
-    "NtClose",
-    "ZwClose",
-    "NtTerminateProcess",
-    "ZwTerminateProcess",
-    "NtTerminateThread",
-    "ZwTerminateThread",
 };
 
 NTSTATUS ResolveAndHook(
