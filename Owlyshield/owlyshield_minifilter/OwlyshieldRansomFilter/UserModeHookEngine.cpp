@@ -84,6 +84,26 @@ typedef struct _PEB32 {
 // DYNAMIC IMPORT DEFINITIONS
 // -------------------------------------------------------------------------
 
+// -------------------------------------------------------------------------
+// RE-ENTRANCY GUARD MAGIC CONSTANTS
+//
+// The shellcode stores this sentinel in TEB.NtTib.ArbitraryUserPointer
+// (GS:[0x28] on x64, FS:[0x14] on x86/WoW64) while it is executing.
+// Before calling NtDeviceIoControlFile, the shellcode checks whether the
+// sentinel is already present.  If it is, the IOCTL call is skipped and
+// the stolen bytes + return jump execute normally.  This prevents infinite
+// recursion when a hooked function is called from within the driver's own
+// IOCTL dispatch path (e.g. minifilter pre-operation → NtCreateFile hook →
+// shellcode → NtDeviceIoControlFile → minifilter pre-operation → ...).
+//
+// The magic value is distinctive enough that accidental collision with a
+// real ArbitraryUserPointer usage is negligible.  The old value is saved
+// on the local stack frame ([RSP+0x70] / [ESP+0x78]) and restored after
+// the IOCTL completes, so any pre-existing value in the field is preserved.
+// -------------------------------------------------------------------------
+#define HOOK_REENTRANCY_MAGIC_64  ((ULONG64)0xFEEDF00DFEEDF00DUI64)
+#define HOOK_REENTRANCY_MAGIC_32  ((ULONG32)0xFEEDF00DUL)
+
 // Function Pointer Types
 typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                     _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
@@ -1030,92 +1050,150 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   ReturnJMP            E9          [55 55 55 55]   → rel32 at +1
 //   StolenBytes          5 × NOP (at offset offRet32 - USERMODE_HOOK_SIZE_32)
 // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// g_ShellcodeTemplate32  (WoW64 / 32-bit process hook)
+//
+// RE-ENTRANCY GUARD:
+//   After PUSHAD+PUSHFD+SUB ESP,0x80, loads HOOK_REENTRANCY_MAGIC_32 into
+//   EBX (already saved by PUSHAD).  Reads FS:[0x14] (TEB32.NtTib.
+//   ArbitraryUserPointer) into EAX and saves it at [ESP+0x78].  If EAX
+//   already equals the magic, jumps (JE rel32) past the IOCTL block.
+//   Otherwise sets FS:[0x14] to the magic, runs the IOCTL, then restores
+//   FS:[0x14] from [ESP+0x78] before falling into the skip label.
+//
+// STACK LAYOUT at entry (JMP already taken, return addr on stack):
+//   [LB]        = ESP after sub ESP,0x80  (LB = Local Base)
+//   [LB+0x00]   IoStatusBlock (8 bytes)
+//   [LB+0x08]   HOOK_EVENT_DATA.EventType    ← PATCH
+//   [LB+0x0C]   HOOK_EVENT_DATA.ProcessId    ← PATCH
+//   [LB+0x10]   HOOK_EVENT_DATA.FunctionName[0] = 0
+//   [LB+0x50]   HOOK_EVENT_DATA.Arg1 lo
+//   [LB+0x54]   HOOK_EVENT_DATA.Arg1 hi = 0
+//   [LB+0x58]   HOOK_EVENT_DATA.Arg2 lo
+//   [LB+0x5C]   HOOK_EVENT_DATA.Arg2 hi = 0
+//   [LB+0x78]   saved old FS:[0x14]          ← NEW
+//   [LB+0x80]   EFLAGS  (PUSHFD)
+//   [LB+0x84]   EDI,ESI,EBP,ESP_orig,EBX,EDX,ECX,EAX  (PUSHAD, 32 bytes)
+//   [LB+0xA4]   return address (caller's CALL pushed this)
+//   [LB+0xA8]   arg1 of hooked function
+//   [LB+0xAC]   arg2 of hooked function
+//
+// PATCH SIGNATURES:
+//   kGuardMagicSig32  BB [88×4]             → imm32 = HOOK_REENTRANCY_MAGIC_32
+//   kJeSig32          0F 84 [00×4]          → rel32  = offset to kSkipLabelSig32
+//   kEventSig32       C7 44 24 08 [11×4]    → imm32  = EventId
+//   kPidSig32         C7 44 24 0C [22×4]    → imm32  = ProcessId
+//   kSizeSig32        68 [77×4]             → imm32  = sizeof(HOOK_EVENT_DATA)
+//   kIoctlSig32       68 [66×4]             → imm32  = HOOK_NOTIFY_IOCTL_CODE
+//   kHandleSig32      68 [33×4]             → imm32  = DriverDeviceHandle
+//   kNtIoSig32        B8 [44×4]             → imm32  = NtDeviceIoControlFile VA
+//   kSkipLabelSig32   0F 1F 00              → (3-byte NOP — JE rel32 target)
+//   kRetSig32         E9 [55×4]             → rel32  = return target
+// -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
-    // ---- Save all GP registers + flags ----------------------------------
-    0x60,                                // pushad   (EAX,ECX,EDX,EBX,ESP,EBP,ESI,EDI)
+    // ---- Save all GP registers and flags --------------------------------
+    0x60,                                // pushad
     0x9C,                                // pushfd
 
     // ---- Allocate local frame: 0x80 bytes --------------------------------
     0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, // sub esp, 0x80
 
-    // ---- Zero IoStatusBlock at [esp+0x00..0x07] --------------------------
+    // ---- RE-ENTRANCY GUARD (new) -----------------------------------------
+    // Load sentinel into EBX (already saved by PUSHAD at [LB+0x90]).
+    // kGuardMagicSig32 = { 0xBB, 0x88, 0x88, 0x88, 0x88 }
+    0xBB, 0x88, 0x88, 0x88, 0x88,       // mov ebx, MAGIC32
+
+    // Read TEB32.NtTib.ArbitraryUserPointer from FS:[0x14]
+    // FS(64) A1 [14 00 00 00]  = MOV EAX, moffs32 with FS prefix (6 bytes)
+    0x64, 0xA1, 0x14, 0x00, 0x00, 0x00, // mov eax, fs:[0x14]
+
+    // Save old value so we can restore it after the IOCTL
+    0x89, 0x44, 0x24, 0x78,             // mov [esp+0x78], eax
+
+    // If eax == magic → already inside shellcode, skip IOCTL
+    0x3B, 0xC3,                          // cmp eax, ebx
+
+    // je rel32 — kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
+    // rel32 patched at install time to reach kSkipLabelSig32
+    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00, // je skip_notification32
+
+    // Set guard: FS(64) 89 1D [14 00 00 00] = MOV [moffs32], EBX
+    0x64, 0x89, 0x1D, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], ebx
+
+    // ---- Zero IoStatusBlock at [esp+0x00..0x07] -------------------------
     0x31, 0xC0,                          // xor eax, eax
     0x89, 0x04, 0x24,                    // mov [esp+0x00], eax
     0x89, 0x44, 0x24, 0x04,             // mov [esp+0x04], eax
 
-    // ---- Fill HOOK_EVENT_DATA at [esp+0x08] ------------------------------
-    // EventType = EventId  ← PATCH: 0x11111111
+    // ---- Fill HOOK_EVENT_DATA at [esp+0x08] -----------------------------
+    // EventType ← patched: kEventSig32
     0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId            ← PATCH: 0x22222222
+    // ProcessId ← patched: kPidSig32
     0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22,
-    // FunctionName[0] = '\0' (EventId-based resolution is authoritative)
+    // FunctionName[0] = '\0'
     0xC6, 0x44, 0x24, 0x10, 0x00,
 
-    // ---- Arg1 of hooked function → HOOK_EVENT_DATA.Arg1 -----------------
-    // [esp+0xA8] = first stack argument of the hooked function.
-    // (layout: LB+0x80=EFLAGS; +0x84..+0xA0=PUSHAD regs; +0xA4=retaddr; +0xA8=arg1)
+    // ---- Arg1 → HOOK_EVENT_DATA.Arg1 ------------------------------------
+    // [esp+0xA8] = arg1 of hooked fn (LB+0x80=EFLAGS + 0x84..0xA0=PUSHAD + 0xA4=retaddr)
     0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, // mov eax, [esp+0xA8]
-    0x89, 0x44, 0x24, 0x50,                    // mov [esp+0x50], eax  (Arg1 lo)
-    0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x54] = 0 (Arg1 hi)
+    0x89, 0x44, 0x24, 0x50,                    // mov [esp+0x50], eax
+    0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x54] = 0
 
-    // ---- Arg2 of hooked function → HOOK_EVENT_DATA.Arg2 -----------------
+    // ---- Arg2 → HOOK_EVENT_DATA.Arg2 ------------------------------------
     0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00, // mov eax, [esp+0xAC]
-    0x89, 0x44, 0x24, 0x58,                    // mov [esp+0x58], eax  (Arg2 lo)
-    0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0 (Arg2 hi)
+    0x89, 0x44, 0x24, 0x58,                    // mov [esp+0x58], eax
+    0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0
 
-    // ---- Build NtDeviceIoControlFile args (stdcall, right-to-left) -------
-    // At each LEA the current ESP = LB - N_bytes_pushed_so_far.
-    // LB = ESP + N_bytes_pushed_so_far.
-
+    // ---- Build NtDeviceIoControlFile args (stdcall, right-to-left) ------
     // arg10: OutputBufferLength = 0
-    0x6A, 0x00,                          // push 0               (ESP = LB-4)
+    0x6A, 0x00,                          // push 0               ESP=LB-4
     // arg9: OutputBuffer = NULL
-    0x6A, 0x00,                          // push 0               (ESP = LB-8)
-    // arg8: InputBufferLength  ← PATCH: 0x77777777
-    0x68, 0x77, 0x77, 0x77, 0x77,       // push imm32           (ESP = LB-12 = LB-0xC)
-    // arg7: InputBuffer = &HOOK_EVENT_DATA
-    // ESP=LB-0xC → LB=ESP+0xC → &HOOK_EVENT_DATA = ESP+0xC+0x08 = ESP+0x14
-    0x8D, 0x44, 0x24, 0x14,             // lea eax, [esp+0x14]
-    0x50,                               // push eax              (ESP = LB-0x10)
-    // arg6: IoControlCode      ← PATCH: 0x66666666
-    0x68, 0x66, 0x66, 0x66, 0x66,       // push imm32           (ESP = LB-0x14)
-    // arg5: &IoStatusBlock
-    // ESP=LB-0x14 → LB=ESP+0x14 → &IoStatusBlock = ESP+0x14+0x00 = ESP+0x14
-    0x8D, 0x44, 0x24, 0x14,             // lea eax, [esp+0x14]
-    0x50,                               // push eax              (ESP = LB-0x18)
+    0x6A, 0x00,                          // push 0               ESP=LB-8
+    // arg8: InputBufferLength ← patched: kSizeSig32
+    0x68, 0x77, 0x77, 0x77, 0x77,       //                       ESP=LB-0xC
+    // arg7: InputBuffer = &HOOK_EVENT_DATA = [esp+0x14] at this point
+    0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
+    0x50,                               // push eax              ESP=LB-0x10
+    // arg6: IoControlCode ← patched: kIoctlSig32
+    0x68, 0x66, 0x66, 0x66, 0x66,       //                       ESP=LB-0x14
+    // arg5: &IoStatusBlock = [esp+0x14] at this point
+    0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
+    0x50,                               // push eax              ESP=LB-0x18
     // arg4: ApcContext = NULL
-    0x6A, 0x00,                          // push 0               (ESP = LB-0x1C)
+    0x6A, 0x00,                         //                       ESP=LB-0x1C
     // arg3: ApcRoutine = NULL
-    0x6A, 0x00,                          // push 0               (ESP = LB-0x20)
+    0x6A, 0x00,                         //                       ESP=LB-0x20
     // arg2: Event = NULL
-    0x6A, 0x00,                          // push 0               (ESP = LB-0x24)
-    // arg1: FileHandle         ← PATCH: 0x33333333
-    0x68, 0x33, 0x33, 0x33, 0x33,       // push imm32           (ESP = LB-0x28)
-    // CALL pushes ret addr → ESP = LB-0x2C; stdcall ret 40 → ESP = LB ✓
+    0x6A, 0x00,                         //                       ESP=LB-0x24
+    // arg1: FileHandle ← patched: kHandleSig32
+    0x68, 0x33, 0x33, 0x33, 0x33,       //                       ESP=LB-0x28
 
-    // ---- Call NtDeviceIoControlFile (32-bit stdcall) ----------------------
-    // Address ← PATCH: 0x44444444
+    // ---- Call NtDeviceIoControlFile (stdcall — callee cleans 40 bytes) --
+    // Address ← patched: kNtIoSig32
     0xB8, 0x44, 0x44, 0x44, 0x44,       // mov eax, imm32
-    0xFF, 0xD0,                          // call eax   (stdcall: callee does ret 40)
+    0xFF, 0xD0,                          // call eax
 
-    // ---- Restore local frame and all registers ----------------------------
+    // ---- Restore re-entrancy guard (clear back to old FS:[0x14] value) --
+    0x8B, 0x44, 0x24, 0x78,             // mov eax, [esp+0x78]
+    // FS(64) A3 [14 00 00 00] = MOV [moffs32], EAX
+    0x64, 0xA3, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], eax
+
+    // ---- skip_notification32 label ← JE rel32 target --------------------
+    // kSkipLabelSig32 = { 0x0F, 0x1F, 0x00 }  (3-byte NOP)
+    0x0F, 0x1F, 0x00,                   // nop dword ptr [eax]
+
+    // ---- Restore local frame and all registers --------------------------
     0x81, 0xC4, 0x80, 0x00, 0x00, 0x00, // add esp, 0x80
     0x9D,                               // popfd
     0x61,                               // popad
 
-    // ---- 5-byte stolen-instruction placeholder ---------------------------
-    // Patched at runtime with the original bytes from the hooked function.
-    // ContainsUnrelocatableInstructions32() guarantees these are safe to
-    // execute at this new virtual address.
+    // ---- 5-byte stolen-instruction placeholder --------------------------
     0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ---- Return jump ------------------------------------------------------
-    // rel32 patched to (original_function + USERMODE_HOOK_SIZE_32).
-    // E9 rel32 = JMP to (EIP_after_jmp + rel32) = (VA_of_E9 + 5 + rel32)
-    //          ← PATCH: 0x55555555
+    // ---- Return jump ← patched: kRetSig32 (E9 rel32) --------------------
     0xE9, 0x55, 0x55, 0x55, 0x55,
 
-    // ---- Padding ----------------------------------------------------------
+    // ---- Padding --------------------------------------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
 };
 // NtDeviceIoControlFile, leaving the rest as garbage — causing an access
@@ -1140,6 +1218,56 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   saved RCX (original arg1 of hooked fn) lives at RSP + 0xF8
 //   saved RDX (original arg2 of hooked fn) lives at RSP + 0x100
 // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// g_ShellcodeTemplate  (native 64-bit process hook)
+//
+// Changes from previous version:
+//   RE-ENTRANCY GUARD (NEW):
+//     After allocating the frame, loads HOOK_REENTRANCY_MAGIC_64 into R10
+//     (which is already saved on the stack).  Reads the current thread's
+//     TEB.NtTib.ArbitraryUserPointer via GS:[0x28] and saves it at
+//     [RSP+0x70].  If it already equals the magic, jumps (JE rel32) past
+//     the entire IOCTL block directly to the skip_notification label.
+//     Otherwise, sets GS:[0x28] to the magic, runs the IOCTL, then restores
+//     GS:[0x28] from [RSP+0x70] before falling into the skip label.
+//
+// STACK LAYOUT (RSP = RSP_entry - 0x138 after pushes + sub):
+//   [RSP+0x00..0x1F]  shadow space for NtDeviceIoControlFile
+//   [RSP+0x20]        arg5:  &IO_STATUS_BLOCK  (→ RSP+0x80)
+//   [RSP+0x28]        arg6:  IoControlCode     (patched)
+//   [RSP+0x30]        arg7:  InputBuffer       (→ RSP+0x90)
+//   [RSP+0x38]        arg8:  InputBufferLength (patched)
+//   [RSP+0x40]        arg9:  OutputBuffer      NULL
+//   [RSP+0x48]        arg10: OutputBufferLength 0
+//   [RSP+0x50..0x6F]  (unused)
+//   [RSP+0x70]        saved old TEB.ArbitraryUserPointer  ← NEW
+//   [RSP+0x80..0x8F]  IO_STATUS_BLOCK
+//   [RSP+0x90+0x00]   HOOK_EVENT_DATA.EventType    (patched)
+//   [RSP+0x90+0x04]   HOOK_EVENT_DATA.ProcessId    (patched)
+//   [RSP+0x90+0x08]   HOOK_EVENT_DATA.FunctionName[0] = 0
+//   [RSP+0xD8]        HOOK_EVENT_DATA.Arg1
+//   [RSP+0xE0]        HOOK_EVENT_DATA.Arg2
+//   [RSP+0xF8]        saved R11  (last pushed, first popped)
+//   [RSP+0x100]       saved R10
+//   [RSP+0x108]       saved R9
+//   [RSP+0x110]       saved R8
+//   [RSP+0x118]       saved RBX
+//   [RSP+0x120]       saved RDX  ← Arg2 source
+//   [RSP+0x128]       saved RCX  ← Arg1 source
+//   [RSP+0x130]       saved RAX
+//
+// PATCH SIGNATURES (searched by FindPatternOffset at install time):
+//   kGuardMagicSig  49 BA [88×8]         → imm64  = HOOK_REENTRANCY_MAGIC_64
+//   kJeSig64        0F 84 [00×4]         → rel32  = offset to kSkipLabelSig
+//   kEventSig       C7 84 24 90 .. 11×4  → imm32  = EventId
+//   kPidSig         C7 84 24 94 .. 22×4  → imm32  = ProcessId
+//   kHandleSig      48 B9 [33×8]         → imm64  = DriverDeviceHandle
+//   kIoctlSig       48 B8 [66×8]         → imm64  = HOOK_NOTIFY_IOCTL_CODE
+//   kSizeSig        48 B8 [77×8]         → imm64  = sizeof(HOOK_EVENT_DATA)
+//   kNtIoSig        48 B8 [44×8]         → imm64  = NtDeviceIoControlFile VA
+//   kSkipLabelSig   0F 1F 44 00 00       → (5-byte NOP — JE rel32 target)
+//   kRetSig         48 B8 [55×8]         → imm64  = return target VA
+// -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate[] = {
     // ---- Save volatile registers ----------------------------------------
     0x50,                                           // push rax
@@ -1150,69 +1278,108 @@ UCHAR g_ShellcodeTemplate[] = {
     0x41, 0x51,                                     // push r9
     0x41, 0x52,                                     // push r10
     0x41, 0x53,                                     // push r11
-    // ---- Allocate 0xF8 bytes of local space --------------------------------
-    // RSP at shellcode entry: RSP%16 == 8 (entered via JMP after hooked CALL).
-    // After 8 pushes (64 bytes): RSP%16 still == 8.
-    // We need RSP%16 == 0 at the CALL instruction (x64 ABI).
-    // Required: N%16 == 8  →  0xF8 (248) is correct. 0xF0 (240) was WRONG.
+
+    // ---- Allocate 0xF8 bytes of local frame -----------------------------
+    // After 8 pushes (64 bytes) RSP%16 == 8.  sub 0xF8 (248, 8 mod 16):
+    // RSP%16 → 0 at the CALL, satisfying the x64 ABI.
     0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00,      // sub rsp, 0xF8
 
-    // ---- Zero IO_STATUS_BLOCK at RSP+0x80 ----------------------------------
+    // ---- RE-ENTRANCY GUARD (new) ----------------------------------------
+    // Load sentinel into R10 (already saved at [RSP+0x100]).
+    // Placeholder 0x88... is patched with HOOK_REENTRANCY_MAGIC_64.
+    // kGuardMagicSig = { 0x49,0xBA,0x88,0x88,0x88,0x88,0x88,0x88,0x88,0x88 }
+    0x49, 0xBA,
+    0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,// mov r10, MAGIC  (imm64)
+
+    // Read TEB.NtTib.ArbitraryUserPointer from GS:[0x28]
+    // Encoding: GS(65) REX.W(48) 8B /r SIB(04 25) disp32
+    0x65, 0x48, 0x8B, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov rax, gs:[0x28]
+
+    // Save old value so we can restore it after the IOCTL
+    0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov [rsp+0x70], rax
+
+    // If rax == magic → already inside shellcode on this thread, skip IOCTL
+    // cmp rax, r10  → REX.WB(49) 3B C2
+    0x49, 0x3B, 0xC2,                               // cmp rax, r10
+
+    // je rel32 — kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
+    // rel32 patched at install time to reach kSkipLabelSig
+    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00,             // je skip_notification
+
+    // Set guard: mark this thread as inside our shellcode
+    // mov gs:[0x28], r10  → GS(65) REX.WR(4C) 89 SIB(14 25) disp32
+    0x65, 0x4C, 0x89, 0x14, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], r10
+
+    // ---- Zero IO_STATUS_BLOCK at RSP+0x80 --------------------------------
     0x48, 0x31, 0xC0,                               // xor rax, rax
     0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// mov [rsp+0x80], rax
     0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00,// mov [rsp+0x88], rax
 
-    // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -------------------------
-    // EventType at RSP+0x90  — patched with EventId (ULONG)
+    // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -----------------------
+    // EventType at RSP+0x90  ← patched: kEventSig
     0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId at RSP+0x94 — patched with ProcessId (ULONG)
+    // ProcessId at RSP+0x94 ← patched: kPidSig
     0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22,
-    // FunctionName[0] at RSP+0x98 = '\0' so EventId-based name resolution is authoritative.
+    // FunctionName[0] = '\0'
     0xC6, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00, 0x00,
 
-    // ---- Copy original RCX (arg1) → HOOK_EVENT_DATA.Arg1 at RSP+0xD8 ------
-    // Push order: rax,rcx,rdx,rbx,r8,r9,r10,r11.  After sub rsp,0xF8:
-    //   r11=[RSP+0xF8], r10=[RSP+0x100], r9=[RSP+0x108], r8=[RSP+0x110]
-    //   rbx=[RSP+0x118], rdx=[RSP+0x120], rcx=[RSP+0x128], rax=[RSP+0x130]
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax, [rsp+0x128]  ← saved RCX
-    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8], rax   → Arg1
+    // ---- Copy original RCX (arg1) → HOOK_EVENT_DATA.Arg1 at RSP+0xD8 ----
+    // Register save layout after sub rsp,0xF8:
+    //   r11=[RSP+0xF8] r10=[RSP+0x100] r9=[RSP+0x108] r8=[RSP+0x110]
+    //   rbx=[RSP+0x118] rdx=[RSP+0x120] rcx=[RSP+0x128] rax=[RSP+0x130]
+    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax,[rsp+0x128] ← RCX
+    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8],rax → Arg1
 
-    // ---- Copy original RDX (arg2) → HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ------
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax, [rsp+0x120]  ← saved RDX
-    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0], rax   → Arg2
+    // ---- Copy original RDX (arg2) → HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
+    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax,[rsp+0x120] ← RDX
+    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0],rax → Arg2
 
-    // ---- Build NtDeviceIoControlFile argument frame ------------------------
-    // RCX = FileHandle (arg1) — patched
+    // ---- Build NtDeviceIoControlFile argument frame ----------------------
+    // RCX = FileHandle ← patched: kHandleSig
     0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-    // RDX = Event (arg2) = NULL
+    // RDX = Event = NULL
     0x31, 0xD2,                                     // xor edx, edx
-    // R8  = ApcRoutine (arg3) = NULL
+    // R8 = ApcRoutine = NULL
     0x45, 0x31, 0xC0,                               // xor r8d, r8d
-    // R9  = ApcContext (arg4) = NULL
+    // R9 = ApcContext = NULL
     0x45, 0x31, 0xC9,                               // xor r9d, r9d
-    // arg5: [rsp+0x20] = &IO_STATUS_BLOCK = lea rax,[rsp+0x80]; store
-    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// lea rax, [rsp+0x80]
+    // arg5 [rsp+0x20] = &IoStatusBlock
+    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// lea rax,[rsp+0x80]
     0x48, 0x89, 0x44, 0x24, 0x20,                   // mov [rsp+0x20], rax
-    // arg6: [rsp+0x28] = IoControlCode — patched (0x6666... placeholder)
+    // arg6 [rsp+0x28] = IoControlCode ← patched: kIoctlSig
     0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x48, 0x89, 0x44, 0x24, 0x28,                   // mov [rsp+0x28], rax
-    // arg7: [rsp+0x30] = InputBuffer = &HOOK_EVENT_DATA at RSP+0x90
-    0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00,// lea rax, [rsp+0x90]
+    // arg7 [rsp+0x30] = InputBuffer = &HOOK_EVENT_DATA
+    0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00,// lea rax,[rsp+0x90]
     0x48, 0x89, 0x44, 0x24, 0x30,                   // mov [rsp+0x30], rax
-    // arg8: [rsp+0x38] = InputBufferLength — patched (0x7777... placeholder)
+    // arg8 [rsp+0x38] = InputBufferLength ← patched: kSizeSig
     0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77,
     0x48, 0x89, 0x44, 0x24, 0x38,                   // mov [rsp+0x38], rax
-    // arg9 + arg10: [rsp+0x40] = NULL, [rsp+0x48] = 0
+    // arg9 [rsp+0x40] = NULL, arg10 [rsp+0x48] = 0
     0x48, 0x31, 0xC0,                               // xor rax, rax
     0x48, 0x89, 0x44, 0x24, 0x40,                   // mov [rsp+0x40], rax
     0x48, 0x89, 0x44, 0x24, 0x48,                   // mov [rsp+0x48], rax
 
-    // ---- Call NtDeviceIoControlFile ----------------------------------------
-    // Address patched (0x4444... placeholder)
+    // ---- Call NtDeviceIoControlFile ← patched: kNtIoSig -----------------
     0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
     0xFF, 0xD0,                                     // call rax
 
-    // ---- Restore local space and registers ---------------------------------
+    // ---- Restore re-entrancy guard ---------------------------------------
+    // Restores the old TEB.ArbitraryUserPointer value saved at [RSP+0x70].
+    // This correctly handles the case where the field was non-zero before we
+    // set the sentinel (e.g. the CRT had its own value there).
+    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov rax, [rsp+0x70]
+    // mov gs:[0x28], rax → GS(65) REX.W(48) 89 SIB(04 25) disp32
+    0x65, 0x48, 0x89, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], rax
+
+    // ---- skip_notification label ← JE rel32 target ----------------------
+    // kSkipLabelSig = { 0x0F,0x1F,0x44,0x00,0x00 }
+    // 5-byte NOP: nop dword ptr [rax+rax*1+0h]
+    // On the re-entrant path the JE jumps here, bypassing the IOCTL entirely.
+    // On the normal path execution falls through from the guard restore above.
+    0x0F, 0x1F, 0x44, 0x00, 0x00,                  // (5-byte NPAD)
+
+    // ---- Restore local space and registers ------------------------------
     0x48, 0x81, 0xC4, 0xF8, 0x00, 0x00, 0x00,      // add rsp, 0xF8
     0x41, 0x5B,                                     // pop r11
     0x41, 0x5A,                                     // pop r10
@@ -1223,19 +1390,15 @@ UCHAR g_ShellcodeTemplate[] = {
     0x59,                                           // pop rcx
     0x58,                                           // pop rax
 
-    // ---- 14-byte stolen-instructions placeholder ---------------------------
-    // Patched at runtime with the original bytes from the hooked function.
-    // ContainsUnrelocatableInstructions() guarantees these are safe to run
-    // at this new virtual address before we ever reach this point.
+    // ---- 14-byte stolen-instruction placeholder -------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ---- Return jump -------------------------------------------------------
-    // Target patched to (original function base + USERMODE_HOOK_SIZE)
-    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, // mov rax, <ret>
+    // ---- Return jump ← patched: kRetSig ---------------------------------
+    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
     0xFF, 0xE0,                                     // jmp rax
 
-    // ---- Padding -----------------------------------------------------------
+    // ---- Padding --------------------------------------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90
@@ -1884,6 +2047,9 @@ NTSTATUS InjectSingleHook(
 
     {
         // Updated signatures matching the corrected shellcode template
+        static const UCHAR kGuardMagicSig[] = {0x49, 0xBA, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
+        static const UCHAR kJeSig64[]        = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
+        static const UCHAR kSkipLabelSig[]   = {0x0F, 0x1F, 0x44, 0x00, 0x00};
         static const UCHAR kEventSig[]  = {0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11};
         static const UCHAR kPidSig[]    = {0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kHandleSig[] = {0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
@@ -1892,6 +2058,9 @@ NTSTATUS InjectSingleHook(
         static const UCHAR kNtIoSig[]   = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
         static const UCHAR kRetSig[]    = {0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
 
+        SIZE_T offGuardMagic = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig, sizeof(kGuardMagicSig));
+        SIZE_T offJe64       = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig64,       sizeof(kJeSig64));
+        SIZE_T offSkipLabel  = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig,  sizeof(kSkipLabelSig));
         SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig,  sizeof(kEventSig));
         SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig,    sizeof(kPidSig));
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig, sizeof(kHandleSig));
@@ -1900,7 +2069,10 @@ NTSTATUS InjectSingleHook(
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig,   sizeof(kNtIoSig));
         SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig,    sizeof(kRetSig));
 
-        if (offEvent  == (SIZE_T)-1 ||
+        if (offGuardMagic == (SIZE_T)-1 ||
+            offJe64       == (SIZE_T)-1 ||
+            offSkipLabel  == (SIZE_T)-1 ||
+            offEvent  == (SIZE_T)-1 ||
             offPid    == (SIZE_T)-1 ||
             offHandle == (SIZE_T)-1 ||
             offIoctl  == (SIZE_T)-1 ||
@@ -1911,6 +2083,13 @@ NTSTATUS InjectSingleHook(
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
+
+        // Patch re-entrancy guard magic (imm64 starting at kGuardMagicSig+2)
+        *(PULONG64)(shellcode + offGuardMagic + 2) = HOOK_REENTRANCY_MAGIC_64;
+
+        // Patch JE rel32: target = kSkipLabelSig, source = kJeSig64+6
+        // rel32 = offSkipLabel - (offJe64 + 6)
+        *(PLONG)(shellcode + offJe64 + 2) = (LONG)(offSkipLabel - (offJe64 + 6));
 
         // Patch EventId — ULONG at instruction+7 (mov dword ptr [rsp+0x90], imm32)
         *(PULONG)(shellcode + offEvent + 7) = EventId;
@@ -2118,6 +2297,9 @@ NTSTATUS InjectSingleHook32(
 
     {
         // Signature definitions (must be unique within the template).
+        static const UCHAR kGuardMagicSig32[] = {0xBB, 0x88, 0x88, 0x88, 0x88};
+        static const UCHAR kJeSig32[]          = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
+        static const UCHAR kSkipLabelSig32[]   = {0x0F, 0x1F, 0x00};
         static const UCHAR kEventSig32[]  = {0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11};
         static const UCHAR kPidSig32[]    = {0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kSizeSig32[]   = {0x68, 0x77, 0x77, 0x77, 0x77};
@@ -2126,6 +2308,9 @@ NTSTATUS InjectSingleHook32(
         static const UCHAR kNtIoSig32[]   = {0xB8, 0x44, 0x44, 0x44, 0x44};
         static const UCHAR kRetSig32[]    = {0xE9, 0x55, 0x55, 0x55, 0x55};
 
+        SIZE_T offGuardMagic32 = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig32, sizeof(kGuardMagicSig32));
+        SIZE_T offJe32         = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig32,         sizeof(kJeSig32));
+        SIZE_T offSkipLabel32  = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig32,  sizeof(kSkipLabelSig32));
         SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig32,  sizeof(kEventSig32));
         SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig32,    sizeof(kPidSig32));
         SIZE_T offSize   = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig32,   sizeof(kSizeSig32));
@@ -2134,7 +2319,10 @@ NTSTATUS InjectSingleHook32(
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32,   sizeof(kNtIoSig32));
         SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32,    sizeof(kRetSig32));
 
-        if (offEvent  == (SIZE_T)-1 ||
+        if (offGuardMagic32 == (SIZE_T)-1 ||
+            offJe32         == (SIZE_T)-1 ||
+            offSkipLabel32  == (SIZE_T)-1 ||
+            offEvent  == (SIZE_T)-1 ||
             offPid    == (SIZE_T)-1 ||
             offSize   == (SIZE_T)-1 ||
             offIoctl  == (SIZE_T)-1 ||
@@ -2145,6 +2333,12 @@ NTSTATUS InjectSingleHook32(
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
+
+        // Patch re-entrancy guard magic (imm32 starting at kGuardMagicSig32+1)
+        *(PULONG)(shellcode + offGuardMagic32 + 1) = HOOK_REENTRANCY_MAGIC_32;
+
+        // Patch JE rel32: target = kSkipLabelSig32, source = kJeSig32+6
+        *(PLONG)(shellcode + offJe32 + 2) = (LONG)(offSkipLabel32 - (offJe32 + 6));
 
         // Patch EventId (ULONG at kEventSig32 + 4)
         *(PULONG)(shellcode + offEvent + 4) = EventId;
@@ -2271,6 +2465,17 @@ NTSTATUS InjectSingleHook32(
     return STATUS_SUCCESS;
 }
 
+static const PCSTR kMandatoryExclusions32[] = {
+    "NtDeviceIoControlFile",
+    "ZwDeviceIoControlFile",
+    "NtClose",
+    "ZwClose",
+    "NtTerminateProcess",
+    "ZwTerminateProcess",
+    "NtTerminateThread",
+    "ZwTerminateThread",
+};
+
 // -------------------------------------------------------------------------
 // ResolveAndHook32
 //
@@ -2287,6 +2492,16 @@ NTSTATUS ResolveAndHook32(
     _In_    PVOID               TargetNtDeviceIo32
 )
 {
+    // Mandatory exclusion check — same rationale as 64-bit version.
+    for (ULONG i = 0; i < RTL_NUMBER_OF(kMandatoryExclusions32); ++i)
+    {
+        if (_stricmp(FunctionName, kMandatoryExclusions32[i]) == 0)
+        {
+            DbgPrint("UserModeHook32: Mandatory exclusion — skipping '%s'\n", FunctionName);
+            return STATUS_NOT_SUPPORTED;
+        }
+    }
+
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
@@ -2491,22 +2706,77 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 //
 // Helper: Resolve and Prepare Hook
 //
+// -------------------------------------------------------------------------
+// MANDATORY HOOK EXCLUSIONS (64-bit)
+//
+// These functions must NEVER be hooked regardless of user configuration:
+//
+//   NtDeviceIoControlFile / ZwDeviceIoControlFile
+//     The shellcode itself calls NtDeviceIoControlFile to notify the driver.
+//     Hooking it causes infinite recursion: hooked fn → shellcode →
+//     NtDeviceIoControlFile → shellcode → NtDeviceIoControlFile → ...
+//     The re-entrancy guard in the shellcode catches subsequent re-entrant
+//     calls on the same thread, but the FIRST hook installation would still
+//     intercept the driver's own IPC channel, corrupting the protocol.
+//
+//   NtClose / ZwClose
+//     The DriverDeviceHandle inserted into the target process via
+//     ObInsertObject is a normal handle in the process handle table.
+//     Hooking NtClose causes the handle-close notification to re-enter
+//     the shellcode, which tries to call NtDeviceIoControlFile on an
+//     already-closing or already-invalid handle → STATUS_INVALID_HANDLE →
+//     driver I/O path sees unexpected error → hangs or silent data loss.
+//
+//   NtTerminateProcess / ZwTerminateProcess
+//   NtTerminateThread  / ZwTerminateThread
+//     During process/thread exit, Windows begins tearing down the handle
+//     table before all threads have exited.  The shellcode fires during this
+//     window and tries a synchronous NtDeviceIoControlFile call through
+//     the now-invalid DriverDeviceHandle.  The synchronous I/O wait never
+//     completes because the kernel-side IRP is never delivered → deadlock →
+//     process hangs indefinitely on exit.
+//
+// The re-entrancy guard in the shellcode mitigates re-entrant IOCTL calls
+// on the same thread but does NOT protect against the handle lifecycle and
+// process-teardown scenarios above.  The exclusion list is the definitive
+// fix for those.
+// -------------------------------------------------------------------------
+static const PCSTR kMandatoryExclusions64[] = {
+    "NtDeviceIoControlFile",
+    "ZwDeviceIoControlFile",
+    "NtClose",
+    "ZwClose",
+    "NtTerminateProcess",
+    "ZwTerminateProcess",
+    "NtTerminateThread",
+    "ZwTerminateThread",
+};
+
 NTSTATUS ResolveAndHook(
-    _In_ PEPROCESS Process,
-    _In_ PPROCESS_HOOK_ENTRY HookEntry,
-    _In_ PCWSTR ModuleName,
-    _In_ PCSTR FunctionName,
-    _Inout_ PHOOK_DEF HookDef,
-    _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo
+    _In_    PEPROCESS           Process,
+    _In_    PPROCESS_HOOK_ENTRY HookEntry,
+    _In_    PCWSTR              ModuleName,
+    _In_    PCSTR               FunctionName,
+    _Inout_ PHOOK_DEF           HookDef,
+    _In_    ULONG               EventId,
+    _In_    PVOID               TargetNtDeviceIo
 )
 {
+    // Mandatory exclusion check — must happen before any resolution attempt.
+    for (ULONG i = 0; i < RTL_NUMBER_OF(kMandatoryExclusions64); ++i)
+    {
+        if (_stricmp(FunctionName, kMandatoryExclusions64[i]) == 0)
+        {
+            DbgPrint("UserModeHook: Mandatory exclusion — skipping '%s'\n", FunctionName);
+            return STATUS_NOT_SUPPORTED;
+        }
+    }
+
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
-    
-    HookDef->Address = FindExportedFunction(modBase, FunctionName);
 
+    HookDef->Address = FindExportedFunction(modBase, FunctionName);
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
