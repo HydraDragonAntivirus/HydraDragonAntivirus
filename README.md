@@ -67,6 +67,9 @@ https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043
 Original sample:
 https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 
+You might need disable memory integrity:
+https://github.com/adrianyy/kernelhook/issues/1
+
 ---
 
 ### Installation & Usage Notes
