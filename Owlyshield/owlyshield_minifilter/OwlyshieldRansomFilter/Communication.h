@@ -55,6 +55,20 @@ VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID
 
 VOID ResetQueuedHypervisorEvents(VOID);
 
+// ---------------------------------------------------------------------------
+// Hook notification device  (\Device\OwlyshieldHook)
+//
+// InitHookNotifyDevice  — creates the device and installs dispatch wrappers.
+//   Call AFTER FltStartFiltering so FltMgr's MajorFunction entries are
+//   captured and forwarded correctly.
+//
+// CleanupHookNotifyDevice — removes the device before driver unload.
+//   Call BEFORE FltUnregisterFilter so the saved dispatch pointers remain
+//   valid during FltMgr's own cleanup IRPs.
+// ---------------------------------------------------------------------------
+NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject);
+VOID     CleanupHookNotifyDevice(VOID);
+
 #ifdef __cplusplus
 }
 #endif
