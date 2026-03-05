@@ -2476,12 +2476,6 @@ NTSTATUS InjectSingleHook32(
     return STATUS_SUCCESS;
 }
 
-// Same rationale as kMandatoryExclusions64 — only the IPC function excluded.
-static const PCSTR kMandatoryExclusions32[] = {
-    "NtDeviceIoControlFile",
-    "ZwDeviceIoControlFile",
-};
-
 // -------------------------------------------------------------------------
 // ResolveAndHook32
 //
@@ -2498,16 +2492,6 @@ NTSTATUS ResolveAndHook32(
     _In_    PVOID               TargetNtDeviceIo32
 )
 {
-    // Mandatory exclusion check — same rationale as 64-bit version.
-    for (ULONG i = 0; i < RTL_NUMBER_OF(kMandatoryExclusions32); ++i)
-    {
-        if (_stricmp(FunctionName, kMandatoryExclusions32[i]) == 0)
-        {
-            DbgPrint("UserModeHook32: Mandatory exclusion — skipping '%s'\n", FunctionName);
-            return STATUS_NOT_SUPPORTED;
-        }
-    }
-
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
