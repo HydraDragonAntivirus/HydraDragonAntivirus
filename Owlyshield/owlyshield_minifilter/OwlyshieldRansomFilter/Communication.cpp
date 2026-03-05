@@ -70,6 +70,10 @@
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
 
+typedef NTSTATUS (NTAPI *PIO_CREATE_DRIVER)(
+    _In_opt_ PUNICODE_STRING DriverName,
+    _In_     PDRIVER_INITIALIZE InitializationFunction);
+
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
@@ -312,9 +316,19 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     UNREFERENCED_PARAMETER(DriverObject);
 
     UNICODE_STRING driverName;
+    UNICODE_STRING ioCreateDriverName;
+    PIO_CREATE_DRIVER pIoCreateDriver = NULL;
     RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
+    RtlInitUnicodeString(&ioCreateDriverName, L"IoCreateDriver");
 
-    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
+    pIoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&ioCreateDriverName);
+    if (pIoCreateDriver == NULL)
+    {
+        DbgPrint("!!! HookDevice: IoCreateDriver export not found\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    NTSTATUS status = pIoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
