@@ -67,6 +67,9 @@
 #define OWLY_HOOK_DRIVER_NAME   L"\\Driver\\OwlyshieldHookNotify"
 #define OWLY_HOOK_SYMLINK_NAME  L"\\DosDevices\\OwlyshieldHook"
 
+// Shared with UserModeHookEngine.cpp (extern declaration there).
+PDEVICE_OBJECT g_HookDeviceObject = NULL;
+
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
 
@@ -285,6 +288,7 @@ static NTSTATUS HookNotifyDriverInit(
         return status;
     }
 
+    g_HookDeviceObject = g_HookNotifyDevice;
     g_HookNotifyDevice->Flags |=  DO_BUFFERED_IO;
     g_HookNotifyDevice->Flags &= ~DO_DEVICE_INITIALIZING;
 
@@ -294,6 +298,7 @@ static NTSTATUS HookNotifyDriverInit(
         DbgPrint("!!! HookDevice: IoCreateSymbolicLink failed 0x%X\n", status);
         IoDeleteDevice(g_HookNotifyDevice);
         g_HookNotifyDevice = NULL;
+        g_HookDeviceObject = NULL;
         return status;
     }
 
@@ -334,6 +339,7 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
         g_HookNotifyDevice       = NULL;
         g_HookNotifyDriverObject = NULL;
+        g_HookDeviceObject       = NULL;
     }
     return status;
 }
@@ -354,6 +360,7 @@ VOID CleanupHookNotifyDevice(VOID)
     IoDeleteDevice(g_HookNotifyDevice);
     g_HookNotifyDevice       = NULL;
     g_HookNotifyDriverObject = NULL;
+    g_HookDeviceObject       = NULL;
 
     DbgPrint("!!! HookDevice: Cleaned up\n");
 }
