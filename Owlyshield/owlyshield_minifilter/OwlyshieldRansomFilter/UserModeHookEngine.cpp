@@ -152,6 +152,7 @@ PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 extern PDEVICE_OBJECT g_HookDeviceObject;
+static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
 HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
@@ -1523,6 +1524,8 @@ VOID UserModeHookEngineCleanup(VOID)
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return;
 
+    g_HookEngineShuttingDown = TRUE;
+
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
@@ -1555,6 +1558,7 @@ VOID UserModeHookEngineCleanup(VOID)
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
+    g_HookEngineShuttingDown = FALSE;
 }
 
 //
@@ -3332,7 +3336,8 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     // this is a best-effort improvement that greatly reduces the risk window.
     if (shellcodeToFree) {
         LARGE_INTEGER interval;
-        interval.QuadPart = -500LL * 1000LL * 10LL;  // 500 ms
+        LONGLONG drainDelayMs = g_HookEngineShuttingDown ? 20LL : 500LL;
+        interval.QuadPart = -drainDelayMs * 1000LL * 10LL;
         KeDelayExecutionThread(KernelMode, FALSE, &interval);
 
         // 5. PHASE 3: FREE SHELLCODE

@@ -70,6 +70,9 @@ NTSTATUS HookDeviceClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 
 PDEVICE_OBJECT g_HookDeviceObject = NULL; // Global for CDO
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
+static BOOLEAN g_ProcessNotifyRegistered = FALSE;
+static BOOLEAN g_ThreadNotifyRegistered = FALSE;
+static BOOLEAN g_ImageNotifyRegistered = FALSE;
 
 // Work item used to offload UserModeHookProcess from ImageLoadCallback.
 // ImageLoadCallback runs in a loader lock path; calling heavy kernel operations
@@ -487,7 +490,7 @@ CONST FLT_REGISTRATION FilterRegistration = {
     0,                          //  Flags
     NULL,                       //  Context Registration.
     Callbacks,                  //  Operation callbacks
-    FSUnloadDriver,             //  FilterUnload
+    NULL,                       //  FilterUnload (disabled to prevent runtime unload requests)
     FSInstanceSetup,            //  InstanceSetup
     FSInstanceQueryTeardown,    //  InstanceQueryTeardown
     FSInstanceTeardownStart,    //  InstanceTeardownStart
@@ -682,6 +685,12 @@ Return Value:
             return status;
         }
         g_UseLegacyProcessNotify = TRUE;
+        g_ProcessNotifyRegistered = TRUE;
+    }
+    else
+    {
+        g_UseLegacyProcessNotify = FALSE;
+        g_ProcessNotifyRegistered = TRUE;
     }
 
     DbgPrint("loaded scanner successfully");
@@ -750,6 +759,7 @@ Return Value:
     }
     else
     {
+        g_ThreadNotifyRegistered = TRUE;
         DbgPrint("!!! FSFilter: Thread creation monitoring enabled\n");
     }
 
@@ -762,6 +772,7 @@ Return Value:
     }
     else
     {
+        g_ImageNotifyRegistered = TRUE;
         DbgPrint("!!! FSFilter: Image load monitoring enabled (DLL/driver detection)\n");
     }
 
@@ -1061,6 +1072,38 @@ Return Value:
 
     DbgPrint("FSFilter: Unloading driver\n");
 
+    // Stop new activity first, then detach callbacks to avoid concurrent work
+    // while teardown is in progress.
+    if (driverData) {
+        driverData->setFilterStop();
+    }
+
+    if (g_ImageNotifyRegistered) {
+        NTSTATUS rmImageStatus = PsRemoveLoadImageNotifyRoutine(ImageLoadCallback);
+        DbgPrint("!!! FSFilter: PsRemoveLoadImageNotifyRoutine => 0x%X\n", rmImageStatus);
+        g_ImageNotifyRegistered = FALSE;
+    }
+
+    if (g_ThreadNotifyRegistered) {
+        NTSTATUS rmThreadStatus = PsRemoveCreateThreadNotifyRoutine(ThreadCreationCallback);
+        DbgPrint("!!! FSFilter: PsRemoveCreateThreadNotifyRoutine => 0x%X\n", rmThreadStatus);
+        g_ThreadNotifyRegistered = FALSE;
+    }
+
+    if (g_ProcessNotifyRegistered) {
+        NTSTATUS rmProcStatus;
+        if (g_UseLegacyProcessNotify) {
+            rmProcStatus = PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, TRUE);
+        } else {
+            rmProcStatus = PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
+        }
+        DbgPrint("!!! FSFilter: Process notify unregister => 0x%X\n", rmProcStatus);
+        g_ProcessNotifyRegistered = FALSE;
+    }
+
+    // Process Protection Cleanup (ObUnRegisterCallbacks)
+    UninitProcessProtection();
+
     UserModeHookEngineCleanup();
     FSCleanupPyasWhitelistRules();
 
@@ -1070,31 +1113,15 @@ Return Value:
     // Registry Cleanup
     RegeditUnloadDriver();
 
-    // Process Protection Cleanup (ObUnRegisterCallbacks)
-    UninitProcessProtection();
-
-    // Stop filter processing
-    if (driverData) {
-        driverData->setFilterStop();
-    }
-
-    // Unregister Process Notify
-    if (g_UseLegacyProcessNotify) {
-        PsSetCreateProcessNotifyRoutine(AddRemProcessRoutineLegacy, TRUE);
-    } else {
-        PsSetCreateProcessNotifyRoutineEx(AddRemProcessRoutineEx, TRUE);
-    }
-
     // Close Communication
     if (commHandle) {
         if (!IsCommClosed()) {
             CommClose();
         }
 
-        if (commHandle->Filter) {
-            FltUnregisterFilter(commHandle->Filter);
-            commHandle->Filter = NULL;
-        }
+        // Do not call FltUnregisterFilter() here: we are already running in
+        // FilterUnload callback context, and Filter Manager owns unregister.
+        commHandle->Filter = NULL;
         delete commHandle;
         commHandle = NULL;
     }
