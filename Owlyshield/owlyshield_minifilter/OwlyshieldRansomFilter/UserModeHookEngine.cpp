@@ -2525,19 +2525,15 @@ NTSTATUS ResolveAndHook32(
 //   • The calling thread is NEVER blocked — fire-and-forget notification.
 //   • IRP completion APC fires on the next alertable wait; harmless for our use.
 //
-// The ZwCreateFile call is still placed before KeStackAttachProcess for a
-// separate reason: synchronous file I/O (needed here to obtain a FILE_OBJECT
-// reference via ObReferenceObjectByName-equivalent ZwCreateFile) must not run
-// inside a KeStackAttachProcess context because APC delivery is unreliable
-// during cross-process attachment.  The design: open FILE_OBJECT in system
-// context → ObInsertObject into target process handle table inside the attach
-// (pure handle-table operation, no I/O) → allocate shellcode inside the attach.
+// The device handle is created while attached to the target process so the
+// Object Manager places it directly into that process handle table.
+// No ObInsertObject is used.
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     NTSTATUS  status;
     PVOID     baseAddress = NULL;
-    UNREFERENCED_PARAMETER(Process);
+    HANDLE    targetDeviceHandle = NULL;
     SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
@@ -2556,118 +2552,59 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
 
     // -----------------------------------------------------------------------
-    // STEP 1 (before attach): obtain a kernel reference to the device's
-    // FILE_OBJECT without performing any synchronous file I/O.
+    // STEP 1+2 (inside attach): create the device handle directly in the
+    // target process handle table, then allocate shellcode in target VA.
     //
-    // CRITICAL: The device handle MUST be opened WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
-    //
-    // With FILE_SYNCHRONOUS_IO_NONALERT the I/O manager serialises all IRPs
-    // on the file object and NtDeviceIoControlFile does not return until the
-    // driver's IRP_MJ_DEVICE_CONTROL handler returns — i.e. it BLOCKS the
-    // calling thread inside the kernel.  That thread cannot release user-mode
-    // locks, cannot respond to APCs, and cannot participate in process
-    // teardown while waiting.  Any resource the thread holds that the driver
-    // or the kernel needs to make progress causes a deadlock.  This was the
-    // root cause of:
-    //   • process exit hang  (teardown waits on thread; thread blocked in IOCTL)
-    //   • I/O events stopping (hooked NtWriteFile/NtReadFile thread blocked)
-    //   • restart impossible  (process object not released because thread stuck)
-    //
-    // Without FILE_SYNCHRONOUS_IO_NONALERT:
-    //   • NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING
-    //     (or STATUS_SUCCESS if the driver completes inline) IMMEDIATELY.
-    //   • METHOD_BUFFERED still copies HOOK_EVENT_DATA from the stack into
-    //     a system buffer BEFORE queuing the IRP, so the stack-based payload
-    //     is captured correctly even though the thread does not wait.
-    //   • IRP completion APC is queued to the calling thread's APC queue and
-    //     fires on the next alertable wait — harmless for fire-and-forget.
-    //   • If the device handle is closed while an IRP is in flight, the IRP
-    //     holds its own FILE_OBJECT reference; the IRP completes or is
-    //     cancelled cleanly by the I/O manager.
-    //
-    // CONTRACT FOR Communication.cpp (IRP_MJ_DEVICE_CONTROL dispatch):
-    //   The handler for HOOK_NOTIFY_IOCTL_CODE MUST call IoCompleteRequest
-    //   BEFORE returning from its dispatch routine (synchronous completion).
-    //   This means NtDeviceIoControlFile returns STATUS_SUCCESS, not
-    //   STATUS_PENDING, and the I/O manager writes the IRP status back to
-    //   IoStatusBlock while the shellcode's stack frame is still live.
-    //
-    //   If the driver PENDS the IRP (marks pending, returns STATUS_PENDING,
-    //   and completes from a work item or DPC), NtDeviceIoControlFile would
-    //   return STATUS_PENDING and the I/O manager would later write to the
-    //   shellcode's already-unwound stack frame — a use-after-return bug.
-    //   For a simple notify IOCTL (no output data, no deferred processing),
-    //   synchronous completion is both correct and sufficient.
+    // We intentionally do NOT use ObInsertObject here. The handle is created
+    // natively in the attached process context by ZwCreateFile.
     // -----------------------------------------------------------------------
-    PFILE_OBJECT deviceFileObject = NULL;
     {
         static const PCWSTR hookDevicePaths[] = {
             L"\\DosDevices\\OwlyshieldHook",
             L"\\??\\OwlyshieldHook",
             L"\\Device\\OwlyshieldHook"
         };
-
-        status = STATUS_OBJECT_NAME_NOT_FOUND;
-        for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
-        {
-            UNICODE_STRING devPath;
-            OBJECT_ATTRIBUTES oa;
-            IO_STATUS_BLOCK ioStatus = {0};
-
-            RtlInitUnicodeString(&devPath, hookDevicePaths[i]);
-            InitializeObjectAttributes(&oa, &devPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-
-            // Open a kernel handle first, then lift it to a FILE_OBJECT pointer.
-            HANDLE tmpHandle = NULL;
-            status = ZwCreateFile(
-                &tmpHandle,
-                FILE_READ_DATA | FILE_WRITE_DATA,  // No SYNCHRONIZE — file is async
-                &oa,
-                &ioStatus,
-                NULL,
-                FILE_ATTRIBUTE_NORMAL,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                FILE_OPEN,
-                FILE_NON_DIRECTORY_FILE,   // NO FILE_SYNCHRONOUS_IO_NONALERT — async mode
-                NULL,
-                0);
-
-            if (NT_SUCCESS(status))
-            {
-                // Elevate the handle to an object pointer so we can insert it
-                // into any process handle table without another ZwCreateFile.
-                status = ObReferenceObjectByHandle(
-                    tmpHandle,
-                    FILE_READ_DATA | FILE_WRITE_DATA,  // matches ZwCreateFile access (no SYNCHRONIZE)
-                    *IoFileObjectType,
-                    KernelMode,
-                    (PVOID *)&deviceFileObject,
-                    NULL);
-                ZwClose(tmpHandle);
-                if (NT_SUCCESS(status))
-                    break;
-            }
-        }
-
-        if (!NT_SUCCESS(status) || deviceFileObject == NULL)
-        {
-            return NT_SUCCESS(status) ? STATUS_OBJECT_NAME_NOT_FOUND : status;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // STEP 2 (inside attach): allocate shellcode memory, then use
-    // ObInsertObject to create a handle that lives in the TARGET process's
-    // handle table — no file I/O, no kernel APCs required.
-    // -----------------------------------------------------------------------
-    {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try  // outer: guarantees detach
         {
-            __try  // inner: catches exceptions from alloc/insert
+            __try  // inner: catches exceptions from open/alloc
             {
-                // Allocate executable shellcode region in the target process.
+                status = STATUS_OBJECT_NAME_NOT_FOUND;
+                targetDeviceHandle = NULL;
+                for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
+                {
+                    UNICODE_STRING devPath;
+                    OBJECT_ATTRIBUTES oa;
+                    IO_STATUS_BLOCK ioStatus = {0};
+
+                    RtlInitUnicodeString(&devPath, hookDevicePaths[i]);
+                    InitializeObjectAttributes(&oa, &devPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+                    status = ZwCreateFile(
+                        &targetDeviceHandle,
+                        FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                        &oa,
+                        &ioStatus,
+                        NULL,
+                        FILE_ATTRIBUTE_NORMAL,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_OPEN,
+                        FILE_NON_DIRECTORY_FILE, // No FILE_SYNCHRONOUS_IO_NONALERT (async)
+                        NULL,
+                        0);
+
+                    if (NT_SUCCESS(status))
+                    {
+                        break;
+                    }
+                }
+
+                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                {
+                    __leave;
+                }
+
                 if (fnZwAllocateVirtualMemory)
                 {
                     status = fnZwAllocateVirtualMemory(
@@ -2687,38 +2624,30 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                 HookEntry->ShellcodeBase  = baseAddress;
                 HookEntry->ShellcodeSize  = regionSize;
                 HookEntry->ShellcodeUsed  = 0;
-
-                // Insert the FILE_OBJECT into the target process handle table.
-                HANDLE targetHandle = NULL;
-                status = ObInsertObject(
-                    deviceFileObject,
-                    NULL,
-                    FILE_READ_DATA | FILE_WRITE_DATA,  // no SYNCHRONIZE — async device
-                    0,
-                    NULL,
-                    &targetHandle);
-
-                if (NT_SUCCESS(status))
-                {
-                    HookEntry->DriverDeviceHandle = targetHandle;
-                }
-                else
-                {
-                    SIZE_T freeSize = 0;
-                    if (fnZwFreeVirtualMemory)
-                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
-                    HookEntry->ShellcodeBase = NULL;
-                }
+                HookEntry->DriverDeviceHandle = targetDeviceHandle;
+                targetDeviceHandle = NULL; // ownership moved to hook entry
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
                 status = GetExceptionCode();
+            }
+
+            if (!NT_SUCCESS(status))
+            {
+                if (targetDeviceHandle != NULL)
+                {
+                    ZwClose(targetDeviceHandle);
+                    targetDeviceHandle = NULL;
+                }
                 if (baseAddress != NULL && fnZwFreeVirtualMemory != NULL)
                 {
                     SIZE_T freeSize = 0;
                     fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
                 }
                 HookEntry->ShellcodeBase = NULL;
+                HookEntry->ShellcodeSize = 0;
+                HookEntry->ShellcodeUsed = 0;
+                HookEntry->DriverDeviceHandle = NULL;
             }
         }
         __finally
@@ -2726,25 +2655,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             KeUnstackDetachProcess(&apcState);
         }
     }
-
-    // FIX #3: ObInsertObject ALWAYS consumes exactly one reference to
-    // deviceFileObject regardless of whether it succeeds or fails.
-    // The previous code called ObDereferenceObject unconditionally after the
-    // attach scope, which on the success path decremented the reference count
-    // below what the newly-inserted handle requires, causing premature
-    // object destruction and eventual kernel use-after-free when the handle
-    // was later closed.
-    //
-    // Correct ownership transfer:
-    //   ObReferenceObjectByHandle  → refcount +1  (our responsibility)
-    //   ObInsertObject             → refcount -1  (consumes our reference)
-    //   Net after insert succeeds  → refcount unchanged (handle owns it)
-    //
-    // On failure ObInsertObject also drops the reference, so we must NOT
-    // call ObDereferenceObject in either case.  The object will be released
-    // when the last handle referencing it is closed.
-    //
-    // (No ObDereferenceObject call here — intentionally removed.)
 
     return status;
 }
@@ -3393,6 +3303,13 @@ FinalCleanup:
     // 6. INTERNAL CLEANUP
     if (hookEntry->CustomHooks != NULL) {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+        hookEntry->CustomHooks = NULL;
+    }
+
+    // Release the array-held reference before wiping the entry.
+    if (hookEntry->ProcessObject != NULL) {
+        ObDereferenceObject(hookEntry->ProcessObject);
+        hookEntry->ProcessObject = NULL;
     }
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
