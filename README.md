@@ -221,10 +221,6 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects to HyperVisor
 
-- https://github.com/adrianyy/kernelhook
-
-- I used these projects to hook every api from kernel
-
 **Note 4:**.
 - You will need an internet connection to install. It's not an offline installer.
 
