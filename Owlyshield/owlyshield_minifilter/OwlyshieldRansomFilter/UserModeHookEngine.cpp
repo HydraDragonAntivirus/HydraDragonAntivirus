@@ -840,7 +840,7 @@ BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_
 // HOOK_NOTIFY_IOCTL_CODE must match the driver-side CTL_CODE definition.
 // -------------------------------------------------------------------------
 #ifndef HOOK_NOTIFY_IOCTL_CODE
-#define HOOK_NOTIFY_IOCTL_CODE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define HOOK_NOTIFY_IOCTL_CODE IOCTL_REPORT_HOOK_EVENT
 #endif
 
 // -------------------------------------------------------------------------
