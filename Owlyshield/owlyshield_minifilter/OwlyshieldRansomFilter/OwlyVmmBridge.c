@@ -2,11 +2,17 @@
 #include "Communication.h"
 #include <ntstrsafe.h>
 
+static BOOLEAN g_OwlyVmmInitialized = FALSE;
+static UINT32  g_OwlyVmmLastError   = 0;
+
 #if defined(_M_AMD64)
+static BOOLEAN g_OwlyVmmFallbackActive = FALSE;
+
 BOOLEAN
 OwlyVmFuncInitVmmFallback(VMM_CALLBACKS * VmmCallbacks)
 {
     UNREFERENCED_PARAMETER(VmmCallbacks);
+    g_OwlyVmmFallbackActive = TRUE;
     return FALSE;
 }
 
@@ -20,7 +26,30 @@ OwlyVmFuncUninitVmmFallback(VOID)
 #pragma comment(linker, "/alternatename:VmFuncUninitVmm=OwlyVmFuncUninitVmmFallback")
 #endif
 
-static BOOLEAN g_OwlyVmmInitialized = FALSE;
+static NTSTATUS
+OwlyNormalizeVmmInitFailure(UINT32 LastError)
+{
+    if (LastError == 0 || LastError == 0xFFFFFFFFu)
+    {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    // Map generic/user-facing initialization failures to NOT_SUPPORTED so
+    // startup logs reflect environmental limitations instead of hard failures.
+    if (LastError == (UINT32)STATUS_UNSUCCESSFUL || LastError == (UINT32)STATUS_INVALID_PARAMETER)
+    {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    // HyperDbg SDK error codes are reported as 0xC00000xx and are not precise
+    // NTSTATUS values for this driver startup path.
+    if ((LastError & 0xFFFFFF00u) == 0xC0000000u)
+    {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    return (NTSTATUS)LastError;
+}
 
 #define OWLY_VMM_RAW_EVENT_BASE       0x1000u
 #define OWLY_VMM_RAW_CALLBACK_BASE    0x1200u
@@ -218,7 +247,7 @@ OwlyVmmCallbackTriggerEvents(VMM_EVENT_TYPE_ENUM                   EventType,
 static VOID
 OwlyVmmCallbackSetLastError(UINT32 LastError)
 {
-    UNREFERENCED_PARAMETER(LastError);
+    g_OwlyVmmLastError = LastError;
 }
 
 static BOOLEAN
@@ -370,10 +399,29 @@ OwlyVmmInitialize(VOID)
     callbacks.KdQueryDebuggerQueryThreadOrProcessTracingDetailsByCoreId =
         OwlyKdQueryDebuggerThreadOrProcessTracingDetailsByCoreId;
 
+#if defined(_M_AMD64)
+    g_OwlyVmmFallbackActive = FALSE;
+#endif
+    g_OwlyVmmLastError = 0;
+
     initResult = VmFuncInitVmm(&callbacks);
     if (!initResult)
     {
-        return STATUS_UNSUCCESSFUL;
+#if defined(_M_AMD64)
+        if (g_OwlyVmmFallbackActive)
+        {
+            return STATUS_NOT_SUPPORTED;
+        }
+#endif
+        if (g_OwlyVmmLastError != 0)
+        {
+            return OwlyNormalizeVmmInitFailure(g_OwlyVmmLastError);
+        }
+
+        // VmFuncInitVmm can fail without setting a specific error (e.g., no VT-x /
+        // unsupported runtime environment). Report this as NOT_SUPPORTED so caller
+        // can log "skipped" instead of generic unsuccessful.
+        return STATUS_NOT_SUPPORTED;
     }
 
     g_OwlyVmmInitialized = TRUE;
