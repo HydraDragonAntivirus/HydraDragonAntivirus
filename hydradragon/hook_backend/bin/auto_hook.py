@@ -253,7 +253,7 @@ class LiteInjector:
                         load_lib,
                         mem,
                         0,  # Not suspended
-                        0, 0, 0, 0,
+                        0, 0, 0,
                         None
                     )
                     
