@@ -12,9 +12,6 @@ if current_dir not in sys.path:
 
 print(f"[HOOK] Bootstrap complete. Path added: {current_dir}")
 
-import time
-import marshal
-import struct
 import importlib.util
 import inspect
 import dis
