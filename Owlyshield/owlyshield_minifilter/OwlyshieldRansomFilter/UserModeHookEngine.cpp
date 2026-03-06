@@ -616,13 +616,21 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
         return FALSE;
     }
 
-    // Strictly enforce C:\ for user-defined exclusions.
+    // Only consult exclusion rules for system-drive (c:\) paths.
+    //
+    // Rules in the exclusion file are written against the system drive.
+    // Accepting any drive letter here would allow a malicious binary at
+    // d:\c:\program files\vendor\evil.exe to pass the guard, after which
+    // wcsstr() finds "c:\program files\vendor\" as a substring and the
+    // process is silently excluded from hooking — a trivial evasion vector.
+    // The guard must remain 'c' so only genuine system-drive paths match.
     if (!(NormalizedPath->Buffer[0] == L'c' &&
           NormalizedPath->Buffer[1] == L':' &&
           NormalizedPath->Buffer[2] == L'\\'))
     {
         return FALSE;
     }
+
 
     EnsureHookExcludeRulesLoaded();
     EnsureHookExcludeRuleMutex();
@@ -2699,36 +2707,12 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 //
 // Helper: Resolve and Prepare Hook
 //
-// -------------------------------------------------------------------------
-// MANDATORY HOOK EXCLUSIONS (64-bit)
-//
-// Only NtDeviceIoControlFile / ZwDeviceIoControlFile are excluded:
-//
-//   The shellcode calls NtDeviceIoControlFile to send HOOK_EVENT_DATA to the
-//   driver.  If this function is also in the hook list, the shellcode's own
-//   IPC call would be intercepted, sending a spurious notification about
-//   NtDeviceIoControlFile to the driver and recursing.  The re-entrancy guard
-//   (GS:[0x28] sentinel) prevents infinite recursion from the second call
-//   onward, but the first interception would still reach the driver with wrong
-//   context — corrupting the event stream.  Excluding the function entirely is
-//   cleaner and more efficient.
-//
-// Functions previously excluded (NtClose, NtTerminateProcess,
-// NtTerminateThread, ZwClose, ZwTerminateProcess, ZwTerminateThread) have
-// been REMOVED from this list.  They were workarounds for the synchronous
-// IOCTL blocking problem: when NtDeviceIoControlFile blocked the calling
-// thread, any hooked function called during process/thread teardown or handle
-// close would also block and deadlock.  With the device handle opened WITHOUT
-// FILE_SYNCHRONOUS_IO_NONALERT, NtDeviceIoControlFile returns STATUS_PENDING
-// immediately (fire-and-forget, METHOD_BUFFERED copies the payload first).
-// The thread is never blocked, so teardown, handle close, and termination
-// all proceed normally regardless of what functions are hooked.
-// -------------------------------------------------------------------------
-static const PCSTR kMandatoryExclusions64[] = {
-    "NtDeviceIoControlFile",
-    "ZwDeviceIoControlFile",
-};
-
+// No per-function exclusion list.  The TEB re-entrancy sentinel
+// (GS:[0x28] = FEEDF00DFEEDF00D on x64, FS:[0x14] = FEEDF00D on x86)
+// is set by every shellcode before it calls NtDeviceIoControlFile and
+// cleared afterward.  If NtDeviceIoControlFile is in the hook list, its
+// shellcode sees the sentinel already set on entry and jumps past the IOCTL.
+// Process/directory exclusions are enforced via ShouldSkipHookingProcess.
 NTSTATUS ResolveAndHook(
     _In_    PEPROCESS           Process,
     _In_    PPROCESS_HOOK_ENTRY HookEntry,
@@ -2739,16 +2723,6 @@ NTSTATUS ResolveAndHook(
     _In_    PVOID               TargetNtDeviceIo
 )
 {
-    // Mandatory exclusion check — must happen before any resolution attempt.
-    for (ULONG i = 0; i < RTL_NUMBER_OF(kMandatoryExclusions64); ++i)
-    {
-        if (_stricmp(FunctionName, kMandatoryExclusions64[i]) == 0)
-        {
-            DbgPrint("UserModeHook: Mandatory exclusion — skipping '%s'\n", FunctionName);
-            return STATUS_NOT_SUPPORTED;
-        }
-    }
-
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
