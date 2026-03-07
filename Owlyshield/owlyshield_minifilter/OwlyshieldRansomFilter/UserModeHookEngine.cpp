@@ -44,7 +44,6 @@ Environment:
 --*/
 
 #include "UserModeHookEngine.h"
-#include "Communication.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
@@ -152,6 +151,10 @@ PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
+// Hook notify device is now owned by Communication.cpp.
+// Access via GetHookNotifyDeviceObject() to avoid the ZwCreateFile-inside-
+// KeStackAttachProcess deadlock (g_HookDeviceObject global removed).
+extern PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID);
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -174,6 +177,12 @@ typedef struct _HOOK_EXCLUDE_RULE_SET
 } HOOK_EXCLUDE_RULE_SET, *PHOOK_EXCLUDE_RULE_SET;
 
 static HOOK_EXCLUDE_RULE_SET g_HookExcludeRules = {0};
+
+// Load-once guard for g_HookExcludeRules.
+// 0 = unloaded, 1 = loading (one thread owns this), 2 = loaded.
+// InterlockedCompareExchange(0->1) ensures exactly one thread runs the
+// file-I/O path; all others wait until state reaches 2.
+static volatile LONG g_HookExcludeLoadState = 0;
 
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
@@ -566,32 +575,63 @@ static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FileP
 
 static VOID EnsureHookExcludeRulesLoaded(VOID)
 {
-    static const PCWSTR ruleFiles[] = {
-        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
-    };
-
+    // -----------------------------------------------------------------------
+    // FIX: Thread-safe load-once using a 3-state CAS guard.
     //
-    // FIX: FAST_MUTEX raises IRQL to APC_LEVEL which disables kernel APCs.
-    // ZwCreateFile with FILE_SYNCHRONOUS_IO_NONALERT needs a kernel APC to signal
-    // I/O completion. Holding the mutex during the file read was a guaranteed
-    // deadlock. Do ALL file I/O before acquiring the mutex.
+    // Previous design: two threads both saw Loaded==FALSE, both dropped the
+    // mutex, both called FreeHookExcludeRulesUnlocked (double-free the Rules
+    // array), then ran LoadHookExcludeRulesFromFileUnlocked concurrently.
+    // Inside that call, EnsureHookExcludeRuleCapacityUnlocked reallocated
+    // and freed Rules with no lock — pure pool corruption / system freeze.
     //
-    EnsureHookExcludeRuleMutex();
+    // Fix: InterlockedCompareExchange(0->1) is atomic, so exactly ONE thread
+    // becomes the loader. Others spin-wait (1ms per iteration) until state 2.
+    // -----------------------------------------------------------------------
 
-    // Fast path check (brief mutex hold, no I/O)
-    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
-    BOOLEAN alreadyLoaded = g_HookExcludeRules.Loaded;
-    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
-
-    if (alreadyLoaded)
+    // Fast path: already fully loaded (state == 2).
+    if (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 2)
         return;
 
-    // Reset rule storage under the mutex (no I/O, safe at APC_LEVEL)
+    // Try to claim the loader role: 0 -> 1. Exactly one thread wins.
+    LONG prevState = InterlockedCompareExchange(&g_HookExcludeLoadState, 1, 0);
+
+    if (prevState == 2)
+    {
+        // Another thread completed loading just before us.
+        return;
+    }
+
+    if (prevState == 1)
+    {
+        // Another thread is currently loading. Spin-wait until it finishes.
+        // 1ms sleep per iteration avoids busy-spinning on the system bus.
+        LARGE_INTEGER delay;
+        delay.QuadPart = -10000LL; // 1ms in 100ns units
+        while (InterlockedCompareExchange(&g_HookExcludeLoadState, 0, 0) == 1)
+        {
+            KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        }
+        return;
+    }
+
+    // prevState == 0: we are the loader thread. State is now 1.
+    // -----------------------------------------------------------------------
+    // All operations below are single-threaded (no other thread can reach
+    // this code path while state == 1).
+    // -----------------------------------------------------------------------
+
+    EnsureHookExcludeRuleMutex();
+
+    // Clear any stale rules from a previous load attempt.
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
     FreeHookExcludeRulesUnlocked();
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 
-    // File I/O happens here with NO mutex held (PASSIVE_LEVEL, APCs enabled)
+    // File I/O at PASSIVE_LEVEL, no mutex held.
+    // Safe because we are the sole thread in this path (state == 1).
+    static const PCWSTR ruleFiles[] = {
+        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
+    };
     for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {
         UNICODE_STRING ruleFile;
@@ -599,10 +639,13 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
         (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
     }
 
-    // Mark loaded under the mutex (no I/O, safe at APC_LEVEL)
+    // Mark loaded in the struct (for callers that check Loaded directly).
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
     g_HookExcludeRules.Loaded = TRUE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+
+    // Signal all waiting threads: loading complete (1 -> 2).
+    InterlockedExchange(&g_HookExcludeLoadState, 2);
 }
 
 static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
@@ -2766,64 +2809,89 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    if (!IsHookNotifyDeviceReady())
+    // -----------------------------------------------------------------------
+    // STEP 1: Insert a handle to the hook-notify device into the target
+    // process handle table using ObOpenObjectByPointer + ObInsertObject.
+    //
+    // WHY NOT ZwCreateFile inside KeStackAttachProcess:
+    // Microsoft strictly prohibits calling ZwCreateFile while attached to
+    // another process. ZwCreateFile triggers Object Manager and I/O Manager
+    // paths that rely on kernel APCs and specific thread contexts, causing
+    // internal locking conflicts — especially when called from a process
+    // creation callback.  This was the original source of the deadlock.
+    //
+    // CORRECT APPROACH:
+    //   1. Obtain PDEVICE_OBJECT from Communication module (no attachment needed).
+    //   2. Call ObOpenObjectByPointer to get a kernel-mode FILE_OBJECT reference.
+    //   3. Attach to target process.
+    //   4. Call ObInsertObject to place the handle in the TARGET process table.
+    //      ObInsertObject is safe inside KeStackAttachProcess — it only
+    //      manipulates the current (attached) process handle table directly.
+    //   5. Detach, then only re-attach for ZwAllocateVirtualMemory.
+    // -----------------------------------------------------------------------
+    PDEVICE_OBJECT hookDevice = GetHookNotifyDeviceObject();
+    if (hookDevice == NULL)
     {
+        DbgPrint("UserModeHook: hook device not ready\n");
         return STATUS_DEVICE_DOES_NOT_EXIST;
     }
 
     // -----------------------------------------------------------------------
-    // STEP 1+2 (inside attach): create the device handle directly in the
-    // target process handle table, then allocate shellcode in target VA.
-    //
-    // We intentionally do NOT use ObInsertObject here. The handle is created
-    // natively in the attached process context by ZwCreateFile.
+    // STEP 1: Open a reference to the device object (kernel context, no attach).
+    // ObOpenObjectByPointer gives us a kernel handle that we can then
+    // insert into the target process handle table via ObInsertObject.
+    // -----------------------------------------------------------------------
+    PFILE_OBJECT fileObject = NULL;
+    status = ObOpenObjectByPointer(
+        hookDevice,
+        OBJ_KERNEL_HANDLE,
+        NULL,
+        FILE_READ_DATA | FILE_WRITE_DATA,
+        *IoFileObjectType,
+        KernelMode,
+        (HANDLE *)&fileObject);
+
+    // ObOpenObjectByPointer with IoFileObjectType returns a HANDLE, not a
+    // PFILE_OBJECT.  Reinterpret correctly:
+    HANDLE kernelDevHandle = (HANDLE)fileObject;
+    fileObject = NULL;
+
+    if (!NT_SUCCESS(status) || kernelDevHandle == NULL)
+    {
+        DbgPrint("UserModeHook: ObOpenObjectByPointer failed 0x%X\n", status);
+        return status;
+    }
+
+    // -----------------------------------------------------------------------
+    // STEP 2: Attach to target process, insert handle into its table,
+    //         then allocate shellcode VA — all inside one attach block.
+    // ObInsertObject IS safe inside KeStackAttachProcess: it only touches
+    // the current (attached) process handle table.
+    // ZwAllocateVirtualMemory with ZwCurrentProcess() requires attachment.
     // -----------------------------------------------------------------------
     {
-        static const PCWSTR hookDevicePaths[] = {
-            L"\\DosDevices\\OwlyshieldHook",
-            L"\\??\\OwlyshieldHook",
-            L"\\Device\\OwlyshieldHook"
-        };
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try  // outer: guarantees detach
         {
-            __try  // inner: catches exceptions from open/alloc
+            __try  // inner: exceptions from ObInsertObject / ZwAllocate
             {
-                status = STATUS_OBJECT_NAME_NOT_FOUND;
-                targetDeviceHandle = NULL;
-                for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
-                {
-                    UNICODE_STRING devPath;
-                    OBJECT_ATTRIBUTES oa;
-                    IO_STATUS_BLOCK ioStatus = {0};
+                // Insert the kernel handle as a user-visible handle in the
+                // target process handle table.
+                ULONG_PTR handleValue = 0;
+                status = ObInsertObject(
+                    hookDevice,
+                    NULL,
+                    FILE_READ_DATA | FILE_WRITE_DATA,
+                    0,
+                    NULL,
+                    (PHANDLE)&handleValue);
 
-                    RtlInitUnicodeString(&devPath, hookDevicePaths[i]);
-                    InitializeObjectAttributes(&oa, &devPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
-
-                    status = ZwCreateFile(
-                        &targetDeviceHandle,
-                        FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                        &oa,
-                        &ioStatus,
-                        NULL,
-                        FILE_ATTRIBUTE_NORMAL,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE,
-                        FILE_OPEN,
-                        FILE_NON_DIRECTORY_FILE, // No FILE_SYNCHRONOUS_IO_NONALERT (async)
-                        NULL,
-                        0);
-
-                    if (NT_SUCCESS(status))
-                    {
-                        break;
-                    }
-                }
-
-                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                if (!NT_SUCCESS(status))
                 {
                     __leave;
                 }
+                targetDeviceHandle = (HANDLE)handleValue;
 
                 if (fnZwAllocateVirtualMemory)
                 {
@@ -2845,9 +2913,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                     __leave;
                 }
 
-                HookEntry->ShellcodeBase  = baseAddress;
-                HookEntry->ShellcodeSize  = regionSize;
-                HookEntry->ShellcodeUsed  = 0;
+                HookEntry->ShellcodeBase      = baseAddress;
+                HookEntry->ShellcodeSize      = regionSize;
+                HookEntry->ShellcodeUsed      = 0;
                 HookEntry->DriverDeviceHandle = targetDeviceHandle;
                 targetDeviceHandle = NULL; // ownership moved to hook entry
             }
@@ -2868,9 +2936,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                     SIZE_T freeSize = 0;
                     fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
                 }
-                HookEntry->ShellcodeBase = NULL;
-                HookEntry->ShellcodeSize = 0;
-                HookEntry->ShellcodeUsed = 0;
+                HookEntry->ShellcodeBase      = NULL;
+                HookEntry->ShellcodeSize      = 0;
+                HookEntry->ShellcodeUsed      = 0;
                 HookEntry->DriverDeviceHandle = NULL;
             }
         }
@@ -2879,6 +2947,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             KeUnstackDetachProcess(&apcState);
         }
     }
+
+    // Close our kernel-side reference (target process now holds its own handle).
+    ZwClose(kernelDevHandle);
 
     return status;
 }
@@ -3415,8 +3486,16 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
     if (!NT_SUCCESS(status)) goto FinalCleanup;
 
-    // Check if process is exiting/zombie - Attaching to a dying process causes hard resets
+    // Check if process is exiting/zombie - Attaching to a dying process causes hard resets.
     if (PsGetProcessExitStatus(process) != STATUS_PENDING) {
+        // FIX: Even though we cannot attach (unsafe on dying process),
+        // we must not leave a dangling handle reference tracked in hookEntry.
+        // The Object Manager tears down the handle table for us as part of
+        // process exit rundown, so the actual kernel handle is cleaned up.
+        // We just clear our pointer so NeedsCleanup path does not double-close.
+        hookEntry->DriverDeviceHandle = NULL;
+        hookEntry->ShellcodeBase      = NULL;
+        hookEntry->ShellcodeSize      = 0;
         ObDereferenceObject(process);
         goto FinalCleanup;
     }
