@@ -16,19 +16,17 @@ Abstract:
       Shellcode written to the target VA, uses 14-byte FF 25 indirect JMP.
       Stolen instructions: first 14 bytes of the target function.
       Notification: calls 64-bit ntdll!NtDeviceIoControlFile via absolute
-      mov rax / call rax.  The device handle is opened WITHOUT
-      FILE_SYNCHRONOUS_IO_NONALERT so the call is ASYNCHRONOUS — it returns
-      STATUS_PENDING immediately after the I/O manager copies HOOK_EVENT_DATA
-      (METHOD_BUFFERED) into a system buffer.  The calling thread is NEVER
-      blocked.
+      mov rax / call rax.  The device handle is opened WITH
+      FILE_SYNCHRONOUS_IO_NONALERT so the call completes before the shellcode
+      tears down its stack-based IO_STATUS_BLOCK.
 
     32-bit (WoW64) process:
       Module base resolved via PEB32 (PsGetProcessWow64Process).
       Shellcode written to the target VA, uses 5-byte E9 rel32 JMP.
       Stolen instructions: first 5 bytes of the target function.
       Notification: calls 32-bit ntdll!NtDeviceIoControlFile via 32-bit
-      stdcall (mov eax / call eax).  Same async model — fire-and-forget,
-      thread never blocked.
+      stdcall (mov eax / call eax).  Same synchronous model for the same
+      stack IO_STATUS_BLOCK lifetime reason.
 
     NOTE — required changes to UserModeHookEngine.h
     ─────────────────────────────────────────────────
@@ -152,8 +150,10 @@ PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // The hook notification device is owned by Communication.cpp.
-// The handle is opened via ZwCreateFile inside KeStackAttachProcess —
-// safe for our use case (not a process-creation callback, simple IOCTL device).
+// The handle is opened via ZwCreateFile while attached to the target process
+// so it lands in that process's handle table.  The handle remains
+// synchronous (FILE_SYNCHRONOUS_IO_NONALERT) because both shellcode paths
+// pass a stack-resident IO_STATUS_BLOCK to NtDeviceIoControlFile.
 // GetHookNotifyDeviceObject() was removed: ObInsertObject on a DEVICE_OBJECT
 // does not produce a FILE_OBJECT handle, breaking NtDeviceIoControlFile.
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
@@ -173,7 +173,7 @@ typedef struct _HOOK_EXCLUDE_RULE_SET
     ULONG Count;
     ULONG Capacity;
     FAST_MUTEX Mutex;
-    BOOLEAN MutexInitialized;
+    volatile LONG MutexInitState;
     BOOLEAN Loaded;
 } HOOK_EXCLUDE_RULE_SET, *PHOOK_EXCLUDE_RULE_SET;
 
@@ -188,57 +188,50 @@ static volatile LONG g_HookExcludeLoadState = 0;
 static VOID EnsureHookExcludeRuleMutex(VOID)
 {
     //
-    // FIX 6 (original) + FIX #4 (this pass):
+    // MutexInitState:
+    //   0 = uninitialized
+    //   1 = one thread is initializing the FAST_MUTEX
+    //   2 = initialized and ready for use
     //
-    // The original code had a race where two threads could both read
-    // MutexInitialized==FALSE and both call ExInitializeFastMutex.
-    // InterlockedCompareExchange was added to let only one winner publish.
+    // A prior revision had two independent bugs:
+    //   1. It performed Interlocked* operations on a BOOLEAN field by casting
+    //      it to LONG*, which is undefined and can overwrite adjacent bytes.
+    //   2. It initialized a stack-local FAST_MUTEX and copied it into the
+    //      global structure. FAST_MUTEX embeds a KEVENT, whose empty wait-list
+    //      pointers are self-referential after initialization; copying that
+    //      object would leave the global mutex's event header pointing back to
+    //      the dead stack instance.
     //
-    // FIX #4: The previous revision still had a subtle memory-ordering bug.
-    // On x86/x64 (TSO model) the CAS implicitly provides a store-store
-    // barrier, but on ARM64 a plain CAS does NOT prevent the CPU from
-    // reordering the preceding RtlCopyMemory stores past the flag flip.
-    // Loser threads spinning on MutexInitialized could observe TRUE before
-    // seeing all 32 bytes of the FAST_MUTEX, corrupting the mutex state.
+    // Fix: use the real LONG state field in the global structure and initialize
+    // the global FAST_MUTEX in place. Publish READY only after a full barrier.
     //
-    // Fix: insert KeMemoryBarrier() between the copy and the publishing CAS.
-    // This emits a full DMB ISH on ARM64 (and is a no-op on x86/x64 where
-    // the CAS already provides the required ordering).
-    //
-    if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, 0, 0) == FALSE)
+    LONG state = InterlockedCompareExchange(&g_HookExcludeRules.MutexInitState, 0, 0);
+    if (state == 2)
     {
-        // Speculatively initialize a local copy, then race to publish it.
-        FAST_MUTEX tempMutex;
-        ExInitializeFastMutex(&tempMutex);
-
-        // Only the first thread to flip MutexInitialized from FALSE to TRUE
-        // copies the initialized mutex into the global. Losers harmlessly
-        // discard their local copy — the winner's mutex is already valid.
-        if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized,
-                                       TRUE, FALSE) == FALSE)
-        {
-            RtlCopyMemory(&g_HookExcludeRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
-
-            // FIX #4: Full store-store barrier BEFORE the publishing CAS so
-            // that all 32 FAST_MUTEX bytes are globally visible on ARM64
-            // before any loser thread observes MutexInitialized == TRUE.
-            KeMemoryBarrier();
-
-            // Mark initialized — this CAS is only for the winner; the earlier
-            // CAS (above) already won the race, so this always succeeds.
-            InterlockedExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, TRUE);
-        }
-
-        // Losers spin-wait until the winner's writes are visible.
-        while (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized,
-                                          0, 0) == FALSE)
-        {
-            YieldProcessor();
-        }
-
-        // Acquire-barrier: ensure we see all bytes written before the flag.
         KeMemoryBarrier();
+        return;
     }
+
+    if (state == 0 &&
+        InterlockedCompareExchange(&g_HookExcludeRules.MutexInitState, 1, 0) == 0)
+    {
+        ExInitializeFastMutex(&g_HookExcludeRules.Mutex);
+
+        // Ensure the fully initialized FAST_MUTEX is visible before the state
+        // changes from INITIALIZING (1) to READY (2).
+        KeMemoryBarrier();
+        InterlockedExchange(&g_HookExcludeRules.MutexInitState, 2);
+        return;
+    }
+
+    // Another thread is initializing. Wait for READY.
+    while (InterlockedCompareExchange(&g_HookExcludeRules.MutexInitState, 0, 0) != 2)
+    {
+        YieldProcessor();
+    }
+
+    // Acquire barrier paired with the publisher's barrier above.
+    KeMemoryBarrier();
 }
 
 static VOID FreeHookExcludeRulesUnlocked(VOID)
@@ -1799,6 +1792,7 @@ VOID UserModeHookEngineCleanup(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    InterlockedExchange(&g_HookExcludeLoadState, 0);
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
@@ -2770,23 +2764,19 @@ NTSTATUS ResolveAndHook32(
                                HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// ROOT CAUSE FIX — device handle opened in ASYNCHRONOUS mode.
+// ROOT CAUSE FIX — keep the notification handle SYNCHRONOUS.
 //
-// The original design opened the device handle with FILE_SYNCHRONOUS_IO_NONALERT.
-// That flag causes NtDeviceIoControlFile (called by the shellcode in the target
-// process) to block the calling thread inside the kernel until the driver
-// completes the IRP.  Any resource that thread holds and that the driver or
-// kernel requires to make progress produces a deadlock.  Consequences observed:
-//   • Process exit hang     — teardown waits on thread stuck in IOCTL
-//   • I/O events stopping   — hooked NtWriteFile/NtReadFile thread never returns
-//   • Restart impossible    — process object not released while thread is stuck
+// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
+// If the handle is opened asynchronously, NtDeviceIoControlFile can return
+// STATUS_PENDING and complete later, after the shellcode has already restored
+// registers and returned to the caller. The eventual completion then writes
+// final status back through a stale stack pointer, corrupting user-mode state
+// and producing hangs during exit, restart, and general I/O.
 //
-// Fix: open the device handle WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
-//   • NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING immediately.
-//   • METHOD_BUFFERED copies HOOK_EVENT_DATA into a system buffer BEFORE queuing,
-//     so the stack payload is captured correctly even though the call is async.
-//   • The calling thread is NEVER blocked — fire-and-forget notification.
-//   • IRP completion APC fires on the next alertable wait; harmless for our use.
+// Fix: open the device handle WITH FILE_SYNCHRONOUS_IO_NONALERT.
+//   • NtDeviceIoControlFile does not return until the driver completes.
+//   • The stack-based IO_STATUS_BLOCK remains valid for the entire call.
+//   • No completion APC is needed for correctness.
 //
 // The device handle is created while attached to the target process so the
 // Object Manager places it directly into that process handle table.
@@ -2857,7 +2847,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         FILE_ATTRIBUTE_NORMAL,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         FILE_OPEN,
-                        FILE_NON_DIRECTORY_FILE, // async — no FILE_SYNCHRONOUS_IO_NONALERT
+                        // The hook shellcode passes a stack-based IO_STATUS_BLOCK
+                        // to NtDeviceIoControlFile, so this handle MUST remain
+                        // synchronous for the lifetime of the design.
+                        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
                         NULL,
                         0);
 
@@ -2979,29 +2972,20 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     if (!NT_SUCCESS(status))
         return status;
 
-    // FIX #6: ShouldSkipHookingProcess was previously called before acquiring
-    // EngineMutex.  Two concurrent threads calling UserModeHookProcess for the
-    // same PID could both pass the skip-check, both enter the mutex, and both
-    // find and claim the same free slot before either set IsInProgress — leading
-    // to double-initialisation of shellcode infrastructure and a handle/memory
-    // leak when the second thread's data overwrote the first's.
-    //
-    // Fix: acquire the mutex first, perform ALL slot-search, skip-check, and
-    // IsInProgress flag-set atomically under the mutex, then release.  The
-    // ShouldSkipHookingProcess call is lightweight (PEB walk + rule match) and
-    // safe to perform at APC_LEVEL (FAST_MUTEX IRQL) because it holds no other
-    // locks and does not call ZwCreateFile or similar.
-
-    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-
-    // Perform skip-check while holding the mutex so the result and the slot
-    // claim are a single atomic decision.
+    // ShouldSkipHookingProcess must run at PASSIVE_LEVEL.  It can call
+    // SeLocateProcessImageName and, on the first use of the exclusion-rule
+    // engine, it can lazily load rules from disk via ZwCreateFile/ZwReadFile.
+    // FAST_MUTEX acquisition raises execution to APC_LEVEL, so running the
+    // skip-check under EngineMutex is invalid and can hang or trip verifier.
     if (ShouldSkipHookingProcess(process, ProcessId))
     {
-        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         ObDereferenceObject(process);
         return STATUS_ACCESS_DENIED;
     }
+
+    // Serialize process-slot lookup/claim so only one thread can allocate or
+    // initialize hook infrastructure for a given PID at a time.
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
 
     // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
@@ -3063,10 +3047,10 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
     // -----------------------------------------------------------------------
-    // FIX #3 (cont.): Initialize shellcode infrastructure BEFORE attaching.
-    // InitializeShellcodeInfrastructure now manages its own internal attach
-    // for the memory allocation step, but opens the device handle from system
-    // context to avoid the ZwCreateFile-inside-KeStackAttachProcess deadlock.
+    // Initialize shellcode infrastructure before the resolve-and-hook pass.
+    // InitializeShellcodeInfrastructure performs the required attach itself
+    // because both ZwAllocateVirtualMemory(ZwCurrentProcess()) and the final
+    // target-process device handle creation must occur in the target context.
     // -----------------------------------------------------------------------
     if (!existingHookEntry)
     {
