@@ -67,6 +67,7 @@ VOID ResetQueuedHypervisorEvents(VOID);
 //   valid during FltMgr's own cleanup IRPs.
 // ---------------------------------------------------------------------------
 NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject);
+BOOLEAN  IsHookNotifyDeviceReady(VOID);
 VOID     CleanupHookNotifyDevice(VOID);
 
 #ifdef __cplusplus

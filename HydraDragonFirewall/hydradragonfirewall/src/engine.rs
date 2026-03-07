@@ -132,7 +132,7 @@ pub enum TlsInspectionMode {
 
 impl Default for TlsInspectionMode {
     fn default() -> Self {
-        TlsInspectionMode::MetadataOnly
+        TlsInspectionMode::TlsProxy
     }
 }
 

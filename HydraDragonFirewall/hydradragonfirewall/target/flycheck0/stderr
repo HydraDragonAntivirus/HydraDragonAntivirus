@@ -1,61 +1,17 @@
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on build directory
-  20.333261500s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint error for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("hydradragonfirewall", ["lib"], "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\lib.rs", Edition2024) }
-  20.336936700s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall\target\debug\.fingerprint\hydradragonfirewall-546ae1d0a072d3e4\test-lib-hydradragonfirewall`
-
-Caused by:
-    Sistem belirtilen dosyayı bulamıyor. (os error 2)
-
-Stack backtrace:
-   0: git_midx_writer_dump
-   1: git_midx_writer_dump
-   2: git_midx_writer_dump
-   3: git_midx_writer_dump
-   4: git_filter_source_repo
-   5: git_filter_source_repo
-   6: git_filter_source_repo
-   7: git_filter_source_repo
-   8: git_filter_source_repo
-   9: git_filter_source_repo
-  10: git_filter_source_repo
-  11: git_libgit2_prerelease
-  12: <unknown>
-  13: <unknown>
-  14: <unknown>
-  15: <unknown>
-  16: git_midx_writer_dump
-  17: git_filter_source_repo
-  18: git_midx_writer_dump
-  19: BaseThreadInitThunk
-  20: RtlUserThreadStart
-  20.403175000s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint error for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: true }/TargetInner { name: "hydradragonfirewall", doc: true, ..: with_path("C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\main.rs", Edition2024) }
-  20.403221000s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall\target\debug\.fingerprint\hydradragonfirewall-106dd1ba68cf94a2\test-bin-hydradragonfirewall`
-
-Caused by:
-    Sistem belirtilen dosyayı bulamıyor. (os error 2)
-
-Stack backtrace:
-   0: git_midx_writer_dump
-   1: git_midx_writer_dump
-   2: git_midx_writer_dump
-   3: git_midx_writer_dump
-   4: git_filter_source_repo
-   5: git_filter_source_repo
-   6: git_filter_source_repo
-   7: git_filter_source_repo
-   8: git_filter_source_repo
-   9: git_filter_source_repo
-  10: git_filter_source_repo
-  11: git_libgit2_prerelease
-  12: <unknown>
-  13: <unknown>
-  14: <unknown>
-  15: <unknown>
-  16: git_midx_writer_dump
-  17: git_filter_source_repo
-  18: git_midx_writer_dump
-  19: BaseThreadInitThunk
-  20: RtlUserThreadStart
+  18.169569100s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: stale: changed "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\build\\hydradragonfirewall-b6d623e7b7511419\\out\\tauri-codegen-assets\\fc6e99816483870800123e6ac3e93bbb90830c84560be818eebb91229d765b50.txt"
+  18.169869500s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:           (vs) "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\.fingerprint\\hydradragonfirewall-837873f8cba3395a\\dep-lib-hydradragonfirewall"
+  18.169900900s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 13417365659, nanos: 418941300 } < FileTime { seconds: 13417365662, nanos: 25148400 }
+  18.174397300s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint dirty for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("hydradragonfirewall", ["lib"], "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\lib.rs", Edition2024) }
+  18.175398300s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\.fingerprint\\hydradragonfirewall-837873f8cba3395a\\dep-lib-hydradragonfirewall", reference_mtime: FileTime { seconds: 13417365659, nanos: 418941300 }, stale: "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\build\\hydradragonfirewall-b6d623e7b7511419\\out\\tauri-codegen-assets\\fc6e99816483870800123e6ac3e93bbb90830c84560be818eebb91229d765b50.txt", stale_mtime: FileTime { seconds: 13417365662, nanos: 25148400 } }))
+  19.983178400s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: stale: changed "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\build\\hydradragonfirewall-b6d623e7b7511419\\out\\tauri-codegen-assets\\f0d2265d7b3ab09979b6ac54328ec242abb3b1929bd0b3d7fbd118f1ba99644f.css"
+  19.983254800s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:           (vs) "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\.fingerprint\\hydradragonfirewall-7a51ed714db79306\\dep-test-lib-hydradragonfirewall"
+  19.983286200s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 13417365659, nanos: 419938500 } < FileTime { seconds: 13417365662, nanos: 166651400 }
+  19.991360200s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint dirty for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("hydradragonfirewall", ["lib"], "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\lib.rs", Edition2024) }
+  19.991446800s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\.fingerprint\\hydradragonfirewall-7a51ed714db79306\\dep-test-lib-hydradragonfirewall", reference_mtime: FileTime { seconds: 13417365659, nanos: 419938500 }, stale: "C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\target\\debug\\build\\hydradragonfirewall-b6d623e7b7511419\\out\\tauri-codegen-assets\\f0d2265d7b3ab09979b6ac54328ec242abb3b1929bd0b3d7fbd118f1ba99644f.css", stale_mtime: FileTime { seconds: 13417365662, nanos: 166651400 } }))
+  20.007758900s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint dirty for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: false }/TargetInner { name: "hydradragonfirewall", doc: true, ..: with_path("C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\main.rs", Edition2024) }
+  20.007830900s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "hydradragonfirewall" })
+  20.018136400s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint: fingerprint dirty for hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)/Check { test: true }/TargetInner { name: "hydradragonfirewall", doc: true, ..: with_path("C:\\Users\\victim\\Documents\\GitHub\\HydraDragonAntivirus\\HydraDragonFirewall\\hydradragonfirewall\\src\\main.rs", Edition2024) }
+  20.018243200s  INFO prepare_target{force=false package_id=hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall) target="hydradragonfirewall"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "hydradragonfirewall" })
 warning: windivert-sys@0.10.0: Environment variable WINDIVERT_DLL_OUTPUT not found, compiled dll & lib files will be stored on C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall\target\debug\build\windivert-sys-9be1886dbf362592\out
     Checking hydradragonfirewall v0.1.0 (C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\HydraDragonFirewall\hydradragonfirewall)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 54.95s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 52.85s

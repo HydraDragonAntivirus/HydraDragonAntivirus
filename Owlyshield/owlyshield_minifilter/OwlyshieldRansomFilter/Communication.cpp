@@ -70,6 +70,30 @@
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
 
+typedef NTSTATUS (NTAPI *PIO_CREATE_DRIVER)(
+    _In_opt_ PUNICODE_STRING DriverName,
+    _In_ PDRIVER_INITIALIZE  InitializationFunction);
+
+static PIO_CREATE_DRIVER g_IoCreateDriver = NULL;
+
+// IoCreateDriver is not declared by the current WDK headers. Resolve it
+// dynamically so this module can still build against newer kits.
+static NTSTATUS ResolveIoCreateDriver(VOID)
+{
+    if (g_IoCreateDriver != NULL)
+        return STATUS_SUCCESS;
+
+    UNICODE_STRING routineName = RTL_CONSTANT_STRING(L"IoCreateDriver");
+    g_IoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&routineName);
+    if (g_IoCreateDriver == NULL)
+    {
+        DbgPrint("!!! HookDevice: IoCreateDriver export not found\n");
+        return STATUS_PROCEDURE_NOT_FOUND;
+    }
+
+    return STATUS_SUCCESS;
+}
+
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
@@ -314,7 +338,15 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     UNICODE_STRING driverName;
     RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
 
-    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
+    NTSTATUS status = ResolveIoCreateDriver();
+    if (!NT_SUCCESS(status))
+    {
+        g_HookNotifyDevice       = NULL;
+        g_HookNotifyDriverObject = NULL;
+        return status;
+    }
+
+    status = g_IoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
