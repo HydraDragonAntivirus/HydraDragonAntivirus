@@ -154,7 +154,10 @@ PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // Hook notify device is now owned by Communication.cpp.
 // Access via GetHookNotifyDeviceObject() to avoid the ZwCreateFile-inside-
 // KeStackAttachProcess deadlock (g_HookDeviceObject global removed).
-extern PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID);
+// extern "C" must match the definition in Communication.cpp — without it
+// this .cpp translation unit emits a C++ mangled call while the definition
+// is unmangled, producing LNK2019.
+extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID);
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
