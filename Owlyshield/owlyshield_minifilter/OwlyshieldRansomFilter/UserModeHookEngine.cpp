@@ -2969,25 +2969,13 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
     if (!existingHookEntry)
     {
-        // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
+        // Find free slot
         for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
         {
-            if (g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+            if (!g_UserHookEngine->Processes[i].IsHooked && !g_UserHookEngine->Processes[i].IsInProgress)
             {
-                // Ensure the PID belongs to the EXACT same EPROCESS
-                if (g_UserHookEngine->Processes[i].ProcessObject == process) 
-                {
-                    hookEntry = &g_UserHookEngine->Processes[i];
-                    existingHookEntry = TRUE;
-                    break;
-                }
-                else 
-                {
-                    // PID Collision: The old process died but wasn't cleaned up.
-                    // We should log this and skip it, forcing the engine to find 
-                    // a new, clean slot for the new process.
-                    DbgPrint("UserModeHook: PID collision detected for %lu! Skipping stale slot.\n", ProcessId);
-                }
+                hookEntry = &g_UserHookEngine->Processes[i];
+                break;
             }
         }
 
