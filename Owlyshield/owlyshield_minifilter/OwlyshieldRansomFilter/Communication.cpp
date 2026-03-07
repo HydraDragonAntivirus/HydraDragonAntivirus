@@ -273,6 +273,14 @@ static NTSTATUS HookNotifyDriverInit(
     RtlInitUnicodeString(&devName, OWLY_HOOK_DEVICE_NAME);
     RtlInitUnicodeString(&symName, OWLY_HOOK_SYMLINK_NAME);
 
+    // Defensively delete any leftover symlink/device from a previous driver
+    // session that crashed without a clean unload. If these don't exist,
+    // IoDeleteSymbolicLink / IoDeleteDevice return non-success silently.
+    // Without this, IoCreateDevice returns STATUS_OBJECT_NAME_COLLISION on
+    // reload and g_HookNotifyDevice stays NULL — shellcode IOCTLs silently
+    // fail and no usermode hook events are ever delivered.
+    IoDeleteSymbolicLink(&symName);
+
     NTSTATUS status = IoCreateDevice(
         DriverObject,
         0,

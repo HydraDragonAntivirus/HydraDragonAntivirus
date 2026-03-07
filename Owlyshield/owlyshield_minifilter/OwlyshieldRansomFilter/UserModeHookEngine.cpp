@@ -3425,7 +3425,6 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     PPROCESS_HOOK_ENTRY hookEntry = NULL;
     NTSTATUS status;
     KAPC_STATE apcState;
-    PVOID shellcodeToFree = NULL;
 
     if (g_UserHookEngine == NULL)
         return STATUS_DEVICE_NOT_READY;
@@ -3492,7 +3491,6 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
                 ZwClose(hookEntry->DriverDeviceHandle);
                 hookEntry->DriverDeviceHandle = NULL;
             }
-            shellcodeToFree = hookEntry->ShellcodeBase;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -3505,66 +3503,15 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
         KeUnstackDetachProcess(&apcState);
     }
 
-    // 4. PHASE 2: SAFETY DRAIN
-    // FIX #5: Give threads more time to exit the shellcode before freeing it.
-    // 100ms was insufficient under load.  We extend to 500ms and add the
-    // missing NULL guard for fnZwFreeVirtualMemory (FIX #2).
-    // NOTE: A true fix requires reference-counting active shellcode threads;
-    // this is a best-effort improvement that greatly reduces the risk window.
-    if (shellcodeToFree) {
-        LARGE_INTEGER interval;
-        LONGLONG drainDelayMs = g_HookEngineShuttingDown ? 20LL : 500LL;
-        interval.QuadPart = -drainDelayMs * 1000LL * 10LL;
-        KeDelayExecutionThread(KernelMode, FALSE, &interval);
-
-        // 5. PHASE 3: FREE SHELLCODE
-        // Re-check process health before final attachment
-        if (PsGetProcessExitStatus(process) == STATUS_PENDING &&
-            fnZwFreeVirtualMemory != NULL &&           // FIX #2: NULL guard
-            fnZwProtectVirtualMemory != NULL)
-        {
-            KeStackAttachProcess((PRKPROCESS)process, &apcState);
-            __try
-            {
-                // FIX #5 (enhancement): Overwrite shellcode pages with INT3
-                // (0xCC) BEFORE freeing. Any thread that somehow re-enters the
-                // trampoline after the bytes were restored will trap on INT3
-                // rather than executing undefined freed-memory content.
-                SIZE_T fillSize = hookEntry->ShellcodeSize;
-                if (fillSize == 0) fillSize = 0x1000;  // safe fallback
-
-                PVOID  fillAddr = shellcodeToFree;
-                ULONG  oldProt  = 0;
-                NTSTATUS protSt = fnZwProtectVirtualMemory(
-                    ZwCurrentProcess(), &fillAddr, &fillSize,
-                    PAGE_EXECUTE_READWRITE, &oldProt);
-
-                if (NT_SUCCESS(protSt))
-                {
-                    __try
-                    {
-                        RtlFillMemory(shellcodeToFree, fillSize, 0xCC); // INT3
-                    }
-                    __except (EXCEPTION_EXECUTE_HANDLER) { /* ignore */ }
-
-                    fnZwProtectVirtualMemory(
-                        ZwCurrentProcess(), &fillAddr, &fillSize,
-                        oldProt, &oldProt);
-                }
-
-                // Release the region.
-                SIZE_T size = 0;
-                fnZwFreeVirtualMemory(ZwCurrentProcess(), &shellcodeToFree,
-                                      &size, MEM_RELEASE);
-            }
-            __finally
-            {
-                KeUnstackDetachProcess(&apcState);
-            }
-        }
-    }
-
+    // The shellcode VA region (shellcodeToFree) is intentionally NOT freed here.
+    // When the process exits, the OS tears down its entire VA space and reclaims
+    // all committed pages — including shellcode — automatically.  Trying to free
+    // it ourselves requires a 500ms drain (to avoid freeing pages still executing
+    // in another thread), and that drain WAS the zombie: the EPROCESS reference
+    // was held through the delay, keeping the process alive and unkillable in
+    // Task Manager.  The drain is gone; the OS handles it correctly.
     ObDereferenceObject(process);
+    process = NULL;
 
 FinalCleanup:
     // 6. INTERNAL CLEANUP
