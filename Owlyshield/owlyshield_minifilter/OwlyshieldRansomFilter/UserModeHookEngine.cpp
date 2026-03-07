@@ -1083,7 +1083,7 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //
 // STACK LAYOUT at entry (JMP already taken, return addr on stack):
 //   [LB]        = ESP after sub ESP,0x80  (LB = Local Base)
-//   [LB+0x00]   unused scratch
+//   [LB+0x00]   IoStatusBlock (8 bytes)
 //   [LB+0x08]   HOOK_EVENT_DATA.EventType    ← PATCH
 //   [LB+0x0C]   HOOK_EVENT_DATA.ProcessId    ← PATCH
 //   [LB+0x10]   HOOK_EVENT_DATA.FunctionName[0] = 0
@@ -1105,7 +1105,6 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   kPidSig32         C7 44 24 0C [22×4]    → imm32  = ProcessId
 //   kSizeSig32        68 [77×4]             → imm32  = sizeof(HOOK_EVENT_DATA)
 //   kIoctlSig32       68 [66×4]             → imm32  = HOOK_NOTIFY_IOCTL_CODE
-//   kIosbSig32        68 [AA×4]             → imm32  = Dummy IO_STATUS_BLOCK VA
 //   kHandleSig32      68 [33×4]             → imm32  = DriverDeviceHandle
 //   kNtIoSig32        B8 [44×4]             → imm32  = NtDeviceIoControlFile VA
 //   kSkipLabelSig32   0F 1F 00              → (3-byte NOP — JE rel32 target)
@@ -1141,6 +1140,11 @@ UCHAR g_ShellcodeTemplate32[] = {
     // Set guard: FS(64) 89 1D [14 00 00 00] = MOV [moffs32], EBX
     0x64, 0x89, 0x1D, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], ebx
 
+    // ---- Zero IoStatusBlock at [esp+0x00..0x07] -------------------------
+    0x31, 0xC0,                          // xor eax, eax
+    0x89, 0x04, 0x24,                    // mov [esp+0x00], eax
+    0x89, 0x44, 0x24, 0x04,             // mov [esp+0x04], eax
+
     // ---- Fill HOOK_EVENT_DATA at [esp+0x08] -----------------------------
     // EventType ← patched: kEventSig32
     0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11,
@@ -1172,8 +1176,9 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x50,                               // push eax              ESP=LB-0x10
     // arg6: IoControlCode ← patched: kIoctlSig32
     0x68, 0x66, 0x66, 0x66, 0x66,       //                       ESP=LB-0x14
-    // arg5: DummyIoStatusBlock ← patched: kIosbSig32
-    0x68, 0xAA, 0xAA, 0xAA, 0xAA,       //                       ESP=LB-0x18
+    // arg5: &IoStatusBlock = [esp+0x14] at this point
+    0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
+    0x50,                               // push eax              ESP=LB-0x18
     // arg4: ApcContext = NULL
     0x6A, 0x00,                         //                       ESP=LB-0x1C
     // arg3: ApcRoutine = NULL
@@ -1211,20 +1216,18 @@ UCHAR g_ShellcodeTemplate32[] = {
     // ---- Padding --------------------------------------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
 };
-// The IO_STATUS_BLOCK cannot live on the shellcode's transient stack frame
-// because NtDeviceIoControlFile returns STATUS_PENDING on the asynchronous
-// device handle. Completion can arrive after the shellcode has already
-// returned, so the kernel must write into a durable per-process buffer.
+// NtDeviceIoControlFile, leaving the rest as garbage — causing an access
+// violation inside the kernel on almost every hooked call.
 //
 // STACK LAYOUT (RSP = RSP_entry - 304 after pushes + sub):
 //   RSP+0x00..0x1F  shadow space for the call
-//   RSP+0x20        arg5:  Dummy IO_STATUS_BLOCK (absolute VA = ShellcodeBase)
+//   RSP+0x20        arg5:  &IO_STATUS_BLOCK  (points to RSP+0x80)
 //   RSP+0x28        arg6:  IoControlCode     (patched: HOOK_NOTIFY_IOCTL_CODE)
 //   RSP+0x30        arg7:  InputBuffer       (points to RSP+0x90 = HOOK_EVENT_DATA)
 //   RSP+0x38        arg8:  InputBufferLength (patched: sizeof HOOK_EVENT_DATA)
 //   RSP+0x40        arg9:  OutputBuffer      NULL
 //   RSP+0x48        arg10: OutputBufferLength 0
-//   RSP+0x80..0x8F  unused scratch
+//   RSP+0x80..0x8F  IO_STATUS_BLOCK (16 bytes, zeroed)
 //   RSP+0x90+0x00   HOOK_EVENT_DATA.EventType    (patched: EventId)
 //   RSP+0x90+0x04   HOOK_EVENT_DATA.ProcessId    (patched: ProcessId)
 //   RSP+0x90+0x48   HOOK_EVENT_DATA.Arg1         (copied from original RCX)
@@ -1250,7 +1253,7 @@ UCHAR g_ShellcodeTemplate32[] = {
 //
 // STACK LAYOUT (RSP = RSP_entry - 0x138 after pushes + sub):
 //   [RSP+0x00..0x1F]  shadow space for NtDeviceIoControlFile
-//   [RSP+0x20]        arg5:  Dummy IO_STATUS_BLOCK VA (ShellcodeBase)
+//   [RSP+0x20]        arg5:  &IO_STATUS_BLOCK  (→ RSP+0x80)
 //   [RSP+0x28]        arg6:  IoControlCode     (patched)
 //   [RSP+0x30]        arg7:  InputBuffer       (→ RSP+0x90)
 //   [RSP+0x38]        arg8:  InputBufferLength (patched)
@@ -1258,7 +1261,7 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x48]        arg10: OutputBufferLength 0
 //   [RSP+0x50..0x6F]  (unused)
 //   [RSP+0x70]        saved old TEB.ArbitraryUserPointer  ← NEW
-//   [RSP+0x80..0x8F]  unused scratch
+//   [RSP+0x80..0x8F]  IO_STATUS_BLOCK
 //   [RSP+0x90+0x00]   HOOK_EVENT_DATA.EventType    (patched)
 //   [RSP+0x90+0x04]   HOOK_EVENT_DATA.ProcessId    (patched)
 //   [RSP+0x90+0x08]   HOOK_EVENT_DATA.FunctionName[0] = 0
@@ -1279,7 +1282,6 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   kEventSig       C7 84 24 90 .. 11×4  → imm32  = EventId
 //   kPidSig         C7 84 24 94 .. 22×4  → imm32  = ProcessId
 //   kHandleSig      48 B9 [33×8]         → imm64  = DriverDeviceHandle
-//   kIosbSig        48 B8 [AA×8]         → imm64  = Dummy IO_STATUS_BLOCK VA
 //   kIoctlSig       48 B8 [66×8]         → imm64  = HOOK_NOTIFY_IOCTL_CODE
 //   kSizeSig        48 B8 [77×8]         → imm64  = sizeof(HOOK_EVENT_DATA)
 //   kNtIoSig        48 B8 [44×8]         → imm64  = NtDeviceIoControlFile VA
@@ -1328,6 +1330,11 @@ UCHAR g_ShellcodeTemplate[] = {
     // mov gs:[0x28], r10  → GS(65) REX.WR(4C) 89 SIB(14 25) disp32
     0x65, 0x4C, 0x89, 0x14, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], r10
 
+    // ---- Zero IO_STATUS_BLOCK at RSP+0x80 --------------------------------
+    0x48, 0x31, 0xC0,                               // xor rax, rax
+    0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// mov [rsp+0x80], rax
+    0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00,// mov [rsp+0x88], rax
+
     // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -----------------------
     // EventType at RSP+0x90  ← patched: kEventSig
     0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11,
@@ -1356,8 +1363,8 @@ UCHAR g_ShellcodeTemplate[] = {
     0x45, 0x31, 0xC0,                               // xor r8d, r8d
     // R9 = ApcContext = NULL
     0x45, 0x31, 0xC9,                               // xor r9d, r9d
-    // arg5 [rsp+0x20] = DummyIoStatusBlock ← patched: kIosbSig
-    0x48, 0xB8, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
+    // arg5 [rsp+0x20] = &IoStatusBlock
+    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// lea rax,[rsp+0x80]
     0x48, 0x89, 0x44, 0x24, 0x20,                   // mov [rsp+0x20], rax
     // arg6 [rsp+0x28] = IoControlCode ← patched: kIoctlSig
     0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
@@ -2106,7 +2113,6 @@ NTSTATUS InjectSingleHook(
         static const UCHAR kEventSig[]  = {0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11};
         static const UCHAR kPidSig[]    = {0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kHandleSig[] = {0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
-        static const UCHAR kIosbSig[]   = {0x48, 0xB8, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
         static const UCHAR kIoctlSig[]  = {0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
         static const UCHAR kSizeSig[]   = {0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
         static const UCHAR kNtIoSig[]   = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
@@ -2118,7 +2124,6 @@ NTSTATUS InjectSingleHook(
         SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig,  sizeof(kEventSig));
         SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig,    sizeof(kPidSig));
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig, sizeof(kHandleSig));
-        SIZE_T offIosb   = FindPatternOffset(shellcode, sizeof(shellcode), kIosbSig,   sizeof(kIosbSig));
         SIZE_T offIoctl  = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig,  sizeof(kIoctlSig));
         SIZE_T offSize   = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig,   sizeof(kSizeSig));
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig,   sizeof(kNtIoSig));
@@ -2130,7 +2135,6 @@ NTSTATUS InjectSingleHook(
             offEvent  == (SIZE_T)-1 ||
             offPid    == (SIZE_T)-1 ||
             offHandle == (SIZE_T)-1 ||
-            offIosb   == (SIZE_T)-1 ||
             offIoctl  == (SIZE_T)-1 ||
             offSize   == (SIZE_T)-1 ||
             offNtIo   == (SIZE_T)-1 ||
@@ -2155,9 +2159,6 @@ NTSTATUS InjectSingleHook(
 
         // Patch FileHandle — HANDLE (8 bytes) at mov rcx, imm64 offset+2
         *(PHANDLE)(shellcode + offHandle + 2) = HookEntry->DriverDeviceHandle;
-
-        // Patch Dummy IOSB — reserved 16-byte block at the start of ShellcodeBase
-        *(PVOID *)(shellcode + offIosb + 2) = HookEntry->ShellcodeBase;
 
         // Patch IoControlCode — store as ULONG64 in the mov rax, imm64 slot
         *(PULONG64)(shellcode + offIoctl + 2) = (ULONG64)HOOK_NOTIFY_IOCTL_CODE;
@@ -2363,7 +2364,6 @@ NTSTATUS InjectSingleHook32(
         static const UCHAR kPidSig32[]    = {0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kSizeSig32[]   = {0x68, 0x77, 0x77, 0x77, 0x77};
         static const UCHAR kIoctlSig32[]  = {0x68, 0x66, 0x66, 0x66, 0x66};
-        static const UCHAR kIosbSig32[]   = {0x68, 0xAA, 0xAA, 0xAA, 0xAA};
         static const UCHAR kHandleSig32[] = {0x68, 0x33, 0x33, 0x33, 0x33};
         static const UCHAR kNtIoSig32[]   = {0xB8, 0x44, 0x44, 0x44, 0x44};
         static const UCHAR kRetSig32[]    = {0xE9, 0x55, 0x55, 0x55, 0x55};
@@ -2375,7 +2375,6 @@ NTSTATUS InjectSingleHook32(
         SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig32,    sizeof(kPidSig32));
         SIZE_T offSize   = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig32,   sizeof(kSizeSig32));
         SIZE_T offIoctl  = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig32,  sizeof(kIoctlSig32));
-        SIZE_T offIosb32 = FindPatternOffset(shellcode, sizeof(shellcode), kIosbSig32,   sizeof(kIosbSig32));
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig32, sizeof(kHandleSig32));
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32,   sizeof(kNtIoSig32));
         SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32,    sizeof(kRetSig32));
@@ -2387,7 +2386,6 @@ NTSTATUS InjectSingleHook32(
             offPid    == (SIZE_T)-1 ||
             offSize   == (SIZE_T)-1 ||
             offIoctl  == (SIZE_T)-1 ||
-            offIosb32 == (SIZE_T)-1 ||
             offHandle == (SIZE_T)-1 ||
             offNtIo   == (SIZE_T)-1 ||
             offRet    == (SIZE_T)-1 ||
@@ -2413,9 +2411,6 @@ NTSTATUS InjectSingleHook32(
 
         // Patch IoControlCode (ULONG at kIoctlSig32 + 1)
         *(PULONG)(shellcode + offIoctl + 1) = (ULONG)HOOK_NOTIFY_IOCTL_CODE;
-
-        // Patch Dummy IOSB (absolute 32-bit VA into the reserved shellcode block)
-        *(PULONG)(shellcode + offIosb32 + 1) = (ULONG)(ULONG_PTR)HookEntry->ShellcodeBase;
 
         // Patch FileHandle (HANDLE → ULONG in 32-bit process)
         // Handles are architecturally neutral integers; safe to truncate on
@@ -2673,7 +2668,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
                 HookEntry->ShellcodeBase  = baseAddress;
                 HookEntry->ShellcodeSize  = regionSize;
-                HookEntry->ShellcodeUsed  = 16;
+                HookEntry->ShellcodeUsed  = 0;
                 HookEntry->DriverDeviceHandle = targetDeviceHandle;
                 targetDeviceHandle = NULL; // ownership moved to hook entry
             }
