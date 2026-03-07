@@ -356,6 +356,11 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     return status;
 }
 
+BOOLEAN IsHookNotifyDeviceReady(VOID)
+{
+    return (g_HookNotifyDevice != NULL);
+}
+
 // ----------------------------------------------------------------------------
 // CleanupHookNotifyDevice — called from DriverUnload.
 // No ordering constraint relative to FltUnregisterFilter.

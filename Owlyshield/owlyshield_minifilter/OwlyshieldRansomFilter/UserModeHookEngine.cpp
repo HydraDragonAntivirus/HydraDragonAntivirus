@@ -44,6 +44,7 @@ Environment:
 --*/
 
 #include "UserModeHookEngine.h"
+#include "Communication.h"
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
@@ -151,7 +152,6 @@ PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
-extern PDEVICE_OBJECT g_HookDeviceObject;
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -2766,7 +2766,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    if (g_HookDeviceObject == NULL)
+    if (!IsHookNotifyDeviceReady())
     {
         return STATUS_DEVICE_DOES_NOT_EXIST;
     }
