@@ -64,7 +64,10 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
 // CDO Dispatch Routines
-// Hook notification device managed by InitHookNotifyDevice() in Communication.cpp
+// HookDevice* dispatch functions are now in Communication.cpp.
+// Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
+
+// g_HookDeviceObject removed: hook device owned by Communication.cpp
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 static BOOLEAN g_ProcessNotifyRegistered = FALSE;
 static BOOLEAN g_ThreadNotifyRegistered = FALSE;
@@ -573,6 +576,16 @@ Return Value:
     //
     //  Register with filter manager.
     //
+    
+    // -----------------------------------------------------------------------
+    // Hook notification device (\Device\OwlyshieldHook) is created by
+    // Communication.cpp::InitHookNotifyDevice() via IoCreateDriver().
+    // Do NOT create it here with IoCreateDevice() on this DriverObject:
+    // FltRegisterFilter() overwrites MajorFunction[IRP_MJ_DEVICE_CONTROL]
+    // with its own wrapper, so every shellcode IOCTL would get
+    // STATUS_INVALID_DEVICE_REQUEST -- killing all hook I/O events.
+    // -----------------------------------------------------------------------
+
     driverData = new DriverData(DriverObject);
     if (driverData == NULL)
     {
@@ -622,14 +635,15 @@ Return Value:
     }
     driverData->setFilterStart();
 
-    // Create hook notification device on its own independent DRIVER_OBJECT via IoCreateDriver.
-    // Never call IoCreateDevice on this DriverObject or write MajorFunction entries — that
-    // causes FLTMGR_FILE_SYSTEM (0xF5) because FltMgr validates its own dispatch table.
+    // Create the hook notification device AFTER FltStartFiltering so FltMgr's
+    // own dispatch is fully installed. InitHookNotifyDevice uses IoCreateDriver
+    // (independent DRIVER_OBJECT) so FltMgr never overwrites its dispatch table.
     status = InitHookNotifyDevice(DriverObject);
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("!!! FSFilter: InitHookNotifyDevice failed 0x%X (hook events disabled)\n", status);
-        // Non-fatal: minifilter continues without user-mode API hook notifications.
+        DbgPrint("!!! FSFilter: InitHookNotifyDevice failed 0x%X\n", status);
+        // Non-fatal: minifilter still works; only shellcode IOCTL events are lost.
+        status = STATUS_SUCCESS;
     }
 
     //
@@ -1108,7 +1122,8 @@ Return Value:
         driverData = NULL;
     }
     
-    // Cleanup hook notification device (IoCreateDriver-based independent DriverObject).
+    // Tear down independent hook device BEFORE FltUnregisterFilter so the
+    // saved FltMgr dispatch pointers stay valid for teardown IRPs.
     CleanupHookNotifyDevice();
 
     return STATUS_SUCCESS;
@@ -2762,4 +2777,152 @@ _Use_decl_annotations_
 VOID AddRemProcessRoutineLegacy(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
     AddRemProcessRoutineCore(ParentId, ProcessId, Create, NULL);
+}
+
+// ====================================================================
+// Hook Device Dispatch Routines
+// ====================================================================
+
+NTSTATUS FSFilter_HookDeviceCreate_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS FSFilter_HookDeviceClose_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG bytesWritten = 0;
+
+    typedef struct _HOOK_EVENT_DATA_WIRE80 {
+        ULONG EventType;
+        ULONG ProcessId;
+        CHAR FunctionName[64];
+        ULONG_PTR Arg1;
+    } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
+    
+    if (irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_REPORT_HOOK_EVENT)
+    {
+        if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA_WIRE80))
+        {
+            PVOID rawBuffer = Irp->AssociatedIrp.SystemBuffer;
+            if (rawBuffer) {
+                ULONG eventType = 0;
+                ULONG processId = 0;
+                PCWSTR incomingWideName = NULL;
+                ULONG_PTR rawArg1 = 0;
+                ULONG_PTR rawArg2 = 0;
+                WCHAR convertedIncomingName[64] = {0};
+    
+                if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
+                {
+                    PHOOK_EVENT_DATA eventData = (PHOOK_EVENT_DATA)rawBuffer;
+                    eventType = eventData->EventType;
+                    processId = eventData->ProcessId;
+                    rawArg1 = eventData->Arg1;
+                    rawArg2 = eventData->Arg2;
+
+                    // Convert ANSI FunctionName to WCHAR
+                    if (eventData->FunctionName[0] != '\0')
+                    {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
+                        {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
+                    }
+                }
+                else
+                {
+                    PHOOK_EVENT_DATA_WIRE80 eventData80 = (PHOOK_EVENT_DATA_WIRE80)rawBuffer;
+                    eventType = eventData80->EventType;
+                    processId = eventData80->ProcessId;
+                    rawArg1 = eventData80->Arg1;
+                    rawArg2 = 0;
+                    if (eventData80->FunctionName[0] != '\0') {
+                        ANSI_STRING asFunc;
+                        UNICODE_STRING usFunc;
+                        RtlInitAnsiString(&asFunc, eventData80->FunctionName);
+                        usFunc.Buffer = convertedIncomingName;
+                        usFunc.Length = 0;
+                        usFunc.MaximumLength = sizeof(convertedIncomingName);
+                        if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE))) {
+                            convertedIncomingName[(RTL_NUMBER_OF(convertedIncomingName) - 1)] = L'\0';
+                            incomingWideName = convertedIncomingName;
+                        }
+                    }
+                }
+
+                PCWSTR functionName = NULL;
+                WCHAR resolvedHookName[MAX_FILE_NAME_LENGTH] = {0};
+
+                BOOLEAN incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
+                BOOLEAN incomingQualified = FALSE;
+                if (incomingHasName)
+                {
+                    incomingQualified = (wcschr(incomingWideName, L'!') != NULL);
+                }
+
+                // Prefer fully-qualified module!function labels.
+                // If incoming payload is unqualified (e.g. only module stem), resolve by EventId.
+                if (incomingQualified) {
+                    functionName = incomingWideName;
+                } else if (ResolveHookNameByEventId(eventType, resolvedHookName, RTL_NUMBER_OF(resolvedHookName)) &&
+                           resolvedHookName[0] != L'\0')
+                {
+                    functionName = resolvedHookName;
+                }
+                else if (incomingHasName)
+                {
+                    functionName = incomingWideName;
+                }
+                else
+                {
+                    functionName = L"";
+                }
+
+                // Log event using existing mechanism
+                DbgPrint("FSFilter: Hypervisor event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
+                         processId,
+                         eventType,
+                         functionName ? functionName : L"",
+                         (PVOID)rawArg1,
+                         (PVOID)rawArg2);
+                
+                // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
+                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
+            }
+        }
+        else {
+            status = STATUS_BUFFER_TOO_SMALL;
+        }
+    }
+    else {
+        status = STATUS_INVALID_DEVICE_REQUEST;
+    }
+    
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = bytesWritten;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
 }

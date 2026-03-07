@@ -1,6 +1,5 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "ProcessProtection.h"
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
@@ -67,15 +66,8 @@
 #define OWLY_HOOK_DRIVER_NAME   L"\\Driver\\OwlyshieldHookNotify"
 #define OWLY_HOOK_SYMLINK_NAME  L"\\DosDevices\\OwlyshieldHook"
 
-// Shared with UserModeHookEngine.cpp (extern declaration there).
-PDEVICE_OBJECT g_HookDeviceObject = NULL;
-
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
-
-typedef NTSTATUS (NTAPI *PIO_CREATE_DRIVER)(
-    _In_opt_ PUNICODE_STRING DriverName,
-    _In_     PDRIVER_INITIALIZE InitializationFunction);
 
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
@@ -288,7 +280,6 @@ static NTSTATUS HookNotifyDriverInit(
         return status;
     }
 
-    g_HookDeviceObject = g_HookNotifyDevice;
     g_HookNotifyDevice->Flags |=  DO_BUFFERED_IO;
     g_HookNotifyDevice->Flags &= ~DO_DEVICE_INITIALIZING;
 
@@ -298,7 +289,6 @@ static NTSTATUS HookNotifyDriverInit(
         DbgPrint("!!! HookDevice: IoCreateSymbolicLink failed 0x%X\n", status);
         IoDeleteDevice(g_HookNotifyDevice);
         g_HookNotifyDevice = NULL;
-        g_HookDeviceObject = NULL;
         return status;
     }
 
@@ -321,25 +311,14 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     UNREFERENCED_PARAMETER(DriverObject);
 
     UNICODE_STRING driverName;
-    UNICODE_STRING ioCreateDriverName;
-    PIO_CREATE_DRIVER pIoCreateDriver = NULL;
     RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
-    RtlInitUnicodeString(&ioCreateDriverName, L"IoCreateDriver");
 
-    pIoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&ioCreateDriverName);
-    if (pIoCreateDriver == NULL)
-    {
-        DbgPrint("!!! HookDevice: IoCreateDriver export not found\n");
-        return STATUS_NOT_SUPPORTED;
-    }
-
-    NTSTATUS status = pIoCreateDriver(&driverName, HookNotifyDriverInit);
+    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
         g_HookNotifyDevice       = NULL;
         g_HookNotifyDriverObject = NULL;
-        g_HookDeviceObject       = NULL;
     }
     return status;
 }
@@ -360,7 +339,6 @@ VOID CleanupHookNotifyDevice(VOID)
     IoDeleteDevice(g_HookNotifyDevice);
     g_HookNotifyDevice       = NULL;
     g_HookNotifyDriverObject = NULL;
-    g_HookDeviceObject       = NULL;
 
     DbgPrint("!!! HookDevice: Cleaned up\n");
 }
