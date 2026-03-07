@@ -1,0 +1,1 @@
+WireGuard fake VPN mode only to not broke internet
