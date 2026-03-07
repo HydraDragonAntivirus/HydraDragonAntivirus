@@ -1,5 +1,6 @@
 #include "Communication.h"
 #include "FsFilter.h"
+#include "ProcessProtection.h"
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 

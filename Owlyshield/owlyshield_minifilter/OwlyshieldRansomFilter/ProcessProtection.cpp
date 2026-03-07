@@ -175,7 +175,7 @@ NTSTATUS InitProcessProtection()
     g_OpReg[0].PostOperation = NULL;
 
     // Configure callback registration
-    g_ObReg->Version = ObGetFilterVersion();
+    g_ObReg->Version = OB_FLT_REGISTRATION_VERSION;
     g_ObReg->OperationRegistrationCount = 1;
     g_ObReg->OperationRegistration = g_OpReg;
     g_ObReg->RegistrationContext = NULL;
@@ -258,7 +258,7 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
     if (IsSystemProcessPP(currentProc))
         return OB_PREOP_SUCCESS;
 
-    // 5. Check if PROCESS_TERMINATE access is being requested
+    // 5. Capture requested access mask (read-only, never modify).
     ACCESS_MASK desiredAccess = 0;
     if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
         desiredAccess = pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
@@ -266,12 +266,21 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
         desiredAccess = pOperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
     }
 
-    // Only interested in termination attempts
-    if (!(desiredAccess & PROCESS_TERMINATE))
-        return OB_PREOP_SUCCESS;
-
-    // 6. Queue event to usermode (don't block the operation)
-    QueueTerminationAttemptToUserMode(currentProc, targetProc);
+    // 6. NOTIFY-ONLY: report all cross-process handle operations.
+    //
+    // Previously only PROCESS_TERMINATE was reported, silently dropping
+    // PROCESS_VM_WRITE / DUP_HANDLE / CREATE_THREAD -- the exact masks
+    // used by process injection. We now report every cross-process open.
+    // DesiredAccess is NEVER modified -- this is pure telemetry.
+    if (desiredAccess & PROCESS_TERMINATE) {
+        QueueTerminationAttemptToUserMode(currentProc, targetProc);
+    } else {
+        OnProcessHandleOperation(
+            PsGetProcessId(currentProc),
+            PsGetProcessId(targetProc),
+            desiredAccess,
+            (UCHAR)pOperationInformation->Operation);
+    }
 
     // Always allow the operation to proceed - we're just observing
     return OB_PREOP_SUCCESS;
@@ -347,26 +356,14 @@ NTSTATUS QueueTerminationAttemptToUserMode(
     newItem->AttackerPID = (ULONG)(ULONG_PTR)attackerPid;
     newItem->AttackerGid = attackerGid;
 
-    // Try to get target process path for the filepath field
-    PUNICODE_STRING targetPath = NULL;
-    NTSTATUS status = SeLocateProcessImageName(TargetProcess, &targetPath);
-    if (NT_SUCCESS(status) && targetPath && targetPath->Buffer && targetPath->Length > 0) {
-        USHORT copyLen = (targetPath->Length < MAX_FILE_NAME_SIZE) 
-            ? targetPath->Length 
-            : (MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-        RtlCopyMemory(newEntry->Buffer, targetPath->Buffer, copyLen);
-        newEntry->Buffer[copyLen / sizeof(WCHAR)] = L'\0';
-        newEntry->filePath.Length = copyLen;
-        newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-        newEntry->filePath.Buffer = newEntry->Buffer;
-        ExFreePool(targetPath);
-    } else {
-        // No path available, use empty string
-        newEntry->Buffer[0] = L'\0';
-        newEntry->filePath.Length = 0;
-        newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
-        newEntry->filePath.Buffer = newEntry->Buffer;
-    }
+    // NOTE: SeLocateProcessImageName is NOT called here.
+    // It acquires the process image-section/token lock inside an ObCallback,
+    // which deadlocks when the target process is initializing or tearing down.
+    // User-mode can look up the path from the PID.
+    newEntry->Buffer[0] = L'\0';
+    newEntry->filePath.Length = 0;
+    newEntry->filePath.MaximumLength = MAX_FILE_NAME_SIZE;
+    newEntry->filePath.Buffer = newEntry->Buffer;
 
     DbgPrint("!!! ProcessProtection: Termination attempt detected - Attacker PID %d (GID %llu) -> Target PID %d (GID %llu)\n",
         (ULONG)(ULONG_PTR)attackerPid, attackerGid, 
@@ -507,8 +504,29 @@ NTSTATUS OnProcessTerminationAttempt(
     _In_ HANDLE TargetPid
 )
 {
-    // Delegate to existing function
-    return QueueTerminationAttemptToUserMode((PEPROCESS)AttackerPid, (PEPROCESS)TargetPid);
+    // FIX: AttackerPid/TargetPid are PID integers, NOT PEPROCESS pointers.
+    // The old cast (PEPROCESS)AttackerPid caused instant bugcheck when
+    // QueueTerminationAttemptToUserMode dereferenced the "pointer".
+    // Resolve EPROCESS from PID with reference counting.
+    PEPROCESS attackerProc = NULL;
+    PEPROCESS targetProc   = NULL;
+    NTSTATUS  st;
+
+    st = PsLookupProcessByProcessId(AttackerPid, &attackerProc);
+    if (!NT_SUCCESS(st))
+        return st;
+
+    st = PsLookupProcessByProcessId(TargetPid, &targetProc);
+    if (!NT_SUCCESS(st)) {
+        ObDereferenceObject(attackerProc);
+        return st;
+    }
+
+    st = QueueTerminationAttemptToUserMode(attackerProc, targetProc);
+
+    ObDereferenceObject(targetProc);
+    ObDereferenceObject(attackerProc);
+    return st;
 }
 
 //
