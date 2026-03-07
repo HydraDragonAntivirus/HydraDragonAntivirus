@@ -1806,6 +1806,9 @@ VOID UserModeHookEngineCleanup(VOID)
 PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
+    UNICODE_STRING targetModuleName;
+
+    RtlInitUnicodeString(&targetModuleName, ModuleName);
 
     if (ModuleSize != NULL)
         *ModuleSize = 0;
@@ -1841,8 +1844,19 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 
                     if (ldrEntry->BaseDllName.Buffer && ldrEntry->BaseDllName.Length > 0)
                     {
-                        ProbeForRead(ldrEntry->BaseDllName.Buffer, ldrEntry->BaseDllName.Length, 1);
-                        if (_wcsicmp(ldrEntry->BaseDllName.Buffer, ModuleName) == 0)
+                        UNICODE_STRING currentBaseName;
+
+                        // BaseDllName is a counted UNICODE_STRING in the remote
+                        // process.  Do not call _wcsicmp on it: that assumes NUL
+                        // termination and can read past the probed buffer.
+                        ProbeForRead(ldrEntry->BaseDllName.Buffer,
+                                     ldrEntry->BaseDllName.Length,
+                                     sizeof(WCHAR));
+                        currentBaseName.Length = ldrEntry->BaseDllName.Length;
+                        currentBaseName.MaximumLength = ldrEntry->BaseDllName.Length;
+                        currentBaseName.Buffer = ldrEntry->BaseDllName.Buffer;
+
+                        if (RtlEqualUnicodeString(&currentBaseName, &targetModuleName, TRUE))
                         {
                             moduleBase = ldrEntry->DllBase;
                             if (ModuleSize)
@@ -1864,22 +1878,140 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
     return moduleBase;
 }
 
+
 //
 // Find exported function
 //
 
-PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+#define USERMODE_HOOK_MAX_FORWARDER_DEPTH 8
+
+static BOOLEAN ReadNullTerminatedAnsiString(
+    _In_ PCSTR Source,
+    _Out_writes_(DestinationCount) PCHAR Destination,
+    _In_ SIZE_T DestinationCount)
+{
+    if (Source == NULL || Destination == NULL || DestinationCount < 2)
+        return FALSE;
+
+    __try
+    {
+        for (SIZE_T i = 0; i < DestinationCount - 1; ++i)
+        {
+            ProbeForRead((PVOID)(Source + i), 1, 1);
+            Destination[i] = Source[i];
+            if (Destination[i] == '\0')
+                return TRUE;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Destination[0] = '\0';
+        return FALSE;
+    }
+
+    Destination[0] = '\0';
+    return FALSE;
+}
+
+static BOOLEAN ParseForwarderString(
+    _In_ PCSTR ForwarderString,
+    _Out_writes_(ModuleNameCch) PWSTR ModuleNameW,
+    _In_ SIZE_T ModuleNameCch,
+    _Out_writes_(ExportNameCch) PCHAR ExportNameA,
+    _In_ SIZE_T ExportNameCch)
+{
+    CHAR forwarder[256];
+    LONG splitIndex = -1;
+    SIZE_T forwarderLen = 0;
+    SIZE_T moduleLen = 0;
+    BOOLEAN hasDotInModuleName = FALSE;
+
+    if (ModuleNameW == NULL || ExportNameA == NULL ||
+        ModuleNameCch < RTL_NUMBER_OF(L".dll") + 1 || ExportNameCch < 2)
+    {
+        return FALSE;
+    }
+
+    ModuleNameW[0] = L'\0';
+    ExportNameA[0] = '\0';
+
+    if (!ReadNullTerminatedAnsiString(ForwarderString, forwarder, RTL_NUMBER_OF(forwarder)))
+        return FALSE;
+
+    forwarderLen = strlen(forwarder);
+    if (forwarderLen < 3)
+        return FALSE;
+
+    for (LONG i = (LONG)forwarderLen - 1; i >= 0; --i)
+    {
+        if (forwarder[i] == '.')
+        {
+            splitIndex = i;
+            break;
+        }
+    }
+
+    if (splitIndex <= 0 || (SIZE_T)(splitIndex + 1) >= forwarderLen)
+        return FALSE;
+
+    moduleLen = (SIZE_T)splitIndex;
+    for (SIZE_T i = 0; i < moduleLen; ++i)
+    {
+        if (forwarder[i] == '.')
+        {
+            hasDotInModuleName = TRUE;
+            break;
+        }
+    }
+
+    if ((forwarderLen - ((SIZE_T)splitIndex + 1) + 1) > ExportNameCch)
+        return FALSE;
+
+    for (SIZE_T i = 0; i < moduleLen; ++i)
+    {
+        if (i + 1 >= ModuleNameCch)
+            return FALSE;
+        ModuleNameW[i] = (WCHAR)(UCHAR)forwarder[i];
+    }
+    ModuleNameW[moduleLen] = L'\0';
+
+    if (!hasDotInModuleName)
+    {
+        if (!NT_SUCCESS(RtlStringCchCatW(ModuleNameW, ModuleNameCch, L".dll")))
+            return FALSE;
+    }
+
+    if (!NT_SUCCESS(RtlStringCchCopyA(ExportNameA, ExportNameCch, forwarder + splitIndex + 1)))
+        return FALSE;
+
+    return TRUE;
+}
+
+static PVOID FindExportedFunctionDirect(
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
+    SIZE_T targetLen = 0;
 
-    if (ModuleBase == NULL || FunctionName == NULL)
+    if (ForwarderString != NULL)
+        *ForwarderString = NULL;
+
+    if (ModuleBase == NULL)
         return NULL;
 
-    // Pre-compute the search name length once (FunctionName is a kernel literal,
-    // safe to call strlen on directly).
-    SIZE_T targetLen = strlen(FunctionName);
-    if (targetLen == 0 || targetLen > 255)
-        return NULL;
+    if (!ResolveByOrdinal)
+    {
+        if (FunctionName == NULL)
+            return NULL;
+
+        targetLen = strlen(FunctionName);
+        if (targetLen == 0 || targetLen > 255)
+            return NULL;
+    }
 
     __try
     {
@@ -1888,7 +2020,6 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        // e_lfanew is a ULONG — validate range before pointer arithmetic.
         if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) ||
             dosHeader->e_lfanew > 0x10000000UL)
             return NULL;
@@ -1911,67 +2042,142 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
-        if (exportDir->NumberOfNames == 0 || exportDir->NumberOfFunctions == 0)
+        if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        // Probe the three export tables upfront before indexing into them.
-        PULONG  addressOfFunctions =
+        PULONG addressOfFunctions =
             (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        PULONG  addressOfNames =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-        PUSHORT addressOfNameOrdinals =
-            (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
-
         ProbeForRead(addressOfFunctions,
                      (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNames,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNameOrdinals,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
-        for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
+        ULONG funcRva = 0;
+
+        if (ResolveByOrdinal)
         {
-            // Validate RVA before building the pointer.
-            ULONG nameRva = addressOfNames[i];
-            if (nameRva == 0)
-                continue;
+            if ((ULONG)Ordinal < exportDir->Base)
+                return NULL;
 
-            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+            ULONG functionIndex = (ULONG)Ordinal - exportDir->Base;
+            if (functionIndex >= exportDir->NumberOfFunctions)
+                return NULL;
 
-            // Probe a fixed maximum — we MUST probe currentName BEFORE calling
-            // any C-runtime string function on it.  The old code passed
-            // strlen(FunctionName) as the probe length, which probed the
-            // WRONG length and on the WRONG memory: if currentName pointed to
-            // a short or unmapped string, strlen would fault inside the probe.
-            ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+            funcRva = addressOfFunctions[functionIndex];
+        }
+        else
+        {
+            if (exportDir->NumberOfNames == 0)
+                return NULL;
 
-            // strncmp is safe here: currentName is probed for at least
-            // targetLen+1 bytes, so we won't read past the probe boundary
-            // even if the export name is shorter than targetLen.
-            if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+            PULONG addressOfNames =
+                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals =
+                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+
+            ProbeForRead(addressOfNames,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+
+            for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
-                USHORT ordinal = addressOfNameOrdinals[i];
-                if (ordinal >= exportDir->NumberOfFunctions)
-                    break;  // corrupt export table
+                ULONG nameRva = addressOfNames[i];
+                if (nameRva == 0)
+                    continue;
 
-                ULONG funcRva = addressOfFunctions[ordinal];
-                if (funcRva == 0)
+                PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+                ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+
+                if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+                {
+                    USHORT ordinalIndex = addressOfNameOrdinals[i];
+                    if (ordinalIndex >= exportDir->NumberOfFunctions)
+                        break;
+
+                    funcRva = addressOfFunctions[ordinalIndex];
                     break;
-
-                // Reject forwarder RVAs (they point inside the export directory).
-                if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
-                    break;
-
-                functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
-                break;
+                }
             }
         }
+
+        if (funcRva == 0)
+            return NULL;
+
+        if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
+        {
+            if (ForwarderString != NULL)
+            {
+                *ForwarderString = (PCSTR)((PUCHAR)ModuleBase + funcRva);
+            }
+            return NULL;
+        }
+
+        functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         functionAddress = NULL;
+        if (ForwarderString != NULL)
+            *ForwarderString = NULL;
     }
     return functionAddress;
+}
+
+PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunctionDirect(ModuleBase, FunctionName, 0, FALSE, NULL);
+}
+
+static PVOID FindExportedFunctionResolvedInternal(
+    _In_ PEPROCESS Process,
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _In_ ULONG ForwarderDepth)
+{
+    PCSTR forwarderString = NULL;
+    PVOID functionAddress = FindExportedFunctionDirect(
+        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+
+    if (functionAddress != NULL || forwarderString == NULL ||
+        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    {
+        return functionAddress;
+    }
+
+    WCHAR forwardedModuleName[128];
+    CHAR forwardedExportName[128];
+    if (!ParseForwarderString(forwarderString,
+                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+                              forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
+    {
+        return NULL;
+    }
+
+    PVOID forwardedModuleBase = FindModuleBaseAddress(Process, forwardedModuleName, NULL);
+    if (forwardedModuleBase == NULL)
+        return NULL;
+
+    if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
+    {
+        ULONG ordinalValue = 0;
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
+            ordinalValue > 0xFFFFUL)
+        {
+            return NULL;
+        }
+
+        return FindExportedFunctionResolvedInternal(
+            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+    }
+
+    return FindExportedFunctionResolvedInternal(
+        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+}
+
+PVOID FindExportedFunctionResolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunctionResolvedInternal(Process, ModuleBase, FunctionName, 0, FALSE, 0);
 }
 
 // -------------------------------------------------------------------------
@@ -1988,6 +2194,9 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
 PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
+    UNICODE_STRING targetModuleName;
+
+    RtlInitUnicodeString(&targetModuleName, ModuleName);
 
     if (ModuleSize != NULL)
         *ModuleSize = 0;
@@ -2032,9 +2241,18 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
             if (entry->BaseDllName.Buffer != 0 && entry->BaseDllName.Length > 0)
             {
                 PWSTR nameBuffer = (PWSTR)(ULONG_PTR)entry->BaseDllName.Buffer;
-                ProbeForRead(nameBuffer, entry->BaseDllName.Length, 1);
+                UNICODE_STRING currentBaseName;
 
-                if (_wcsicmp(nameBuffer, ModuleName) == 0)
+                // The 32-bit LDR stores a counted UNICODE_STRING32.  Do not call
+                // _wcsicmp on it: that assumes NUL termination and can read past
+                // the probed buffer into an unmapped page, faulting with
+                // STATUS_ACCESS_VIOLATION.  Compare as counted strings instead.
+                ProbeForRead(nameBuffer, entry->BaseDllName.Length, sizeof(WCHAR));
+                currentBaseName.Length = (USHORT)entry->BaseDllName.Length;
+                currentBaseName.MaximumLength = (USHORT)entry->BaseDllName.Length;
+                currentBaseName.Buffer = nameBuffer;
+
+                if (RtlEqualUnicodeString(&currentBaseName, &targetModuleName, TRUE))
                 {
                     moduleBase = (PVOID)(ULONG_PTR)entry->DllBase;
                     if (ModuleSize != NULL)
@@ -2064,16 +2282,31 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
 //
 // Must be called from within a KeStackAttachProcess context.
 // -------------------------------------------------------------------------
-PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+static PVOID FindExportedFunction32Direct(
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
+    SIZE_T targetLen = 0;
 
-    if (ModuleBase == NULL || FunctionName == NULL)
+    if (ForwarderString != NULL)
+        *ForwarderString = NULL;
+
+    if (ModuleBase == NULL)
         return NULL;
 
-    SIZE_T targetLen = strlen(FunctionName);
-    if (targetLen == 0 || targetLen > 255)
-        return NULL;
+    if (!ResolveByOrdinal)
+    {
+        if (FunctionName == NULL)
+            return NULL;
+
+        targetLen = strlen(FunctionName);
+        if (targetLen == 0 || targetLen > 255)
+            return NULL;
+    }
 
     __try
     {
@@ -2086,8 +2319,6 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             dosHeader->e_lfanew > 0x10000000L)
             return NULL;
 
-        // Use IMAGE_NT_HEADERS32 explicitly — the image is 32-bit regardless
-        // of the host architecture.
         PIMAGE_NT_HEADERS32 ntHeaders =
             (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
         ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS32), 1);
@@ -2095,11 +2326,10 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
             return NULL;
 
-        // Validate magic — must be PE32 (0x10B), not PE32+ (0x20B).
         if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
             return NULL;
 
-        ULONG exportDirRva  =
+        ULONG exportDirRva =
             ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
         ULONG exportDirSize =
             ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
@@ -2111,57 +2341,143 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
-        if (exportDir->NumberOfNames == 0 || exportDir->NumberOfFunctions == 0)
+        if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        PULONG  addressOfFunctions =
+        PULONG addressOfFunctions =
             (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        PULONG  addressOfNames =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-        PUSHORT addressOfNameOrdinals =
-            (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
-
         ProbeForRead(addressOfFunctions,
                      (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNames,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNameOrdinals,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
-        for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
+        ULONG funcRva = 0;
+
+        if (ResolveByOrdinal)
         {
-            ULONG nameRva = addressOfNames[i];
-            if (nameRva == 0)
-                continue;
+            if ((ULONG)Ordinal < exportDir->Base)
+                return NULL;
 
-            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
-            ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+            ULONG functionIndex = (ULONG)Ordinal - exportDir->Base;
+            if (functionIndex >= exportDir->NumberOfFunctions)
+                return NULL;
 
-            if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+            funcRva = addressOfFunctions[functionIndex];
+        }
+        else
+        {
+            if (exportDir->NumberOfNames == 0)
+                return NULL;
+
+            PULONG addressOfNames =
+                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals =
+                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+
+            ProbeForRead(addressOfNames,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+
+            for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
-                USHORT ordinal = addressOfNameOrdinals[i];
-                if (ordinal >= exportDir->NumberOfFunctions)
-                    break;
+                ULONG nameRva = addressOfNames[i];
+                if (nameRva == 0)
+                    continue;
 
-                ULONG funcRva = addressOfFunctions[ordinal];
-                if (funcRva == 0)
-                    break;
+                PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+                ProbeForRead((PVOID)currentName, targetLen + 1, 1);
 
-                // Reject forwarder RVAs.
-                if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
-                    break;
+                if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+                {
+                    USHORT ordinalIndex = addressOfNameOrdinals[i];
+                    if (ordinalIndex >= exportDir->NumberOfFunctions)
+                        break;
 
-                functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
-                break;
+                    funcRva = addressOfFunctions[ordinalIndex];
+                    break;
+                }
             }
         }
+
+        if (funcRva == 0)
+            return NULL;
+
+        if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
+        {
+            if (ForwarderString != NULL)
+            {
+                *ForwarderString = (PCSTR)((PUCHAR)ModuleBase + funcRva);
+            }
+            return NULL;
+        }
+
+        functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         functionAddress = NULL;
+        if (ForwarderString != NULL)
+            *ForwarderString = NULL;
     }
 
     return functionAddress;
+}
+
+PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunction32Direct(ModuleBase, FunctionName, 0, FALSE, NULL);
+}
+
+static PVOID FindExportedFunction32ResolvedInternal(
+    _In_ PEPROCESS Process,
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _In_ ULONG ForwarderDepth)
+{
+    PCSTR forwarderString = NULL;
+    PVOID functionAddress = FindExportedFunction32Direct(
+        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+
+    if (functionAddress != NULL || forwarderString == NULL ||
+        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    {
+        return functionAddress;
+    }
+
+    WCHAR forwardedModuleName[128];
+    CHAR forwardedExportName[128];
+    if (!ParseForwarderString(forwarderString,
+                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+                              forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
+    {
+        return NULL;
+    }
+
+    PVOID forwardedModuleBase = FindModuleBaseAddress32(Process, forwardedModuleName, NULL);
+    if (forwardedModuleBase == NULL)
+        return NULL;
+
+    if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
+    {
+        ULONG ordinalValue = 0;
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
+            ordinalValue > 0xFFFFUL)
+        {
+            return NULL;
+        }
+
+        return FindExportedFunction32ResolvedInternal(
+            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+    }
+
+    return FindExportedFunction32ResolvedInternal(
+        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+}
+
+PVOID FindExportedFunction32Resolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunction32ResolvedInternal(Process, ModuleBase, FunctionName, 0, FALSE, 0);
 }
 
 // FIX #5: InstallUsermodeHook previously discarded the Process parameter
@@ -2757,7 +3073,7 @@ NTSTATUS ResolveAndHook32(
     PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
 
-    HookDef->Address = FindExportedFunction32(modBase, FunctionName);
+    HookDef->Address = FindExportedFunction32Resolved(Process, modBase, FunctionName);
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry,
@@ -2867,13 +3183,53 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
                 if (fnZwAllocateVirtualMemory)
                 {
-                    // ZeroBits=33 for WoW64: keeps allocation below 0x80000000
-                    // so that 32-bit E9 rel32 JMPs can reach the shellcode.
-                    // ZeroBits=0 for native 64-bit: FF 25 absolute JMP, no range limit.
-                    ULONG_PTR zeroBits = isWow64 ? 33ULL : 0ULL;
-                    status = fnZwAllocateVirtualMemory(
-                        ZwCurrentProcess(), &baseAddress, zeroBits,
-                        &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                    if (!isWow64)
+                    {
+                        // Native 64-bit: FF 25 absolute JMP, no range limit.
+                        status = fnZwAllocateVirtualMemory(
+                            ZwCurrentProcess(), &baseAddress, 0,
+                            &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                    }
+                    else
+                    {
+                        // WoW64: do NOT use ZeroBits=33 here.
+                        // Nt/ZwAllocateVirtualMemory interprets ZeroBits > 32 as a
+                        // bitmask, not a count of high-order bits, so 33 does not
+                        // reliably mean "below 0x80000000".  Search explicitly in
+                        // the low address range so the 5-byte E9 rel32 trampoline
+                        // remains reachable.
+                        const ULONG_PTR lowBaseStart = 0x10000000UL;
+                        const ULONG_PTR lowBaseEnd   = 0x70000000UL;
+                        const ULONG_PTR granularity  = 0x00010000UL; // 64 KB
+                        NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
+                        BOOLEAN allocated = FALSE;
+
+                        for (ULONG_PTR hint = lowBaseStart;
+                             hint + regionSize < lowBaseEnd;
+                             hint += granularity)
+                        {
+                            PVOID candidate = (PVOID)hint;
+                            SIZE_T candidateSize = regionSize;
+                            NTSTATUS allocStatus = fnZwAllocateVirtualMemory(
+                                ZwCurrentProcess(), &candidate, 0,
+                                &candidateSize, MEM_COMMIT | MEM_RESERVE,
+                                PAGE_EXECUTE_READWRITE);
+                            if (NT_SUCCESS(allocStatus))
+                            {
+                                baseAddress = candidate;
+                                regionSize = candidateSize;
+                                status = STATUS_SUCCESS;
+                                allocated = TRUE;
+                                break;
+                            }
+                            lastAllocStatus = allocStatus;
+                        }
+
+                        if (!allocated)
+                        {
+                            status = lastAllocStatus;
+                        }
+                    }
                 }
                 else
                 {
@@ -2946,7 +3302,7 @@ NTSTATUS ResolveAndHook(
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
 
-    HookDef->Address = FindExportedFunction(modBase, FunctionName);
+    HookDef->Address = FindExportedFunctionResolved(Process, modBase, FunctionName);
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
@@ -3096,7 +3452,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         __try  // inner: catches exceptions from resolve/hook calls
         {
             ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
-            targetNtDeviceIo = FindExportedFunction(ntdllBase, "NtDeviceIoControlFile");
+            targetNtDeviceIo = FindExportedFunctionResolved(process, ntdllBase, "NtDeviceIoControlFile");
             if (!targetNtDeviceIo)
             {
                 status = STATUS_NOT_FOUND;
@@ -3111,7 +3467,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             {
                 ntdllBase32 = FindModuleBaseAddress32(process, L"ntdll.dll", NULL);
                 if (ntdllBase32)
-                    targetNtDeviceIo32 = FindExportedFunction32(ntdllBase32, "NtDeviceIoControlFile");
+                    targetNtDeviceIo32 = FindExportedFunction32Resolved(process, ntdllBase32, "NtDeviceIoControlFile");
 
                 if (!targetNtDeviceIo32)
                 {
