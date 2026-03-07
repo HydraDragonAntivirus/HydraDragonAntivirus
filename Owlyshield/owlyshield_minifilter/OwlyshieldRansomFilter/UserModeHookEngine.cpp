@@ -86,7 +86,7 @@ typedef struct _PEB32 {
     UCHAR BitField;                 // +0x03
     ULONG Mutant;                   // +0x04 (ptr32)
     ULONG ImageBaseAddress;         // +0x08 (ptr32)
-    ULONG Ldr;                      // +0x0C (ptr32 → PEB_LDR_DATA32)
+    ULONG Ldr;                      // +0x0C (ptr32 -> PEB_LDR_DATA32)
 } PEB32;
 
 #pragma pack(pop)
@@ -104,8 +104,8 @@ typedef struct _PEB32 {
 // sentinel is already present.  If it is, the IOCTL call is skipped and
 // the stolen bytes + return jump execute normally.  This prevents infinite
 // recursion when a hooked function is called from within the driver's own
-// IOCTL dispatch path (e.g. minifilter pre-operation → NtCreateFile hook →
-// shellcode → NtDeviceIoControlFile → minifilter pre-operation → ...).
+// IOCTL dispatch path (e.g. minifilter pre-operation -> NtCreateFile hook ->
+// shellcode -> NtDeviceIoControlFile -> minifilter pre-operation -> ...).
 //
 // The magic value is distinctive enough that accidental collision with a
 // real ArbitraryUserPointer usage is negligible.  The old value is saved
@@ -1255,13 +1255,13 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   accounting for prior pushes.
 //
 // PATCH SIGNATURES
-//   EventId              C7 44 24 08 [11 11 11 11]  → imm32 at +4
-//   ProcessId            C7 44 24 0C [22 22 22 22]  → imm32 at +4
-//   InputBufferLength    68          [77 77 77 77]   → imm32 at +1
-//   IoControlCode        68          [66 66 66 66]   → imm32 at +1
-//   FileHandle           68          [33 33 33 33]   → imm32 at +1
-//   NtDeviceIoControlFile B8         [44 44 44 44]   → imm32 at +1
-//   ReturnJMP            E9          [55 55 55 55]   → rel32 at +1
+//   EventId              C7 44 24 08 [11 11 11 11]  -> imm32 at +4
+//   ProcessId            C7 44 24 0C [22 22 22 22]  -> imm32 at +4
+//   InputBufferLength    68          [77 77 77 77]   -> imm32 at +1
+//   IoControlCode        68          [66 66 66 66]   -> imm32 at +1
+//   FileHandle           68          [33 33 33 33]   -> imm32 at +1
+//   NtDeviceIoControlFile B8         [44 44 44 44]   -> imm32 at +1
+//   ReturnJMP            E9          [55 55 55 55]   -> rel32 at +1
 //   StolenBytes          5 × NOP (at offset offRet32 - USERMODE_HOOK_SIZE_32)
 // -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
@@ -1293,16 +1293,16 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0xAC]   arg2 of hooked function
 //
 // PATCH SIGNATURES:
-//   kGuardMagicSig32  BB [88×4]             → imm32 = HOOK_REENTRANCY_MAGIC_32
-//   kJeSig32          0F 84 [00×4]          → rel32  = offset to kSkipLabelSig32
-//   kEventSig32       C7 44 24 08 [11×4]    → imm32  = EventId
-//   kPidSig32         C7 44 24 0C [22×4]    → imm32  = ProcessId
-//   kSizeSig32        68 [77×4]             → imm32  = sizeof(HOOK_EVENT_DATA)
-//   kIoctlSig32       68 [66×4]             → imm32  = HOOK_NOTIFY_IOCTL_CODE
-//   kHandleSig32      68 [33×4]             → imm32  = DriverDeviceHandle
-//   kNtIoSig32        B8 [44×4]             → imm32  = NtDeviceIoControlFile VA
-//   kSkipLabelSig32   0F 1F 00              → (3-byte NOP — JE rel32 target)
-//   kRetSig32         E9 [55×4]             → rel32  = return target
+//   kGuardMagicSig32  BB [88×4]             -> imm32 = HOOK_REENTRANCY_MAGIC_32
+//   kJeSig32          0F 84 [00×4]          -> rel32  = offset to kSkipLabelSig32
+//   kEventSig32       C7 44 24 08 [11×4]    -> imm32  = EventId
+//   kPidSig32         C7 44 24 0C [22×4]    -> imm32  = ProcessId
+//   kSizeSig32        68 [77×4]             -> imm32  = sizeof(HOOK_EVENT_DATA)
+//   kIoctlSig32       68 [66×4]             -> imm32  = HOOK_NOTIFY_IOCTL_CODE
+//   kHandleSig32      68 [33×4]             -> imm32  = DriverDeviceHandle
+//   kNtIoSig32        B8 [44×4]             -> imm32  = NtDeviceIoControlFile VA
+//   kSkipLabelSig32   0F 1F 00              -> (3-byte NOP — JE rel32 target)
+//   kRetSig32         E9 [55×4]             -> rel32  = return target
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
     // ---- Save all GP registers and flags --------------------------------
@@ -1324,7 +1324,7 @@ UCHAR g_ShellcodeTemplate32[] = {
     // Save old value so we can restore it after the IOCTL
     0x89, 0x44, 0x24, 0x78,             // mov [esp+0x78], eax
 
-    // If eax == magic → already inside shellcode, skip IOCTL
+    // If eax == magic -> already inside shellcode, skip IOCTL
     0x3B, 0xC3,                          // cmp eax, ebx
 
     // je rel32 — kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
@@ -1347,13 +1347,13 @@ UCHAR g_ShellcodeTemplate32[] = {
     // FunctionName[0] = '\0'
     0xC6, 0x44, 0x24, 0x10, 0x00,
 
-    // ---- Arg1 → HOOK_EVENT_DATA.Arg1 ------------------------------------
+    // ---- Arg1 -> HOOK_EVENT_DATA.Arg1 ------------------------------------
     // [esp+0xA8] = arg1 of hooked fn (LB+0x80=EFLAGS + 0x84..0xA0=PUSHAD + 0xA4=retaddr)
     0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, // mov eax, [esp+0xA8]
     0x89, 0x44, 0x24, 0x50,                    // mov [esp+0x50], eax
     0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x54] = 0
 
-    // ---- Arg2 → HOOK_EVENT_DATA.Arg2 ------------------------------------
+    // ---- Arg2 -> HOOK_EVENT_DATA.Arg2 ------------------------------------
     0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00, // mov eax, [esp+0xAC]
     0x89, 0x44, 0x24, 0x58,                    // mov [esp+0x58], eax
     0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0
@@ -1447,9 +1447,9 @@ UCHAR g_ShellcodeTemplate32[] = {
 //
 // STACK LAYOUT (RSP = RSP_entry - 0x138 after pushes + sub):
 //   [RSP+0x00..0x1F]  shadow space for NtDeviceIoControlFile
-//   [RSP+0x20]        arg5:  &IO_STATUS_BLOCK  (→ RSP+0x80)
+//   [RSP+0x20]        arg5:  &IO_STATUS_BLOCK  (-> RSP+0x80)
 //   [RSP+0x28]        arg6:  IoControlCode     (patched)
-//   [RSP+0x30]        arg7:  InputBuffer       (→ RSP+0x90)
+//   [RSP+0x30]        arg7:  InputBuffer       (-> RSP+0x90)
 //   [RSP+0x38]        arg8:  InputBufferLength (patched)
 //   [RSP+0x40]        arg9:  OutputBuffer      NULL
 //   [RSP+0x48]        arg10: OutputBufferLength 0
@@ -1471,16 +1471,16 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x130]       saved RAX
 //
 // PATCH SIGNATURES (searched by FindPatternOffset at install time):
-//   kGuardMagicSig  49 BA [88×8]         → imm64  = HOOK_REENTRANCY_MAGIC_64
-//   kJeSig64        0F 84 [00×4]         → rel32  = offset to kSkipLabelSig
-//   kEventSig       C7 84 24 90 .. 11×4  → imm32  = EventId
-//   kPidSig         C7 84 24 94 .. 22×4  → imm32  = ProcessId
-//   kHandleSig      48 B9 [33×8]         → imm64  = DriverDeviceHandle
-//   kIoctlSig       48 B8 [66×8]         → imm64  = HOOK_NOTIFY_IOCTL_CODE
-//   kSizeSig        48 B8 [77×8]         → imm64  = sizeof(HOOK_EVENT_DATA)
-//   kNtIoSig        48 B8 [44×8]         → imm64  = NtDeviceIoControlFile VA
-//   kSkipLabelSig   0F 1F 44 00 00       → (5-byte NOP — JE rel32 target)
-//   kRetSig         48 B8 [55×8]         → imm64  = return target VA
+//   kGuardMagicSig  49 BA [88×8]         -> imm64  = HOOK_REENTRANCY_MAGIC_64
+//   kJeSig64        0F 84 [00×4]         -> rel32  = offset to kSkipLabelSig
+//   kEventSig       C7 84 24 90 .. 11×4  -> imm32  = EventId
+//   kPidSig         C7 84 24 94 .. 22×4  -> imm32  = ProcessId
+//   kHandleSig      48 B9 [33×8]         -> imm64  = DriverDeviceHandle
+//   kIoctlSig       48 B8 [66×8]         -> imm64  = HOOK_NOTIFY_IOCTL_CODE
+//   kSizeSig        48 B8 [77×8]         -> imm64  = sizeof(HOOK_EVENT_DATA)
+//   kNtIoSig        48 B8 [44×8]         -> imm64  = NtDeviceIoControlFile VA
+//   kSkipLabelSig   0F 1F 44 00 00       -> (5-byte NOP — JE rel32 target)
+//   kRetSig         48 B8 [55×8]         -> imm64  = return target VA
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate[] = {
     // ---- Save volatile registers ----------------------------------------
@@ -1495,7 +1495,7 @@ UCHAR g_ShellcodeTemplate[] = {
 
     // ---- Allocate 0xF8 bytes of local frame -----------------------------
     // After 8 pushes (64 bytes) RSP%16 == 8.  sub 0xF8 (248, 8 mod 16):
-    // RSP%16 → 0 at the CALL, satisfying the x64 ABI.
+    // RSP%16 -> 0 at the CALL, satisfying the x64 ABI.
     0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00,      // sub rsp, 0xF8
 
     // ---- RE-ENTRANCY GUARD (new) ----------------------------------------
@@ -1512,8 +1512,8 @@ UCHAR g_ShellcodeTemplate[] = {
     // Save old value so we can restore it after the IOCTL
     0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov [rsp+0x70], rax
 
-    // If rax == magic → already inside shellcode on this thread, skip IOCTL
-    // cmp rax, r10  → REX.WB(49) 3B C2
+    // If rax == magic -> already inside shellcode on this thread, skip IOCTL
+    // cmp rax, r10  -> REX.WB(49) 3B C2
     0x49, 0x3B, 0xC2,                               // cmp rax, r10
 
     // je rel32 — kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
@@ -1521,7 +1521,7 @@ UCHAR g_ShellcodeTemplate[] = {
     0x0F, 0x84, 0x00, 0x00, 0x00, 0x00,             // je skip_notification
 
     // Set guard: mark this thread as inside our shellcode
-    // mov gs:[0x28], r10  → GS(65) REX.WR(4C) 89 SIB(14 25) disp32
+    // mov gs:[0x28], r10  -> GS(65) REX.WR(4C) 89 SIB(14 25) disp32
     0x65, 0x4C, 0x89, 0x14, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], r10
 
     // ---- Zero IO_STATUS_BLOCK at RSP+0x80 --------------------------------
@@ -1537,16 +1537,16 @@ UCHAR g_ShellcodeTemplate[] = {
     // FunctionName[0] = '\0'
     0xC6, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00, 0x00,
 
-    // ---- Copy original RCX (arg1) → HOOK_EVENT_DATA.Arg1 at RSP+0xD8 ----
+    // ---- Copy original RCX (arg1) -> HOOK_EVENT_DATA.Arg1 at RSP+0xD8 ----
     // Register save layout after sub rsp,0xF8:
     //   r11=[RSP+0xF8] r10=[RSP+0x100] r9=[RSP+0x108] r8=[RSP+0x110]
     //   rbx=[RSP+0x118] rdx=[RSP+0x120] rcx=[RSP+0x128] rax=[RSP+0x130]
     0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax,[rsp+0x128] ← RCX
-    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8],rax → Arg1
+    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8],rax -> Arg1
 
-    // ---- Copy original RDX (arg2) → HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
+    // ---- Copy original RDX (arg2) -> HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
     0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax,[rsp+0x120] ← RDX
-    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0],rax → Arg2
+    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0],rax -> Arg2
 
     // ---- Build NtDeviceIoControlFile argument frame ----------------------
     // RCX = FileHandle ← patched: kHandleSig
@@ -1583,7 +1583,7 @@ UCHAR g_ShellcodeTemplate[] = {
     // This correctly handles the case where the field was non-zero before we
     // set the sentinel (e.g. the CRT had its own value there).
     0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov rax, [rsp+0x70]
-    // mov gs:[0x28], rax → GS(65) REX.W(48) 89 SIB(04 25) disp32
+    // mov gs:[0x28], rax -> GS(65) REX.W(48) 89 SIB(04 25) disp32
     0x65, 0x48, 0x89, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], rax
 
     // ---- skip_notification label ← JE rel32 target ----------------------
@@ -2630,7 +2630,7 @@ NTSTATUS InjectSingleHook32(
         // Patch IoControlCode (ULONG at kIoctlSig32 + 1)
         *(PULONG)(shellcode + offIoctl + 1) = (ULONG)HOOK_NOTIFY_IOCTL_CODE;
 
-        // Patch FileHandle (HANDLE → ULONG in 32-bit process)
+        // Patch FileHandle (HANDLE -> ULONG in 32-bit process)
         // Handles are architecturally neutral integers; safe to truncate on
         // Windows where all kernel handles fit in 32 bits.
         *(PULONG)(shellcode + offHandle + 1) = (ULONG)(ULONG_PTR)HookEntry->DriverDeviceHandle;
