@@ -234,13 +234,16 @@ extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 // -------------------------------------------------------------------------
 
 #define MAX_HOOKED_PROCESSES 256
-#define USERMODE_HOOK_SIZE   14   // 14-byte FF 25 absolute JMP for native 64-bit hooks
+#define USERMODE_HOOK_SIZE             14   // FF 25 JMP patch written at hooked function
+#define USERMODE_HOOK_STOLEN_MAX       28   // shellcode trampoline placeholder;
+                                            //   steal ≥ 14 bytes, rounded up to
+                                            //   instruction boundary (max 28)
 #define USERMODE_HOOK_SIZE_32 5   // 5-byte  E9 rel32 JMP    for WoW64 (32-bit) hooks
 #define MAX_CUSTOM_HOOKS 65536
 
 typedef struct _HOOK_DEF {
     PVOID Address;
-    UCHAR OriginalBytes[USERMODE_HOOK_SIZE];  // sized for 64-bit (14 bytes); 32-bit only uses first 5
+    UCHAR OriginalBytes[USERMODE_HOOK_STOLEN_MAX]; // saved stolen bytes; first HookPatchSize bytes used for unhook
     ULONG HookPatchSize;                      // actual patch size: USERMODE_HOOK_SIZE (14) or USERMODE_HOOK_SIZE_32 (5)
     BOOLEAN IsHooked;
 } HOOK_DEF, *PHOOK_DEF;

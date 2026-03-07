@@ -853,6 +853,151 @@ BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_
 #endif
 
 // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// X64InstrLen
+//
+// Returns the byte length of the x64 instruction at p[0..maxLen-1].
+// Returns 0 for unknown or truncated instructions.
+// Handles all instruction classes found in real function prologues.
+// -------------------------------------------------------------------------
+static SIZE_T X64InstrLen(
+    _In_reads_bytes_(maxLen) const UCHAR *p,
+    _In_ SIZE_T maxLen)
+{
+    if (maxLen == 0) return 0;
+    SIZE_T i = 0;
+
+    BOOLEAN hasRexW = FALSE;
+    BOOLEAN has66   = FALSE;
+    while (i < maxLen)
+    {
+        UCHAR b = p[i];
+        if (b == 0x66)  { has66 = TRUE; i++; continue; }
+        if (b == 0x67 || b == 0xF0 || b == 0xF2 || b == 0xF3) { i++; continue; }
+        if (b == 0x2E || b == 0x3E || b == 0x26 || b == 0x36 ||
+            b == 0x64 || b == 0x65) { i++; continue; }
+        if ((b & 0xF0) == 0x40) { hasRexW = (b & 0x08) != 0; i++; continue; }
+        break;
+    }
+    if (i >= maxLen) return 0;
+    UCHAR op = p[i++];
+
+    // 0F two-byte escape
+    if (op == 0x0F)
+    {
+        if (i >= maxLen) return 0;
+        UCHAR op2 = p[i++];
+        // Jcc near: 0F 80-8F rel32
+        if (op2 >= 0x80 && op2 <= 0x8F) return i + 4;
+        // No-operand: SYSCALL(05) SYSRET(07) WRMSR(30) RDMSR(32) RDTSC(31) CPUID(A2)
+        if (op2 == 0x05 || op2 == 0x07 || op2 == 0x30 || op2 == 0x31 ||
+            op2 == 0x32 || op2 == 0xA2) return i;
+        // Everything else: assume ModRM follows
+        if (i >= maxLen) return 0;
+        UCHAR modrm = p[i++];
+        UCHAR mod = (modrm >> 6) & 3;
+        UCHAR rm  =  modrm & 7;
+        SIZE_T disp = 0;
+        if      (mod == 1) disp = 1;
+        else if (mod == 2) disp = 4;
+        else if (mod == 0 && rm == 5) disp = 4;
+        if (rm == 4 && mod != 3) {
+            if (i >= maxLen) return 0;
+            UCHAR sib = p[i++];
+            if (mod == 0 && (sib & 7) == 5) disp = 4;
+        }
+        i += disp;
+        return i;
+    }
+
+    // Single-byte, no operands
+    if ((op >= 0x50 && op <= 0x5F) || op == 0x90 || op == 0x9C || op == 0x9D ||
+        op == 0xC3 || op == 0xC9 || op == 0xCB) return i;
+    // INT n
+    if (op == 0xCD) return i + 1;
+    // RET imm16
+    if (op == 0xC2) return i + 2;
+    // Short relative (EB rel8, Jcc rel8 70-7F)
+    if (op == 0xEB || (op >= 0x70 && op <= 0x7F)) return i + 1;
+    // Near relative (E9 rel32, E8 rel32 CALL)
+    if (op == 0xE9 || op == 0xE8) return i + 4;
+    // MOV reg, imm8 (B0-B7)
+    if (op >= 0xB0 && op <= 0xB7) return i + 1;
+    // MOV reg, imm (B8-BF)
+    if (op >= 0xB8 && op <= 0xBF) return i + (hasRexW ? 8 : (has66 ? 2 : 4));
+    // PUSH imm
+    if (op == 0x6A) return i + 1;
+    if (op == 0x68) return i + 4;
+    // TEST (r)AX, imm
+    if (op == 0xA8) return i + 1;
+    if (op == 0xA9) return i + (has66 ? 2 : 4);
+    // MOV moffs (A0-A3): 64-bit absolute address
+    if (op >= 0xA0 && op <= 0xA3) return i + 8;
+
+    // ModRM opcodes
+    {
+        static const UCHAR kModrm[] = {
+            0x01,0x03,0x09,0x0B,0x11,0x13,0x19,0x1B,
+            0x21,0x23,0x29,0x2B,0x31,0x33,0x39,0x3B,
+            0x63,0x69,0x6B,0x80,0x81,0x83,
+            0x84,0x85,0x87,0x88,0x89,0x8B,0x8D,0x8F,
+            0xC0,0xC1,0xC7,0xD0,0xD1,0xD2,0xD3,0xF6,0xF7,0xFF,
+        };
+        BOOLEAN hm = FALSE;
+        for (SIZE_T k = 0; k < RTL_NUMBER_OF(kModrm); k++)
+            if (op == kModrm[k]) { hm = TRUE; break; }
+        if (!hm) return 0;
+
+        if (i >= maxLen) return 0;
+        UCHAR modrm = p[i++];
+        UCHAR mod = (modrm >> 6) & 3;
+        UCHAR reg = (modrm >> 3) & 7;
+        UCHAR rm  =  modrm & 7;
+        SIZE_T disp = 0;
+        if      (mod == 1) disp = 1;
+        else if (mod == 2) disp = 4;
+        else if (mod == 0 && rm == 5) disp = 4;
+        if (rm == 4 && mod != 3) {
+            if (i >= maxLen) return 0;
+            UCHAR sib = p[i++];
+            if (mod == 0 && (sib & 7) == 5) disp = 4;
+        }
+        i += disp;
+        // Immediates
+        if (op == 0x80 || op == 0x83 || op == 0x6B || op == 0xC0 || op == 0xC1)
+            i += 1;
+        else if (op == 0x81 || op == 0xC7 || op == 0x69)
+            i += (has66 ? 2 : 4);
+        else if (op == 0xF6 && reg == 0) i += 1;
+        else if (op == 0xF7 && reg == 0) i += (hasRexW ? 4 : (has66 ? 2 : 4));
+        return i;
+    }
+}
+
+// -------------------------------------------------------------------------
+// ComputeStolenSize64
+//
+// Walks the instruction stream from Code until we have accumulated at least
+// USERMODE_HOOK_SIZE bytes AND are at an instruction boundary.
+//
+// Returns 0 (reject hook) if:
+//   • an unrecognised opcode is encountered, OR
+//   • no boundary is found within USERMODE_HOOK_STOLEN_MAX bytes.
+// -------------------------------------------------------------------------
+static SIZE_T ComputeStolenSize64(
+    _In_reads_bytes_(USERMODE_HOOK_STOLEN_MAX) const UCHAR *Code)
+{
+    SIZE_T pos = 0;
+    while (pos < USERMODE_HOOK_SIZE)
+    {
+        SIZE_T ilen = X64InstrLen(Code + pos, USERMODE_HOOK_STOLEN_MAX - pos);
+        if (ilen == 0 || pos + ilen > USERMODE_HOOK_STOLEN_MAX)
+            return 0;
+        pos += ilen;
+    }
+    return pos;   // first instruction boundary >= USERMODE_HOOK_SIZE
+}
+
 // FIX #4b: ContainsUnrelocatableInstructions
 //
 // Scans the first StolenSize bytes of a function's prologue for any
@@ -888,8 +1033,10 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             b = Bytes[i];
         }
 
-        // Short/near relative branches – target changes at new VA.
+        // Short/near relative branches â target changes at new VA.
         if (b == 0xEB || b == 0xE9 || b == 0xE8)
+            return TRUE;
+        if ((b & 0xF0) == 0x70)  // Jcc rel8: JO/JNO/JB/JAE/JE/JNE/.../JG
             return TRUE;
 
         // Two-byte opcode escape (0F xx)
@@ -899,7 +1046,10 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             if (i >= StolenSize)
                 break;
             b = Bytes[i];
-            // 0F 1F etc. – check ModRM
+            // Jcc near: 0F 80-8F rel32 — always unrelocatable.
+            if (b >= 0x80 && b <= 0x8F)
+                return TRUE;
+            // 0F 1F etc. – check ModRM for RIP-relative
             if (i + 1 < StolenSize)
             {
                 UCHAR modrm = Bytes[i + 1];
@@ -1410,7 +1560,12 @@ UCHAR g_ShellcodeTemplate[] = {
     0x59,                                           // pop rcx
     0x58,                                           // pop rax
 
-    // ---- 14-byte stolen-instruction placeholder -------------------------
+    // ---- 28-byte stolen-instruction placeholder -------------------------
+    // Accommodates up to 28 bytes of original prologue rounded to an
+    // instruction boundary.  Unused trailing bytes remain as NOPs and are
+    // never reached (execution falls through to mov rax,retVA; jmp rax).
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
@@ -2069,15 +2224,20 @@ NTSTATUS InjectSingleHook(
     if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
     if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
 
-    // FIX #4: Reject hooks whose stolen bytes contain RIP-relative instructions.
-    // ContainsUnrelocatableInstructions reads user-mode memory — must be guarded.
+    // Determine the actual steal size: minimum number of complete x64
+    // instructions that covers USERMODE_HOOK_SIZE (14) bytes.  A fixed
+    // 14-byte steal cuts the Windows 10+ ntdll syscall stub mid-instruction
+    // (the TEST byte ptr [0x7FFE0308],1 instruction is 8 bytes starting at
+    // offset 8, so bytes 9-14 are a partial instruction).  Executing those
+    // partial bytes from a different VA causes an access violation that kills
+    // every hooked syscall: file closes fail, I/O stops, processes hang.
+    SIZE_T stolenSize = 0;
     {
-        BOOLEAN unrelocatable = FALSE;
+        UCHAR prologue[USERMODE_HOOK_STOLEN_MAX] = {0};
         __try
         {
-            ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
-            unrelocatable = ContainsUnrelocatableInstructions(
-                (const UCHAR*)HookDef->Address, USERMODE_HOOK_SIZE);
+            ProbeForRead(HookDef->Address, USERMODE_HOOK_STOLEN_MAX, 1);
+            RtlCopyMemory(prologue, HookDef->Address, USERMODE_HOOK_STOLEN_MAX);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -2086,9 +2246,18 @@ NTSTATUS InjectSingleHook(
             return STATUS_ACCESS_VIOLATION;
         }
 
+        stolenSize = ComputeStolenSize64(prologue);
+        if (stolenSize == 0)
+        {
+            DbgPrint("UserModeHook: Skipping %p — no instruction boundary within %u bytes\n",
+                     HookDef->Address, (ULONG)USERMODE_HOOK_STOLEN_MAX);
+            return STATUS_NOT_SUPPORTED;
+        }
+
+        BOOLEAN unrelocatable = ContainsUnrelocatableInstructions(prologue, stolenSize);
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook: Skipping %p — stolen bytes contain RIP-relative instructions\n",
+            DbgPrint("UserModeHook: Skipping %p — stolen bytes contain relative branch\n",
                      HookDef->Address);
             return STATUS_NOT_SUPPORTED;
         }
@@ -2139,7 +2308,7 @@ NTSTATUS InjectSingleHook(
             offSize   == (SIZE_T)-1 ||
             offNtIo   == (SIZE_T)-1 ||
             offRet    == (SIZE_T)-1 ||
-            offRet     < USERMODE_HOOK_SIZE)
+            offRet     < USERMODE_HOOK_STOLEN_MAX)
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
@@ -2169,23 +2338,27 @@ NTSTATUS InjectSingleHook(
         // Patch NtDeviceIoControlFile address
         *(PVOID *)(shellcode + offNtIo + 2) = TargetNtDeviceIo;
 
-        // Save original bytes and embed them in the stolen-instruction slot
-        // (which sits exactly USERMODE_HOOK_SIZE bytes before the return stub).
-        // ProbeForRead + __try because HookDef->Address is user-mode memory.
+        // Save first USERMODE_HOOK_SIZE bytes for unhook (the JMP patch area).
+        // Embed stolenSize bytes in the shellcode trampoline.
+        // Both use memory we already read into prologue[] above.
+        // Re-read via ProbeForRead in case the page was remapped.
         __try
         {
-            ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE, 1);
+            ProbeForRead(HookDef->Address, stolenSize, 1);
+            // OriginalBytes: only needs USERMODE_HOOK_SIZE bytes (unhook restores the JMP)
             RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
-            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE),
-                          HookDef->Address, USERMODE_HOOK_SIZE);
+            // Trampoline: embed stolenSize bytes in the placeholder
+            //   placeholder starts at (offRet - USERMODE_HOOK_STOLEN_MAX)
+            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_STOLEN_MAX),
+                          HookDef->Address, stolenSize);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             return STATUS_ACCESS_VIOLATION;
         }
 
-        // Patch return target to original function + stolen bytes
-        *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE);
+        // Patch return target to original function + actual stolen bytes
+        *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + stolenSize);
     }
 
     // Write Shellcode to Target at specific offset.
@@ -2272,7 +2445,8 @@ NTSTATUS InjectSingleHook(
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
             HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
-            HookDef->IsHooked = TRUE;
+            HookDef->IsHooked     = TRUE;
+            HookDef->HookPatchSize = USERMODE_HOOK_SIZE; // 14 — FF 25 absolute JMP
         }
         else
         {
@@ -2576,6 +2750,7 @@ NTSTATUS ResolveAndHook32(
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
+    BOOLEAN isWow64 = HookEntry->IsWow64;
     NTSTATUS  status;
     PVOID     baseAddress = NULL;
     HANDLE    targetDeviceHandle = NULL;
@@ -2652,8 +2827,12 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
                 if (fnZwAllocateVirtualMemory)
                 {
+                    // ZeroBits=33 for WoW64: keeps allocation below 0x80000000
+                    // so that 32-bit E9 rel32 JMPs can reach the shellcode.
+                    // ZeroBits=0 for native 64-bit: FF 25 absolute JMP, no range limit.
+                    ULONG_PTR zeroBits = isWow64 ? 33ULL : 0ULL;
                     status = fnZwAllocateVirtualMemory(
-                        ZwCurrentProcess(), &baseAddress, 0,
+                        ZwCurrentProcess(), &baseAddress, zeroBits,
                         &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                 }
                 else
@@ -2844,22 +3023,21 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // -----------------------------------------------------------------------
     if (!existingHookEntry)
     {
+        // Detect WoW64 BEFORE allocating shellcode so the allocator can
+        // constrain the region to the low 2 GB.  32-bit E9 rel32 JMPs
+        // cannot reach a shellcode region above 0x7FFFFFFF — the JMP
+        // silently overflows and jumps to garbage, causing crashes and
+        // stopping all I/O events.  PsGetProcessWow64Process is safe to
+        // call on any PEPROCESS at any IRQL without attaching.
+        hookEntry->IsWow64 = (fnPsGetProcessWow64Process != NULL &&
+                              fnPsGetProcessWow64Process(process) != NULL);
+
         status = InitializeShellcodeInfrastructure(process, hookEntry);
         if (!NT_SUCCESS(status))
         {
             goto HookProcessFailure;
         }
 
-        // ---------------------------------------------------------------
-        // Detect WoW64 (32-bit process running on 64-bit Windows).
-        // PsGetProcessWow64Process returns non-NULL iff the process is WoW64.
-        // Store the result so the hook loop and unhook path can use the
-        // correct shellcode template and patch size.
-        // NOTE: hookEntry->IsWow64 must be declared as BOOLEAN in the
-        //       PROCESS_HOOK_ENTRY structure in UserModeHookEngine.h.
-        // ---------------------------------------------------------------
-        hookEntry->IsWow64 = (fnPsGetProcessWow64Process != NULL &&
-                              fnPsGetProcessWow64Process(process) != NULL);
 
         DbgPrint("UserModeHook: PID %lu is %s process\n",
                  ProcessId, hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
