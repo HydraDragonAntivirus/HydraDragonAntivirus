@@ -151,13 +151,11 @@ PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
-// Hook notify device is now owned by Communication.cpp.
-// Access via GetHookNotifyDeviceObject() to avoid the ZwCreateFile-inside-
-// KeStackAttachProcess deadlock (g_HookDeviceObject global removed).
-// extern "C" must match the definition in Communication.cpp — without it
-// this .cpp translation unit emits a C++ mangled call while the definition
-// is unmangled, producing LNK2019.
-extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID);
+// The hook notification device is owned by Communication.cpp.
+// The handle is opened via ZwCreateFile inside KeStackAttachProcess —
+// safe for our use case (not a process-creation callback, simple IOCTL device).
+// GetHookNotifyDeviceObject() was removed: ObInsertObject on a DEVICE_OBJECT
+// does not produce a FILE_OBJECT handle, breaking NtDeviceIoControlFile.
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -2813,88 +2811,66 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
     // -----------------------------------------------------------------------
-    // STEP 1: Insert a handle to the hook-notify device into the target
-    // process handle table using ObOpenObjectByPointer + ObInsertObject.
+    // Open the device handle while attached to the target process.
+    // ZwCreateFile inside KeStackAttachProcess is safe here because:
+    //   - We are NOT in a process-creation callback (called from hook setup,
+    //     well after the target process is fully initialized).
+    //   - The target device (\Device\OwlyshieldHook) is a simple named
+    //     METHOD_BUFFERED IOCTL device with no filesystem stack involvement.
+    //   - ObInsertObject on a raw DEVICE_OBJECT does NOT produce a FILE_OBJECT
+    //     handle — NtDeviceIoControlFile in the shellcode would get
+    //     STATUS_OBJECT_TYPE_MISMATCH on every IOCTL call, killing all events.
+    //     ZwCreateFile is the only way to get a proper FILE_OBJECT handle.
     //
-    // WHY NOT ZwCreateFile inside KeStackAttachProcess:
-    // Microsoft strictly prohibits calling ZwCreateFile while attached to
-    // another process. ZwCreateFile triggers Object Manager and I/O Manager
-    // paths that rely on kernel APCs and specific thread contexts, causing
-    // internal locking conflicts — especially when called from a process
-    // creation callback.  This was the original source of the deadlock.
-    //
-    // CORRECT APPROACH:
-    //   1. Obtain PDEVICE_OBJECT from Communication module (no attachment needed).
-    //   2. Call ObOpenObjectByPointer to get a kernel-mode FILE_OBJECT reference.
-    //   3. Attach to target process.
-    //   4. Call ObInsertObject to place the handle in the TARGET process table.
-    //      ObInsertObject is safe inside KeStackAttachProcess — it only
-    //      manipulates the current (attached) process handle table directly.
-    //   5. Detach, then only re-attach for ZwAllocateVirtualMemory.
-    // -----------------------------------------------------------------------
-    PDEVICE_OBJECT hookDevice = GetHookNotifyDeviceObject();
-    if (hookDevice == NULL)
-    {
-        DbgPrint("UserModeHook: hook device not ready\n");
-        return STATUS_DEVICE_DOES_NOT_EXIST;
-    }
-
-    // -----------------------------------------------------------------------
-    // STEP 1: Open a reference to the device object (kernel context, no attach).
-    // ObOpenObjectByPointer gives us a kernel handle that we can then
-    // insert into the target process handle table via ObInsertObject.
-    // -----------------------------------------------------------------------
-    PFILE_OBJECT fileObject = NULL;
-    status = ObOpenObjectByPointer(
-        hookDevice,
-        OBJ_KERNEL_HANDLE,
-        NULL,
-        FILE_READ_DATA | FILE_WRITE_DATA,
-        *IoFileObjectType,
-        KernelMode,
-        (HANDLE *)&fileObject);
-
-    // ObOpenObjectByPointer with IoFileObjectType returns a HANDLE, not a
-    // PFILE_OBJECT.  Reinterpret correctly:
-    HANDLE kernelDevHandle = (HANDLE)fileObject;
-    fileObject = NULL;
-
-    if (!NT_SUCCESS(status) || kernelDevHandle == NULL)
-    {
-        DbgPrint("UserModeHook: ObOpenObjectByPointer failed 0x%X\n", status);
-        return status;
-    }
-
-    // -----------------------------------------------------------------------
-    // STEP 2: Attach to target process, insert handle into its table,
-    //         then allocate shellcode VA — all inside one attach block.
-    // ObInsertObject IS safe inside KeStackAttachProcess: it only touches
-    // the current (attached) process handle table.
-    // ZwAllocateVirtualMemory with ZwCurrentProcess() requires attachment.
+    // ZwAllocateVirtualMemory also requires attachment (ZwCurrentProcess()).
+    // Both operations share one attach/detach bracket.
     // -----------------------------------------------------------------------
     {
+        static const PCWSTR hookDevicePaths[] = {
+            L"\\DosDevices\\OwlyshieldHook",
+            L"\\??\\OwlyshieldHook",
+            L"\\Device\\OwlyshieldHook"
+        };
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try  // outer: guarantees detach
         {
-            __try  // inner: exceptions from ObInsertObject / ZwAllocate
+            __try  // inner: catches exceptions from ZwCreateFile / ZwAllocate
             {
-                // Insert the kernel handle as a user-visible handle in the
-                // target process handle table.
-                ULONG_PTR handleValue = 0;
-                status = ObInsertObject(
-                    hookDevice,
-                    NULL,
-                    FILE_READ_DATA | FILE_WRITE_DATA,
-                    0,
-                    NULL,
-                    (PHANDLE)&handleValue);
+                status = STATUS_OBJECT_NAME_NOT_FOUND;
+                targetDeviceHandle = NULL;
+                for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
+                {
+                    UNICODE_STRING devPath;
+                    OBJECT_ATTRIBUTES oa;
+                    IO_STATUS_BLOCK ioStatus = {0};
 
-                if (!NT_SUCCESS(status))
+                    RtlInitUnicodeString(&devPath, hookDevicePaths[i]);
+                    InitializeObjectAttributes(&oa, &devPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+                    status = ZwCreateFile(
+                        &targetDeviceHandle,
+                        FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                        &oa,
+                        &ioStatus,
+                        NULL,
+                        FILE_ATTRIBUTE_NORMAL,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_OPEN,
+                        FILE_NON_DIRECTORY_FILE, // async — no FILE_SYNCHRONOUS_IO_NONALERT
+                        NULL,
+                        0);
+
+                    if (NT_SUCCESS(status))
+                    {
+                        break;
+                    }
+                }
+
+                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
                 {
                     __leave;
                 }
-                targetDeviceHandle = (HANDLE)handleValue;
 
                 if (fnZwAllocateVirtualMemory)
                 {
@@ -2950,9 +2926,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             KeUnstackDetachProcess(&apcState);
         }
     }
-
-    // Close our kernel-side reference (target process now holds its own handle).
-    ZwClose(kernelDevHandle);
 
     return status;
 }
