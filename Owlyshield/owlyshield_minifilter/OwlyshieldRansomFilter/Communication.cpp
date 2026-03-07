@@ -1,8 +1,15 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "ProcessProtection.h"
+#include "ProcessProtection.h"   // OnKernelApiEvent — called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
+
+// IoCreateDriver is an undocumented ntoskrnl export — not declared in any
+// WDK header.  Declare it manually so the compiler can resolve the call at
+// line ~317.  The linker finds the export in ntoskrnl.lib at link time.
+extern "C" NTSTATUS IoCreateDriver(
+    _In_opt_ PUNICODE_STRING DriverName,
+    _In_     PDRIVER_INITIALIZE InitializationFunction);
 
 // =========================================================================
 // HOOK NOTIFICATION DEVICE  (\Device\OwlyshieldHook)
@@ -69,30 +76,6 @@
 
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
-
-typedef NTSTATUS (NTAPI *PIO_CREATE_DRIVER)(
-    _In_opt_ PUNICODE_STRING DriverName,
-    _In_ PDRIVER_INITIALIZE  InitializationFunction);
-
-static PIO_CREATE_DRIVER g_IoCreateDriver = NULL;
-
-// IoCreateDriver is not declared by the current WDK headers. Resolve it
-// dynamically so this module can still build against newer kits.
-static NTSTATUS ResolveIoCreateDriver(VOID)
-{
-    if (g_IoCreateDriver != NULL)
-        return STATUS_SUCCESS;
-
-    UNICODE_STRING routineName = RTL_CONSTANT_STRING(L"IoCreateDriver");
-    g_IoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&routineName);
-    if (g_IoCreateDriver == NULL)
-    {
-        DbgPrint("!!! HookDevice: IoCreateDriver export not found\n");
-        return STATUS_PROCEDURE_NOT_FOUND;
-    }
-
-    return STATUS_SUCCESS;
-}
 
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
@@ -338,15 +321,7 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
     UNICODE_STRING driverName;
     RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
 
-    NTSTATUS status = ResolveIoCreateDriver();
-    if (!NT_SUCCESS(status))
-    {
-        g_HookNotifyDevice       = NULL;
-        g_HookNotifyDriverObject = NULL;
-        return status;
-    }
-
-    status = g_IoCreateDriver(&driverName, HookNotifyDriverInit);
+    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
@@ -354,11 +329,6 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
         g_HookNotifyDriverObject = NULL;
     }
     return status;
-}
-
-BOOLEAN IsHookNotifyDeviceReady(VOID)
-{
-    return (g_HookNotifyDevice != NULL);
 }
 
 // ----------------------------------------------------------------------------
@@ -379,6 +349,17 @@ VOID CleanupHookNotifyDevice(VOID)
     g_HookNotifyDriverObject = NULL;
 
     DbgPrint("!!! HookDevice: Cleaned up\n");
+}
+
+// Returns the PDEVICE_OBJECT so UserModeHookEngine can use
+// ObOpenObjectByPointer + ObInsertObject instead of ZwCreateFile
+// (ZwCreateFile is forbidden inside KeStackAttachProcess).
+// extern "C" must match the declaration in Communication.h which is
+// inside an extern "C" block — without this the linker sees a C++
+// mangled name here vs. an unmangled C name at the call site.
+extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID)
+{
+    return g_HookNotifyDevice;
 }
 
 #define OWLY_HV_EVENT_QUEUE_TAG 'vHwO'
