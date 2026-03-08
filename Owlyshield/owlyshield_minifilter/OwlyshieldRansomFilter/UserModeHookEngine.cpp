@@ -790,6 +790,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
 
     if (Config == NULL || Config->FunctionName[0] == '\0')
     {
+        DbgPrint("UserModeHook: Rejecting malformed hook registration (missing function name)\n");
         return STATUS_INVALID_PARAMETER;
     }
 
