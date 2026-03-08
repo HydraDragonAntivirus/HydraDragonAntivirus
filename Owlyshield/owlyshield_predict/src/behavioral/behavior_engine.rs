@@ -16,6 +16,7 @@ use crate::extensions::ExtensionList;
 use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::threat_handler::ThreatHandler;
 use crate::signature_verification::verify_signature;
+use crate::utils::format_process_descriptor_with_fallback;
 
 use sysinfo::{System, ProcessRefreshKind, ProcessesToUpdate};
 use num::FromPrimitive;
@@ -151,9 +152,9 @@ impl IrpStatistics {
                     rec.function_name.clone()
                 };
                 let details = if rec.function_name.is_empty() {
-                    "HIM".to_string()
+                    "API Hooking Event".to_string()
                 } else {
-                    format!("HIM (raw_name={})", rec.function_name)
+                    format!("API Hooking Event (raw_name={})", rec.function_name)
                 };
                 self.record_hypervisor_event_operation(
                     rec,
@@ -1136,6 +1137,14 @@ impl ProcessBehaviorState {
             } else {
                 irp_op as u32
             };
+            let source_process = format_process_descriptor_with_fallback(
+                msg.kernel_event_info.source_process_id,
+                None,
+            );
+            let target_process = format_process_descriptor_with_fallback(
+                msg.kernel_event_info.target_process_id,
+                Some(self.exe_path.as_path()),
+            );
             let event_name = if normalized_kernel_api.is_empty() {
                 known_raw_event_name(raw_event_type)
                     .map(|name| name.to_string())
@@ -1157,11 +1166,10 @@ impl ProcessBehaviorState {
             }
 
             Logging::info(&format!(
-                "[HIM] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                "[API HOOKING EVENT] opcode=12 raw_event_type={} src={} target={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
                 raw_event_type,
-                msg.pid,
-                msg.kernel_event_info.source_process_id,
-                msg.kernel_event_info.target_process_id,
+                source_process,
+                target_process,
                 msg.kernel_event_info.raw_argument1,
                 msg.kernel_event_info.raw_argument2,
                 msg.kernel_event_info.raw_argument3,
@@ -1178,7 +1186,7 @@ impl ProcessBehaviorState {
             // Check for hypervisor event activity after each normalized event
             if self.irp_stats.has_injection_indicators() {
                 Logging::warning(&format!(
-                    "[HIM DETECTED] PID {} - Total fallback events: {}",
+                    "[API HOOKING DETECTED] PID {} - Total fallback events: {}",
                     msg.pid,
                     self.irp_stats.get_injection_api_count()
                 ));
@@ -2014,7 +2022,7 @@ impl BehaviorEngine {
                         };
                         matched = true;
                         Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - HIM payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
+                            "[BehaviorEngine] Condition '{}' - API hooking payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
                             cond_name,
                             state.pid,
                             raw_event_type,
@@ -2391,7 +2399,7 @@ impl BehaviorEngine {
                 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - HIM fallback detected for PID {}: {} events",
+                        "[BehaviorEngine] Condition '{}' - API hooking fallback detected for PID {}: {} events",
                         cond_name, state.pid, state.hypervisor_event_count
                     ));
                 }
@@ -3057,14 +3065,14 @@ impl BehaviorEngine {
             // Log Nt API activity summary if any events detected
             if state.hypervisor_events_total > 0 {
                 Logging::info(&format!(
-                    "[HIM SUMMARY] PID {} ({}) - Total fallback events: {}",
+                    "[API HOOKING SUMMARY] PID {} ({}) - Total fallback events: {}",
                     pid, app_name,
                     state.hypervisor_events_total
                 ));
                 
                 if state.irp_stats.has_injection_indicators() {
                     Logging::warning(&format!(
-                        "[HIM PATTERN] PID {} ({}) shows HIM activity - Total fallback events: {}",
+                        "[API HOOKING PATTERN] PID {} ({}) shows API hooking activity - Total fallback events: {}",
                         pid, app_name, state.irp_stats.get_injection_api_count()
                     ));
                 }
