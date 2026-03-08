@@ -1443,7 +1443,7 @@ pub mod worker_instance {
                             iomsg.pid
                         };
                     }
-                    if iomsg.kernel_event_info.target_process_id == 0 {
+                    if iomsg.kernel_event_info.target_process_id == 0 && iomsg.irp_op != 12 {
                         iomsg.kernel_event_info.target_process_id = iomsg.pid;
                     }
                 }

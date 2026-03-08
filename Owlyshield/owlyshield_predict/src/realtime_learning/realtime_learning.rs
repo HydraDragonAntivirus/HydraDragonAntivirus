@@ -11,7 +11,7 @@ use crate::realtime_learning::ml_collector::MLCollector;
 use crate::process::ProcessRecord;
 // use crate::logging::Logging;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-use crate::behavioral::behavior_engine::{BehaviorRule, ResponseAction, AllowlistEntry, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
+use crate::behavioral::behavior_engine::{BehaviorRule, ResponseAction, DetectionLevel, RuleStatus, AttackStage, RuleCondition};
 
 use serde::{Serialize, Deserialize};
 
@@ -32,8 +32,6 @@ pub struct QuarantineEntry {
     pub reason: String,
     // Add other fields as necessary from actual JSON structure
 }
-
-
 /// Real-time learning configuration - all values adapt automatically
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearningConfig {
@@ -114,9 +112,6 @@ pub struct RealtimeLearningEngine {
 
     /// Output directory
     output_dir: String,
-
-    /// Trusted signer patterns loaded from WinVerifyTrust.yaml
-    trusted_signer_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -130,11 +125,10 @@ pub struct LearningStats {
 }
 
 #[cfg(target_os = "windows")]
-use crate::signature_verification::verify_signature;
-
 impl RealtimeLearningEngine {
     /// Create a new real-time learning engine
     pub fn new(output_dir: &str, trusted_signers_path: Option<&str>) -> Self {
+        let _ = trusted_signers_path;
         let mut engine = RealtimeLearningEngine {
             config: LearningConfig::default(),
             collector: MLCollector::with_config(
@@ -146,7 +140,6 @@ impl RealtimeLearningEngine {
             pending_collection: HashSet::new(),
             stats: LearningStats::default(),
             output_dir: output_dir.to_string(),
-            trusted_signer_patterns: Self::load_trusted_signer_patterns(trusted_signers_path),
         };
         // Initialize adaptive thresholds from system baseline
         engine.initialize_adaptive_thresholds();
@@ -166,6 +159,7 @@ impl RealtimeLearningEngine {
 
     /// Create with custom configuration
     pub fn with_config(config: LearningConfig, output_dir: &str, trusted_signers_path: Option<&str>) -> Self {
+        let _ = trusted_signers_path;
         RealtimeLearningEngine {
             collector: MLCollector::with_config(
                 crate::realtime_learning::ml_collector::CollectionMode::Both,
@@ -177,36 +171,7 @@ impl RealtimeLearningEngine {
             pending_collection: HashSet::new(),
             stats: LearningStats::default(),
             output_dir: output_dir.to_string(),
-            trusted_signer_patterns: Self::load_trusted_signer_patterns(trusted_signers_path),
         }
-    }
-
-    /// Load trusted signer patterns from a YAML file
-    fn load_trusted_signer_patterns(path: Option<&str>) -> Vec<String> {
-        let mut patterns = Vec::new();
-        if let Some(p) = path {
-            let file_path = Path::new(p);
-            if file_path.exists() {
-                if let Ok(content) = fs::read_to_string(file_path) {
-                    if let Ok(rules) = serde_yaml::from_str::<Vec<BehaviorRule>>(&content) {
-                        for rule in rules {
-                            for entry in rule.allowlisted_apps {
-                                if let AllowlistEntry::Complex { signers, .. } = entry {
-                                    patterns.extend(signers);
-                                }
-                            }
-                        }
-                    } else {
-                        crate::logging::Logging::error(&format!("Failed to parse trusted signers YAML: {}", p));
-                    }
-                } else {
-                    crate::logging::Logging::error(&format!("Failed to read trusted signers file: {}", p));
-                }
-            } else {
-                crate::logging::Logging::error(&format!("Trusted signers file not found: {}", p));
-            }
-        }
-        patterns
     }
 
     /// Track a process (called when first seen)
@@ -306,46 +271,13 @@ impl RealtimeLearningEngine {
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs();
 
-            // Check if the process is signed by a trusted vendor
-            let is_trusted_signed_process = if let Some(precord) = process_records.get(gid) {
-                #[cfg(target_os = "windows")]
-                {
-                    let path = Path::new(&precord.exepath);
-                    if path.exists() {
-                        let info = verify_signature(path);
-                        if info.is_trusted {
-                            if let Some(signer) = info.signer_name {
-                                let is_trusted_pattern = self.trusted_signer_patterns.iter().any(|p| signer.as_str().contains(p.as_str()));
-                                if is_trusted_pattern {
-                                    crate::logging::Logging::info(&format!("Process {} (GID: {}) is signed by trusted vendor: {}", state.process_name, state.gid, signer));
-                                }
-                                is_trusted_pattern
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    false
-                }
-            } else {
-                false
-            };
-
             // Criteria for benign (using adaptive thresholds):
             // 1. Running for minimum time (adaptive)
             // 2. Has minimum operations (adaptive)
-            // 3. No detections OR is a trusted signed process
-            if (runtime >= self.config.min_runtime_for_benign
+            // 3. No detections
+            if runtime >= self.config.min_runtime_for_benign
                 && state.operation_count >= self.config.min_operations_for_benign
-                && state.detection_count == 0)
-                || is_trusted_signed_process
+                && state.detection_count == 0
             {
                 to_label_benign.push(*gid);
             }
@@ -411,9 +343,6 @@ impl RealtimeLearningEngine {
 
     /// Process terminated - final chance to collect and generate rules
     pub fn process_terminated(&mut self, gid: u64, api_tracker: &ApiTracker, precord: &ProcessRecord) {
-        let mut should_generate_rules = false;
-        let mut proc_name = String::new();
-
         if let Some(state) = self.process_states.get_mut(&gid) {
             // If still unlabeled but ran for a while with no issues, mark as benign
             if state.label == LearningLabel::Unlabeled && !state.collected {
@@ -434,30 +363,7 @@ impl RealtimeLearningEngine {
 
                     println!("[Real-Time Learning] Process terminated, labeled BENIGN: {} (GID: {})",
                              state.process_name, gid);
-                    
-                    should_generate_rules = true;
-                    proc_name = state.process_name.clone();
                 }
-            }
-        }
-
-        if should_generate_rules {
-            // Trigger dynamic rule generation and persistence immediately
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-            {
-                let benign_rules = self.generate_benign_rules();
-                if !benign_rules.is_empty() {
-                     let rules_path = Path::new(&self.output_dir).join("learned_rules.yaml");
-                     if let Err(e) = self.save_rules_to_yaml(&benign_rules, &rules_path) {
-                         eprintln!("Failed to save rules on exit: {}", e);
-                     } else {
-                         println!("[Real-Time Learning] Auto-rule PERSISTED for {} on exit", proc_name);
-                     }
-                }
-            }
-            #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-            {
-                let _ = proc_name;
             }
         }
     }
@@ -614,37 +520,11 @@ impl RealtimeLearningEngine {
         }
     }
 
-    /// Generate allowlist rules for benign processes
+    /// Benign realtime learning is sample-driven only. It no longer emits
+    /// app allowlist rules from observed executions.
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     pub fn generate_benign_rules(&self) -> Vec<BehaviorRule> {
-        let mut rules = Vec::new();
-        let mut processed_names = HashSet::new();
-
-        for state in self.process_states.values() {
-            if state.label == LearningLabel::Benign && !processed_names.contains(&state.process_name) {
-                // Generate Allowlist Rule
-                let rule = BehaviorRule {
-                    name: format!("AutoAllow_Benign_{}", state.process_name),
-                    description: format!("Auto-generated allowlist for benign process. Runtime: {}s", 
-                        SystemTime::now().duration_since(state.start_time).unwrap_or(Duration::from_secs(0)).as_secs()),
-                    severity: 0,
-                    level: DetectionLevel::Informational,
-                    status: RuleStatus::Stable,
-                    
-                    allowlisted_apps: vec![
-                        AllowlistEntry::Simple(state.process_name.clone())
-                    ],
-                    
-                    is_private: true, // Internal rule, don't alert on it
-                    ..Default::default()
-                };
-                
-                rules.push(rule);
-                processed_names.insert(state.process_name.clone());
-            }
-        }
-        
-        rules
+        Vec::new()
     }
 
     /// Save generates rules to valid YAML file

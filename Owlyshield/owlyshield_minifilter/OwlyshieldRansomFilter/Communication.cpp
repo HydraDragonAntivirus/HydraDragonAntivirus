@@ -77,6 +77,211 @@ extern "C" NTSTATUS IoCreateDriver(
 static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
 static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
 
+typedef struct _CLIENT_ID32 {
+    ULONG UniqueProcess;
+    ULONG UniqueThread;
+} CLIENT_ID32, *PCLIENT_ID32;
+
+static BOOLEAN IsLiveProcessId(_In_ ULONG ProcessId)
+{
+    PEPROCESS process = NULL;
+    NTSTATUS status;
+
+    if (ProcessId == 0)
+    {
+        return FALSE;
+    }
+
+    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
+    if (!NT_SUCCESS(status) || process == NULL)
+    {
+        return FALSE;
+    }
+
+    ObDereferenceObject(process);
+    return TRUE;
+}
+
+static ULONG ResolveProcessIdFromClientIdPointer(_In_ ULONG_PTR ClientIdAddress)
+{
+    ULONG processId = 0;
+
+    if (ClientIdAddress == 0)
+    {
+        return 0;
+    }
+
+    __try
+    {
+        CLIENT_ID cid64;
+        ProbeForRead((PVOID)ClientIdAddress, sizeof(cid64), TYPE_ALIGNMENT(CLIENT_ID));
+        RtlCopyMemory(&cid64, (PVOID)ClientIdAddress, sizeof(cid64));
+        processId = (ULONG)(ULONG_PTR)cid64.UniqueProcess;
+        if (IsLiveProcessId(processId))
+        {
+            return processId;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    __try
+    {
+        CLIENT_ID32 cid32;
+        ProbeForRead((PVOID)ClientIdAddress, sizeof(cid32), TYPE_ALIGNMENT(ULONG));
+        RtlCopyMemory(&cid32, (PVOID)ClientIdAddress, sizeof(cid32));
+        processId = cid32.UniqueProcess;
+        if (IsLiveProcessId(processId))
+        {
+            return processId;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    return 0;
+}
+
+static VOID ConsiderTargetPidCandidate(
+    _In_ ULONG SourcePid,
+    _In_ ULONG CandidatePid,
+    _Inout_ PULONG PreferredPid,
+    _Inout_ PULONG FallbackPid
+)
+{
+    if (CandidatePid == 0)
+    {
+        return;
+    }
+
+    if (CandidatePid != SourcePid)
+    {
+        if (*PreferredPid == 0)
+        {
+            *PreferredPid = CandidatePid;
+        }
+        return;
+    }
+
+    if (*FallbackPid == 0)
+    {
+        *FallbackPid = CandidatePid;
+    }
+}
+
+static ULONG ResolveProcessIdFromProcessHandle(_In_ HANDLE ProcessHandle)
+{
+    PEPROCESS process = NULL;
+    NTSTATUS status;
+    ULONG processId = 0;
+
+    if (ProcessHandle == NULL)
+    {
+        return 0;
+    }
+
+    if (ProcessHandle == NtCurrentProcess())
+    {
+        return (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    }
+
+    status = ObReferenceObjectByHandle(ProcessHandle,
+                                       0,
+                                       *PsProcessType,
+                                       UserMode,
+                                       (PVOID *)&process,
+                                       NULL);
+    if (!NT_SUCCESS(status) || process == NULL)
+    {
+        return 0;
+    }
+
+    processId = (ULONG)(ULONG_PTR)PsGetProcessId(process);
+    ObDereferenceObject(process);
+    return processId;
+}
+
+static ULONG ResolveProcessIdFromThreadHandle(_In_ HANDLE ThreadHandle)
+{
+    PETHREAD thread = NULL;
+    NTSTATUS status;
+    ULONG processId = 0;
+
+    if (ThreadHandle == NULL)
+    {
+        return 0;
+    }
+
+    if (ThreadHandle == NtCurrentThread())
+    {
+        return (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    }
+
+    status = ObReferenceObjectByHandle(ThreadHandle,
+                                       0,
+                                       *PsThreadType,
+                                       UserMode,
+                                       (PVOID *)&thread,
+                                       NULL);
+    if (!NT_SUCCESS(status) || thread == NULL)
+    {
+        return 0;
+    }
+
+    processId = (ULONG)(ULONG_PTR)PsGetProcessId(IoThreadToProcess(thread));
+    ObDereferenceObject(thread);
+    return processId;
+}
+
+static ULONG ResolveHookTargetProcessId(
+    _In_ ULONG SourcePid,
+    _In_ ULONG_PTR RawArg1,
+    _In_ ULONG_PTR RawArg2,
+    _In_ ULONG_PTR RawArg3,
+    _In_ ULONG_PTR RawArg4
+)
+{
+    const ULONG_PTR args[] = {RawArg1, RawArg2, RawArg3, RawArg4};
+    ULONG preferredPid = 0;
+    ULONG fallbackPid = 0;
+    ULONG candidatePid = 0;
+    ULONG i = 0;
+
+    for (i = 0; i < RTL_NUMBER_OF(args); ++i)
+    {
+        candidatePid = ResolveProcessIdFromProcessHandle((HANDLE)args[i]);
+        ConsiderTargetPidCandidate(SourcePid, candidatePid, &preferredPid, &fallbackPid);
+        if (preferredPid != 0)
+        {
+            return preferredPid;
+        }
+    }
+
+    for (i = 0; i < RTL_NUMBER_OF(args); ++i)
+    {
+        candidatePid = ResolveProcessIdFromThreadHandle((HANDLE)args[i]);
+        ConsiderTargetPidCandidate(SourcePid, candidatePid, &preferredPid, &fallbackPid);
+        if (preferredPid != 0)
+        {
+            return preferredPid;
+        }
+    }
+
+    for (i = 0; i < RTL_NUMBER_OF(args); ++i)
+    {
+        candidatePid = ResolveProcessIdFromClientIdPointer(args[i]);
+        ConsiderTargetPidCandidate(SourcePid, candidatePid, &preferredPid, &fallbackPid);
+        if (preferredPid != 0)
+        {
+            return preferredPid;
+        }
+    }
+
+    return fallbackPid;
+}
+
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
@@ -157,6 +362,7 @@ static NTSTATUS HookDeviceControl(
     ULONG_PTR  rawArg2   = 0;
     ULONG_PTR  rawArg3   = 0;
     ULONG_PTR  rawArg4   = 0;
+    ULONG      targetProcessId = 0;
     WCHAR      convertedName[64] = {0};
     PCWSTR     incomingWideName  = NULL;
 
@@ -235,12 +441,26 @@ static NTSTATUS HookDeviceControl(
         functionName = incomingWideName;
     }
 
-    DbgPrint("FSFilter: HIM event PID=%lu Type=%lu Name=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
-             processId, eventType, functionName, (PVOID)rawArg1, (PVOID)rawArg2, (PVOID)rawArg3, (PVOID)rawArg4);
+    targetProcessId = ResolveHookTargetProcessId(processId, rawArg1, rawArg2, rawArg3, rawArg4);
+
+    WCHAR sourceProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+    WCHAR targetProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+    FormatProcessDescriptorByPid(processId, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
+    FormatProcessDescriptorByPid(targetProcessId, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
+
+    DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+             eventType,
+             functionName,
+             sourceProcessDescriptor,
+             targetProcessDescriptor,
+             (PVOID)rawArg1,
+             (PVOID)rawArg2,
+             (PVOID)rawArg3,
+             (PVOID)rawArg4);
 
     // Deliver to the classification pipeline (ProcessProtection.cpp).
     // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
-    OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
+    OnKernelApiEvent(eventType, processId, targetProcessId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
 
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
 }

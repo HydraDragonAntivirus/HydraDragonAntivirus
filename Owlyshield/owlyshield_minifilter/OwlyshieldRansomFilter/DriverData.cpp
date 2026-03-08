@@ -296,6 +296,67 @@ ULONGLONG DriverData::GetProcessGid(ULONG ProcessId, PBOOLEAN found) {
     return ret;
 }
 
+BOOLEAN DriverData::CopyProcessPathByPid(
+    _In_ ULONG ProcessId,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch)
+{
+    BOOLEAN found = FALSE;
+    KIRQL oldIrql;
+
+    if (OutBuffer == NULL || OutCch == 0)
+    {
+        return FALSE;
+    }
+
+    OutBuffer[0] = L'\0';
+
+    KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
+
+    ULONGLONG gid = (ULONGLONG)PidToGids.get(ProcessId);
+    if (gid != 0)
+    {
+        PGID_ENTRY gidRecord = (PGID_ENTRY)GidToPids.get(gid);
+        if (gidRecord != nullptr)
+        {
+            PLIST_ENTRY header = &(gidRecord->HeadListPids);
+            PLIST_ENTRY iterator = header->Flink;
+            while (iterator != header)
+            {
+                PPID_ENTRY pStrct =
+                    (PPID_ENTRY)CONTAINING_RECORD(iterator, PID_ENTRY, entry);
+                if (pStrct != nullptr &&
+                    pStrct->Pid == ProcessId &&
+                    pStrct->Path != nullptr &&
+                    pStrct->Path->Buffer != nullptr &&
+                    pStrct->Path->Length > 0)
+                {
+                    SIZE_T charsToCopy = pStrct->Path->Length / sizeof(WCHAR);
+                    if (charsToCopy >= OutCch)
+                    {
+                        charsToCopy = OutCch - 1;
+                    }
+
+                    if (charsToCopy > 0)
+                    {
+                        RtlCopyMemory(OutBuffer,
+                                      pStrct->Path->Buffer,
+                                      charsToCopy * sizeof(WCHAR));
+                    }
+                    OutBuffer[charsToCopy] = L'\0';
+                    found = TRUE;
+                    break;
+                }
+
+                iterator = iterator->Flink;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+    return found;
+}
+
 VOID DriverData::SetGidMalicious(ULONGLONG gid) {
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);

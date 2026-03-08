@@ -1166,7 +1166,7 @@ impl ProcessBehaviorState {
             }
 
             Logging::info(&format!(
-                "[API HOOKING EVENT] opcode=12 raw_event_type={} src={} target={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
+                "[API HOOKING EVENT] opcode=12 raw_event_type={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
                 raw_event_type,
                 source_process,
                 target_process,

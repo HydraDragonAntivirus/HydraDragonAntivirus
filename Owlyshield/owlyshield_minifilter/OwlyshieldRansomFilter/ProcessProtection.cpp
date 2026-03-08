@@ -51,6 +51,646 @@ static BOOLEAN IsExecutableProtection(ULONG Protect);
 static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item, _In_ ULONG EventType, _In_ ULONG SourcePid, _In_ ULONG TargetPid);
 static VOID SetKernelEventObjectName(_Inout_ PDRIVER_MESSAGE Item, _In_opt_z_ PCWSTR EventName);
 static PCWSTR KernelEventDefaultLabel(_In_ ULONG EventType);
+static VOID AppendProcessPathSuffix(_Inout_updates_z_(OutCch) PWCHAR OutBuffer, _In_ SIZE_T OutCch, _In_ ULONG ProcessId);
+static BOOLEAN CopyProcessPathByPidBestEffort(_In_ ULONG ProcessId, _Out_writes_z_(OutCch) PWCHAR OutBuffer, _In_ SIZE_T OutCch, _In_ BOOLEAN AllowSlowLookup);
+static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN AllowSlowLookup);
+static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ BOOLEAN AllowSlowLookup);
+
+#define PROCESS_PROTECTION_RULE_POOL_TAG 'pKhO'
+#define PROCESS_PROTECTION_RULE_MAX_FILE_SIZE (64 * 1024)
+#define PROCESS_PROTECTION_RULE_MAX_LINE_CHARS 512
+
+typedef struct _PROCESS_PROTECTION_EXCLUDE_RULE_SET
+{
+    PWSTR *Rules;
+    ULONG Count;
+    ULONG Capacity;
+    FAST_MUTEX Mutex;
+    volatile LONG MutexInitState;
+    BOOLEAN Loaded;
+} PROCESS_PROTECTION_EXCLUDE_RULE_SET, *PPROCESS_PROTECTION_EXCLUDE_RULE_SET;
+
+static PROCESS_PROTECTION_EXCLUDE_RULE_SET g_ProcessProtectionExcludeRules = {0};
+static volatile LONG g_ProcessProtectionExcludeLoadState = 0;
+
+static VOID EnsureProcessProtectionRuleMutex(VOID)
+{
+    LONG state = InterlockedCompareExchange(&g_ProcessProtectionExcludeRules.MutexInitState, 0, 0);
+    if (state == 2)
+    {
+        KeMemoryBarrier();
+        return;
+    }
+
+    if (state == 0 &&
+        InterlockedCompareExchange(&g_ProcessProtectionExcludeRules.MutexInitState, 1, 0) == 0)
+    {
+        ExInitializeFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+        KeMemoryBarrier();
+        InterlockedExchange(&g_ProcessProtectionExcludeRules.MutexInitState, 2);
+        return;
+    }
+
+    while (InterlockedCompareExchange(&g_ProcessProtectionExcludeRules.MutexInitState, 0, 0) != 2)
+    {
+        YieldProcessor();
+    }
+
+    KeMemoryBarrier();
+}
+
+static VOID FreeProcessProtectionExcludeRulesUnlocked(VOID)
+{
+    if (g_ProcessProtectionExcludeRules.Rules != NULL)
+    {
+        for (ULONG i = 0; i < g_ProcessProtectionExcludeRules.Count; ++i)
+        {
+            PWSTR current = g_ProcessProtectionExcludeRules.Rules[i];
+            if (current != NULL)
+            {
+                ExFreePoolWithTag(current, PROCESS_PROTECTION_RULE_POOL_TAG);
+            }
+        }
+        ExFreePoolWithTag(g_ProcessProtectionExcludeRules.Rules, PROCESS_PROTECTION_RULE_POOL_TAG);
+    }
+
+    g_ProcessProtectionExcludeRules.Rules = NULL;
+    g_ProcessProtectionExcludeRules.Count = 0;
+    g_ProcessProtectionExcludeRules.Capacity = 0;
+}
+
+static NTSTATUS EnsureProcessProtectionRuleCapacityUnlocked(_In_ ULONG RequiredCount)
+{
+    PWSTR *newArray;
+    SIZE_T allocSize;
+    ULONG newCapacity;
+
+    if (g_ProcessProtectionExcludeRules.Capacity >= RequiredCount)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    newCapacity = (g_ProcessProtectionExcludeRules.Capacity == 0)
+                      ? 8
+                      : g_ProcessProtectionExcludeRules.Capacity * 2;
+    if (newCapacity < RequiredCount)
+    {
+        newCapacity = RequiredCount;
+    }
+
+    allocSize = sizeof(PWSTR) * newCapacity;
+    newArray = (PWSTR *)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                        allocSize,
+                                        PROCESS_PROTECTION_RULE_POOL_TAG);
+    if (newArray == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(newArray, allocSize);
+    if (g_ProcessProtectionExcludeRules.Rules != NULL &&
+        g_ProcessProtectionExcludeRules.Count > 0)
+    {
+        RtlCopyMemory(newArray,
+                      g_ProcessProtectionExcludeRules.Rules,
+                      sizeof(PWSTR) * g_ProcessProtectionExcludeRules.Count);
+        ExFreePoolWithTag(g_ProcessProtectionExcludeRules.Rules,
+                          PROCESS_PROTECTION_RULE_POOL_TAG);
+    }
+
+    g_ProcessProtectionExcludeRules.Rules = newArray;
+    g_ProcessProtectionExcludeRules.Capacity = newCapacity;
+    return STATUS_SUCCESS;
+}
+
+static BOOLEAN NormalizeProcessProtectionPathLower(_In_ PCUNICODE_STRING InputPath,
+                                                   _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                                                   _Out_ PUNICODE_STRING NormalizedPath)
+{
+    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
+}
+
+static NTSTATUS AddProcessProtectionExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText,
+                                                                  _In_ SIZE_T RuleChars)
+{
+    WCHAR normalizedLine[PROCESS_PROTECTION_RULE_MAX_LINE_CHARS];
+    SIZE_T lineLen = 0;
+    SIZE_T start = 0;
+    SIZE_T end = RuleChars;
+    SIZE_T commentPos = (SIZE_T)-1;
+    NTSTATUS status;
+
+    if (RuleText == NULL || RuleChars == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+
+    for (SIZE_T i = start; i < end; ++i)
+    {
+        if (RuleText[i] == L'#')
+        {
+            commentPos = i;
+            break;
+        }
+        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
+        {
+            commentPos = i;
+            break;
+        }
+    }
+    if (commentPos != (SIZE_T)-1)
+    {
+        end = commentPos;
+    }
+
+    while (end > start &&
+           (RuleText[end - 1] == L' ' ||
+            RuleText[end - 1] == L'\t' ||
+            RuleText[end - 1] == L'\r' ||
+            RuleText[end - 1] == L'"'))
+    {
+        end--;
+    }
+    if (end <= start)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
+    {
+        WCHAR ch = RuleText[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
+    }
+    normalizedLine[lineLen] = L'\0';
+
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'?' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine,
+                      normalizedLine + 4,
+                      (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'\\' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine,
+                      normalizedLine + 4,
+                      (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+
+    if (lineLen == 0 || normalizedLine[0] == L'#')
+    {
+        return STATUS_SUCCESS;
+    }
+    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (ULONG i = 0; i < g_ProcessProtectionExcludeRules.Count; ++i)
+    {
+        if (_wcsicmp(g_ProcessProtectionExcludeRules.Rules[i], normalizedLine) == 0)
+        {
+            return STATUS_SUCCESS;
+        }
+    }
+
+    status = EnsureProcessProtectionRuleCapacityUnlocked(
+        g_ProcessProtectionExcludeRules.Count + 1);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    SIZE_T allocSize = (lineLen + 1) * sizeof(WCHAR);
+    PWSTR newRule = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                           allocSize,
+                                           PROCESS_PROTECTION_RULE_POOL_TAG);
+    if (newRule == NULL)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(newRule, allocSize);
+    RtlCopyMemory(newRule, normalizedLine, lineLen * sizeof(WCHAR));
+    newRule[lineLen] = L'\0';
+    g_ProcessProtectionExcludeRules.Rules[g_ProcessProtectionExcludeRules.Count++] = newRule;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS AppendProcessProtectionExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer,
+                                                                      _In_ ULONG BytesRead)
+{
+    if (Buffer == NULL || BytesRead == 0)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if (BytesRead >= 2 && Buffer[0] == 0xFF && Buffer[1] == 0xFE)
+    {
+        PWCHAR utf16Buffer = (PWCHAR)(Buffer + 2);
+        ULONG utf16Chars = (BytesRead - 2) / sizeof(WCHAR);
+        ULONG start = 0;
+        for (ULONG i = 0; i <= utf16Chars; ++i)
+        {
+            BOOLEAN isDelimiter =
+                (i == utf16Chars) ||
+                utf16Buffer[i] == L'\n' ||
+                utf16Buffer[i] == L'\r';
+            if (isDelimiter)
+            {
+                if (i > start)
+                {
+                    (VOID)AddProcessProtectionExcludeRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
+                }
+                start = i + 1;
+            }
+        }
+        return STATUS_SUCCESS;
+    }
+
+    ULONG start = 0;
+    for (ULONG i = 0; i <= BytesRead; ++i)
+    {
+        BOOLEAN isDelimiter = (i == BytesRead) || Buffer[i] == '\n' || Buffer[i] == '\r';
+        if (isDelimiter)
+        {
+            if (i > start)
+            {
+                WCHAR lineBuffer[PROCESS_PROTECTION_RULE_MAX_LINE_CHARS];
+                SIZE_T lineLen = 0;
+                for (ULONG j = start; j < i && lineLen + 1 < RTL_NUMBER_OF(lineBuffer); ++j)
+                {
+                    lineBuffer[lineLen++] = (WCHAR)Buffer[j];
+                }
+                lineBuffer[lineLen] = L'\0';
+                (VOID)AddProcessProtectionExcludeRuleNormalizedUnlocked(lineBuffer, lineLen);
+            }
+            start = i + 1;
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS LoadProcessProtectionExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FilePath)
+{
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK ioStatus;
+    FILE_STANDARD_INFORMATION fileInfo;
+    HANDLE fileHandle = NULL;
+    NTSTATUS status;
+    PUCHAR buffer = NULL;
+    ULONG bufferSize;
+
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    InitializeObjectAttributes(&oa,
+                               (PUNICODE_STRING)FilePath,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwCreateFile(&fileHandle,
+                          GENERIC_READ,
+                          &oa,
+                          &ioStatus,
+                          NULL,
+                          FILE_ATTRIBUTE_NORMAL,
+                          FILE_SHARE_READ,
+                          FILE_OPEN,
+                          FILE_SYNCHRONOUS_IO_NONALERT,
+                          NULL,
+                          0);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
+    RtlZeroMemory(&fileInfo, sizeof(fileInfo));
+    status = ZwQueryInformationFile(fileHandle,
+                                    &ioStatus,
+                                    &fileInfo,
+                                    sizeof(fileInfo),
+                                    FileStandardInformation);
+    if (!NT_SUCCESS(status))
+    {
+        ZwClose(fileHandle);
+        return status;
+    }
+
+    if (fileInfo.EndOfFile.QuadPart <= 0 ||
+        fileInfo.EndOfFile.QuadPart > PROCESS_PROTECTION_RULE_MAX_FILE_SIZE)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    bufferSize = (ULONG)fileInfo.EndOfFile.QuadPart;
+    buffer = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED,
+                                     bufferSize,
+                                     PROCESS_PROTECTION_RULE_POOL_TAG);
+    if (buffer == NULL)
+    {
+        ZwClose(fileHandle);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(buffer, bufferSize);
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+    status = ZwReadFile(fileHandle,
+                        NULL,
+                        NULL,
+                        NULL,
+                        &ioStatus,
+                        buffer,
+                        bufferSize,
+                        NULL,
+                        NULL);
+    if (NT_SUCCESS(status))
+    {
+        (VOID)AppendProcessProtectionExcludeRulesFromBufferUnlocked(buffer,
+                                                                    (ULONG)ioStatus.Information);
+    }
+
+    ExFreePoolWithTag(buffer, PROCESS_PROTECTION_RULE_POOL_TAG);
+    ZwClose(fileHandle);
+    return status;
+}
+
+static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
+{
+    if (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 2)
+    {
+        return;
+    }
+
+    LONG prevState = InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 1, 0);
+    if (prevState == 2)
+    {
+        return;
+    }
+
+    if (prevState == 1)
+    {
+        LARGE_INTEGER delay;
+        delay.QuadPart = -10000LL;
+        while (InterlockedCompareExchange(&g_ProcessProtectionExcludeLoadState, 0, 0) == 1)
+        {
+            KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        }
+        return;
+    }
+
+    EnsureProcessProtectionRuleMutex();
+
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    FreeProcessProtectionExcludeRulesUnlocked();
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+
+    static const PCWSTR ruleFiles[] = {
+        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
+    };
+    for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
+    {
+        UNICODE_STRING ruleFile;
+        RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
+        (VOID)LoadProcessProtectionExcludeRulesFromFileUnlocked(&ruleFile);
+    }
+
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    g_ProcessProtectionExcludeRules.Loaded = TRUE;
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 2);
+}
+
+static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_STRING NormalizedPath)
+{
+    BOOLEAN matched = FALSE;
+
+    if (NormalizedPath == NULL ||
+        NormalizedPath->Buffer == NULL ||
+        NormalizedPath->Length < 3 * sizeof(WCHAR))
+    {
+        return FALSE;
+    }
+
+    if (!(NormalizedPath->Buffer[0] == L'c' &&
+          NormalizedPath->Buffer[1] == L':' &&
+          NormalizedPath->Buffer[2] == L'\\'))
+    {
+        return FALSE;
+    }
+
+    EnsureProcessProtectionExcludeRulesLoaded();
+    EnsureProcessProtectionRuleMutex();
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    for (ULONG i = 0; i < g_ProcessProtectionExcludeRules.Count; ++i)
+    {
+        PCWSTR rule = g_ProcessProtectionExcludeRules.Rules[i];
+        if (rule != NULL &&
+            rule[0] != L'\0' &&
+            wcsstr(NormalizedPath->Buffer, rule) != NULL)
+        {
+            matched = TRUE;
+            break;
+        }
+    }
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+
+    return matched;
+}
+
+VOID FormatProcessDescriptorByPid(
+    _In_ ULONG ProcessId,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch
+)
+{
+    if (OutBuffer == NULL || OutCch == 0)
+    {
+        return;
+    }
+
+    OutBuffer[0] = L'\0';
+    if (!NT_SUCCESS(RtlStringCchPrintfW(OutBuffer, OutCch, L"%lu", ProcessId)))
+    {
+        return;
+    }
+
+    AppendProcessPathSuffix(OutBuffer, OutCch, ProcessId);
+}
+
+static BOOLEAN CopyProcessPathByPidBestEffort(
+    _In_ ULONG ProcessId,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch,
+    _In_ BOOLEAN AllowSlowLookup
+)
+{
+    if (OutBuffer == NULL || OutCch == 0)
+    {
+        return FALSE;
+    }
+
+    OutBuffer[0] = L'\0';
+
+    if (ProcessId == 0)
+    {
+        return FALSE;
+    }
+
+    if (driverData != NULL &&
+        driverData->CopyProcessPathByPid(ProcessId, OutBuffer, OutCch))
+    {
+        return TRUE;
+    }
+
+    if (!AllowSlowLookup || KeGetCurrentIrql() != PASSIVE_LEVEL)
+    {
+        return FALSE;
+    }
+
+    PEPROCESS process = NULL;
+    PUNICODE_STRING processImagePath = NULL;
+    NTSTATUS status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
+    if (!NT_SUCCESS(status))
+    {
+        return FALSE;
+    }
+
+    status = SeLocateProcessImageName(process, &processImagePath);
+    ObDereferenceObject(process);
+    if (!NT_SUCCESS(status) ||
+        processImagePath == NULL ||
+        processImagePath->Buffer == NULL ||
+        processImagePath->Length == 0)
+    {
+        if (processImagePath != NULL)
+        {
+            ExFreePool(processImagePath);
+        }
+        return FALSE;
+    }
+
+    SIZE_T charsToCopy = processImagePath->Length / sizeof(WCHAR);
+    if (charsToCopy >= OutCch)
+    {
+        charsToCopy = OutCch - 1;
+    }
+
+    if (charsToCopy > 0)
+    {
+        RtlCopyMemory(OutBuffer,
+                      processImagePath->Buffer,
+                      charsToCopy * sizeof(WCHAR));
+    }
+    OutBuffer[charsToCopy] = L'\0';
+    ExFreePool(processImagePath);
+    return TRUE;
+}
+
+static VOID AppendProcessPathSuffix(
+    _Inout_updates_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch,
+    _In_ ULONG ProcessId
+)
+{
+    WCHAR pathBuffer[MAX_FILE_NAME_LENGTH] = {0};
+
+    if (OutBuffer == NULL || OutCch == 0)
+    {
+        return;
+    }
+
+    if (!CopyProcessPathByPidBestEffort(ProcessId,
+                                        pathBuffer,
+                                        RTL_NUMBER_OF(pathBuffer),
+                                        TRUE))
+    {
+        (VOID)RtlStringCchCatW(OutBuffer, OutCch, L":<path_unavailable>");
+        return;
+    }
+
+    (VOID)RtlStringCchCatW(OutBuffer, OutCch, L":");
+    (VOID)RtlStringCchCatW(OutBuffer, OutCch, pathBuffer);
+}
+
+static BOOLEAN ShouldSkipProcessProtectionPid(
+    _In_ ULONG ProcessId,
+    _In_ BOOLEAN AllowSlowLookup
+)
+{
+    WCHAR processPath[MAX_FILE_NAME_LENGTH] = {0};
+    WCHAR normalizedBuffer[MAX_FILE_NAME_LENGTH] = {0};
+    UNICODE_STRING processPathString;
+    UNICODE_STRING normalizedPath;
+
+    if (ProcessId == 0)
+    {
+        return FALSE;
+    }
+
+    if (!CopyProcessPathByPidBestEffort(ProcessId,
+                                        processPath,
+                                        RTL_NUMBER_OF(processPath),
+                                        AllowSlowLookup))
+    {
+        return FALSE;
+    }
+
+    RtlInitUnicodeString(&processPathString, processPath);
+    if (!NormalizeProcessProtectionPathLower(&processPathString,
+                                             normalizedBuffer,
+                                             &normalizedPath))
+    {
+        return FALSE;
+    }
+
+    return IsNormalizedPathExcludedByProcessProtectionRules(&normalizedPath);
+}
+
+static BOOLEAN ShouldSkipProcessProtectionPair(
+    _In_ ULONG SourcePid,
+    _In_ ULONG TargetPid,
+    _In_ BOOLEAN AllowSlowLookup
+)
+{
+    if (ShouldSkipProcessProtectionPid(SourcePid, AllowSlowLookup))
+    {
+        return TRUE;
+    }
+
+    if (TargetPid != 0 &&
+        TargetPid != SourcePid &&
+        ShouldSkipProcessProtectionPid(TargetPid, AllowSlowLookup))
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
 
 static VOID PopulateKernelEventCommon(_Inout_ PDRIVER_MESSAGE Item,
                                       _In_ ULONG EventType,
@@ -193,6 +833,7 @@ NTSTATUS InitProcessProtection()
         return status;
     }
 
+    EnsureProcessProtectionExcludeRulesLoaded();
     DbgPrint("!!! ProcessProtection: ObRegisterCallbacks succeeded\n");
     return STATUS_SUCCESS;
 }
@@ -215,6 +856,13 @@ VOID UninitProcessProtection()
         ExFreePoolWithTag(g_ObReg, 'ppCr');
         g_ObReg = NULL;
     }
+
+    EnsureProcessProtectionRuleMutex();
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    FreeProcessProtectionExcludeRulesUnlocked();
+    g_ProcessProtectionExcludeRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 0);
 
     DbgPrint("!!! ProcessProtection: Unloaded\n");
 }
@@ -240,6 +888,8 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
 
     PEPROCESS currentProc = PsGetCurrentProcess();
     PEPROCESS targetProc = (PEPROCESS)pOperationInformation->Object;
+    ULONG callerPid = (ULONG)(ULONG_PTR)PsGetProcessId(currentProc);
+    ULONG targetPid = (ULONG)(ULONG_PTR)PsGetProcessId(targetProc);
 
     // 2. Skip self-access - REMOVED to allow behavior engine to decide
     // If the caller is the same as the target, this is self-termination
@@ -256,6 +906,9 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
 
     // 4. Skip system processes
     if (IsSystemProcessPP(currentProc))
+        return OB_PREOP_SUCCESS;
+
+    if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
         return OB_PREOP_SUCCESS;
 
     // 5. Capture requested access mask (read-only, never modify).
@@ -275,9 +928,9 @@ OB_PREOP_CALLBACK_STATUS ProcessHandlePreCallback(
     if (desiredAccess & PROCESS_TERMINATE) {
         QueueTerminationAttemptToUserMode(currentProc, targetProc);
     } else {
-        OnProcessHandleOperation(
-            PsGetProcessId(currentProc),
-            PsGetProcessId(targetProc),
+            OnProcessHandleOperation(
+            (HANDLE)(ULONG_PTR)callerPid,
+            (HANDLE)(ULONG_PTR)targetPid,
             desiredAccess,
             (UCHAR)pOperationInformation->Operation);
     }
@@ -327,6 +980,13 @@ NTSTATUS QueueTerminationAttemptToUserMode(
 
     HANDLE attackerPid = PsGetProcessId(AttackerProcess);
     HANDLE targetPid = PsGetProcessId(TargetProcess);
+
+    if (ShouldSkipProcessProtectionPair((ULONG)(ULONG_PTR)attackerPid,
+                                        (ULONG)(ULONG_PTR)targetPid,
+                                        FALSE))
+    {
+        return STATUS_SUCCESS;
+    }
 
     // Get GIDs if processes are tracked
     BOOLEAN attackerFound = FALSE;
@@ -392,6 +1052,9 @@ NTSTATUS OnProcessCreate(
     ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
     ULONG parentPid = (ULONG)(ULONG_PTR)ParentProcessId;
 
+    if (ShouldSkipProcessProtectionPid(pid, TRUE))
+        return STATUS_SUCCESS;
+
     PIRP_ENTRY newEntry = new IRP_ENTRY();
     if (newEntry == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -424,6 +1087,9 @@ NTSTATUS OnProcessExit(
         return STATUS_DEVICE_NOT_READY;
 
     ULONG pid = (ULONG)(ULONG_PTR)ProcessId;
+
+    if (ShouldSkipProcessProtectionPid(pid, TRUE))
+        return STATUS_SUCCESS;
 
     PIRP_ENTRY newEntry = new IRP_ENTRY();
     if (newEntry == NULL) {
@@ -460,6 +1126,9 @@ NTSTATUS OnProcessHandleOperation(
 
     ULONG callerPid = (ULONG)(ULONG_PTR)CallerProcessId;
     ULONG targetPid = (ULONG)(ULONG_PTR)TargetProcessId;
+
+    if (ShouldSkipProcessProtectionPair(callerPid, targetPid, FALSE))
+        return STATUS_SUCCESS;
 
     // Get GIDs if processes are tracked
     BOOLEAN callerFound = FALSE;
@@ -547,14 +1216,20 @@ NTSTATUS OnKernelApiEvent(
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
 
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
+
+    WCHAR sourceProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+    WCHAR targetProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
     ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
 
-    // Always forward HIM/API-hook events. User mode can normalize GID from PID.
-    const ULONG normalizedTargetPid = (TargetPid != 0) ? TargetPid : SourcePid;
-    const ULONGLONG normalizedTargetGid = targetFound ? targetGid : sourceGid;
+    // Keep the owning message PID stable even when a hook event cannot resolve
+    // a remote target PID. KernelEventInfo preserves the exact source/target.
+    const ULONG ownerPid = (TargetPid != 0) ? TargetPid : SourcePid;
+    const ULONGLONG ownerGid = targetFound ? targetGid : sourceGid;
 
     PIRP_ENTRY newEntry = new IRP_ENTRY();
     if (newEntry == NULL) {
@@ -562,14 +1237,14 @@ NTSTATUS OnKernelApiEvent(
     }
 
     PDRIVER_MESSAGE newItem = &newEntry->data;
-    newItem->PID = normalizedTargetPid;
-    newItem->Gid = normalizedTargetGid;
+    newItem->PID = ownerPid;
+    newItem->Gid = ownerGid;
     newItem->AttackerPID = SourcePid;
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_HYPERVISOR_EVENT;
 
     // Preserve full HIM/API-hook metadata while emitting one generic opcode.
-    PopulateKernelEventCommon(newItem, EventType, SourcePid, normalizedTargetPid);
+    PopulateKernelEventCommon(newItem, EventType, SourcePid, TargetPid);
     newItem->KernelEventInfo.RawArgument1 = EventArg1;
     newItem->KernelEventInfo.RawArgument2 = EventArg2;
     newItem->KernelEventInfo.RawArgument3 = EventArg3;
@@ -583,12 +1258,15 @@ NTSTATUS OnKernelApiEvent(
                                : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
-    DbgPrint("!!! ProcessProtection: HIM event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
+    FormatProcessDescriptorByPid(SourcePid, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
+    FormatProcessDescriptorByPid(TargetPid, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
+
+    DbgPrint("!!! ProcessProtection: API HOOKING EVENT forwarded - RawType: %lu, GenericOp: %u, Name: %ls, src_pid_path=%ws, target_pid_path=%ws, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
              EventType,
              IRP_HYPERVISOR_EVENT,
              effectiveName,
-             SourcePid,
-             normalizedTargetPid,
+             sourceProcessDescriptor,
+             targetProcessDescriptor,
              (PVOID)EventArg1,
              (PVOID)EventArg2,
              (PVOID)EventArg3,
@@ -612,6 +1290,9 @@ NTSTATUS OnMemoryWrite(
 {
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
+
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
 
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
@@ -665,6 +1346,9 @@ NTSTATUS OnMemoryProtectionChange(
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
 
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
+
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
@@ -715,6 +1399,9 @@ NTSTATUS OnThreadCreation(
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
 
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
+
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
@@ -761,6 +1448,9 @@ NTSTATUS OnApcQueueing(
 {
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
+
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
 
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;
@@ -809,6 +1499,9 @@ NTSTATUS OnSectionOperation(
 {
     if (driverData == NULL || driverData->isFilterClosed())
         return STATUS_DEVICE_NOT_READY;
+
+    if (ShouldSkipProcessProtectionPair(SourcePid, TargetPid, TRUE))
+        return STATUS_SUCCESS;
 
     BOOLEAN sourceFound = FALSE;
     BOOLEAN targetFound = FALSE;

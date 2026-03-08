@@ -2907,11 +2907,16 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                     functionName = L"";
                 }
 
-                // Log event using existing mechanism
-                DbgPrint("FSFilter: HIM event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
-                         processId,
+                WCHAR sourceProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+                WCHAR targetProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+                FormatProcessDescriptorByPid(processId, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
+                FormatProcessDescriptorByPid(processId, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
+
+                DbgPrint("FSFilter: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
                          eventType,
                          functionName ? functionName : L"",
+                         sourceProcessDescriptor,
+                         targetProcessDescriptor,
                          (PVOID)rawArg1,
                          (PVOID)rawArg2,
                          (PVOID)rawArg3,

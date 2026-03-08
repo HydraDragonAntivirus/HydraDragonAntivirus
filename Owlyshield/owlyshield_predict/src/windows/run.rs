@@ -305,7 +305,7 @@ pub fn run() {
                                     *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
                                     *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
                                     Logging::info(&format!(
-                                        "[DIAG] API HOOKING EVENT: op={:?} opcode={} raw_event_type={} gid={} src={} target={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" event_path={} cmd=\"{}\"",
+                                        "[DIAG] API HOOKING EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,
@@ -320,12 +320,11 @@ pub fn run() {
                                         iomsg.kernel_event_info.memory_size,
                                         iomsg.kernel_event_info.operation_status as u32,
                                         api_name,
-                                        &iomsg.filepathstr,
                                         iomsg.runtime_features.command_line
                                     ));
                                 } else if is_kernel_telemetry_event {
                                     Logging::info(&format!(
-                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} gid={} src={} target={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" event_path={} cmd=\"{}\"",
+                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} gid={} src_pid_path={} target_pid_path={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,
@@ -340,7 +339,6 @@ pub fn run() {
                                         iomsg.kernel_event_info.memory_size,
                                         iomsg.kernel_event_info.operation_status as u32,
                                         api_name,
-                                        &iomsg.filepathstr,
                                         iomsg.runtime_features.command_line
                                     ));
                                 } else {

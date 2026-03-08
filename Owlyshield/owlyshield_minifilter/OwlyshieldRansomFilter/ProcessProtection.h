@@ -83,6 +83,14 @@ NTSTATUS OnKernelApiEvent(
     _In_opt_ ULONG_PTR EventArg4
 );
 
+// Format a diagnostic process descriptor as "pid:path" when the image path
+// can be resolved at PASSIVE_LEVEL, otherwise "pid:<path_unavailable>".
+VOID FormatProcessDescriptorByPid(
+    _In_ ULONG ProcessId,
+    _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+    _In_ SIZE_T OutCch
+);
+
 // Specific kernel API event handlers
 NTSTATUS OnMemoryWrite(
     _In_ ULONG SourcePid,

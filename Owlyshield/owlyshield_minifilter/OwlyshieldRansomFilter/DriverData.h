@@ -98,6 +98,13 @@ class DriverData {
     // if found return true on found else return false
     ULONGLONG GetProcessGid(ULONG ProcessId, PBOOLEAN found);
 
+    // Copy the tracked process image path for a PID into a caller buffer.
+    // Safe for ProcessProtection callbacks because it only reads DriverData state.
+    BOOLEAN CopyProcessPathByPid(
+        _In_ ULONG ProcessId,
+        _Out_writes_z_(OutCch) PWCHAR OutBuffer,
+        _In_ SIZE_T OutCch);
+
     // NEW: Mark a GID as malicious to enable blocking
     VOID SetGidMalicious(ULONGLONG gid);
 

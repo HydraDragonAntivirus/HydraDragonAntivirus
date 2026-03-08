@@ -4,11 +4,13 @@
 
 use crate::realtime_learning::api_tracker::{ApiTracker, OperationType};
 use crate::process::ProcessRecord;
+#[cfg(feature = "behavior_engine")]
+use crate::behavioral::behavior_engine::{BehaviorRule, DetectionCondition, NamedConditionGroup};
 #[cfg(target_os = "windows")]
 use crate::signature_verification::verify_signature;
 use md5::{Digest as Md5Digest, Md5};
 use serde::{Serialize, Deserialize};
-use sha2::{Digest as Sha2Digest, Sha256};
+use sha2::Sha256;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::fs::File;
@@ -150,6 +152,7 @@ pub struct MLFeatures {
 pub struct RawBehaviorData {
     pub all_apis_used: Vec<String>,
     pub file_paths_accessed: Vec<String>,
+    pub file_telemetry: Vec<String>,
     pub dlls_loaded: Vec<String>,
     pub operation_sequence: Vec<String>,
     pub api_call_sequence: Vec<(String, String)>, // (API, category)
@@ -158,6 +161,8 @@ pub struct RawBehaviorData {
     pub irp_opcode_counts: HashMap<String, usize>,
     pub loaded_kernel_drivers: Vec<String>,
     pub executable_telemetry: ExecutableTelemetry,
+    #[cfg(feature = "behavior_engine")]
+    pub rule_format_rule: BehaviorRule,
 }
 
 /// Static executable telemetry captured from on-disk binary
@@ -285,17 +290,46 @@ impl MLCollector {
             .cloned()
             .collect();
 
-        let file_paths_accessed: Vec<String> = precord.fpaths_created.iter()
+        let mut file_paths_accessed: HashSet<String> = precord.fpaths_created.iter()
             .chain(precord.fpaths_updated.iter())
             .cloned()
             .collect();
+        file_paths_accessed.extend(api_tracker.file_operations.executable_files_accessed.iter().cloned());
+        file_paths_accessed.extend(api_tracker.dlls_loaded.iter().cloned());
 
-        let operation_sequence: Vec<String> = api_tracker.operation_sequence.iter()
-            .map(|op| match op {
-                OperationType::FileRead(path) => format!("FILE_READ:{path}"),
-                OperationType::FileWrite(path, entropy) => format!("FILE_WRITE:{path}:{entropy:.4}"),
-                OperationType::FileDelete(path) => format!("FILE_DELETE:{path}"),
-                OperationType::FileRename(src, dst) => format!("FILE_RENAME:{src}->{dst}"),
+        let mut file_telemetry = Vec::new();
+        let mut operation_sequence = Vec::with_capacity(api_tracker.operation_sequence.len());
+        for op in &api_tracker.operation_sequence {
+            let rendered = match op {
+                OperationType::FileRead(path) => {
+                    file_paths_accessed.insert(path.clone());
+                    let line = format!("FILE_READ:{path}");
+                    file_telemetry.push(line.clone());
+                    line
+                }
+                OperationType::FileWrite(path, entropy) => {
+                    file_paths_accessed.insert(path.clone());
+                    let line = format!("FILE_WRITE:{path}:{entropy:.4}");
+                    file_telemetry.push(line.clone());
+                    line
+                }
+                OperationType::FileDelete(path) => {
+                    file_paths_accessed.insert(path.clone());
+                    let line = format!("FILE_DELETE:{path}");
+                    file_telemetry.push(line.clone());
+                    line
+                }
+                OperationType::FileRename(src, dst) => {
+                    if !src.is_empty() {
+                        file_paths_accessed.insert(src.clone());
+                    }
+                    if !dst.is_empty() {
+                        file_paths_accessed.insert(dst.clone());
+                    }
+                    let line = format!("FILE_RENAME:{src}->{dst}");
+                    file_telemetry.push(line.clone());
+                    line
+                }
                 OperationType::ProcessCreate(name) => format!("PROC_CREATE:{name}"),
                 OperationType::ProcessTerminate(pid) => format!("PROC_TERM:{pid}"),
                 OperationType::ProcessTerminateAttempt { source_pid, target_pid } => {
@@ -307,12 +341,30 @@ impl MLCollector {
                 OperationType::MemoryAllocate(sz) => format!("MEM_ALLOC:{sz}"),
                 OperationType::NetworkConnect(dest) => format!("NET_CONNECT:{dest}"),
                 OperationType::RegistryModify(key) => format!("REG_MOD:{key}"),
-                OperationType::KernelApi { opcode, api, target_pid, size, status } => {
-                    format!("KERNEL_API:{opcode}:{api}:target={target_pid}:size={size}:status={status}")
+                OperationType::KernelApi {
+                    opcode,
+                    api,
+                    raw_event_type,
+                    source_pid,
+                    target_pid,
+                    arg1,
+                    arg2,
+                    arg3,
+                    arg4,
+                    size,
+                    status,
+                } => {
+                    format!(
+                        "KERNEL_API:{opcode}:{api}:raw_event_type={raw_event_type}:src={source_pid}:target={target_pid}:arg1=0x{arg1:X}:arg2=0x{arg2:X}:arg3=0x{arg3:X}:arg4=0x{arg4:X}:size={size}:status={status}"
+                    )
                 }
                 OperationType::DriverLoad(path) => format!("DRIVER_LOAD:{path}"),
-            })
-            .collect();
+            };
+            operation_sequence.push(rendered);
+        }
+
+        let mut file_paths_accessed: Vec<String> = file_paths_accessed.into_iter().collect();
+        file_paths_accessed.sort_unstable();
 
         let mut entropy_samples: Vec<f64> = api_tracker.operation_sequence.iter()
             .filter_map(|op| match op {
@@ -333,9 +385,19 @@ impl MLCollector {
             .map(|call| (call.name.clone(), format!("{:?}", call.category)))
             .collect();
 
+        #[cfg(feature = "behavior_engine")]
+        let rule_format_rule = self.build_rule_format_rule(
+            api_tracker,
+            precord,
+            &all_apis_used,
+            &file_paths_accessed,
+            &file_telemetry,
+        );
+
         RawBehaviorData {
             all_apis_used,
             file_paths_accessed,
+            file_telemetry,
             dlls_loaded: dlls.into_iter().collect(),
             operation_sequence,
             api_call_sequence,
@@ -344,7 +406,272 @@ impl MLCollector {
             irp_opcode_counts: api_tracker.kernel_opcode_counts(),
             loaded_kernel_drivers: api_tracker.kernel_operations.loaded_kernel_drivers.iter().cloned().collect(),
             executable_telemetry,
+            #[cfg(feature = "behavior_engine")]
+            rule_format_rule,
         }
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn build_rule_format_rule(
+        &self,
+        api_tracker: &ApiTracker,
+        precord: &ProcessRecord,
+        all_apis_used: &[String],
+        file_paths_accessed: &[String],
+        _file_telemetry: &[String],
+    ) -> BehaviorRule {
+        let mut file_operations = HashSet::new();
+        let mut registry_keys = HashSet::new();
+        let mut registry_operations = HashSet::new();
+        let mut network_indicators = HashSet::new();
+        let mut created_processes = HashSet::new();
+        let mut terminated_processes = HashSet::new();
+        let mut file_extensions = HashSet::new();
+        let mut hypervisor_event_labels = HashSet::new();
+        let mut hypervisor_raw_event_types = HashSet::new();
+        let mut hypervisor_source_pids = HashSet::new();
+        let mut hypervisor_target_pids = HashSet::new();
+        let mut hypervisor_raw_arg1_values = HashSet::new();
+        let mut hypervisor_raw_arg2_values = HashSet::new();
+        let mut hypervisor_raw_arg3_values = HashSet::new();
+        let mut hypervisor_raw_arg4_values = HashSet::new();
+        let mut hypervisor_memory_sizes = HashSet::new();
+        let mut hypervisor_operation_statuses = HashSet::new();
+
+        for path in file_paths_accessed {
+            Self::insert_file_extension(&mut file_extensions, path);
+        }
+
+        for ext in &api_tracker.file_operations.suspicious_extensions_written {
+            let ext = ext.trim().trim_start_matches('.');
+            if !ext.is_empty() {
+                file_extensions.insert(format!(".{}", ext.to_ascii_lowercase()));
+            }
+        }
+
+        for api in &api_tracker.internet_apis {
+            if !api.trim().is_empty() {
+                network_indicators.insert(api.clone());
+            }
+        }
+
+        for op in &api_tracker.operation_sequence {
+            match op {
+                OperationType::FileRead(path) => {
+                    file_operations.insert("read".to_string());
+                    Self::insert_file_extension(&mut file_extensions, path);
+                }
+                OperationType::FileWrite(path, _) => {
+                    file_operations.insert("write".to_string());
+                    Self::insert_file_extension(&mut file_extensions, path);
+                }
+                OperationType::FileDelete(path) => {
+                    file_operations.insert("delete".to_string());
+                    Self::insert_file_extension(&mut file_extensions, path);
+                }
+                OperationType::FileRename(src, dst) => {
+                    file_operations.insert("rename".to_string());
+                    Self::insert_file_extension(&mut file_extensions, src);
+                    Self::insert_file_extension(&mut file_extensions, dst);
+                }
+                OperationType::ProcessCreate(name) => {
+                    if !name.trim().is_empty() {
+                        created_processes.insert(name.clone());
+                    }
+                }
+                OperationType::ProcessTerminate(pid) => {
+                    terminated_processes.insert(format!("pid:{pid}"));
+                }
+                OperationType::ProcessTerminateAttempt { target_pid, .. } => {
+                    terminated_processes.insert(format!("pid:{target_pid}"));
+                }
+                OperationType::NetworkConnect(dest) => {
+                    if !dest.trim().is_empty() {
+                        network_indicators.insert(dest.clone());
+                    }
+                }
+                OperationType::RegistryModify(key) => {
+                    let (op_name, reg_key) = Self::split_registry_entry(key);
+                    if !reg_key.is_empty() {
+                        registry_keys.insert(reg_key);
+                    }
+                    if let Some(op_name) = op_name {
+                        registry_operations.insert(op_name.to_string());
+                    }
+                }
+                OperationType::KernelApi {
+                    api,
+                    raw_event_type,
+                    source_pid,
+                    target_pid,
+                    arg1,
+                    arg2,
+                    arg3,
+                    arg4,
+                    size,
+                    status,
+                    ..
+                } => {
+                    if !api.trim().is_empty() {
+                        hypervisor_event_labels.insert(api.clone());
+                    }
+                    hypervisor_raw_event_types.insert(*raw_event_type);
+                    if *source_pid != 0 {
+                        hypervisor_source_pids.insert(*source_pid);
+                    }
+                    if *target_pid != 0 {
+                        hypervisor_target_pids.insert(*target_pid);
+                    }
+                    hypervisor_raw_arg1_values.insert(*arg1);
+                    hypervisor_raw_arg2_values.insert(*arg2);
+                    hypervisor_raw_arg3_values.insert(*arg3);
+                    hypervisor_raw_arg4_values.insert(*arg4);
+                    if *size != 0 {
+                        hypervisor_memory_sizes.insert(*size);
+                    }
+                    hypervisor_operation_statuses.insert(*status);
+                }
+                OperationType::ProcessHandleOpen { .. }
+                | OperationType::MemoryAllocate(_)
+                | OperationType::DriverLoad(_) => {}
+            }
+        }
+
+        let has_network_activity =
+            api_tracker.has_significant_internet_activity() || !network_indicators.is_empty();
+
+        let mut observed_condition = NamedConditionGroup::default();
+        observed_condition.apis = all_apis_used.to_vec();
+        if !observed_condition.apis.is_empty() {
+            observed_condition.api_threshold = 1;
+        }
+        observed_condition.file_paths = file_paths_accessed.to_vec();
+        observed_condition.file_operations = Self::sorted_strings(file_operations);
+        observed_condition.registry_keys = Self::sorted_strings(registry_keys);
+        observed_condition.registry_operations = Self::sorted_strings(registry_operations);
+        observed_condition.network_indicators = Self::sorted_strings(network_indicators);
+        observed_condition.has_network_activity = has_network_activity;
+        if !precord.appname.trim().is_empty() {
+            observed_condition.process_names = vec![precord.appname.clone()];
+        }
+        observed_condition.created_processes = Self::sorted_strings(created_processes);
+        observed_condition.terminated_processes = Self::sorted_strings(terminated_processes);
+        observed_condition.file_extensions = Self::sorted_strings(file_extensions);
+        observed_condition.cmdline_keywords = Self::extract_cmdline_keywords(&precord.command_line);
+        observed_condition.hypervisor_event_labels = Self::sorted_strings(hypervisor_event_labels);
+        observed_condition.detect_hypervisor_event = !observed_condition.hypervisor_event_labels.is_empty();
+        if observed_condition.detect_hypervisor_event {
+            observed_condition.hypervisor_event_threshold = 1;
+        }
+        observed_condition.hypervisor_raw_event_types = Self::sorted_u32(hypervisor_raw_event_types);
+        observed_condition.hypervisor_source_pids = Self::sorted_u32(hypervisor_source_pids);
+        observed_condition.hypervisor_target_pids = Self::sorted_u32(hypervisor_target_pids);
+        observed_condition.hypervisor_raw_arg1_values = Self::sorted_u64(hypervisor_raw_arg1_values);
+        observed_condition.hypervisor_raw_arg2_values = Self::sorted_u64(hypervisor_raw_arg2_values);
+        observed_condition.hypervisor_raw_arg3_values = Self::sorted_u64(hypervisor_raw_arg3_values);
+        observed_condition.hypervisor_raw_arg4_values = Self::sorted_u64(hypervisor_raw_arg4_values);
+        observed_condition.hypervisor_memory_sizes = Self::sorted_u64(hypervisor_memory_sizes);
+        observed_condition.hypervisor_operation_statuses = Self::sorted_i32(hypervisor_operation_statuses);
+
+        let mut rule = BehaviorRule::default();
+        rule.name = format!("realtime_learning_gid_{}", api_tracker.gid);
+        rule.description = format!(
+            "Realtime telemetry snapshot for {} ({})",
+            precord.appname,
+            precord.exepath.display()
+        );
+        rule.accessed_paths = file_paths_accessed.to_vec();
+        rule.require_internet = has_network_activity;
+        rule.monitored_apis = all_apis_used.to_vec();
+        rule.file_actions = observed_condition.file_operations.clone();
+        rule.file_extensions = observed_condition.file_extensions.clone();
+        rule.terminated_processes = observed_condition.terminated_processes.clone();
+        rule.named_conditions.insert("observed_telemetry".to_string(), observed_condition);
+        rule.detection_logic = Some(DetectionCondition::Named {
+            condition: "observed_telemetry".to_string(),
+        });
+        rule
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn sorted_strings(values: HashSet<String>) -> Vec<String> {
+        let mut values: Vec<String> = values
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .collect();
+        values.sort_unstable();
+        values
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn sorted_u32(values: HashSet<u32>) -> Vec<u32> {
+        let mut values: Vec<u32> = values.into_iter().collect();
+        values.sort_unstable();
+        values
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn sorted_u64(values: HashSet<u64>) -> Vec<u64> {
+        let mut values: Vec<u64> = values.into_iter().collect();
+        values.sort_unstable();
+        values
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn sorted_i32(values: HashSet<i32>) -> Vec<i32> {
+        let mut values: Vec<i32> = values.into_iter().collect();
+        values.sort_unstable();
+        values
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn split_registry_entry(entry: &str) -> (Option<&'static str>, String) {
+        let trimmed = entry.trim();
+        if let Some(rest) = trimmed.strip_prefix("REG_CREATE:") {
+            return (Some("create"), rest.to_string());
+        }
+        if let Some(rest) = trimmed.strip_prefix("REG_SET:") {
+            return (Some("set"), rest.to_string());
+        }
+        if let Some(rest) = trimmed.strip_prefix("REG_DELETE:") {
+            return (Some("delete"), rest.to_string());
+        }
+        if let Some(rest) = trimmed.strip_prefix("REG_RENAME:") {
+            return (Some("rename"), rest.to_string());
+        }
+        (None, trimmed.to_string())
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn insert_file_extension(extensions: &mut HashSet<String>, path: &str) {
+        let Some(ext) = Path::new(path).extension().and_then(|value| value.to_str()) else {
+            return;
+        };
+        let ext = ext.trim().trim_start_matches('.');
+        if ext.is_empty() {
+            return;
+        }
+        extensions.insert(format!(".{}", ext.to_ascii_lowercase()));
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn extract_cmdline_keywords(command_line: &str) -> Vec<String> {
+        let mut values = HashSet::new();
+        let trimmed = command_line.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        values.insert(trimmed.to_string());
+        for token in trimmed
+            .split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | ',' | ';'))
+            .map(str::trim)
+            .filter(|token| token.len() >= 3)
+        {
+            values.insert(token.to_string());
+        }
+
+        Self::sorted_strings(values)
     }
 
     fn get_executable_telemetry(&mut self, precord: &ProcessRecord) -> ExecutableTelemetry {

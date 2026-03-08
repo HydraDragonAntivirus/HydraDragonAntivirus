@@ -151,7 +151,13 @@ pub enum OperationType {
     KernelApi {
         opcode: String,
         api: String,
+        raw_event_type: u32,
+        source_pid: u32,
         target_pid: u32,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
         size: u64,
         status: i32,
     },
@@ -369,7 +375,8 @@ impl ApiTracker {
         self.track_api_call(event_name.clone(), category, Some(msg.filepathstr.clone()));
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        let (target_pid, mem_size, status, raw_event_type) = (
+        let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) = (
+            msg.kernel_event_info.source_process_id,
             msg.kernel_event_info.target_process_id,
             msg.kernel_event_info.memory_size as u64,
             msg.kernel_event_info.operation_status,
@@ -378,14 +385,34 @@ impl ApiTracker {
             } else {
                 msg.irp_op as u32
             },
+            msg.kernel_event_info.raw_argument1,
+            msg.kernel_event_info.raw_argument2,
+            msg.kernel_event_info.raw_argument3,
+            msg.kernel_event_info.raw_argument4,
         );
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
-        let (target_pid, mem_size, status, raw_event_type) = (msg.pid, 0u64, 0i32, msg.irp_op as u32);
+        let (source_pid, target_pid, mem_size, status, raw_event_type, arg1, arg2, arg3, arg4) = (
+            msg.pid,
+            msg.pid,
+            0u64,
+            0i32,
+            msg.irp_op as u32,
+            0u64,
+            0u64,
+            0u64,
+            0u64,
+        );
 
         self.operation_sequence.push(OperationType::KernelApi {
             opcode: op_name.clone(),
             api: event_name.clone(),
+            raw_event_type,
+            source_pid,
             target_pid,
+            arg1,
+            arg2,
+            arg3,
+            arg4,
             size: mem_size,
             status,
         });
@@ -393,8 +420,8 @@ impl ApiTracker {
         self.kernel_operations.generic_api_call += 1;
 
         self.append_kernel_log(format!(
-            "op={} raw_event_type={} event={} pid={} gid={} target_pid={} size={} path={}",
-            op_name, raw_event_type, event_name, msg.pid, msg.gid, target_pid, mem_size, msg.filepathstr
+            "op={} raw_event_type={} event={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} size={} status={} path={}",
+            op_name, raw_event_type, event_name, msg.pid, msg.gid, source_pid, target_pid, arg1, arg2, arg3, arg4, mem_size, status, msg.filepathstr
         ));
     }
 
