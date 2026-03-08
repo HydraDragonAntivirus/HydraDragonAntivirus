@@ -282,163 +282,6 @@ static ULONG ResolveHookTargetProcessId(
     return fallbackPid;
 }
 
-#define OWLY_HOOK_API_QUEUE_TAG 'qAhO'
-
-typedef struct _OWLY_HOOK_API_EVENT_ENTRY
-{
-    LIST_ENTRY Entry;
-    ULONG      EventType;
-    ULONG      SourceProcessId;
-    ULONG      TargetProcessId;
-    ULONG_PTR  RawArg1;
-    ULONG_PTR  RawArg2;
-    ULONG_PTR  RawArg3;
-    ULONG_PTR  RawArg4;
-    WCHAR      FunctionName[MAX_FILE_NAME_LENGTH];
-} OWLY_HOOK_API_EVENT_ENTRY, *POWLY_HOOK_API_EVENT_ENTRY;
-
-static LIST_ENTRY g_OwlyHookApiEventQueue;
-static KSPIN_LOCK g_OwlyHookApiEventQueueLock;
-static BOOLEAN    g_OwlyHookApiEventQueueInitialized = FALSE;
-static ULONG      g_OwlyHookApiEventQueueSize = 0;
-
-static VOID
-EnsureQueuedHookApiEventsInitialized(VOID)
-{
-    if (!g_OwlyHookApiEventQueueInitialized)
-    {
-        InitializeListHead(&g_OwlyHookApiEventQueue);
-        KeInitializeSpinLock(&g_OwlyHookApiEventQueueLock);
-        g_OwlyHookApiEventQueueSize = 0;
-        g_OwlyHookApiEventQueueInitialized = TRUE;
-    }
-}
-
-static BOOLEAN
-QueueHookApiEvent(
-    _In_ ULONG EventType,
-    _In_ ULONG SourceProcessId,
-    _In_ ULONG TargetProcessId,
-    _In_opt_z_ PCWSTR FunctionName,
-    _In_ ULONG_PTR RawArg1,
-    _In_ ULONG_PTR RawArg2,
-    _In_ ULONG_PTR RawArg3,
-    _In_ ULONG_PTR RawArg4
-)
-{
-    KIRQL oldIrql;
-    POWLY_HOOK_API_EVENT_ENTRY newEntry;
-
-    EnsureQueuedHookApiEventsInitialized();
-
-    newEntry = (POWLY_HOOK_API_EVENT_ENTRY)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
-        sizeof(OWLY_HOOK_API_EVENT_ENTRY),
-        OWLY_HOOK_API_QUEUE_TAG);
-    if (newEntry == NULL)
-    {
-        return FALSE;
-    }
-
-    RtlZeroMemory(newEntry, sizeof(OWLY_HOOK_API_EVENT_ENTRY));
-    newEntry->EventType = EventType;
-    newEntry->SourceProcessId = SourceProcessId;
-    newEntry->TargetProcessId = TargetProcessId;
-    newEntry->RawArg1 = RawArg1;
-    newEntry->RawArg2 = RawArg2;
-    newEntry->RawArg3 = RawArg3;
-    newEntry->RawArg4 = RawArg4;
-    if (FunctionName != NULL && FunctionName[0] != L'\0')
-    {
-        (VOID)RtlStringCchCopyW(newEntry->FunctionName,
-                                RTL_NUMBER_OF(newEntry->FunctionName),
-                                FunctionName);
-    }
-
-    KeAcquireSpinLock(&g_OwlyHookApiEventQueueLock, &oldIrql);
-    if (g_OwlyHookApiEventQueueSize >= MAX_OPS_SAVE)
-    {
-        KeReleaseSpinLock(&g_OwlyHookApiEventQueueLock, oldIrql);
-        ExFreePoolWithTag(newEntry, OWLY_HOOK_API_QUEUE_TAG);
-        return FALSE;
-    }
-
-    InsertTailList(&g_OwlyHookApiEventQueue, &newEntry->Entry);
-    g_OwlyHookApiEventQueueSize++;
-    KeReleaseSpinLock(&g_OwlyHookApiEventQueueLock, oldIrql);
-    return TRUE;
-}
-
-static VOID
-ResetQueuedHookApiEvents(VOID)
-{
-    KIRQL oldIrql;
-    LIST_ENTRY localList;
-
-    if (!g_OwlyHookApiEventQueueInitialized)
-    {
-        return;
-    }
-
-    InitializeListHead(&localList);
-
-    KeAcquireSpinLock(&g_OwlyHookApiEventQueueLock, &oldIrql);
-    while (!IsListEmpty(&g_OwlyHookApiEventQueue))
-    {
-        PLIST_ENTRY entry = RemoveHeadList(&g_OwlyHookApiEventQueue);
-        InsertTailList(&localList, entry);
-    }
-    g_OwlyHookApiEventQueueSize = 0;
-    KeReleaseSpinLock(&g_OwlyHookApiEventQueueLock, oldIrql);
-
-    while (!IsListEmpty(&localList))
-    {
-        PLIST_ENTRY entry = RemoveHeadList(&localList);
-        POWLY_HOOK_API_EVENT_ENTRY item = CONTAINING_RECORD(entry, OWLY_HOOK_API_EVENT_ENTRY, Entry);
-        ExFreePoolWithTag(item, OWLY_HOOK_API_QUEUE_TAG);
-    }
-}
-
-static VOID
-FlushQueuedHookApiEventsToProcessProtection(VOID)
-{
-    KIRQL oldIrql;
-    LIST_ENTRY localList;
-
-    if (!g_OwlyHookApiEventQueueInitialized)
-    {
-        return;
-    }
-
-    InitializeListHead(&localList);
-
-    KeAcquireSpinLock(&g_OwlyHookApiEventQueueLock, &oldIrql);
-    while (!IsListEmpty(&g_OwlyHookApiEventQueue))
-    {
-        PLIST_ENTRY entry = RemoveHeadList(&g_OwlyHookApiEventQueue);
-        InsertTailList(&localList, entry);
-    }
-    g_OwlyHookApiEventQueueSize = 0;
-    KeReleaseSpinLock(&g_OwlyHookApiEventQueueLock, oldIrql);
-
-    while (!IsListEmpty(&localList))
-    {
-        PLIST_ENTRY entry = RemoveHeadList(&localList);
-        POWLY_HOOK_API_EVENT_ENTRY item = CONTAINING_RECORD(entry, OWLY_HOOK_API_EVENT_ENTRY, Entry);
-
-        (VOID)OnKernelApiEvent(item->EventType,
-                               item->SourceProcessId,
-                               item->TargetProcessId,
-                               item->FunctionName,
-                               item->RawArg1,
-                               item->RawArg2,
-                               item->RawArg3,
-                               item->RawArg4);
-
-        ExFreePoolWithTag(item, OWLY_HOOK_API_QUEUE_TAG);
-    }
-}
-
 // ----------------------------------------------------------------------------
 // CompleteIrpInline — complete an IRP synchronously, before returning.
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
@@ -481,8 +324,6 @@ static NTSTATUS HookDeviceCreateClose(
 // Async contract: IoCompleteRequest is called before returning (inline
 // completion), so NtDeviceIoControlFile in the shellcode returns STATUS_SUCCESS
 // with IoStatusBlock written while the shellcode's stack frame is still live.
-// Any expensive classification work must therefore run only after copying the
-// buffered payload into driver-owned nonpaged memory.
 //
 // Name resolution priority:
 //   1. Fully-qualified "module!function" label in the incoming payload.
@@ -602,23 +443,24 @@ static NTSTATUS HookDeviceControl(
 
     targetProcessId = ResolveHookTargetProcessId(processId, rawArg1, rawArg2, rawArg3, rawArg4);
 
-    // Do not run ProcessProtection/AddIrpMessage inline on the hooked file/API
-    // thread. Copy the decoded payload into a nonpaged queue and let the normal
-    // MESSAGE_GET_OPS path forward it later.
-    if (!QueueHookApiEvent(eventType,
-                           processId,
-                           targetProcessId,
-                           functionName,
-                           rawArg1,
-                           rawArg2,
-                           rawArg3,
-                           rawArg4))
-    {
-        DbgPrint("HookDevice: dropped API HOOKING EVENT RawType=%lu src_pid=%lu target_pid=%lu\n",
-                 eventType,
-                 processId,
-                 targetProcessId);
-    }
+    WCHAR sourceProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+    WCHAR targetProcessDescriptor[MAX_FILE_NAME_LENGTH + 32] = {0};
+    FormatProcessDescriptorByPid(processId, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
+    FormatProcessDescriptorByPid(targetProcessId, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
+
+    DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+             eventType,
+             functionName,
+             sourceProcessDescriptor,
+             targetProcessDescriptor,
+             (PVOID)rawArg1,
+             (PVOID)rawArg2,
+             (PVOID)rawArg3,
+             (PVOID)rawArg4);
+
+    // Deliver to the classification pipeline (ProcessProtection.cpp).
+    // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
+    OnKernelApiEvent(eventType, processId, targetProcessId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
 
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
 }
@@ -735,7 +577,6 @@ VOID CleanupHookNotifyDevice(VOID)
     UNICODE_STRING symName;
     RtlInitUnicodeString(&symName, OWLY_HOOK_SYMLINK_NAME);
     IoDeleteSymbolicLink(&symName);
-    ResetQueuedHookApiEvents();
 
     IoDeleteDevice(g_HookNotifyDevice);
     g_HookNotifyDevice       = NULL;
@@ -1003,7 +844,6 @@ void CommClose()
     }
     commHandle->UserProcess = NULL;
     commHandle->CommClosed = TRUE;
-    ResetQueuedHookApiEvents();
     ResetQueuedHypervisorEvents();
 }
 
@@ -1257,7 +1097,6 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             return STATUS_INVALID_PARAMETER;
         }
-        FlushQueuedHookApiEventsToProcessProtection();
         driverData->DriverGetIrps(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         DrainQueuedHypervisorEvents(OutputBuffer, OutputBufferLength, ReturnOutputBufferLength);
         return STATUS_SUCCESS;
