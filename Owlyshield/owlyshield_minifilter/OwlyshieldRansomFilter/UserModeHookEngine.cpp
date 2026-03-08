@@ -113,6 +113,13 @@ typedef struct _PEB32 {
 #define HOOK_REENTRANCY_MAGIC_64  ((ULONG64)0xFEEDF00DFEEDF00DUI64)
 #define HOOK_REENTRANCY_MAGIC_32  ((ULONG32)0xFEEDF00DUL)
 
+// Each shellcode slot begins with a dedicated IO_STATUS_BLOCK (16 bytes) that
+// the async NtDeviceIoControlFile call uses for its completion record.
+// The ISB lives in the permanent shellcode region so the kernel can write
+// the final status at any point after the hooked thread has already continued.
+// SHELLCODE_SLOT_HEADER must equal sizeof(IO_STATUS_BLOCK) = 16.
+#define SHELLCODE_SLOT_HEADER     16
+
 #define HOOK_EVENT_FUNCTION_NAME_BYTES 64
 #define HOOK_EVENT_CAPTURED_ARG_COUNT 4
 
@@ -1399,8 +1406,8 @@ UCHAR g_ShellcodeTemplate32[] = {
     // buffered IOCTL that exports the captured hook event to the driver.
     0x44, 0x24, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x6A, 0x00, 0x6A,
     0x00, 0x68, 0x77, 0x77, 0x77, 0x77, 0x8D, 0x44, 0x24, 0x14,
-    0x50, 0x68, 0x66, 0x66, 0x66, 0x66, 0x8D, 0x44, 0x24, 0x14,
-    0x50, 0x6A, 0x00, 0x6A, 0x00, 0x6A, 0x00, 0x68, 0x33, 0x33,
+    0x50, 0x68, 0x66, 0x66, 0x66, 0x66, 0x68, 0xAA, 0xAA, 0xAA,
+    0xAA, 0x6A, 0x00, 0x6A, 0x00, 0x6A, 0x00, 0x68, 0x33, 0x33,
     0x33, 0x33, 0xB8, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, 0x8B,
     // Restore the previous FS:[0x14] value, unwind the frame, replay the
     // stolen prologue bytes, and jump back after the 5-byte E9 hook.
@@ -1537,8 +1544,8 @@ UCHAR g_ShellcodeTemplate[] = {
     // sizeof(event), NULL, 0) using the shadow-space frame we just built.
     0x24, 0xF0, 0x00, 0x00, 0x00, 0x48, 0xB9, 0x33, 0x33, 0x33,
     0x33, 0x33, 0x33, 0x33, 0x33, 0x31, 0xD2, 0x45, 0x31, 0xC0,
-    0x45, 0x31, 0xC9, 0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00,
-    0x00, 0x48, 0x89, 0x44, 0x24, 0x20, 0x48, 0xB8, 0x66, 0x66,
+    0x45, 0x31, 0xC9, 0x48, 0x8D, 0x05, 0xBB, 0xBB, 0xBB, 0xBB,
+    0x90, 0x48, 0x89, 0x44, 0x24, 0x20, 0x48, 0xB8, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24,
     0x28, 0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x48,
     0x89, 0x44, 0x24, 0x30, 0x48, 0xB8, 0x77, 0x77, 0x77, 0x77,
@@ -2575,11 +2582,14 @@ NTSTATUS InjectSingleHook(
     }
 
     // Calculate Offset
-    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize) {
+    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) + SHELLCODE_SLOT_HEADER > HookEntry->ShellcodeSize) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     
+    // myShellcodeAddress = slot base = where the ISB lives.
+    // codeAddress        = slot base + header = where the actual shellcode bytes live.
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
+    PVOID codeAddress        = (PVOID)((ULONG_PTR)myShellcodeAddress + SHELLCODE_SLOT_HEADER);
 
     // 1. Prepare Shellcode (Copy and Patch by signature to avoid fragile hardcoded offsets)
     UCHAR shellcode[sizeof(g_ShellcodeTemplate)];
@@ -2611,6 +2621,11 @@ NTSTATUS InjectSingleHook(
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig,   sizeof(kNtIoSig));
         SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig,    sizeof(kRetSig));
 
+        // ISB pointer: LEA RAX, [RIP + disp32] where disp32 is patched to
+        // point back to the slot-base IO_STATUS_BLOCK area.
+        static const UCHAR kIsbSig64[] = {0x48, 0x8D, 0x05, 0xBB, 0xBB, 0xBB, 0xBB};
+        SIZE_T offIsb64  = FindPatternOffset(shellcode, sizeof(shellcode), kIsbSig64,  sizeof(kIsbSig64));
+
         if (offGuardMagic == (SIZE_T)-1 ||
             offJe64       == (SIZE_T)-1 ||
             offSkipLabel  == (SIZE_T)-1 ||
@@ -2621,6 +2636,7 @@ NTSTATUS InjectSingleHook(
             offIoctl  == (SIZE_T)-1 ||
             offSize   == (SIZE_T)-1 ||
             offNtIo   == (SIZE_T)-1 ||
+            offIsb64  == (SIZE_T)-1 ||
             offRet    == (SIZE_T)-1 ||
             offRet     < USERMODE_HOOK_STOLEN_MAX)
         {
@@ -2667,6 +2683,13 @@ NTSTATUS InjectSingleHook(
         // Patch NtDeviceIoControlFile address
         *(PVOID *)(shellcode + offNtIo + 2) = TargetNtDeviceIo;
 
+        // Patch ISB RIP-relative displacement.
+        // The slot layout is: [ISB 16 bytes][shellcode code bytes].
+        // ISB VA              = myShellcodeAddress  (slot base).
+        // Instruction end VA  = codeAddress + offIsb64 + 7.
+        // disp32 = ISB_VA - instruction_end_VA = -(SHELLCODE_SLOT_HEADER + offIsb64 + 7).
+        *(PLONG)(shellcode + offIsb64 + 3) = -(LONG)(SHELLCODE_SLOT_HEADER + (LONG)offIsb64 + 7);
+
         // Save first USERMODE_HOOK_SIZE bytes for unhook (the JMP patch area).
         // Embed stolenSize bytes in the shellcode trampoline.
         // Both use memory we already read into prologue[] above.
@@ -2691,12 +2714,12 @@ NTSTATUS InjectSingleHook(
     }
 
     // Write Shellcode to Target at specific offset.
-    // myShellcodeAddress is user-mode memory — must be guarded.
+    // codeAddress is user-mode memory — must be guarded.
     __try
     {
-        ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
-        RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
-        FlushPatchedUserInstructionRange(myShellcodeAddress, sizeof(shellcode));
+        ProbeForWrite(codeAddress, sizeof(shellcode), 1);
+        RtlCopyMemory(codeAddress, shellcode, sizeof(shellcode));
+        FlushPatchedUserInstructionRange(codeAddress, sizeof(shellcode));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -2757,7 +2780,7 @@ NTSTATUS InjectSingleHook(
             RtlZeroMemory(jmp, 14);
             jmp[0] = 0xFF; jmp[1] = 0x25;
             *(PULONG)&jmp[2] = 0;
-            *(PVOID*)&jmp[6] = myShellcodeAddress;
+            *(PVOID*)&jmp[6] = codeAddress;  // jump past ISB header to actual code
 
             // HookDef->Address is user-mode memory — must be guarded.
             __try
@@ -2775,7 +2798,7 @@ NTSTATUS InjectSingleHook(
 
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
-            HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
+            HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate) + SHELLCODE_SLOT_HEADER;
             HookDef->IsHooked     = TRUE;
             HookDef->HookPatchSize = USERMODE_HOOK_SIZE; // 14 — FF 25 absolute JMP
         }
@@ -2850,11 +2873,15 @@ NTSTATUS InjectSingleHook32(
     // ------------------------------------------------------------------
     // 2. Capacity check.
     // ------------------------------------------------------------------
-    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate32) > HookEntry->ShellcodeSize)
+    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate32) + SHELLCODE_SLOT_HEADER > HookEntry->ShellcodeSize)
         return STATUS_INSUFFICIENT_RESOURCES;
 
+    // myShellcodeAddress = slot base = where the ISB lives (32-bit absolute addr).
+    // codeAddress        = slot base + header = where the actual shellcode bytes live.
     PVOID myShellcodeAddress =
         (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
+    PVOID codeAddress =
+        (PVOID)((ULONG_PTR)myShellcodeAddress + SHELLCODE_SLOT_HEADER);
 
     // ------------------------------------------------------------------
     // 3. Build and patch the 32-bit shellcode.
@@ -2875,6 +2902,8 @@ NTSTATUS InjectSingleHook32(
         static const UCHAR kHandleSig32[] = {0x68, 0x33, 0x33, 0x33, 0x33};
         static const UCHAR kNtIoSig32[]   = {0xB8, 0x44, 0x44, 0x44, 0x44};
         static const UCHAR kRetSig32[]    = {0xE9, 0x55, 0x55, 0x55, 0x55};
+        // ISB pointer: PUSH imm32 with absolute address of the slot-base ISB area.
+        static const UCHAR kIsbSig32[]    = {0x68, 0xAA, 0xAA, 0xAA, 0xAA};
 
         SIZE_T offGuardMagic32 = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig32, sizeof(kGuardMagicSig32));
         SIZE_T offJe32         = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig32,         sizeof(kJeSig32));
@@ -2887,6 +2916,7 @@ NTSTATUS InjectSingleHook32(
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig32, sizeof(kHandleSig32));
         SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32,   sizeof(kNtIoSig32));
         SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32,    sizeof(kRetSig32));
+        SIZE_T offIsb32  = FindPatternOffset(shellcode, sizeof(shellcode), kIsbSig32,    sizeof(kIsbSig32));
 
         if (offGuardMagic32 == (SIZE_T)-1 ||
             offJe32         == (SIZE_T)-1 ||
@@ -2898,6 +2928,7 @@ NTSTATUS InjectSingleHook32(
             offIoctl  == (SIZE_T)-1 ||
             offHandle == (SIZE_T)-1 ||
             offNtIo   == (SIZE_T)-1 ||
+            offIsb32  == (SIZE_T)-1 ||
             offRet    == (SIZE_T)-1 ||
             offRet    < USERMODE_HOOK_SIZE_32)
         {
@@ -2945,6 +2976,11 @@ NTSTATUS InjectSingleHook32(
         // Patch NtDeviceIoControlFile address (32-bit VA fits in ULONG)
         *(PULONG)(shellcode + offNtIo + 1) = (ULONG)(ULONG_PTR)TargetNtDeviceIo32;
 
+        // Patch IO_STATUS_BLOCK absolute address.
+        // myShellcodeAddress is the slot base (ISB lives there); code follows
+        // after SHELLCODE_SLOT_HEADER bytes.  All WoW64 VAs fit in ULONG.
+        *(PULONG)(shellcode + offIsb32 + 1) = (ULONG)(ULONG_PTR)myShellcodeAddress;
+
         // Save original 5 bytes and copy them into the stolen-instruction slot.
         __try
         {
@@ -2959,14 +2995,13 @@ NTSTATUS InjectSingleHook32(
         }
 
         // Patch return JMP rel32:
-        //   The E9 instruction at shellcode VA = (myShellcodeAddress + offRet).
+        //   The E9 instruction at shellcode VA = (codeAddress + offRet).
         //   Target VA = (HookDef->Address + USERMODE_HOOK_SIZE_32).
         //   rel32 = target - (E9_VA + 5)
-        //         = target - myShellcodeAddress - offRet - 5
-        // All values are 32-bit VAs; arithmetic is safe.
+        //         = target - codeAddress - offRet - 5
         LONG retRel32 = (LONG)(
             (ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32 -
-            ((ULONG_PTR)myShellcodeAddress + offRet + 5));
+            ((ULONG_PTR)codeAddress + offRet + 5));
         *(PLONG)(shellcode + offRet + 1) = retRel32;
     }
 
@@ -2975,9 +3010,9 @@ NTSTATUS InjectSingleHook32(
     // ------------------------------------------------------------------
     __try
     {
-        ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
-        RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
-        FlushPatchedUserInstructionRange(myShellcodeAddress, sizeof(shellcode));
+        ProbeForWrite(codeAddress, sizeof(shellcode), 1);
+        RtlCopyMemory(codeAddress, shellcode, sizeof(shellcode));
+        FlushPatchedUserInstructionRange(codeAddress, sizeof(shellcode));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -3021,11 +3056,11 @@ NTSTATUS InjectSingleHook32(
             return status;
 
         // Build E9 rel32 JMP at target function:
-        //   rel32 = myShellcodeAddress - (HookDef->Address + 5)
+        //   rel32 = codeAddress - (HookDef->Address + 5)
         UCHAR jmp32[USERMODE_HOOK_SIZE_32];
         jmp32[0] = 0xE9;
         *(PLONG)(&jmp32[1]) = (LONG)(
-            (ULONG_PTR)myShellcodeAddress -
+            (ULONG_PTR)codeAddress -
             ((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32));
 
         __try
@@ -3044,7 +3079,7 @@ NTSTATUS InjectSingleHook32(
         fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
                                   oldProt, &oldProt);
 
-        HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate32);
+        HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate32) + SHELLCODE_SLOT_HEADER;
         HookDef->IsHooked    = TRUE;
         HookDef->HookPatchSize = USERMODE_HOOK_SIZE_32; // 5 — used by UnhookSingleFunction
     }
@@ -3078,25 +3113,26 @@ NTSTATUS ResolveAndHook32(
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry,
                                HookDef, ModuleName, FunctionName, EventId, TargetNtDeviceIo32);
 }
+// -------------------------------------------------------------------------
+// Async notification design.
 //
-// ROOT CAUSE FIX — keep the notification handle SYNCHRONOUS.
+// Each shellcode slot is prefixed with SHELLCODE_SLOT_HEADER (16) bytes that
+// serve as a dedicated IO_STATUS_BLOCK for that slot's NtDeviceIoControlFile
+// call.  The ISB lives in the permanent shellcode allocation (not on the
+// hooked thread's stack), so the kernel can safely write the completion
+// status at any point after the thread continues.
 //
-// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
-// If the handle is opened asynchronously, NtDeviceIoControlFile can return
-// STATUS_PENDING and complete later, after the shellcode has already restored
-// registers and returned to the caller. The eventual completion then writes
-// final status back through a stale stack pointer, corrupting user-mode state
-// and producing hangs during exit, restart, and general I/O.
+// The device handle is opened WITHOUT FILE_SYNCHRONOUS_IO_NONALERT so that
+// NtDeviceIoControlFile returns immediately (STATUS_PENDING) instead of
+// blocking the calling thread until the driver's IOCTL handler finishes.
+// This eliminates the deadlock where the driver's handler tried to open or
+// scan a file while the calling thread was still blocked in its hook
+// notification — a scenario that reproducibly hangs any hooked process that
+// opens files in directories the driver treats specially (e.g., the AV's own
+// Program Files folder).
 //
-// Fix: open the device handle WITH FILE_SYNCHRONOUS_IO_NONALERT.
-//   • NtDeviceIoControlFile does not return until the driver completes.
-//   • The stack-based IO_STATUS_BLOCK remains valid for the entire call.
-//   • No completion APC is needed for correctness.
-//
-// The device handle is created while attached to the target process so the
-// Object Manager places it directly into that process handle table.
-// No ObInsertObject is used.
-//
+// Fire-and-forget is intentional: the shellcode never reads the IOCTL result.
+// -------------------------------------------------------------------------
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     BOOLEAN isWow64 = HookEntry->IsWow64;
@@ -3108,7 +3144,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     {
         hookSlots = 32;
     }
-    SIZE_T regionSize = (SIZE_T)(sizeof(g_ShellcodeTemplate) * (hookSlots + 32));
+    SIZE_T regionSize = (SIZE_T)((sizeof(g_ShellcodeTemplate) + SHELLCODE_SLOT_HEADER) * (hookSlots + 32));
     if (regionSize < (SIZE_T)0x4000)
     {
         regionSize = (SIZE_T)0x4000;
@@ -3162,10 +3198,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         FILE_ATTRIBUTE_NORMAL,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         FILE_OPEN,
-                        // The hook shellcode passes a stack-based IO_STATUS_BLOCK
-                        // to NtDeviceIoControlFile, so this handle MUST remain
-                        // synchronous for the lifetime of the design.
-                        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                        // Async handle: no FILE_SYNCHRONOUS_IO_NONALERT.
+                        // NtDeviceIoControlFile returns STATUS_PENDING immediately;
+                        // the ISB in the per-slot header absorbs the completion write.
+                        FILE_NON_DIRECTORY_FILE,
                         NULL,
                         0);
 
