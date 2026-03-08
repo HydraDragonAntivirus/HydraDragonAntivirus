@@ -6,6 +6,10 @@ use chrono::{DateTime, Local};
 use log::{error, warn, info, debug};
 use crate::utils::LOG_TIME_FORMAT;
 use crate::config::ConfigReader;
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
+#[cfg(target_os = "windows")]
+use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
 
 #[derive(Copy, Clone)]
 enum Status {
@@ -37,6 +41,26 @@ impl Status {
 pub struct Logging;
 
 impl Logging {
+    #[cfg(target_os = "windows")]
+    fn should_write_to_file(status: Status, message: &str) -> bool {
+        if matches!(status, Status::Debug) {
+            return false;
+        }
+
+        if matches!(status, Status::Info) {
+            return !message.starts_with("[DIAG] API HOOKING EVENT")
+                && !message.starts_with("[DIAG] KERNEL EVENT")
+                && !message.starts_with("[DIAG] EVENT RECEIVED")
+                && !message.starts_with("[API HOOKING EVENT]");
+        }
+
+        true
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn should_write_to_file(_status: Status, _message: &str) -> bool {
+        true
+    }
 
     #[cfg(target_os = "windows")]
     pub fn init() {
@@ -92,7 +116,9 @@ impl Logging {
 
     #[cfg(target_os = "windows")]
     fn log(status: Status, message: &str) {
-        Self::log_in_file(status, message, ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str());
+        if Self::should_write_to_file(status, message) {
+            Self::log_in_file(status, message, ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str());
+        }
 
         match status {
             Status::Alert | Status::Warning | Status::Novelty => { 
@@ -126,6 +152,16 @@ impl Logging {
             let _ = std::fs::create_dir_all(log_dir);
         }
 
+        #[cfg(target_os = "windows")]
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
+            .open(log_dir.join("owlyshield.log"))
+            .unwrap();
+
+        #[cfg(not(target_os = "windows"))]
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
