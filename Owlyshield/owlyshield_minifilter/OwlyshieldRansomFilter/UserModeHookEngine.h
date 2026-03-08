@@ -228,6 +228,12 @@ typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(
     _In_ ULONG FreeType);
 extern PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory;
 
+typedef NTSTATUS(NTAPI *PZW_FLUSH_INSTRUCTION_CACHE)(
+    _In_ HANDLE ProcessHandle,
+    _In_opt_ PVOID BaseAddress,
+    _In_ SIZE_T Length);
+extern PZW_FLUSH_INSTRUCTION_CACHE fnZwFlushInstructionCache;
+
 //
 // -------------------------------------------------------------------------
 // ENGINE DEFINITIONS

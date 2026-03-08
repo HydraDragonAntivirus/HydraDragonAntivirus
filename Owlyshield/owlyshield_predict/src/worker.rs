@@ -627,8 +627,6 @@ pub mod worker_instance {
     use crate::behavioral::behavior_engine::BehaviorEngine;
     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
     use crate::behavioral::app_settings::AppSettings;
-    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-    use win_pe_inspection::inspect_pe;
     #[cfg(feature = "realtime_learning")]
     use crate::realtime_learning::ApiTracker;
 
@@ -1752,44 +1750,7 @@ pub mod worker_instance {
         }
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn collect_imported_apis_for_pid(&mut self, pid: u32) -> Vec<String> {
-            let mut imported = Vec::new();
-            let Some(gid) = self.find_gid_by_pid(pid) else {
-                return imported;
-            };
-            let Some(precord) = self.process_records.get_precord_by_gid(gid) else {
-                return imported;
-            };
-            if precord.exepath.as_os_str().is_empty() || precord.exepath.to_string_lossy() == "UNKNOWN" {
-                return imported;
-            }
-
-            match inspect_pe(&precord.exepath) {
-                Ok(static_features) => {
-                    for imp in static_features.imports {
-                        let function = imp.import.trim();
-                        if function.is_empty() {
-                            continue;
-                        }
-                        let module = Self::normalize_hook_module_name(&imp.lib);
-                        imported.push(format!("{module}!{function}"));
-                    }
-                }
-                Err(e) => {
-                    Logging::debug(&format!(
-                        "[DYNAMIC HOOK] Failed import inspection for PID {} ({}) : {}",
-                        pid,
-                        precord.exepath.display(),
-                        e
-                    ));
-                }
-            }
-
-            imported
-        }
-
-        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-        fn collect_dynamic_hook_api_targets(&mut self, pid: u32) -> Vec<String> {
+        fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
 
@@ -1806,24 +1767,12 @@ pub mod worker_instance {
                 }
             }
 
-            let mut imported_apis = self.collect_imported_apis_for_pid(pid);
-            imported_apis.sort_unstable();
-            for api in imported_apis {
-                let trimmed = api.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let key = trimmed.to_ascii_lowercase();
-                if seen_lower.insert(key) {
-                    merged.push(trimmed.to_string());
-                }
-            }
-
             merged
         }
 
         /// Register high-interest API hooks for a specific PID
-        /// Supports both explicit "module!function" format and wildcard "function" (searches all modules)
+        /// Keeps dynamic hooks rule-driven. Import-wide expansion is intentionally
+        /// disabled because broad hook sets are too unstable.
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
             if pid == 0 {

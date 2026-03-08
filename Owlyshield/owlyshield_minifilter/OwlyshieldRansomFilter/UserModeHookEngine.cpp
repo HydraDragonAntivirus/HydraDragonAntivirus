@@ -132,6 +132,8 @@ typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _
                                                _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
+typedef NTSTATUS(NTAPI *PZW_FLUSH_INSTRUCTION_CACHE)(_In_ HANDLE ProcessHandle, _In_opt_ PVOID BaseAddress,
+                                                     _In_ SIZE_T Length);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
 
@@ -146,6 +148,7 @@ PZW_PROTECT_VIRTUAL_MEMORY fnZwProtectVirtualMemory = NULL;
 PZW_ALLOCATE_VIRTUAL_MEMORY fnZwAllocateVirtualMemory = NULL;
 PZW_DUPLICATE_OBJECT fnZwDuplicateObject = NULL;
 PZW_FREE_VIRTUAL_MEMORY fnZwFreeVirtualMemory = NULL;
+PZW_FLUSH_INSTRUCTION_CACHE fnZwFlushInstructionCache = NULL;
 PPS_GET_PROCESS_PEB fnPsGetProcessPeb = NULL;
 PPS_IS_PROTECTED_PROCESS fnPsIsProtectedProcess = NULL;
 PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
@@ -160,6 +163,14 @@ PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // GetHookNotifyDeviceObject() was removed: ObInsertObject on a DEVICE_OBJECT
 // does not produce a FILE_OBJECT handle, breaking NtDeviceIoControlFile.
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
+
+static VOID FlushPatchedUserInstructionRange(_In_ PVOID BaseAddress, _In_ SIZE_T Length)
+{
+    if (fnZwFlushInstructionCache != NULL && BaseAddress != NULL && Length != 0)
+    {
+        (VOID)fnZwFlushInstructionCache(ZwCurrentProcess(), BaseAddress, Length);
+    }
+}
 
 // Dynamic Configuration
 HOOK_CONFIG_DATA g_GlobalCustomHooks[MAX_CUSTOM_HOOKS];
@@ -1605,6 +1616,16 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
          DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
+    // Resolve ZwFlushInstructionCache so freshly written shellcode/JMP stubs
+    // become visible to every thread in the target process immediately.
+    RtlInitUnicodeString(&routineName, L"ZwFlushInstructionCache");
+    fnZwFlushInstructionCache =
+        (PZW_FLUSH_INSTRUCTION_CACHE)MmGetSystemRoutineAddress(&routineName);
+    if (!fnZwFlushInstructionCache)
+    {
+        DbgPrint("!!! UserModeHook: ZwFlushInstructionCache unavailable\n");
+    }
+
     // Resolve optional process protection helpers (best-effort).
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcess");
     fnPsIsProtectedProcess = (PPS_IS_PROTECTED_PROCESS)MmGetSystemRoutineAddress(&routineName);
@@ -2473,6 +2494,7 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
         // 4. Write hook bytes.
         ProbeForWrite(TargetAddress, USERMODE_HOOK_SIZE, 1);
         RtlCopyMemory(TargetAddress, hookShellcode, USERMODE_HOOK_SIZE);
+        FlushPatchedUserInstructionRange(TargetAddress, USERMODE_HOOK_SIZE);
 
         // 5. Restore original protection.
         //    oldProtect may have been modified by the kernel (rounded page);
@@ -2674,6 +2696,7 @@ NTSTATUS InjectSingleHook(
     {
         ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
         RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+        FlushPatchedUserInstructionRange(myShellcodeAddress, sizeof(shellcode));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -2741,6 +2764,7 @@ NTSTATUS InjectSingleHook(
             {
                 ProbeForWrite(HookDef->Address, 14, 1);
                 RtlCopyMemory(HookDef->Address, jmp, 14);
+                FlushPatchedUserInstructionRange(HookDef->Address, USERMODE_HOOK_SIZE);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -2953,6 +2977,7 @@ NTSTATUS InjectSingleHook32(
     {
         ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
         RtlCopyMemory(myShellcodeAddress, shellcode, sizeof(shellcode));
+        FlushPatchedUserInstructionRange(myShellcodeAddress, sizeof(shellcode));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -3007,6 +3032,7 @@ NTSTATUS InjectSingleHook32(
         {
             ProbeForWrite(HookDef->Address, USERMODE_HOOK_SIZE_32, 1);
             RtlCopyMemory(HookDef->Address, jmp32, USERMODE_HOOK_SIZE_32);
+            FlushPatchedUserInstructionRange(HookDef->Address, USERMODE_HOOK_SIZE_32);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
