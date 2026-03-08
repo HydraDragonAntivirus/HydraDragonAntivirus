@@ -377,9 +377,13 @@ impl RealtimeLearningEngine {
 
         let json_path = format!("{}/realtime_learning_{}.json", self.output_dir, timestamp);
         let csv_path = format!("{}/realtime_learning_{}.csv", self.output_dir, timestamp);
+        #[cfg(feature = "behavior_engine")]
+        let yaml_path = format!("{}/realtime_learning_rules_{}.yaml", self.output_dir, timestamp);
 
         self.collector.export_to_json(&json_path)?;
         self.collector.export_to_csv(&csv_path)?;
+        #[cfg(feature = "behavior_engine")]
+        self.collector.export_rules_to_yaml(&yaml_path)?;
 
         let (mal_count, ben_count) = self.collector.get_counts();
         self.stats.samples_exported += mal_count + ben_count;
@@ -388,6 +392,8 @@ impl RealtimeLearningEngine {
                  mal_count + ben_count, mal_count, ben_count);
         println!("  JSON: {}", json_path);
         println!("  CSV: {}", csv_path);
+        #[cfg(feature = "behavior_engine")]
+        println!("  YAML: {}", yaml_path);
 
         // Clear collector after export
         self.collector.clear();

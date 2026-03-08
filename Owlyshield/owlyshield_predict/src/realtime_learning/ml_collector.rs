@@ -857,6 +857,34 @@ impl MLCollector {
         Ok(())
     }
 
+    #[cfg(feature = "behavior_engine")]
+    fn collected_rule_snapshots(&self) -> Vec<BehaviorRule> {
+        let mut rules = Vec::new();
+
+        for sample in self.malicious_samples.iter().chain(self.benign_samples.iter()) {
+            let mut rule = sample.raw_data.rule_format_rule.clone();
+            let label = if sample.is_malicious { "malicious" } else { "benign" };
+            rule.name = format!("realtime_learning_{}_gid_{}", label, sample.id);
+            rule.description = format!(
+                "Realtime {} telemetry snapshot for {} ({})",
+                label,
+                sample.process_name,
+                sample.exe_path
+            );
+            rules.push(rule);
+        }
+
+        rules
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    pub fn export_rules_to_yaml(&self, output_path: &str) -> Result<(), std::io::Error> {
+        let rules = self.collected_rule_snapshots();
+        let file = File::create(output_path)?;
+        serde_yaml::to_writer(file, &rules)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
     /// Export to CSV format for easy analysis
     pub fn export_to_csv(&self, output_path: &str) -> Result<(), std::io::Error> {
         let mut file = File::create(output_path)?;
@@ -918,9 +946,13 @@ impl MLCollector {
 
         let json_path = self.output_dir.join(format!("dataset_{}.json", timestamp));
         let csv_path = self.output_dir.join(format!("dataset_{}.csv", timestamp));
+        #[cfg(feature = "behavior_engine")]
+        let yaml_path = self.output_dir.join(format!("dataset_rules_{}.yaml", timestamp));
 
         self.export_to_json(json_path.to_str().unwrap()).ok();
         self.export_to_csv(csv_path.to_str().unwrap()).ok();
+        #[cfg(feature = "behavior_engine")]
+        self.export_rules_to_yaml(yaml_path.to_str().unwrap()).ok();
     }
 
     /// Clear all collected samples
