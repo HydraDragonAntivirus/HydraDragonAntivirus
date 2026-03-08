@@ -469,7 +469,7 @@ static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
     ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
 
     static const PCWSTR ruleFiles[] = {
-        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
+        OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL
     };
     for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {

@@ -30,6 +30,8 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 
 // Shared dynamic-hook exclusion rule file path (kernel/user-mode deployment target).
 #define OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\DynamicHook\\default_rules.txt"
+// Shared ProcessProtection rule file path (kernel-side exclude list).
+#define OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\ProcessProtection\\default_rules.txt"
 // Shared FsFilter rule file path (kernel-side ignore list).
 #define OWLY_FSFILTER_RULE_FILE_KERNEL L"\\??\\C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\PYAS_Protection\\PYAS_Protection_Rules\\Process\\Owlyshield\\FSFilter\\default_rules.txt"
 
