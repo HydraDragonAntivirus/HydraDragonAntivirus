@@ -151,9 +151,9 @@ impl IrpStatistics {
                     rec.function_name.clone()
                 };
                 let details = if rec.function_name.is_empty() {
-                    "Hypervisor Event".to_string()
+                    "HIM".to_string()
                 } else {
-                    format!("Hypervisor Event (raw_name={})", rec.function_name)
+                    format!("HIM (raw_name={})", rec.function_name)
                 };
                 self.record_hypervisor_event_operation(
                     rec,
@@ -625,7 +625,7 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub hypervisor_event_threshold: usize,
 
-    // Detailed hypervisor payload filtering
+    // Detailed HIM/API-hook payload filtering
     #[serde(default)]
     pub hypervisor_raw_event_types: Vec<u32>,
     #[serde(default)]
@@ -637,6 +637,10 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub hypervisor_raw_arg2_values: Vec<u64>,
     #[serde(default)]
+    pub hypervisor_raw_arg3_values: Vec<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_values: Vec<u64>,
+    #[serde(default)]
     pub hypervisor_raw_arg1_min: Option<u64>,
     #[serde(default)]
     pub hypervisor_raw_arg1_max: Option<u64>,
@@ -644,6 +648,14 @@ pub struct NamedConditionGroup {
     pub hypervisor_raw_arg2_min: Option<u64>,
     #[serde(default)]
     pub hypervisor_raw_arg2_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg3_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg3_max: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_min: Option<u64>,
+    #[serde(default)]
+    pub hypervisor_raw_arg4_max: Option<u64>,
     #[serde(default)]
     pub hypervisor_memory_addresses: Vec<u64>,
     #[serde(default)]
@@ -1145,13 +1157,15 @@ impl ProcessBehaviorState {
             }
 
             Logging::info(&format!(
-                "[HYPERVISOR EVENT] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} api=\"{}\" count={}",
+                "[HIM] opcode=12 raw_event_type={} pid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} api=\"{}\" count={}",
                 raw_event_type,
                 msg.pid,
                 msg.kernel_event_info.source_process_id,
                 msg.kernel_event_info.target_process_id,
                 msg.kernel_event_info.raw_argument1,
                 msg.kernel_event_info.raw_argument2,
+                msg.kernel_event_info.raw_argument3,
+                msg.kernel_event_info.raw_argument4,
                 event_name,
                 self.hypervisor_event_count
             ));
@@ -1164,7 +1178,7 @@ impl ProcessBehaviorState {
             // Check for hypervisor event activity after each normalized event
             if self.irp_stats.has_injection_indicators() {
                 Logging::warning(&format!(
-                    "[HYPERVISOR EVENT DETECTED] PID {} - Total fallback events: {}",
+                    "[HIM DETECTED] PID {} - Total fallback events: {}",
                     msg.pid,
                     self.irp_stats.get_injection_api_count()
                 ));
@@ -1510,10 +1524,16 @@ impl BehaviorEngine {
             || !cond_group.hypervisor_target_pids.is_empty()
             || !cond_group.hypervisor_raw_arg1_values.is_empty()
             || !cond_group.hypervisor_raw_arg2_values.is_empty()
+            || !cond_group.hypervisor_raw_arg3_values.is_empty()
+            || !cond_group.hypervisor_raw_arg4_values.is_empty()
             || cond_group.hypervisor_raw_arg1_min.is_some()
             || cond_group.hypervisor_raw_arg1_max.is_some()
             || cond_group.hypervisor_raw_arg2_min.is_some()
             || cond_group.hypervisor_raw_arg2_max.is_some()
+            || cond_group.hypervisor_raw_arg3_min.is_some()
+            || cond_group.hypervisor_raw_arg3_max.is_some()
+            || cond_group.hypervisor_raw_arg4_min.is_some()
+            || cond_group.hypervisor_raw_arg4_max.is_some()
             || !cond_group.hypervisor_memory_addresses.is_empty()
             || cond_group.hypervisor_memory_address_min.is_some()
             || cond_group.hypervisor_memory_address_max.is_some()
@@ -1546,6 +1566,8 @@ impl BehaviorEngine {
         let target_pid = msg.kernel_event_info.target_process_id;
         let raw_arg1 = msg.kernel_event_info.raw_argument1;
         let raw_arg2 = msg.kernel_event_info.raw_argument2;
+        let raw_arg3 = msg.kernel_event_info.raw_argument3;
+        let raw_arg4 = msg.kernel_event_info.raw_argument4;
         let memory_address = msg.kernel_event_info.memory_address;
         let memory_size = msg.kernel_event_info.memory_size as u64;
         let memory_protection = msg.kernel_event_info.memory_protection;
@@ -1560,6 +1582,8 @@ impl BehaviorEngine {
             && Self::matches_u32_list(&cond_group.hypervisor_target_pids, target_pid)
             && Self::matches_u64_list(&cond_group.hypervisor_raw_arg1_values, raw_arg1)
             && Self::matches_u64_list(&cond_group.hypervisor_raw_arg2_values, raw_arg2)
+            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg3_values, raw_arg3)
+            && Self::matches_u64_list(&cond_group.hypervisor_raw_arg4_values, raw_arg4)
             && Self::matches_u64_range(
                 raw_arg1,
                 cond_group.hypervisor_raw_arg1_min,
@@ -1569,6 +1593,16 @@ impl BehaviorEngine {
                 raw_arg2,
                 cond_group.hypervisor_raw_arg2_min,
                 cond_group.hypervisor_raw_arg2_max,
+            )
+            && Self::matches_u64_range(
+                raw_arg3,
+                cond_group.hypervisor_raw_arg3_min,
+                cond_group.hypervisor_raw_arg3_max,
+            )
+            && Self::matches_u64_range(
+                raw_arg4,
+                cond_group.hypervisor_raw_arg4_min,
+                cond_group.hypervisor_raw_arg4_max,
             )
             && Self::matches_u64_list(&cond_group.hypervisor_memory_addresses, memory_address)
             && Self::matches_u64_range(
@@ -1632,10 +1666,10 @@ impl BehaviorEngine {
     }
 
     // ==========================================================================
-    // EVENT DETECTION FROM HYPERVISOR EVENTS
+    // EVENT DETECTION FROM HIM EVENTS
     // ==========================================================================
     
-    /// Get actual detected labels from hypervisor events
+    /// Get actual detected labels from HIM events
     fn get_detected_apis_from_state(state: &ProcessBehaviorState) -> HashSet<String> {
         state.all_apis_called.clone()
     }
@@ -1980,14 +2014,16 @@ impl BehaviorEngine {
                         };
                         matched = true;
                         Logging::info(&format!(
-                            "[BehaviorEngine] Condition '{}' - Hypervisor payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X}",
+                            "[BehaviorEngine] Condition '{}' - HIM payload match for PID {}: raw_event_type={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X}",
                             cond_name,
                             state.pid,
                             raw_event_type,
                             msg.kernel_event_info.source_process_id,
                             msg.kernel_event_info.target_process_id,
                             msg.kernel_event_info.raw_argument1,
-                            msg.kernel_event_info.raw_argument2
+                            msg.kernel_event_info.raw_argument2,
+                            msg.kernel_event_info.raw_argument3,
+                            msg.kernel_event_info.raw_argument4
                         ));
                     }
                 }
@@ -2355,7 +2391,7 @@ impl BehaviorEngine {
                 {
                     matched = true;
                     Logging::info(&format!(
-                        "[BehaviorEngine] Condition '{}' - Hypervisor event fallback detected for PID {}: {} events",
+                        "[BehaviorEngine] Condition '{}' - HIM fallback detected for PID {}: {} events",
                         cond_name, state.pid, state.hypervisor_event_count
                     ));
                 }
@@ -3021,14 +3057,14 @@ impl BehaviorEngine {
             // Log Nt API activity summary if any events detected
             if state.hypervisor_events_total > 0 {
                 Logging::info(&format!(
-                    "[HYPERVISOR EVENT SUMMARY] PID {} ({}) - Total fallback events: {}",
+                    "[HIM SUMMARY] PID {} ({}) - Total fallback events: {}",
                     pid, app_name,
                     state.hypervisor_events_total
                 ));
                 
                 if state.irp_stats.has_injection_indicators() {
                     Logging::warning(&format!(
-                        "[HYPERVISOR EVENT PATTERN] PID {} ({}) shows hypervisor event activity - Total fallback events: {}",
+                        "[HIM PATTERN] PID {} ({}) shows HIM activity - Total fallback events: {}",
                         pid, app_name, state.irp_stats.get_injection_api_count()
                     ));
                 }

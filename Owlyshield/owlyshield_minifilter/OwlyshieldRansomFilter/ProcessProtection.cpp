@@ -539,7 +539,9 @@ NTSTATUS OnKernelApiEvent(
     _In_ ULONG TargetPid,
     _In_opt_ PCWSTR FunctionName,
     _In_opt_ ULONG_PTR EventArg1,
-    _In_opt_ ULONG_PTR EventArg2
+    _In_opt_ ULONG_PTR EventArg2,
+    _In_opt_ ULONG_PTR EventArg3,
+    _In_opt_ ULONG_PTR EventArg4
 )
 {
     if (driverData == NULL || driverData->isFilterClosed())
@@ -550,7 +552,7 @@ NTSTATUS OnKernelApiEvent(
     ULONGLONG sourceGid = driverData->GetProcessGid(SourcePid, &sourceFound);
     ULONGLONG targetGid = driverData->GetProcessGid(TargetPid, &targetFound);
 
-    // Always forward hypervisor-origin events. User mode can normalize GID from PID.
+    // Always forward HIM/API-hook events. User mode can normalize GID from PID.
     const ULONG normalizedTargetPid = (TargetPid != 0) ? TargetPid : SourcePid;
     const ULONGLONG normalizedTargetGid = targetFound ? targetGid : sourceGid;
 
@@ -566,10 +568,12 @@ NTSTATUS OnKernelApiEvent(
     newItem->AttackerGid = sourceGid;
     newItem->IRP_OP = IRP_HYPERVISOR_EVENT;
 
-    // Preserve full kernel/hypervisor metadata while emitting one generic opcode.
+    // Preserve full HIM/API-hook metadata while emitting one generic opcode.
     PopulateKernelEventCommon(newItem, EventType, SourcePid, normalizedTargetPid);
     newItem->KernelEventInfo.RawArgument1 = EventArg1;
     newItem->KernelEventInfo.RawArgument2 = EventArg2;
+    newItem->KernelEventInfo.RawArgument3 = EventArg3;
+    newItem->KernelEventInfo.RawArgument4 = EventArg4;
     newItem->KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
     newItem->KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
     newItem->KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
@@ -579,14 +583,16 @@ NTSTATUS OnKernelApiEvent(
                                : KernelEventDefaultLabel(EventType);
     SetKernelEventObjectName(newItem, effectiveName);
 
-    DbgPrint("!!! ProcessProtection: Hypervisor event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p\n",
+    DbgPrint("!!! ProcessProtection: HIM event forwarded - RawType: %lu, GenericOp: %u, Name: %ls, Source PID: %lu, Target PID: %lu, Arg1: 0x%p, Arg2: 0x%p, Arg3: 0x%p, Arg4: 0x%p\n",
              EventType,
              IRP_HYPERVISOR_EVENT,
              effectiveName,
              SourcePid,
              normalizedTargetPid,
              (PVOID)EventArg1,
-             (PVOID)EventArg2);
+             (PVOID)EventArg2,
+             (PVOID)EventArg3,
+             (PVOID)EventArg4);
 
     if (!driverData->AddIrpMessage(newEntry)) {
         delete newEntry;

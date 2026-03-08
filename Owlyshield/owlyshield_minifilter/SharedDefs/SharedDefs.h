@@ -141,9 +141,11 @@ typedef struct _HOOK_EVENT_DATA {
     ULONG EventType;
     ULONG ProcessId;
     CHAR FunctionName[64];
-    // Generic arguments storage (up to 2 arguments)
+    // Generic argument storage copied by the hook shellcode (up to 4 arguments).
     ULONG_PTR Arg1;
     ULONG_PTR Arg2;
+    ULONG_PTR Arg3;
+    ULONG_PTR Arg4;
 } HOOK_EVENT_DATA, *PHOOK_EVENT_DATA;
 
 #define MAX_FILE_NAME_SIZE (MAX_FILE_NAME_LENGTH * sizeof(WCHAR))
@@ -271,9 +273,11 @@ typedef struct _KERNEL_EVENT_INFO
     HANDLE ThreadHandle;
     PVOID ThreadStartRoutine;
 
-    // Raw hypervisor/kernel hook arguments for lossless forwarding to user-mode.
+    // Raw HIM/API-hook arguments for lossless forwarding to user-mode.
     ULONG_PTR RawArgument1;
     ULONG_PTR RawArgument2;
+    ULONG_PTR RawArgument3;
+    ULONG_PTR RawArgument4;
 
     WCHAR ObjectName[MAX_FILE_NAME_LENGTH];
 

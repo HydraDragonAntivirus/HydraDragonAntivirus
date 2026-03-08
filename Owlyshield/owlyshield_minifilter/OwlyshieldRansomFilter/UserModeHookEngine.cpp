@@ -1278,11 +1278,17 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0x54]        HOOK_EVENT_DATA.Arg1 high 32 bits (zero)
 //   [LB+0x58]        HOOK_EVENT_DATA.Arg2 low  32 bits (from hooked arg2)
 //   [LB+0x5C]        HOOK_EVENT_DATA.Arg2 high 32 bits (zero)
+//   [LB+0x60]        HOOK_EVENT_DATA.Arg3 low  32 bits (from hooked arg3)
+//   [LB+0x64]        HOOK_EVENT_DATA.Arg3 high 32 bits (zero)
+//   [LB+0x68]        HOOK_EVENT_DATA.Arg4 low  32 bits (from hooked arg4)
+//   [LB+0x6C]        HOOK_EVENT_DATA.Arg4 high 32 bits (zero)
 //   [LB+0x80]        EFLAGS
 //   [LB+0x84..0xA0]  EDI, ESI, EBP, ESP_orig, EBX, EDX, ECX, EAX (PUSHAD order)
 //   [LB+0xA4]        return address of the hooked call
 //   [LB+0xA8]        arg1 of the hooked function
 //   [LB+0xAC]        arg2 of the hooked function
+//   [LB+0xB0]        arg3 of the hooked function
+//   [LB+0xB4]        arg4 of the hooked function
 //
 // NtDeviceIoControlFile call (stdcall, 10 args, callee cleans 40 bytes):
 //   Args are pushed right-to-left.  IoStatusBlock and InputBuffer addresses
@@ -1320,12 +1326,18 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0x54]   HOOK_EVENT_DATA.Arg1 hi = 0
 //   [LB+0x58]   HOOK_EVENT_DATA.Arg2 lo
 //   [LB+0x5C]   HOOK_EVENT_DATA.Arg2 hi = 0
+//   [LB+0x60]   HOOK_EVENT_DATA.Arg3 lo
+//   [LB+0x64]   HOOK_EVENT_DATA.Arg3 hi = 0
+//   [LB+0x68]   HOOK_EVENT_DATA.Arg4 lo
+//   [LB+0x6C]   HOOK_EVENT_DATA.Arg4 hi = 0
 //   [LB+0x78]   saved old FS:[0x14]          ← NEW
 //   [LB+0x80]   EFLAGS  (PUSHFD)
 //   [LB+0x84]   EDI,ESI,EBP,ESP_orig,EBX,EDX,ECX,EAX  (PUSHAD, 32 bytes)
 //   [LB+0xA4]   return address (caller's CALL pushed this)
 //   [LB+0xA8]   arg1 of hooked function
 //   [LB+0xAC]   arg2 of hooked function
+//   [LB+0xB0]   arg3 of hooked function
+//   [LB+0xB4]   arg4 of hooked function
 //
 // PATCH SIGNATURES:
 //   kGuardMagicSig32  BB [88×4]             -> imm32 = HOOK_REENTRANCY_MAGIC_32
@@ -1392,11 +1404,15 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   RSP+0x90+0x04   HOOK_EVENT_DATA.ProcessId    (patched: ProcessId)
 //   RSP+0x90+0x48   HOOK_EVENT_DATA.Arg1         (copied from original RCX)
 //   RSP+0x90+0x50   HOOK_EVENT_DATA.Arg2         (copied from original RDX)
+//   RSP+0x90+0x58   HOOK_EVENT_DATA.Arg3         (copied from original R8)
+//   RSP+0x90+0x60   HOOK_EVENT_DATA.Arg4         (copied from original R9)
 //   RSP+0xF0        saved R11 ... RAX (8 * 8 = 64 bytes)
 //
 // Register sources (from the saved register block above RSP+0xF0):
 //   saved RCX (original arg1 of hooked fn) lives at RSP + 0xF8
 //   saved RDX (original arg2 of hooked fn) lives at RSP + 0x100
+//   saved R8  (original arg3 of hooked fn) lives at RSP + 0x110
+//   saved R9  (original arg4 of hooked fn) lives at RSP + 0x108
 // -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
 // g_ShellcodeTemplate  (native 64-bit process hook)
@@ -1427,6 +1443,8 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x90+0x08]   HOOK_EVENT_DATA.FunctionName[0] = 0
 //   [RSP+0xD8]        HOOK_EVENT_DATA.Arg1
 //   [RSP+0xE0]        HOOK_EVENT_DATA.Arg2
+//   [RSP+0xE8]        HOOK_EVENT_DATA.Arg3
+//   [RSP+0xF0]        HOOK_EVENT_DATA.Arg4
 //   [RSP+0xF8]        saved R11  (last pushed, first popped)
 //   [RSP+0x100]       saved R10
 //   [RSP+0x108]       saved R9
@@ -1435,6 +1453,9 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x120]       saved RDX  ← Arg2 source
 //   [RSP+0x128]       saved RCX  ← Arg1 source
 //   [RSP+0x130]       saved RAX
+//
+// The template copies RCX/RDX/R8/R9 into HOOK_EVENT_DATA.Arg1..Arg4 before
+// issuing the buffered IOCTL, so the shared header must expose all four slots.
 //
 // PATCH SIGNATURES (searched by FindPatternOffset at install time):
 //   kGuardMagicSig  49 BA [88×8]         -> imm64  = HOOK_REENTRANCY_MAGIC_64

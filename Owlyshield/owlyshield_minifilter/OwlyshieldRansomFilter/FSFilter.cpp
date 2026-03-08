@@ -2826,6 +2826,8 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                 PCWSTR incomingWideName = NULL;
                 ULONG_PTR rawArg1 = 0;
                 ULONG_PTR rawArg2 = 0;
+                ULONG_PTR rawArg3 = 0;
+                ULONG_PTR rawArg4 = 0;
                 WCHAR convertedIncomingName[64] = {0};
     
                 if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HOOK_EVENT_DATA))
@@ -2835,6 +2837,8 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                     processId = eventData->ProcessId;
                     rawArg1 = eventData->Arg1;
                     rawArg2 = eventData->Arg2;
+                    rawArg3 = eventData->Arg3;
+                    rawArg4 = eventData->Arg4;
 
                     // Convert ANSI FunctionName to WCHAR
                     if (eventData->FunctionName[0] != '\0')
@@ -2859,6 +2863,8 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                     processId = eventData80->ProcessId;
                     rawArg1 = eventData80->Arg1;
                     rawArg2 = 0;
+                    rawArg3 = 0;
+                    rawArg4 = 0;
                     if (eventData80->FunctionName[0] != '\0') {
                         ANSI_STRING asFunc;
                         UNICODE_STRING usFunc;
@@ -2902,15 +2908,17 @@ NTSTATUS FSFilter_HookDeviceControl_UNUSED(PDEVICE_OBJECT DeviceObject, PIRP Irp
                 }
 
                 // Log event using existing mechanism
-                DbgPrint("FSFilter: Hypervisor event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
+                DbgPrint("FSFilter: HIM event from PID %lu: RawType=%lu Name=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
                          processId,
                          eventType,
                          functionName ? functionName : L"",
                          (PVOID)rawArg1,
-                         (PVOID)rawArg2);
+                         (PVOID)rawArg2,
+                         (PVOID)rawArg3,
+                         (PVOID)rawArg4);
                 
                 // Preserve raw event type and hook arguments; classification is normalized in ProcessProtection.
-                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
+                OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
             }
         }
         else {

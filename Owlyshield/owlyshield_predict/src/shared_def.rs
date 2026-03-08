@@ -246,9 +246,11 @@ pub struct KernelEventInfo {
     pub thread_handle: u64,        // Thread handle (for thread operations)
     pub thread_start_routine: u64, // Start routine (for thread creation)
 
-    // Raw hook arguments from hypervisor/kernel event source
+    // Raw HIM/API-hook arguments from the kernel event source
     pub raw_argument1: u64,
     pub raw_argument2: u64,
+    pub raw_argument3: u64,
+    pub raw_argument4: u64,
     
     // File/Section operation details
     pub object_name: String,       // File/section name (up to 520 WCHARs in C)

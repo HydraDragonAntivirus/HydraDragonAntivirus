@@ -155,6 +155,8 @@ static NTSTATUS HookDeviceControl(
     ULONG      processId = 0;
     ULONG_PTR  rawArg1   = 0;
     ULONG_PTR  rawArg2   = 0;
+    ULONG_PTR  rawArg3   = 0;
+    ULONG_PTR  rawArg4   = 0;
     WCHAR      convertedName[64] = {0};
     PCWSTR     incomingWideName  = NULL;
 
@@ -166,6 +168,8 @@ static NTSTATUS HookDeviceControl(
         processId = ev->ProcessId;
         rawArg1   = ev->Arg1;
         rawArg2   = ev->Arg2;
+        rawArg3   = ev->Arg3;
+        rawArg4   = ev->Arg4;
 
         if (ev->FunctionName[0] != '\0')
         {
@@ -190,6 +194,8 @@ static NTSTATUS HookDeviceControl(
         processId = ev80->ProcessId;
         rawArg1   = ev80->Arg1;
         rawArg2   = 0;
+        rawArg3   = 0;
+        rawArg4   = 0;
 
         if (ev80->FunctionName[0] != '\0')
         {
@@ -229,12 +235,12 @@ static NTSTATUS HookDeviceControl(
         functionName = incomingWideName;
     }
 
-    DbgPrint("FSFilter: Hook event PID=%lu Type=%lu Name=%ws Arg1=0x%p Arg2=0x%p\n",
-             processId, eventType, functionName, (PVOID)rawArg1, (PVOID)rawArg2);
+    DbgPrint("FSFilter: HIM event PID=%lu Type=%lu Name=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+             processId, eventType, functionName, (PVOID)rawArg1, (PVOID)rawArg2, (PVOID)rawArg3, (PVOID)rawArg4);
 
     // Deliver to the classification pipeline (ProcessProtection.cpp).
     // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
-    OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2);
+    OnKernelApiEvent(eventType, processId, processId, functionName, rawArg1, rawArg2, rawArg3, rawArg4);
 
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
 }

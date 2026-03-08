@@ -296,7 +296,7 @@ pub fn run() {
                                     *hyper_api_counts.entry(api_name.clone()).or_insert(0) += 1;
                                     *hyper_raw_counts.entry(raw_ty).or_insert(0) += 1;
                                     Logging::info(&format!(
-                                        "[DIAG] HYPERVISOR EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" path={} cmd=\"{}\"",
+                                        "[DIAG] HIM: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} api=\"{}\" path={} cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,
@@ -306,6 +306,8 @@ pub fn run() {
                                         iomsg.kernel_event_info.target_process_id,
                                         iomsg.kernel_event_info.raw_argument1,
                                         iomsg.kernel_event_info.raw_argument2,
+                                        iomsg.kernel_event_info.raw_argument3,
+                                        iomsg.kernel_event_info.raw_argument4,
                                         iomsg.kernel_event_info.memory_address,
                                         iomsg.kernel_event_info.memory_size,
                                         iomsg.kernel_event_info.operation_status as u32,
@@ -315,7 +317,7 @@ pub fn run() {
                                     ));
                                 } else if is_kernel_telemetry_event {
                                     Logging::info(&format!(
-                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" path={} cmd=\"{}\"",
+                                        "[DIAG] KERNEL EVENT: op={:?} opcode={} raw_event_type={} pid={} gid={} src_pid={} target_pid={} arg1=0x{:X} arg2=0x{:X} arg3=0x{:X} arg4=0x{:X} addr=0x{:X} size={} status=0x{:08X} event=\"{}\" path={} cmd=\"{}\"",
                                         irp,
                                         op,
                                         raw_ty,
@@ -325,6 +327,8 @@ pub fn run() {
                                         iomsg.kernel_event_info.target_process_id,
                                         iomsg.kernel_event_info.raw_argument1,
                                         iomsg.kernel_event_info.raw_argument2,
+                                        iomsg.kernel_event_info.raw_argument3,
+                                        iomsg.kernel_event_info.raw_argument4,
                                         iomsg.kernel_event_info.memory_address,
                                         iomsg.kernel_event_info.memory_size,
                                         iomsg.kernel_event_info.operation_status as u32,
@@ -394,7 +398,7 @@ pub fn run() {
                     .map(|(_, c)| *c)
                     .sum();
                 if hypervisor_total > 0 {
-                    summary.push_str(&format!("Hypervisor={} ", hypervisor_total));
+                    summary.push_str(&format!("HIM={} ", hypervisor_total));
                 }
                 if kernel_telemetry_total > 0 {
                     summary.push_str(&format!("KernelTelemetry={} ", kernel_telemetry_total));
@@ -430,9 +434,9 @@ pub fn run() {
                 }
                 Logging::info(&summary);
                 
-                // Check specifically for hypervisor opcode stream.
+                // Check specifically for the HIM opcode stream.
                 if hypervisor_total == 0 {
-                    Logging::warning("[DIAG] ZERO hypervisor events (opcode 12) received from driver!");
+                    Logging::warning("[DIAG] ZERO HIM events (opcode 12) received from driver!");
                 }
                 
                 opcode_counts = [0; 32];

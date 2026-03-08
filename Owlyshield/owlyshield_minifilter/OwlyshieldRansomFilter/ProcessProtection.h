@@ -78,7 +78,9 @@ NTSTATUS OnKernelApiEvent(
     _In_ ULONG TargetPid,
     _In_opt_ PCWSTR FunctionName,
     _In_opt_ ULONG_PTR EventArg1,
-    _In_opt_ ULONG_PTR EventArg2
+    _In_opt_ ULONG_PTR EventArg2,
+    _In_opt_ ULONG_PTR EventArg3,
+    _In_opt_ ULONG_PTR EventArg4
 );
 
 // Specific kernel API event handlers
