@@ -134,7 +134,7 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, 
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
 typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
+                                               _In_ HANDLE TargetProcessHandle, _Out_ PHANDLE TargetHandle,
                                                _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
                                                _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
@@ -788,7 +788,7 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_
     RtlInitAnsiString(&bFunc, B->FunctionName);
 
     return (_wcsicmp(A->ModuleName, B->ModuleName) == 0) &&
-           RtlEqualString(&aFunc, &bFunc, TRUE);
+           (RtlEqualString(&aFunc, &bFunc, TRUE) != FALSE);
 }
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
@@ -846,6 +846,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     return STATUS_SUCCESS;
 }
 
+_Success_(return != FALSE)
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch)
 {
     BOOLEAN found = FALSE;
@@ -905,7 +906,7 @@ BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_
 static VOID BuildHookDisplayNameA(
     _In_opt_z_ PCWSTR ModuleName,
     _In_opt_z_ PCSTR FunctionName,
-    _Out_writes_bytes_(HOOK_EVENT_FUNCTION_NAME_BYTES) PCHAR OutName,
+    _When_(OutName != NULL && OutNameBytes != 0, _Out_writes_bytes_(OutNameBytes)) PCHAR OutName,
     _In_ SIZE_T OutNameBytes)
 {
     SIZE_T pos = 0;
@@ -1874,6 +1875,7 @@ static BOOLEAN ReadNullTerminatedAnsiString(
     return FALSE;
 }
 
+_Success_(return != FALSE)
 static BOOLEAN ParseForwarderString(
     _In_ PCSTR ForwarderString,
     _Out_writes_(ModuleNameCch) PWSTR ModuleNameW,
