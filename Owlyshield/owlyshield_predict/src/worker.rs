@@ -782,6 +782,16 @@ pub mod worker_instance {
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
 
+        #[cfg(target_os = "windows")]
+        fn is_internal_service_pid(pid: u32) -> bool {
+            pid == std::process::id()
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        fn is_internal_service_pid(_pid: u32) -> bool {
+            false
+        }
+
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
             record.is_malicious = true;
@@ -866,6 +876,10 @@ pub mod worker_instance {
 
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn refresh_dynamic_hooks_for_pid_if_due(&mut self, pid: u32) {
+            if Self::is_internal_service_pid(pid) {
+                return;
+            }
+
             if self.should_refresh_dynamic_hooks_for_pid(pid) {
                 self.register_dynamic_hooks_for_process(pid);
             }
@@ -1004,7 +1018,7 @@ pub mod worker_instance {
                 let pid_u32 = pid.as_u32();
                 
                 // Skip system process
-                if pid_u32 == 4 {
+                if pid_u32 == 4 || Self::is_internal_service_pid(pid_u32) {
                     continue;
                 }
                 
@@ -1290,7 +1304,9 @@ pub mod worker_instance {
                 let mut discovered_new = 0;
                 for (pid, process) in sys.processes() {
                     let pid_u32 = pid.as_u32();
-                    if pid_u32 == 4 { continue; } // Skip System
+                    if pid_u32 == 4 || Self::is_internal_service_pid(pid_u32) {
+                        continue;
+                    }
                     
                     let exepath = process.exe().map(|p| PathBuf::from(p)).unwrap_or_default();
                     let appname = process.name().to_string_lossy().to_string();
@@ -1639,6 +1655,10 @@ pub mod worker_instance {
         fn register_precord(&mut self, iomsg: &mut IOMessage) {
             let gid = iomsg.gid;
             let pid = iomsg.pid;
+
+            if Self::is_internal_service_pid(pid as u32) {
+                return;
+            }
             
             // FIX #2: Extract appname computation to avoid borrowing conflicts
             // Check if we need to upgrade or create
@@ -1841,7 +1861,7 @@ pub mod worker_instance {
         /// disabled because broad hook sets are too unstable.
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {
-            if pid == 0 {
+            if pid == 0 || Self::is_internal_service_pid(pid) {
                 return;
             }
 
