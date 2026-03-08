@@ -1035,6 +1035,7 @@ pub struct ResponseAction {
     #[serde(default)] pub suspend_process: bool,
     #[serde(default)] pub quarantine: bool,
     #[serde(default)] pub kill_and_remove: bool,
+    #[serde(default)] pub notify_user: bool,
     #[serde(default)] pub auto_revert: bool,
     #[serde(default)] pub record: bool,
 }
@@ -2799,6 +2800,7 @@ impl BehaviorEngine {
                     terminate: rule.response.terminate_process,
                     quarantine: rule.response.quarantine,
                     kill_and_remove: rule.response.kill_and_remove,
+                    notify_user: rule.response.notify_user,
                     revert: rule.response.auto_revert,
                 };
 
@@ -3112,6 +3114,10 @@ impl BehaviorEngine {
                     p.pids.insert(pid);
                     p.termination_requested = rule.response.terminate_process;
                     p.quarantine_requested = rule.response.quarantine;
+                    p.kill_and_remove_requested = rule.response.kill_and_remove;
+                    p.notify_user_requested = rule.response.notify_user;
+                    p.revert_requested = rule.response.auto_revert;
+                    p.triggered_rule_name = Some(rule.name.clone());
                     detected_processes.push(p);
                 }
             }

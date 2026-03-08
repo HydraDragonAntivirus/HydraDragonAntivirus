@@ -655,6 +655,7 @@ impl<'a> AVIntegration<'a> {
             terminate: true,
             quarantine: event.action_required == ThreatAction::KillAndQuarantine,
             kill_and_remove: event.action_required == ThreatAction::KillAndRemove,
+            notify_user: true,
             revert: false, // AV integration doesn't trigger automatic reversion
         };
 

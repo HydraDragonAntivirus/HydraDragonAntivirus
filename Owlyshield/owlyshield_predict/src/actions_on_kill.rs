@@ -26,7 +26,47 @@ pub struct ThreatInfo<'a> {
     pub terminate: bool,
     pub quarantine: bool,
     pub kill_and_remove: bool,    // Added field to match usage in behavior_engine.rs
+    pub notify_user: bool,
     pub revert: bool,
+}
+
+impl ThreatInfo<'_> {
+    fn should_notify(&self) -> bool {
+        self.notify_user
+            || self.terminate
+            || self.quarantine
+            || self.kill_and_remove
+            || self.revert
+    }
+
+    fn response_label(&self) -> &'static str {
+        if self.kill_and_remove {
+            "Kill and remove"
+        } else if self.terminate && self.quarantine {
+            "Kill and quarantine"
+        } else if self.terminate {
+            "Kill"
+        } else if self.revert {
+            "Auto-revert"
+        } else if self.notify_user {
+            "Notify only"
+        } else {
+            "Record only"
+        }
+    }
+
+    fn response_time_label(&self) -> &'static str {
+        if self.notify_user
+            && !self.terminate
+            && !self.quarantine
+            && !self.kill_and_remove
+            && !self.revert
+        {
+            "Notified at"
+        } else {
+            "Responded at"
+        }
+    }
 }
 
 pub struct ActionsOnKill {
@@ -105,6 +145,10 @@ impl ActionOnKill for WriteReportFile {
         threat_info: &ThreatInfo,
         now: &str,
     ) -> Result<(), Box<dyn Error>> {
+        if !threat_info.should_notify() {
+            return Ok(());
+        }
+
         let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
         std::fs::create_dir_all(&report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
@@ -128,7 +172,9 @@ impl ActionOnKill for WriteReportFile {
             )?;
             file.write_all(
                 format!(
-                    "Killed at {}\n\n",
+                    "Response: {}\n{} {}\n\n",
+                    threat_info.response_label(),
+                    threat_info.response_time_label(),
                     DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now))
                         .format(LONG_TIME_FORMAT)
                 )
@@ -159,6 +205,10 @@ impl ActionOnKill for WriteReportHtmlFile {
         threat_info: &ThreatInfo,
         now: &str,
     ) -> Result<(), Box<dyn Error>> {
+        if !threat_info.should_notify() {
+            return Ok(());
+        }
+
         let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
         std::fs::create_dir_all(&report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
@@ -192,16 +242,18 @@ impl ActionOnKill for WriteReportHtmlFile {
             )?;
             // MODIFIED: Use threat_type_label and add Detection (virus_name)
             file.write_all(format!(
-                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li> <li>Started on<b id='startDate'> {}</b></li><li>Killed on<b id='killedDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details: <b id='details'> {}</b></li></ul></td></tr></table>\n", 
+                "<br/><table><tr><td style='text-align: center;'><h3>{} detected running from: <span style='color: red;' id='fullPath'>{}</span></h3></td></tr><tr valign='top'><td style='text-align: left;'><ul><li>Process State:<b id='processState'> {}</b></li><li>Started on<b id='startDate'> {}</b></li><li>Response:<b id='response'> {}</b></li><li>{}<b id='responseDate'> {}</b></li><li>GID: <b id='gid'> {}</b></li><li>Detection: <b id='detection'> {}</b></li><li>Certainty: <b id='certainty'> {}</b></li><li>Details: <b id='details'> {}</b></li></ul></td></tr></table>\n",
                 threat_info.threat_type_label, // 1. Threat Type
                 proc.exepath.to_string_lossy(), // 2. Path
                 proc.process_state, // 3. State
                 stime_started.format(LONG_TIME_FORMAT), // 4. Start time
-                DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 5. Kill time
-                proc.gid, // 6. GID
-                threat_info.virus_name, // 7. Virus Name
-                threat_info.prediction, // 8. Certainty
-                threat_info.match_details.as_deref().unwrap_or("N/A") // 9. Details
+                threat_info.response_label(), // 5. Response action
+                threat_info.response_time_label(), // 6. Response time label
+                DateTime::<Local>::from(proc.time_killed.unwrap_or_else(SystemTime::now)).format(LONG_TIME_FORMAT), // 7. Response time
+                proc.gid, // 8. GID
+                threat_info.virus_name, // 9. Virus Name
+                threat_info.prediction, // 10. Certainty
+                threat_info.match_details.as_deref().unwrap_or("N/A") // 11. Details
             ).as_bytes())?;
             file.write_all(b"<table><tr><td><div class='tab'>\n")?;
             file.write_all(format!("<button class='tablinks' onclick=\"openTab(event,'files_u')\">Files updated ({})</button>\n", &proc.fpaths_updated.len()).as_bytes())?;
@@ -233,6 +285,10 @@ impl ActionOnKill for Connectors {
         threat_info: &ThreatInfo,
         _now: &str,
     ) -> Result<(), Box<dyn Error>> {
+        if !threat_info.should_notify() {
+            return Ok(());
+        }
+
         // MODIFIED: Use prediction from struct
         Connectors::on_event_kill(config, proc, threat_info.prediction);
         Ok(())

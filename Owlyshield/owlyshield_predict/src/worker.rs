@@ -328,6 +328,7 @@ pub mod process_record_handling {
                         terminate: true,
                         kill_and_remove: true,
                         quarantine: true,
+                        notify_user: true,
                         revert: true,
                     };
                     
@@ -379,6 +380,8 @@ pub mod process_record_handling {
                         match_details: None,
                         terminate: true,
                         quarantine: true,
+                        kill_and_remove: false,
+                        notify_user: true,
                         revert: true,
                     };
 
@@ -600,9 +603,11 @@ pub mod worker_instance {
     use chrono::{DateTime, Utc};
     use log::error;
     use rumqtt::{MqttClient, MqttOptions, QoS};
+    use crate::actions_on_kill::{ActionsOnKill, ThreatInfo};
     use crate::config::{Config, Param};
     use crate::csvwriter::CsvWriter;
     use crate::ExepathLive;
+    use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::whitelist::WhiteList;
     use crate::worker::process_record_handling::{
@@ -776,6 +781,46 @@ pub mod worker_instance {
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
+            record.is_malicious = true;
+            record.termination_requested = det.termination_requested;
+            record.quarantine_requested = det.quarantine_requested;
+            record.kill_and_remove_requested = det.kill_and_remove_requested;
+            record.notify_user_requested = det.notify_user_requested;
+            record.revert_requested = det.revert_requested;
+            record.triggered_rule_name = det.triggered_rule_name.clone();
+
+            if det.termination_requested {
+                record.process_state = ProcessState::Killed;
+                record.time_killed = Some(std::time::SystemTime::now());
+            }
+        }
+
+        #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+        fn build_behavior_threat_info<'b>(det: &'b ProcessRecord, context: &str) -> ThreatInfo<'b> {
+            let virus_name = det
+                .triggered_rule_name
+                .as_deref()
+                .unwrap_or("Behavioral Detection");
+            let match_details = match &det.triggered_rule_name {
+                Some(rule_name) => Some(format!("Rule '{}' matched during {}", rule_name, context)),
+                None => Some(format!("Behavioral detection matched during {}", context)),
+            };
+
+            ThreatInfo {
+                threat_type_label: "Behavioral Detection",
+                virus_name,
+                prediction: 1.0,
+                match_details,
+                terminate: det.termination_requested,
+                quarantine: det.quarantine_requested,
+                kill_and_remove: det.kill_and_remove_requested,
+                notify_user: det.notify_user_requested,
+                revert: det.revert_requested,
+            }
+        }
 
         #[cfg(feature = "realtime_learning")]
         fn realtime_learning_output_dir(config: &Config) -> &str {
@@ -1316,39 +1361,44 @@ pub mod worker_instance {
                 }
 
                 // --- FIFTH: Apply detections to process records ---
+                let mut terminated_gids = HashSet::new();
                 for det in detections {
+                    if terminated_gids.contains(&det.gid) {
+                        continue;
+                    }
+
+                    let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                    let threat_info = Self::build_behavior_threat_info(&det, "periodic behavior scan");
                     let matching_record = self.process_records.process_records
                         .iter_mut()
                         .find(|(gid, _)| **gid == det.gid);
                     
                     if let Some((_, record)) = matching_record {
-                        record.is_malicious = true;
-                        record.termination_requested = det.termination_requested;
-                        record.quarantine_requested = det.quarantine_requested;
+                        Self::apply_behavior_detection_state(record, &det);
                         Logging::warning(&format!("[DETECTION] Process {} (GID: {}) marked malicious", record.appname, det.gid));
-                        
-                        // If termination is requested, execute via threat_handler and cleanup
+                        ActionsOnKill::with_handler(threat_handler.clone_box())
+                            .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
+
                         if det.termination_requested {
-                            if let Some(_) = self.behavior_engine.process_states.get(&det.gid) {
-                                threat_handler.kill(det.gid);
-                                // FIX: Cleanup killed process immediately
-                                self.cleanup_process(det.gid, "Killed (malicious)");
-                            }
+                            terminated_gids.insert(det.gid);
                         }
                     } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
                         // Handle detection for process not yet in records
                         let mut precord = ProcessRecord::new(det.gid, state.app_name.clone(), state.exe_path.clone());
-                        precord.is_malicious = true;
-                        precord.termination_requested = det.termination_requested;
-                        precord.quarantine_requested = det.quarantine_requested;
-                        self.process_records.insert_precord(det.gid, precord);
-                        
+                        Self::apply_behavior_detection_state(&mut precord, &det);
+                        ActionsOnKill::with_handler(threat_handler.clone_box())
+                            .run_actions_with_info(config, &precord, &dummy_pred_mtrx, &threat_info);
+
                         if det.termination_requested {
-                            threat_handler.kill(det.gid);
-                            // FIX: Cleanup killed process immediately
-                            self.cleanup_process(det.gid, "Killed (malicious)");
+                            terminated_gids.insert(det.gid);
+                        } else {
+                            self.process_records.insert_precord(det.gid, precord);
                         }
                     }
+                }
+
+                for gid in terminated_gids {
+                    self.cleanup_process(gid, "Killed (behavior detection)");
                 }
             }
         }
@@ -1475,75 +1525,91 @@ pub mod worker_instance {
             if is_process_create {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
+
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            let mut cleanup_after_creation_detection = false;
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes, run static scan immediately
                 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                 if is_process_create {
-
                     if let Some(ref th) = self.threat_handler {
                         let detections = self.behavior_engine.scan_all_processes(config, &**th);
                         for det in detections {
                             if det.gid == tracking_key {
-                                precord.is_malicious = true;
-                                precord.termination_requested = det.termination_requested;
-                                precord.quarantine_requested = det.quarantine_requested;
+                                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                                let threat_info = Self::build_behavior_threat_info(&det, "creation-time behavior scan");
+
+                                Self::apply_behavior_detection_state(precord, &det);
+                                ActionsOnKill::with_handler(th.clone_box())
+                                    .run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
                                 Logging::info(&format!(
                                     "[BEHAVIOR SCAN] Process {} (GID: {}, PID: {}) triggered detection on creation",
                                     precord.appname, precord.gid, iomsg.pid
                                 ));
+
+                                if det.termination_requested {
+                                    cleanup_after_creation_detection = true;
+                                }
                                 break;
                             }
                         }
                     }
                 }
-                
-                // Add IRP record to process
-                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                {
-                    if let Some(av_integration) = self.av_integration.as_mut() {
-                        precord.add_irp_record(iomsg, Some(av_integration));
-                    } else {
+
+                if !cleanup_after_creation_detection {
+                    // Add IRP record to process
+                    #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                    {
+                        if let Some(av_integration) = self.av_integration.as_mut() {
+                            precord.add_irp_record(iomsg, Some(av_integration));
+                        } else {
+                            precord.add_irp_record(iomsg, None);
+                        }
+                    }
+
+                    #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+                    {
                         precord.add_irp_record(iomsg, None);
                     }
-                }
-                
-                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
-                {
-                    precord.add_irp_record(iomsg, None);
-                }
 
-                // Process behavioral event
-                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-                if let Some(ref th) = self.threat_handler {
-                    self.behavior_engine.process_event(precord, iomsg, config, &**th);
-                }
-                
-                // Update learning engine
-                #[cfg(feature = "realtime_learning")]
-                {
-                    self.learning_engine.update_activity(tracking_key);
-                    if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
-                        tracker.track_io_operation(iomsg, precord);
+                    // Process behavioral event
+                    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                    if let Some(ref th) = self.threat_handler {
+                        self.behavior_engine.process_event(precord, iomsg, config, &**th);
+                    }
+
+                    // Update learning engine
+                    #[cfg(feature = "realtime_learning")]
+                    {
+                        self.learning_engine.update_activity(tracking_key);
+                        if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
+                            tracker.track_io_operation(iomsg, precord);
+                        }
+                    }
+
+                    // Run process record handler (e.g., prediction)
+                    if let Some(process_record_handler) = &mut self.process_record_handler {
+                        process_record_handler.handle_io(precord);
+                    }
+
+                    // Handle process termination
+                    if is_process_terminate {
+                        precord.process_state = ProcessState::Terminated;
+                        Logging::info(&format!("[KERNEL] Process Terminated: {} (GID: {}, PID: {})",
+                            precord.appname, precord.gid, iomsg.pid));
+                    }
+
+                    // Run postprocessors
+                    for postprocessor in &mut self.iomsg_postprocessors {
+                        postprocessor.postprocess(iomsg, precord);
                     }
                 }
+            }
 
-                // Run process record handler (e.g., prediction)
-                if let Some(process_record_handler) = &mut self.process_record_handler {
-                    process_record_handler.handle_io(precord);
-                }
-
-                // Handle process termination
-                if is_process_terminate {
-                    precord.process_state = ProcessState::Terminated;
-                    Logging::info(&format!("[KERNEL] Process Terminated: {} (GID: {}, PID: {})", 
-                        precord.appname, precord.gid, iomsg.pid));
-                }
-
-                // Run postprocessors
-                for postprocessor in &mut self.iomsg_postprocessors {
-                    postprocessor.postprocess(iomsg, precord);
-                }
+            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            if cleanup_after_creation_detection {
+                self.cleanup_process(tracking_key, "Killed (behavior detection on creation)");
             }
 
             // FIX: Cleanup on termination - works regardless of feature flags

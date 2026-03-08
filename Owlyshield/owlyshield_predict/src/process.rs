@@ -172,6 +172,10 @@ pub struct ProcessRecord {
     pub quarantine_requested: bool,
     /// Termination requested by behavior engine
     pub termination_requested: bool,
+    /// Remove-on-kill requested by behavior engine
+    pub kill_and_remove_requested: bool,
+    /// User notification requested by behavior engine
+    pub notify_user_requested: bool,
     /// Registry revert requested by behavior engine
     pub revert_requested: bool,
     /// Name of the rule that was triggered
@@ -311,6 +315,8 @@ impl ProcessRecord {
             is_malicious: false,
             termination_requested: false,
             quarantine_requested: false,
+            kill_and_remove_requested: false,
+            notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
             time_started: SystemTime::now(),
@@ -401,6 +407,8 @@ impl ProcessRecord {
             is_malicious: false,
             termination_requested: false,
             quarantine_requested: false,
+            kill_and_remove_requested: false,
+            notify_user_requested: false,
             revert_requested: false,
             triggered_rule_name: None,
             time_started: SystemTime::now(),
