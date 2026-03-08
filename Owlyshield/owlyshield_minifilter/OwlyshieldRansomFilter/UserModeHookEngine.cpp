@@ -3545,6 +3545,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 if (hookStatus == STATUS_NOT_FOUND             ||
                     hookStatus == STATUS_PROCEDURE_NOT_FOUND   ||
                     hookStatus == STATUS_NOT_SUPPORTED         ||
+                    hookStatus == STATUS_INVALID_PARAMETER     ||
                     hookStatus == STATUS_ACCESS_VIOLATION      ||
                     hookStatus == STATUS_INVALID_ADDRESS       ||
                     hookStatus == STATUS_CONFLICTING_ADDRESSES)
