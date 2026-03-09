@@ -116,7 +116,21 @@ typedef struct _PEB32 {
 #define HOOK_REENTRANCY_MAGIC_32  ((ULONG32)0xFEEDF00DUL)
 
 // Function Pointer Types
+typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                    _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
+                                                    _Out_ PULONG OldProtect);
+
 typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
+
+typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                     _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
+                                                     _In_ ULONG AllocationType, _In_ ULONG Protect);
+typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
+                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
+                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
+                                               _In_ ULONG Options);
+typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
+                                                 _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
 
@@ -304,22 +318,99 @@ static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buff
     return (SIZE_T)-1;
 }
 
+static BOOLEAN NormalizeKernelPathLower(_In_ PCUNICODE_STRING InputPath,
+                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                                        _Out_ PUNICODE_STRING NormalizedPath)
+{
+    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
+}
+
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[HOOK_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
+    SIZE_T start = 0;
+    SIZE_T end = RuleChars;
+    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
-    if (!OwlyNormalizeRuleLineForMatch(RuleText,
-                                       RuleChars,
-                                       normalizedLine,
-                                       RTL_NUMBER_OF(normalizedLine),
-                                       TRUE,
-                                       &lineLen) ||
-        lineLen == 0)
+    if (RuleText == NULL || RuleChars == 0)
     {
         return STATUS_SUCCESS;
     }
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+
+    for (SIZE_T i = start; i < end; ++i)
+    {
+        if (RuleText[i] == L'#')
+        {
+            commentPos = i;
+            break;
+        }
+        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
+        {
+            commentPos = i;
+            break;
+        }
+    }
+    if (commentPos != (SIZE_T)-1)
+    {
+        end = commentPos;
+    }
+
+    while (end > start &&
+           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
+    {
+        end--;
+    }
+    if (end <= start)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
+    {
+        WCHAR ch = RuleText[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
+    }
+    normalizedLine[lineLen] = L'\0';
+
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'?' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+    if (lineLen >= 4 &&
+        normalizedLine[0] == L'\\' &&
+        normalizedLine[1] == L'\\' &&
+        normalizedLine[2] == L'?' &&
+        normalizedLine[3] == L'\\')
+    {
+        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+
+    if (lineLen == 0 || normalizedLine[0] == L'#')
+    {
+        return STATUS_SUCCESS;
+    }
+    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    {
+        return STATUS_SUCCESS;
+    }
+
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
         if (_wcsicmp(g_HookExcludeRules.Rules[i], normalizedLine) == 0)
@@ -327,11 +418,13 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
             return STATUS_SUCCESS;
         }
     }
+
     status = EnsureHookExcludeRuleCapacityUnlocked(g_HookExcludeRules.Count + 1);
     if (!NT_SUCCESS(status))
     {
         return status;
     }
+
     {
         SIZE_T allocSize = (lineLen + 1) * sizeof(WCHAR);
         PWSTR newRule = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, HOOK_RULE_POOL_TAG);
@@ -344,6 +437,7 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
         newRule[lineLen] = L'\0';
         g_HookExcludeRules.Rules[g_HookExcludeRules.Count++] = newRule;
     }
+
     return STATUS_SUCCESS;
 }
 
@@ -555,45 +649,6 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     InterlockedExchange(&g_HookExcludeLoadState, 2);
 }
 
-static BOOLEAN PathMatchesExcludeRule(_In_z_ PCWSTR NormalizedPath,
-                                    _In_z_ PCWSTR NormalizedRule)
-{
-    SIZE_T pathLen;
-    SIZE_T ruleLen;
-
-    if (NormalizedPath == NULL || NormalizedRule == NULL ||
-        NormalizedPath[0] == L'\0' || NormalizedRule[0] == L'\0')
-    {
-        return FALSE;
-    }
-
-    pathLen = wcslen(NormalizedPath);
-    ruleLen = wcslen(NormalizedRule);
-    if (ruleLen == 0 || pathLen < ruleLen)
-    {
-        return FALSE;
-    }
-
-    if (RtlCompareMemory(NormalizedPath,
-                         NormalizedRule,
-                         ruleLen * sizeof(WCHAR)) != ruleLen * sizeof(WCHAR))
-    {
-        return FALSE;
-    }
-
-    if (pathLen == ruleLen)
-    {
-        return TRUE;
-    }
-
-    if (NormalizedRule[ruleLen - 1] == L'\\')
-    {
-        return TRUE;
-    }
-
-    return (NormalizedPath[ruleLen] == L'\\');
-}
-
 static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
 {
     BOOLEAN matched = FALSE;
@@ -609,10 +664,10 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     //
     // Rules in the exclusion file are written against the system drive.
     // Accepting any drive letter here would allow a malicious binary at
-    // d:\c:\program files\vendor\evil.exe to pass the guard. Match
-    // rules only as exact paths or directory prefixes on a component
-    // boundary so moved/copied files outside the excluded tree do not keep
-    // inheriting the exclusion because of a raw substring hit.
+    // d:\c:\program files\vendor\evil.exe to pass the guard, after which
+    // wcsstr() finds "c:\program files\vendor\" as a substring and the
+    // process is silently excluded from hooking - a trivial evasion vector.
+    // The guard must remain 'c' so only genuine system-drive paths match.
     if (!(NormalizedPath->Buffer[0] == L'c' &&
           NormalizedPath->Buffer[1] == L':' &&
           NormalizedPath->Buffer[2] == L'\\'))
@@ -620,14 +675,14 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
         return FALSE;
     }
 
+
     EnsureHookExcludeRulesLoaded();
     EnsureHookExcludeRuleMutex();
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
         PCWSTR rule = g_HookExcludeRules.Rules[i];
-        if (rule != NULL && rule[0] != L'\0' &&
-            PathMatchesExcludeRule(NormalizedPath->Buffer, rule))
+        if (rule != NULL && rule[0] != L'\0' && wcsstr(NormalizedPath->Buffer, rule) != NULL)
         {
             matched = TRUE;
             break;
@@ -663,7 +718,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process)
         return FALSE;
     }
 
-    if (!OwlyNormalizePathForMatch(processImagePath, normalizedPathBuffer, &normalizedPath))
+    if (!NormalizeKernelPathLower(processImagePath, normalizedPathBuffer, &normalizedPath))
     {
         ExFreePool(processImagePath);
         return FALSE;
@@ -777,7 +832,6 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     return STATUS_SUCCESS;
 }
 
-_Success_(return != FALSE)
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch)
 {
     BOOLEAN found = FALSE;
@@ -1023,7 +1077,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             b = Bytes[i];
         }
 
-        // Short/near relative branches target changes at new VA.
+        // Short/near relative branches - target changes at new VA.
         if (b == 0xEB || b == 0xE9 || b == 0xE8)
             return TRUE;
         if ((b & 0xF0) == 0x70)  // Jcc rel8: JO/JNO/JB/JAE/JE/JNE/.../JG
@@ -1745,6 +1799,7 @@ VOID UserModeHookEngineCleanup(VOID)
     FreeHookExcludeRulesUnlocked();
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    InterlockedExchange(&g_HookExcludeLoadState, 0);
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
@@ -1758,17 +1813,18 @@ VOID UserModeHookEngineCleanup(VOID)
 PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
+    UNICODE_STRING targetModuleName;
+
+    RtlInitUnicodeString(&targetModuleName, ModuleName);
 
     if (ModuleSize != NULL)
         *ModuleSize = 0;
 
     __try
     {
-        // Guard against failed dynamic resolve at init time.
         if (fnPsGetProcessPeb == NULL)
             return NULL;
 
-        // FIX: Use the function pointer
         PPEB peb = fnPsGetProcessPeb(Process);
 
         if (peb)
@@ -1784,7 +1840,6 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 
                 while (listEntry != listHead && safetyCounter++ < 1024)
                 {
-                    // Probe the LIST_ENTRY itself before deriving ldrEntry from it.
                     ProbeForRead(listEntry, sizeof(LIST_ENTRY), sizeof(PVOID));
 
                     PLDR_DATA_TABLE_ENTRY ldrEntry =
@@ -1793,8 +1848,16 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 
                     if (ldrEntry->BaseDllName.Buffer && ldrEntry->BaseDllName.Length > 0)
                     {
-                        ProbeForRead(ldrEntry->BaseDllName.Buffer, ldrEntry->BaseDllName.Length, 1);
-                        if (_wcsicmp(ldrEntry->BaseDllName.Buffer, ModuleName) == 0)
+                        UNICODE_STRING currentBaseName;
+
+                        ProbeForRead(ldrEntry->BaseDllName.Buffer,
+                                     ldrEntry->BaseDllName.Length,
+                                     sizeof(WCHAR));
+                        currentBaseName.Length = ldrEntry->BaseDllName.Length;
+                        currentBaseName.MaximumLength = ldrEntry->BaseDllName.Length;
+                        currentBaseName.Buffer = ldrEntry->BaseDllName.Buffer;
+
+                        if (RtlEqualUnicodeString(&currentBaseName, &targetModuleName, TRUE))
                         {
                             moduleBase = ldrEntry->DllBase;
                             if (ModuleSize)
@@ -1802,7 +1865,6 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
                             break;
                         }
                     }
-                    // Read Flink AFTER probing ldrEntry (it lives inside ldrEntry's memory).
                     listEntry = ldrEntry->InLoadOrderLinks.Flink;
                 }
             }
@@ -1820,18 +1882,135 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 // Find exported function
 //
 
-PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+#define USERMODE_HOOK_MAX_FORWARDER_DEPTH 8
+
+static BOOLEAN ReadNullTerminatedAnsiString(
+    _In_ PCSTR Source,
+    _Out_writes_(DestinationCount) PCHAR Destination,
+    _In_ SIZE_T DestinationCount)
+{
+    if (Source == NULL || Destination == NULL || DestinationCount < 2)
+        return FALSE;
+
+    __try
+    {
+        for (SIZE_T i = 0; i < DestinationCount - 1; ++i)
+        {
+            ProbeForRead((PVOID)(Source + i), 1, 1);
+            Destination[i] = Source[i];
+            if (Destination[i] == '\0')
+                return TRUE;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        Destination[0] = '\0';
+        return FALSE;
+    }
+
+    Destination[0] = '\0';
+    return FALSE;
+}
+
+static BOOLEAN ParseForwarderString(
+    _In_ PCSTR ForwarderString,
+    _Out_writes_(ModuleNameCch) PWSTR ModuleNameW,
+    _In_ SIZE_T ModuleNameCch,
+    _Out_writes_(ExportNameCch) PCHAR ExportNameA,
+    _In_ SIZE_T ExportNameCch)
+{
+    CHAR forwarder[256];
+    LONG splitIndex = -1;
+    SIZE_T forwarderLen = 0;
+    SIZE_T moduleLen = 0;
+    BOOLEAN hasDotInModuleName = FALSE;
+
+    if (ModuleNameW == NULL || ExportNameA == NULL ||
+        ModuleNameCch < RTL_NUMBER_OF(L".dll") + 1 || ExportNameCch < 2)
+    {
+        return FALSE;
+    }
+
+    ModuleNameW[0] = L'\0';
+    ExportNameA[0] = '\0';
+
+    if (!ReadNullTerminatedAnsiString(ForwarderString, forwarder, RTL_NUMBER_OF(forwarder)))
+        return FALSE;
+
+    forwarderLen = strlen(forwarder);
+    if (forwarderLen < 3)
+        return FALSE;
+
+    for (LONG i = (LONG)forwarderLen - 1; i >= 0; --i)
+    {
+        if (forwarder[i] == '.')
+        {
+            splitIndex = i;
+            break;
+        }
+    }
+
+    if (splitIndex <= 0 || (SIZE_T)(splitIndex + 1) >= forwarderLen)
+        return FALSE;
+
+    moduleLen = (SIZE_T)splitIndex;
+    for (SIZE_T i = 0; i < moduleLen; ++i)
+    {
+        if (forwarder[i] == '.')
+        {
+            hasDotInModuleName = TRUE;
+            break;
+        }
+    }
+
+    if ((forwarderLen - ((SIZE_T)splitIndex + 1) + 1) > ExportNameCch)
+        return FALSE;
+
+    for (SIZE_T i = 0; i < moduleLen; ++i)
+    {
+        if (i + 1 >= ModuleNameCch)
+            return FALSE;
+        ModuleNameW[i] = (WCHAR)(UCHAR)forwarder[i];
+    }
+    ModuleNameW[moduleLen] = L'\0';
+
+    if (!hasDotInModuleName)
+    {
+        if (!NT_SUCCESS(RtlStringCchCatW(ModuleNameW, ModuleNameCch, L".dll")))
+            return FALSE;
+    }
+
+    if (!NT_SUCCESS(RtlStringCchCopyA(ExportNameA, ExportNameCch, forwarder + splitIndex + 1)))
+        return FALSE;
+
+    return TRUE;
+}
+
+static PVOID FindExportedFunctionDirect(
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
+    SIZE_T targetLen = 0;
 
-    if (ModuleBase == NULL || FunctionName == NULL)
+    if (ForwarderString != NULL)
+        *ForwarderString = NULL;
+
+    if (ModuleBase == NULL)
         return NULL;
 
-    // Pre-compute the search name length once (FunctionName is a kernel literal,
-    // safe to call strlen on directly).
-    SIZE_T targetLen = strlen(FunctionName);
-    if (targetLen == 0 || targetLen > 255)
-        return NULL;
+    if (!ResolveByOrdinal)
+    {
+        if (FunctionName == NULL)
+            return NULL;
+
+        targetLen = strlen(FunctionName);
+        if (targetLen == 0 || targetLen > 255)
+            return NULL;
+    }
 
     __try
     {
@@ -1840,7 +2019,6 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        // e_lfanew is a ULONG - validate range before pointer arithmetic.
         if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) ||
             dosHeader->e_lfanew > 0x10000000UL)
             return NULL;
@@ -1863,67 +2041,142 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
-        if (exportDir->NumberOfNames == 0 || exportDir->NumberOfFunctions == 0)
+        if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        // Probe the three export tables upfront before indexing into them.
-        PULONG  addressOfFunctions =
+        PULONG addressOfFunctions =
             (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        PULONG  addressOfNames =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-        PUSHORT addressOfNameOrdinals =
-            (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
-
         ProbeForRead(addressOfFunctions,
                      (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNames,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNameOrdinals,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
-        for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
+        ULONG funcRva = 0;
+
+        if (ResolveByOrdinal)
         {
-            // Validate RVA before building the pointer.
-            ULONG nameRva = addressOfNames[i];
-            if (nameRva == 0)
-                continue;
+            if ((ULONG)Ordinal < exportDir->Base)
+                return NULL;
 
-            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+            ULONG functionIndex = (ULONG)Ordinal - exportDir->Base;
+            if (functionIndex >= exportDir->NumberOfFunctions)
+                return NULL;
 
-            // Probe a fixed maximum - we MUST probe currentName BEFORE calling
-            // any C-runtime string function on it.  The old code passed
-            // strlen(FunctionName) as the probe length, which probed the
-            // WRONG length and on the WRONG memory: if currentName pointed to
-            // a short or unmapped string, strlen would fault inside the probe.
-            ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+            funcRva = addressOfFunctions[functionIndex];
+        }
+        else
+        {
+            if (exportDir->NumberOfNames == 0)
+                return NULL;
 
-            // strncmp is safe here: currentName is probed for at least
-            // targetLen+1 bytes, so we won't read past the probe boundary
-            // even if the export name is shorter than targetLen.
-            if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+            PULONG addressOfNames =
+                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals =
+                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+
+            ProbeForRead(addressOfNames,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+
+            for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
-                USHORT ordinal = addressOfNameOrdinals[i];
-                if (ordinal >= exportDir->NumberOfFunctions)
-                    break;  // corrupt export table
+                ULONG nameRva = addressOfNames[i];
+                if (nameRva == 0)
+                    continue;
 
-                ULONG funcRva = addressOfFunctions[ordinal];
-                if (funcRva == 0)
+                PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+                ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+
+                if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+                {
+                    USHORT ordinalIndex = addressOfNameOrdinals[i];
+                    if (ordinalIndex >= exportDir->NumberOfFunctions)
+                        break;
+
+                    funcRva = addressOfFunctions[ordinalIndex];
                     break;
-
-                // Reject forwarder RVAs (they point inside the export directory).
-                if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
-                    break;
-
-                functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
-                break;
+                }
             }
         }
+
+        if (funcRva == 0)
+            return NULL;
+
+        if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
+        {
+            if (ForwarderString != NULL)
+            {
+                *ForwarderString = (PCSTR)((PUCHAR)ModuleBase + funcRva);
+            }
+            return NULL;
+        }
+
+        functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         functionAddress = NULL;
+        if (ForwarderString != NULL)
+            *ForwarderString = NULL;
     }
     return functionAddress;
+}
+
+PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunctionDirect(ModuleBase, FunctionName, 0, FALSE, NULL);
+}
+
+static PVOID FindExportedFunctionResolvedInternal(
+    _In_ PEPROCESS Process,
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _In_ ULONG ForwarderDepth)
+{
+    PCSTR forwarderString = NULL;
+    PVOID functionAddress = FindExportedFunctionDirect(
+        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+
+    if (functionAddress != NULL || forwarderString == NULL ||
+        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    {
+        return functionAddress;
+    }
+
+    WCHAR forwardedModuleName[128];
+    CHAR forwardedExportName[128];
+    if (!ParseForwarderString(forwarderString,
+                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+                              forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
+    {
+        return NULL;
+    }
+
+    PVOID forwardedModuleBase = FindModuleBaseAddress(Process, forwardedModuleName, NULL);
+    if (forwardedModuleBase == NULL)
+        return NULL;
+
+    if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
+    {
+        ULONG ordinalValue = 0;
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
+            ordinalValue > 0xFFFFUL)
+        {
+            return NULL;
+        }
+
+        return FindExportedFunctionResolvedInternal(
+            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+    }
+
+    return FindExportedFunctionResolvedInternal(
+        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+}
+
+PVOID FindExportedFunctionResolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunctionResolvedInternal(Process, ModuleBase, FunctionName, 0, FALSE, 0);
 }
 
 // -------------------------------------------------------------------------
@@ -1940,6 +2193,9 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
 PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out_opt_ PSIZE_T ModuleSize)
 {
     PVOID moduleBase = NULL;
+    UNICODE_STRING targetModuleName;
+
+    RtlInitUnicodeString(&targetModuleName, ModuleName);
 
     if (ModuleSize != NULL)
         *ModuleSize = 0;
@@ -1984,9 +2240,18 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
             if (entry->BaseDllName.Buffer != 0 && entry->BaseDllName.Length > 0)
             {
                 PWSTR nameBuffer = (PWSTR)(ULONG_PTR)entry->BaseDllName.Buffer;
-                ProbeForRead(nameBuffer, entry->BaseDllName.Length, 1);
+                UNICODE_STRING currentBaseName;
 
-                if (_wcsicmp(nameBuffer, ModuleName) == 0)
+                // The 32-bit LDR stores a counted UNICODE_STRING32.  Do not call
+                // _wcsicmp on it: that assumes NUL termination and can read past
+                // the probed buffer into an unmapped page, faulting with
+                // STATUS_ACCESS_VIOLATION.  Compare as counted strings instead.
+                ProbeForRead(nameBuffer, entry->BaseDllName.Length, sizeof(WCHAR));
+                currentBaseName.Length = (USHORT)entry->BaseDllName.Length;
+                currentBaseName.MaximumLength = (USHORT)entry->BaseDllName.Length;
+                currentBaseName.Buffer = nameBuffer;
+
+                if (RtlEqualUnicodeString(&currentBaseName, &targetModuleName, TRUE))
                 {
                     moduleBase = (PVOID)(ULONG_PTR)entry->DllBase;
                     if (ModuleSize != NULL)
@@ -2016,16 +2281,31 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
 //
 // Must be called from within a KeStackAttachProcess context.
 // -------------------------------------------------------------------------
-PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+static PVOID FindExportedFunction32Direct(
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
+    SIZE_T targetLen = 0;
 
-    if (ModuleBase == NULL || FunctionName == NULL)
+    if (ForwarderString != NULL)
+        *ForwarderString = NULL;
+
+    if (ModuleBase == NULL)
         return NULL;
 
-    SIZE_T targetLen = strlen(FunctionName);
-    if (targetLen == 0 || targetLen > 255)
-        return NULL;
+    if (!ResolveByOrdinal)
+    {
+        if (FunctionName == NULL)
+            return NULL;
+
+        targetLen = strlen(FunctionName);
+        if (targetLen == 0 || targetLen > 255)
+            return NULL;
+    }
 
     __try
     {
@@ -2038,8 +2318,6 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             dosHeader->e_lfanew > 0x10000000L)
             return NULL;
 
-        // Use IMAGE_NT_HEADERS32 explicitly - the image is 32-bit regardless
-        // of the host architecture.
         PIMAGE_NT_HEADERS32 ntHeaders =
             (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
         ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS32), 1);
@@ -2047,11 +2325,10 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
             return NULL;
 
-        // Validate magic - must be PE32 (0x10B), not PE32+ (0x20B).
         if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
             return NULL;
 
-        ULONG exportDirRva  =
+        ULONG exportDirRva =
             ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
         ULONG exportDirSize =
             ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
@@ -2063,57 +2340,143 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
-        if (exportDir->NumberOfNames == 0 || exportDir->NumberOfFunctions == 0)
+        if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        PULONG  addressOfFunctions =
+        PULONG addressOfFunctions =
             (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        PULONG  addressOfNames =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-        PUSHORT addressOfNameOrdinals =
-            (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
-
         ProbeForRead(addressOfFunctions,
                      (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNames,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-        ProbeForRead(addressOfNameOrdinals,
-                     (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
-        for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
+        ULONG funcRva = 0;
+
+        if (ResolveByOrdinal)
         {
-            ULONG nameRva = addressOfNames[i];
-            if (nameRva == 0)
-                continue;
+            if ((ULONG)Ordinal < exportDir->Base)
+                return NULL;
 
-            PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
-            ProbeForRead((PVOID)currentName, targetLen + 1, 1);
+            ULONG functionIndex = (ULONG)Ordinal - exportDir->Base;
+            if (functionIndex >= exportDir->NumberOfFunctions)
+                return NULL;
 
-            if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+            funcRva = addressOfFunctions[functionIndex];
+        }
+        else
+        {
+            if (exportDir->NumberOfNames == 0)
+                return NULL;
+
+            PULONG addressOfNames =
+                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals =
+                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+
+            ProbeForRead(addressOfNames,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals,
+                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+
+            for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
-                USHORT ordinal = addressOfNameOrdinals[i];
-                if (ordinal >= exportDir->NumberOfFunctions)
-                    break;
+                ULONG nameRva = addressOfNames[i];
+                if (nameRva == 0)
+                    continue;
 
-                ULONG funcRva = addressOfFunctions[ordinal];
-                if (funcRva == 0)
-                    break;
+                PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
+                ProbeForRead((PVOID)currentName, targetLen + 1, 1);
 
-                // Reject forwarder RVAs.
-                if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
-                    break;
+                if (strncmp(currentName, FunctionName, targetLen + 1) == 0)
+                {
+                    USHORT ordinalIndex = addressOfNameOrdinals[i];
+                    if (ordinalIndex >= exportDir->NumberOfFunctions)
+                        break;
 
-                functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
-                break;
+                    funcRva = addressOfFunctions[ordinalIndex];
+                    break;
+                }
             }
         }
+
+        if (funcRva == 0)
+            return NULL;
+
+        if (funcRva >= exportDirRva && funcRva < exportDirRva + exportDirSize)
+        {
+            if (ForwarderString != NULL)
+            {
+                *ForwarderString = (PCSTR)((PUCHAR)ModuleBase + funcRva);
+            }
+            return NULL;
+        }
+
+        functionAddress = (PVOID)((PUCHAR)ModuleBase + funcRva);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         functionAddress = NULL;
+        if (ForwarderString != NULL)
+            *ForwarderString = NULL;
     }
 
     return functionAddress;
+}
+
+PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunction32Direct(ModuleBase, FunctionName, 0, FALSE, NULL);
+}
+
+static PVOID FindExportedFunction32ResolvedInternal(
+    _In_ PEPROCESS Process,
+    _In_ PVOID ModuleBase,
+    _In_opt_z_ PCSTR FunctionName,
+    _In_ USHORT Ordinal,
+    _In_ BOOLEAN ResolveByOrdinal,
+    _In_ ULONG ForwarderDepth)
+{
+    PCSTR forwarderString = NULL;
+    PVOID functionAddress = FindExportedFunction32Direct(
+        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+
+    if (functionAddress != NULL || forwarderString == NULL ||
+        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    {
+        return functionAddress;
+    }
+
+    WCHAR forwardedModuleName[128];
+    CHAR forwardedExportName[128];
+    if (!ParseForwarderString(forwarderString,
+                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+                              forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
+    {
+        return NULL;
+    }
+
+    PVOID forwardedModuleBase = FindModuleBaseAddress32(Process, forwardedModuleName, NULL);
+    if (forwardedModuleBase == NULL)
+        return NULL;
+
+    if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
+    {
+        ULONG ordinalValue = 0;
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
+            ordinalValue > 0xFFFFUL)
+        {
+            return NULL;
+        }
+
+        return FindExportedFunction32ResolvedInternal(
+            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+    }
+
+    return FindExportedFunction32ResolvedInternal(
+        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+}
+
+PVOID FindExportedFunction32Resolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
+{
+    return FindExportedFunction32ResolvedInternal(Process, ModuleBase, FunctionName, 0, FALSE, 0);
 }
 
 // FIX #5: InstallUsermodeHook previously discarded the Process parameter
@@ -2709,30 +3072,26 @@ NTSTATUS ResolveAndHook32(
     PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
     if (!modBase) return STATUS_NOT_FOUND;
 
-    HookDef->Address = FindExportedFunction32(modBase, FunctionName);
+    HookDef->Address = FindExportedFunction32Resolved(Process, modBase, FunctionName);
     if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry,
                                HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// ROOT CAUSE FIX - device handle opened in ASYNCHRONOUS mode.
+// ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS.
 //
-// The original design opened the device handle with FILE_SYNCHRONOUS_IO_NONALERT.
-// That flag causes NtDeviceIoControlFile (called by the shellcode in the target
-// process) to block the calling thread inside the kernel until the driver
-// completes the IRP.  Any resource that thread holds and that the driver or
-// kernel requires to make progress produces a deadlock.  Consequences observed:
-//   * Process exit hang     - teardown waits on thread stuck in IOCTL
-//   * I/O events stopping   - hooked NtWriteFile/NtReadFile thread never returns
-//   * Restart impossible    - process object not released while thread is stuck
+// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
+// If the handle is opened asynchronously, NtDeviceIoControlFile can return
+// STATUS_PENDING and complete later, after the shellcode has already restored
+// registers and returned to the caller. The eventual completion then writes
+// final status back through a stale stack pointer, corrupting user-mode state
+// and producing hangs during exit, restart, and general I/O.
 //
-// Fix: open the device handle WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
-//   * NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING immediately.
-//   * METHOD_BUFFERED copies HOOK_EVENT_DATA into a system buffer BEFORE queuing,
-//     so the stack payload is captured correctly even though the call is async.
-//   * The calling thread is NEVER blocked - fire-and-forget notification.
-//   * IRP completion APC fires on the next alertable wait; harmless for our use.
+// Fix: open the device handle WITH FILE_SYNCHRONOUS_IO_NONALERT.
+//   * NtDeviceIoControlFile does not return until the driver completes.
+//   * The stack-based IO_STATUS_BLOCK remains valid for the entire call.
+//   * No completion APC is needed for correctness.
 //
 // The device handle is created while attached to the target process so the
 // Object Manager places it directly into that process handle table.
@@ -2803,7 +3162,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         FILE_ATTRIBUTE_NORMAL,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         FILE_OPEN,
-                        FILE_NON_DIRECTORY_FILE, // async - no FILE_SYNCHRONOUS_IO_NONALERT
+                        // The hook shellcode passes a stack-based IO_STATUS_BLOCK
+                        // to NtDeviceIoControlFile, so this handle MUST remain
+                        // synchronous for the lifetime of the design.
+                        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
                         NULL,
                         0);
 
@@ -2820,13 +3182,53 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 
                 if (fnZwAllocateVirtualMemory)
                 {
-                    // ZeroBits=33 for WoW64: keeps allocation below 0x80000000
-                    // so that 32-bit E9 rel32 JMPs can reach the shellcode.
-                    // ZeroBits=0 for native 64-bit: FF 25 absolute JMP, no range limit.
-                    ULONG_PTR zeroBits = isWow64 ? 33ULL : 0ULL;
-                    status = fnZwAllocateVirtualMemory(
-                        ZwCurrentProcess(), &baseAddress, zeroBits,
-                        &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                    if (!isWow64)
+                    {
+                        // Native 64-bit: FF 25 absolute JMP, no range limit.
+                        status = fnZwAllocateVirtualMemory(
+                            ZwCurrentProcess(), &baseAddress, 0,
+                            &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                    }
+                    else
+                    {
+                        // WoW64: do NOT use ZeroBits=33 here.
+                        // Nt/ZwAllocateVirtualMemory interprets ZeroBits > 32 as a
+                        // bitmask, not a count of high-order bits, so 33 does not
+                        // reliably mean "below 0x80000000".  Search explicitly in
+                        // the low address range so the 5-byte E9 rel32 trampoline
+                        // remains reachable.
+                        const ULONG_PTR lowBaseStart = 0x10000000UL;
+                        const ULONG_PTR lowBaseEnd   = 0x70000000UL;
+                        const ULONG_PTR granularity  = 0x00010000UL; // 64 KB
+                        NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
+                        BOOLEAN allocated = FALSE;
+
+                        for (ULONG_PTR hint = lowBaseStart;
+                             hint + regionSize < lowBaseEnd;
+                             hint += granularity)
+                        {
+                            PVOID candidate = (PVOID)hint;
+                            SIZE_T candidateSize = regionSize;
+                            NTSTATUS allocStatus = fnZwAllocateVirtualMemory(
+                                ZwCurrentProcess(), &candidate, 0,
+                                &candidateSize, MEM_COMMIT | MEM_RESERVE,
+                                PAGE_EXECUTE_READWRITE);
+                            if (NT_SUCCESS(allocStatus))
+                            {
+                                baseAddress = candidate;
+                                regionSize = candidateSize;
+                                status = STATUS_SUCCESS;
+                                allocated = TRUE;
+                                break;
+                            }
+                            lastAllocStatus = allocStatus;
+                        }
+
+                        if (!allocated)
+                        {
+                            status = lastAllocStatus;
+                        }
+                    }
                 }
                 else
                 {
@@ -2874,6 +3276,601 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
 
     return status;
+}
+
+//
+// Helper: Resolve and Prepare Hook
+//
+// No per-function exclusion list.  The TEB re-entrancy sentinel
+// (GS:[0x28] = FEEDF00DFEEDF00D on x64, FS:[0x14] = FEEDF00D on x86)
+// is set by every shellcode before it calls NtDeviceIoControlFile and
+// cleared afterward.  If NtDeviceIoControlFile is in the hook list, its
+// shellcode sees the sentinel already set on entry and jumps past the IOCTL.
+// Process/directory exclusions are enforced via ShouldSkipHookingProcess.
+NTSTATUS ResolveAndHook(
+    _In_    PEPROCESS           Process,
+    _In_    PPROCESS_HOOK_ENTRY HookEntry,
+    _In_    PCWSTR              ModuleName,
+    _In_    PCSTR               FunctionName,
+    _Inout_ PHOOK_DEF           HookDef,
+    _In_    ULONG               EventId,
+    _In_    PVOID               TargetNtDeviceIo
+)
+{
+    SIZE_T modSize = 0;
+    PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
+    if (!modBase) return STATUS_NOT_FOUND;
+
+    HookDef->Address = FindExportedFunctionResolved(Process, modBase, FunctionName);
+    if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
+
+    return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
+}
+
+NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
+{
+    NTSTATUS status;
+    PEPROCESS process = NULL;
+    PPROCESS_HOOK_ENTRY hookEntry = NULL;
+    ULONG customHookCountSnapshot = 0;
+    ULONG customHookCountToApply = 0;
+    PVOID ntdllBase = NULL;
+    PVOID targetNtDeviceIo = NULL;
+    BOOLEAN existingHookEntry = FALSE;
+    ULONG appliedHookCount = 0;
+    ULONG recoverableHookFailureCount = 0;
+
+    if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
+        return STATUS_DEVICE_NOT_READY;
+
+    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
+    if (!NT_SUCCESS(status))
+        return status;
+
+    // ShouldSkipHookingProcess must run at PASSIVE_LEVEL.  It can call
+    // SeLocateProcessImageName and, on the first use of the exclusion-rule
+    // engine, it can lazily load rules from disk via ZwCreateFile/ZwReadFile.
+    // FAST_MUTEX acquisition raises execution to APC_LEVEL, so running the
+    // skip-check under EngineMutex is invalid and can hang or trip verifier.
+    if (ShouldSkipHookingProcess(process, ProcessId))
+    {
+        ObDereferenceObject(process);
+        return STATUS_ACCESS_DENIED;
+    }
+
+    // Serialize process-slot lookup/claim so only one thread can allocate or
+    // initialize hook infrastructure for a given PID at a time.
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+
+    // Re-use existing process slot to avoid duplicate infrastructure/handle creation.
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    {
+        if (g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        {
+            hookEntry = &g_UserHookEngine->Processes[i];
+            existingHookEntry = TRUE;
+            break;
+        }
+    }
+
+    if (!existingHookEntry)
+    {
+        // Find free slot
+        for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+        {
+            if (!g_UserHookEngine->Processes[i].IsHooked && !g_UserHookEngine->Processes[i].IsInProgress)
+            {
+                hookEntry = &g_UserHookEngine->Processes[i];
+                break;
+            }
+        }
+
+        if (hookEntry == NULL)
+        {
+            ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+            ObDereferenceObject(process);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY)); // Clear it
+        hookEntry->ProcessId = ProcessId;
+        hookEntry->ProcessObject = process;
+
+        // Explicitly reference the object for the global array
+        ObReferenceObject(process);
+    
+        ExAcquireFastMutex(&g_ConfigMutex);
+        customHookCountSnapshot = g_CustomHookCount;
+        ExReleaseFastMutex(&g_ConfigMutex);
+
+        if (customHookCountSnapshot > MAX_CUSTOM_HOOKS)
+        {
+            customHookCountSnapshot = MAX_CUSTOM_HOOKS;
+        }
+        hookEntry->CustomHookCapacity = customHookCountSnapshot;
+    }
+
+    // Check if already in progress to avoid concurrent hooking of the same PID
+    if (hookEntry->IsInProgress)
+    {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        ObDereferenceObject(process);
+        return STATUS_SUCCESS; // Already being processed
+    }
+
+    hookEntry->IsInProgress = TRUE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    // -----------------------------------------------------------------------
+    // Initialize shellcode infrastructure before the resolve-and-hook pass.
+    // InitializeShellcodeInfrastructure performs the required attach itself
+    // because both ZwAllocateVirtualMemory(ZwCurrentProcess()) and the final
+    // target-process device handle creation must occur in the target context.
+    // -----------------------------------------------------------------------
+    if (!existingHookEntry)
+    {
+        // Detect WoW64 BEFORE allocating shellcode so the allocator can
+        // constrain the region to the low 2 GB.  32-bit E9 rel32 JMPs
+        // cannot reach a shellcode region above 0x7FFFFFFF - the JMP
+        // silently overflows and jumps to garbage, causing crashes and
+        // stopping all I/O events.  PsGetProcessWow64Process is safe to
+        // call on any PEPROCESS at any IRQL without attaching.
+        hookEntry->IsWow64 = (fnPsGetProcessWow64Process != NULL &&
+                              fnPsGetProcessWow64Process(process) != NULL);
+
+        status = InitializeShellcodeInfrastructure(process, hookEntry);
+        if (!NT_SUCCESS(status))
+        {
+            goto HookProcessFailure;
+        }
+
+
+        DbgPrint("UserModeHook: PID %lu is %s process\n",
+                 ProcessId, hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
+
+        if (hookEntry->CustomHookCapacity > 0)
+        {
+            SIZE_T customHooksBytes = (SIZE_T)hookEntry->CustomHookCapacity * sizeof(HOOK_DEF);
+            hookEntry->CustomHooks = (PHOOK_DEF)ExAllocatePool2(POOL_FLAG_NON_PAGED, customHooksBytes, 'cHuM');
+            if (hookEntry->CustomHooks == NULL)
+            {
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto HookProcessFailure;
+            }
+            RtlZeroMemory(hookEntry->CustomHooks, customHooksBytes);
+        }
+    }
+
+    // Single attachment for resolving exports and writing hooks
+    {
+    KAPC_STATE apcState;
+    BOOLEAN configMutexHeld = FALSE;
+    KeStackAttachProcess((PRKPROCESS)process, &apcState);
+    __try  // outer: guarantees detach and mutex release
+    {
+        __try  // inner: catches exceptions from resolve/hook calls
+        {
+            ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
+            targetNtDeviceIo = FindExportedFunctionResolved(process, ntdllBase, "NtDeviceIoControlFile");
+            if (!targetNtDeviceIo)
+            {
+                status = STATUS_NOT_FOUND;
+                __leave;
+            }
+
+            // For WoW64 processes, also resolve the 32-bit NtDeviceIoControlFile
+            // from the 32-bit ntdll.dll mapped in the WoW64 VA space.
+            PVOID ntdllBase32        = NULL;
+            PVOID targetNtDeviceIo32 = NULL;
+            if (hookEntry->IsWow64)
+            {
+                ntdllBase32 = FindModuleBaseAddress32(process, L"ntdll.dll", NULL);
+                if (ntdllBase32)
+                    targetNtDeviceIo32 = FindExportedFunction32Resolved(process, ntdllBase32, "NtDeviceIoControlFile");
+
+                if (!targetNtDeviceIo32)
+                {
+                    DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
+                             ProcessId);
+                    status = STATUS_NOT_FOUND;
+                    __leave;
+                }
+            }
+
+            ExAcquireFastMutex(&g_ConfigMutex);
+            configMutexHeld = TRUE;
+            customHookCountToApply = g_CustomHookCount;
+            if (customHookCountToApply > hookEntry->CustomHookCapacity)
+            {
+                customHookCountToApply = hookEntry->CustomHookCapacity;
+            }
+            for (ULONG i = 0; i < customHookCountToApply; i++)
+            {
+                NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
+                __try
+                {
+                    // Route to the correct architecture's hook installer.
+                    if (hookEntry->IsWow64)
+                    {
+                        // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
+                        // use 32-bit shellcode template.
+                        hookStatus = ResolveAndHook32(
+                            process, hookEntry,
+                            g_GlobalCustomHooks[i].ModuleName,
+                            g_GlobalCustomHooks[i].FunctionName,
+                            &hookEntry->CustomHooks[i],
+                            g_GlobalCustomHooks[i].EventId,
+                            targetNtDeviceIo32);
+                    }
+                    else
+                    {
+                        // Native 64-bit: resolve from 64-bit LDR, install 14-byte
+                        // FF 25 JMP, use 64-bit shellcode template.
+                        hookStatus = ResolveAndHook(
+                            process, hookEntry,
+                            g_GlobalCustomHooks[i].ModuleName,
+                            g_GlobalCustomHooks[i].FunctionName,
+                            &hookEntry->CustomHooks[i],
+                            g_GlobalCustomHooks[i].EventId,
+                            targetNtDeviceIo);
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    hookStatus = GetExceptionCode();
+                }
+
+                if (NT_SUCCESS(hookStatus))
+                {
+                    appliedHookCount++;
+                    continue;
+                }
+
+                // FIX #1: The previous code had a second `if (!NT_SUCCESS(...))`
+                // that was logically dead - it was always reached and always
+                // true, so EVERY failure (including benign ones) aborted the
+                // entire hook operation and propagated STATUS_INVALID_PARAMETER
+                // or STATUS_NOT_FOUND to the caller.
+                // recoverableHookFailureCount was declared but never incremented.
+                //
+                // Fix: classify failures explicitly.
+                //
+                // Recoverable - the specific function is not available in this
+                // process (module absent, export absent, RIP-relative prologue,
+                // VAD boundary conflict, access fault).  Skip this target and
+                // continue installing the remaining hooks.
+                if (hookStatus == STATUS_NOT_FOUND             ||
+                    hookStatus == STATUS_PROCEDURE_NOT_FOUND   ||
+                    hookStatus == STATUS_NOT_SUPPORTED         ||
+                    hookStatus == STATUS_ACCESS_VIOLATION      ||
+                    hookStatus == STATUS_INVALID_ADDRESS       ||
+                    hookStatus == STATUS_CONFLICTING_ADDRESSES)
+                {
+                    DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n",
+                             ProcessId, i,
+                             g_GlobalCustomHooks[i].FunctionName,
+                             hookStatus);
+                    recoverableHookFailureCount++;
+                    continue;
+                }
+
+                // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
+                //                  STATUS_INVALID_IMAGE_FORMAT,
+                //                  STATUS_DEVICE_DOES_NOT_EXIST).
+                status = hookStatus;
+                ExReleaseFastMutex(&g_ConfigMutex);
+                configMutexHeld = FALSE;
+                __leave;
+            }
+            ExReleaseFastMutex(&g_ConfigMutex);
+            configMutexHeld = FALSE;
+
+            if (recoverableHookFailureCount > 0)
+            {
+                DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
+                         ProcessId, appliedHookCount, recoverableHookFailureCount);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+        }
+    }
+    __finally
+    {
+        if (configMutexHeld)
+        {
+            ExReleaseFastMutex(&g_ConfigMutex);
+            configMutexHeld = FALSE;
+        }
+        KeUnstackDetachProcess(&apcState);
+    }
+
+        // FIX: read NeedsCleanup atomically with IsInProgress clear.
+        // UnhookProcess sets NeedsCleanup when it arrives while we are
+        // in-flight so it can't do the cleanup itself.  We must do it.
+        BOOLEAN needsCleanupNow = FALSE;
+        ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+        hookEntry->IsInProgress = FALSE;
+        needsCleanupNow = hookEntry->NeedsCleanup;
+        if (needsCleanupNow) hookEntry->NeedsCleanup = FALSE;
+        if (NT_SUCCESS(status))
+        {
+            hookEntry->IsHooked = TRUE;
+            if (!existingHookEntry)
+            {
+                g_UserHookEngine->HookedProcessCount++;
+            }
+        }
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+        if (NT_SUCCESS(status))
+        {
+            DbgPrint("UserModeHook: Shellcodes processed for PID %lu (%s)\n", ProcessId,
+                     existingHookEntry ? "refresh" : "initial");
+        }
+        else
+        {
+            goto HookProcessFailure;
+        }
+
+        ObDereferenceObject(process);
+
+        // Perform deferred unhook: the terminate callback fired while we
+        // were in-flight and set NeedsCleanup instead of leaking the ref.
+        if (needsCleanupNow)
+            (VOID)UserModeUnhookProcess(ProcessId);
+
+        return status;
+    } // end attach scope block
+
+HookProcessFailure:
+    // Ensure busy flag is cleared on failure
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    hookEntry->IsInProgress = FALSE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    if (existingHookEntry)
+    {
+        ObDereferenceObject(process);
+        return status;
+    }
+
+    if (hookEntry != NULL)
+    {
+        if (hookEntry->CustomHooks != NULL)
+        {
+            ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+            hookEntry->CustomHooks = NULL;
+            hookEntry->CustomHookCapacity = 0;
+        }
+
+        if (hookEntry->DriverDeviceHandle != NULL || hookEntry->ShellcodeBase != NULL)
+        {
+            KAPC_STATE cleanupApcState;
+            KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
+            __try  // outer: guarantees detach
+            {
+                __try  // inner: catches exceptions from ZwClose/ZwFree
+                {
+                    if (hookEntry->DriverDeviceHandle != NULL)
+                    {
+                        ZwClose(hookEntry->DriverDeviceHandle);
+                        hookEntry->DriverDeviceHandle = NULL;
+                    }
+
+                    if (hookEntry->ShellcodeBase != NULL && fnZwFreeVirtualMemory != NULL)
+                    {
+                        SIZE_T freeSize = 0;
+                        fnZwFreeVirtualMemory(ZwCurrentProcess(), &hookEntry->ShellcodeBase, &freeSize, MEM_RELEASE);
+                        hookEntry->ShellcodeBase = NULL;
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    hookEntry->DriverDeviceHandle = NULL;
+                    hookEntry->ShellcodeBase = NULL;
+                }
+            }
+            __finally
+            {
+                KeUnstackDetachProcess(&cleanupApcState);
+            }
+        }
+
+        // Drop the global array's reference before clearing the entry
+        if (hookEntry->ProcessObject != NULL) {
+            ObDereferenceObject(hookEntry->ProcessObject);
+        }
+
+        hookEntry->ProcessObject = NULL;
+        RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+    }
+
+    ObDereferenceObject(process);
+    return status;
+}
+//
+// Unhook
+//
+
+//
+// Helper to Unhook Single Function
+//
+// -------------------------------------------------------------------------
+// UnhookSingleFunction
+//
+// Restores the original bytes at the hooked function's entry point.
+// Supports both 64-bit hooks (14-byte FF 25 patch) and WoW64 hooks
+// (5-byte E9 rel32 patch) via HookDef->HookPatchSize.
+//
+// NOTE: HookDef->HookPatchSize must be set to USERMODE_HOOK_SIZE (14) for
+// 64-bit hooks and USERMODE_HOOK_SIZE_32 (5) for WoW64 hooks at hook
+// installation time (InjectSingleHook and InjectSingleHook32 do this).
+// -------------------------------------------------------------------------
+VOID UnhookSingleFunction(
+    _In_    PEPROCESS Process,
+    _Inout_ PHOOK_DEF HookDef
+)
+{
+    UNREFERENCED_PARAMETER(Process);
+    NTSTATUS status;
+
+    if (!HookDef->IsHooked || !HookDef->Address)
+        return;
+
+    // Determine how many bytes to restore.  Default to USERMODE_HOOK_SIZE
+    // (14) for backwards compatibility with hook entries that predate the
+    // HookPatchSize field.
+    ULONG patchSize = (HookDef->HookPatchSize == USERMODE_HOOK_SIZE_32)
+                      ? USERMODE_HOOK_SIZE_32   // WoW64 5-byte E9 patch
+                      : USERMODE_HOOK_SIZE;     // 64-bit 14-byte FF 25 patch
+
+    if (!fnZwProtectVirtualMemory)
+        return;
+
+    PVOID  pageAddr = HookDef->Address;
+    SIZE_T pageSize = patchSize;
+    ULONG  oldProt  = 0;
+
+    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
+                                      PAGE_EXECUTE_READWRITE, &oldProt);
+    if (NT_SUCCESS(status))
+    {
+        __try
+        {
+            ProbeForWrite(HookDef->Address, patchSize, 1);
+            RtlCopyMemory(HookDef->Address, HookDef->OriginalBytes, patchSize);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
+                                     oldProt, &oldProt);
+            return;
+        }
+
+        // Flush the CPU instruction pipeline for this address range.
+        KeInvalidateAllCaches();
+
+        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
+                                  oldProt, &oldProt);
+        HookDef->IsHooked = FALSE;
+    }
+}
+
+NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
+{
+    PEPROCESS process = NULL;
+    PPROCESS_HOOK_ENTRY hookEntry = NULL;
+    NTSTATUS status;
+    KAPC_STATE apcState;
+
+    if (g_UserHookEngine == NULL)
+        return STATUS_DEVICE_NOT_READY;
+
+    // 1. Lock the slot
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId) {
+            hookEntry = &g_UserHookEngine->Processes[i];
+            break;
+        }
+    }
+
+    if (hookEntry == NULL) {
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        return STATUS_NOT_FOUND;
+    }
+
+    if (hookEntry->IsInProgress) {
+        // FIX: process terminated while HookProcess was still in-flight.
+        // Returning STATUS_NOT_FOUND here leaves hookEntry->ProcessObject
+        // with a live ObReference - the PEPROCESS object is never freed,
+        // the process appears in the task list but can't be killed (zombie),
+        // and the system can't restart because cleanup also misses the slot.
+        hookEntry->NeedsCleanup = TRUE;
+        ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+        return STATUS_SUCCESS;
+    }
+
+    hookEntry->IsInProgress = TRUE;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    // 2. Lookup and Zombie Check
+    status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
+    if (!NT_SUCCESS(status)) goto FinalCleanup;
+
+    // Check if process is exiting/zombie - Attaching to a dying process causes hard resets.
+    if (PsGetProcessExitStatus(process) != STATUS_PENDING) {
+        // FIX: Even though we cannot attach (unsafe on dying process),
+        // we must not leave a dangling handle reference tracked in hookEntry.
+        // The Object Manager tears down the handle table for us as part of
+        // process exit rundown, so the actual kernel handle is cleaned up.
+        // We just clear our pointer so NeedsCleanup path does not double-close.
+        hookEntry->DriverDeviceHandle = NULL;
+        hookEntry->ShellcodeBase      = NULL;
+        hookEntry->ShellcodeSize      = 0;
+        ObDereferenceObject(process);
+        goto FinalCleanup;
+    }
+
+    // 3. PHASE 1: RESTORE BYTES
+    KeStackAttachProcess((PRKPROCESS)process, &apcState);
+    __try  // outer: guarantees detach
+    {
+        __try  // inner: catches exceptions from UnhookSingleFunction/ZwClose
+        {
+            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
+                if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked) {
+                    UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
+                }
+            }
+            
+            if (hookEntry->DriverDeviceHandle) {
+                ZwClose(hookEntry->DriverDeviceHandle);
+                hookEntry->DriverDeviceHandle = NULL;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n",
+                     GetExceptionCode(), ProcessId);
+        }
+    }
+    __finally
+    {
+        KeUnstackDetachProcess(&apcState);
+    }
+
+    // The shellcode VA region (shellcodeToFree) is intentionally NOT freed here.
+    // When the process exits, the OS tears down its entire VA space and reclaims
+    // all committed pages - including shellcode - automatically.  Trying to free
+    // it ourselves requires a 500ms drain (to avoid freeing pages still executing
+    // in another thread), and that drain WAS the zombie: the EPROCESS reference
+    // was held through the delay, keeping the process alive and unkillable in
+    // Task Manager.  The drain is gone; the OS handles it correctly.
+    ObDereferenceObject(process);
+    process = NULL;
+
+FinalCleanup:
+    // 6. INTERNAL CLEANUP
+    if (hookEntry->CustomHooks != NULL) {
+        ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
+        hookEntry->CustomHooks = NULL;
+    }
+
+    // Release the array-held reference before wiping the entry.
+    if (hookEntry->ProcessObject != NULL) {
+        ObDereferenceObject(hookEntry->ProcessObject);
+        hookEntry->ProcessObject = NULL;
+    }
+
+    ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
+    RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
+    if (g_UserHookEngine->HookedProcessCount > 0) g_UserHookEngine->HookedProcessCount--;
+    ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
+
+    return STATUS_SUCCESS;
 }
 
 //
