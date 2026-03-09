@@ -1,15 +1,18 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "ProcessProtection.h"   // OnKernelApiEvent - called by HookDeviceControl
+#include "ProcessProtection.h" // OnKernelApiEvent - called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
-// IoCreateDriver is an undocumented ntoskrnl export - not declared in any
-// WDK header.  Declare it manually so the compiler can resolve the call at
-// line ~317.  The linker finds the export in ntoskrnl.lib at link time.
-EXTERN_C NTKERNELAPI NTSTATUS NTAPI IoCreateDriver(
-    _In_opt_ PUNICODE_STRING DriverName,
-    _In_     PDRIVER_INITIALIZE InitializationFunction);
+// IoCreateDriver is an undocumented ntoskrnl export - not declared in any WDK
+// header.  Resolve it dynamically via MmGetSystemRoutineAddress (the same
+// pattern used in UserModeHookEngine.cpp for other unexported routines) so
+// the static analyser never sees an EXTERN_C declaration without a visible
+// definition, eliminating VCR001 "Function definition not found".
+typedef NTSTATUS(NTAPI *PIO_CREATE_DRIVER)(_In_opt_ PUNICODE_STRING DriverName,
+                                           _In_ PDRIVER_INITIALIZE InitializationFunction);
+
+static PIO_CREATE_DRIVER fnIoCreateDriver = NULL;
 
 // =========================================================================
 // HOOK NOTIFICATION DEVICE  (\Device\OwlyshieldHook)
@@ -70,14 +73,15 @@ EXTERN_C NTKERNELAPI NTSTATUS NTAPI IoCreateDriver(
 // FltUnregisterFilter.  Call it anywhere in DriverUnload before returning.
 // =========================================================================
 
-#define OWLY_HOOK_DEVICE_NAME   L"\\Device\\OwlyshieldHook"
-#define OWLY_HOOK_DRIVER_NAME   L"\\Driver\\OwlyshieldHookNotify"
-#define OWLY_HOOK_SYMLINK_NAME  L"\\DosDevices\\OwlyshieldHook"
+#define OWLY_HOOK_DEVICE_NAME L"\\Device\\OwlyshieldHook"
+#define OWLY_HOOK_DRIVER_NAME L"\\Driver\\OwlyshieldHookNotify"
+#define OWLY_HOOK_SYMLINK_NAME L"\\DosDevices\\OwlyshieldHook"
 
-static PDEVICE_OBJECT  g_HookNotifyDevice       = NULL;
-static PDRIVER_OBJECT  g_HookNotifyDriverObject = NULL;
+static PDEVICE_OBJECT g_HookNotifyDevice = NULL;
+static PDRIVER_OBJECT g_HookNotifyDriverObject = NULL;
 
-typedef struct _CLIENT_ID32 {
+typedef struct _CLIENT_ID32
+{
     ULONG UniqueProcess;
     ULONG UniqueThread;
 } CLIENT_ID32, *PCLIENT_ID32;
@@ -144,12 +148,8 @@ static ULONG ResolveProcessIdFromClientIdPointer(_In_ ULONG_PTR ClientIdAddress)
     return 0;
 }
 
-static VOID ConsiderTargetPidCandidate(
-    _In_ ULONG SourcePid,
-    _In_ ULONG CandidatePid,
-    _Inout_ PULONG PreferredPid,
-    _Inout_ PULONG FallbackPid
-)
+static VOID ConsiderTargetPidCandidate(_In_ ULONG SourcePid, _In_ ULONG CandidatePid, _Inout_ PULONG PreferredPid,
+                                       _Inout_ PULONG FallbackPid)
 {
     if (CandidatePid == 0)
     {
@@ -187,12 +187,7 @@ static ULONG ResolveProcessIdFromProcessHandle(_In_ HANDLE ProcessHandle)
         return (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
     }
 
-    status = ObReferenceObjectByHandle(ProcessHandle,
-                                       0,
-                                       *PsProcessType,
-                                       UserMode,
-                                       (PVOID *)&process,
-                                       NULL);
+    status = ObReferenceObjectByHandle(ProcessHandle, 0, *PsProcessType, UserMode, (PVOID *)&process, NULL);
     if (!NT_SUCCESS(status) || process == NULL)
     {
         return 0;
@@ -219,12 +214,7 @@ static ULONG ResolveProcessIdFromThreadHandle(_In_ HANDLE ThreadHandle)
         return (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
     }
 
-    status = ObReferenceObjectByHandle(ThreadHandle,
-                                       0,
-                                       *PsThreadType,
-                                       UserMode,
-                                       (PVOID *)&thread,
-                                       NULL);
+    status = ObReferenceObjectByHandle(ThreadHandle, 0, *PsThreadType, UserMode, (PVOID *)&thread, NULL);
     if (!NT_SUCCESS(status) || thread == NULL)
     {
         return 0;
@@ -235,13 +225,8 @@ static ULONG ResolveProcessIdFromThreadHandle(_In_ HANDLE ThreadHandle)
     return processId;
 }
 
-static ULONG ResolveHookTargetProcessId(
-    _In_ ULONG SourcePid,
-    _In_ ULONG_PTR RawArg1,
-    _In_ ULONG_PTR RawArg2,
-    _In_ ULONG_PTR RawArg3,
-    _In_ ULONG_PTR RawArg4
-)
+static ULONG ResolveHookTargetProcessId(_In_ ULONG SourcePid, _In_ ULONG_PTR RawArg1, _In_ ULONG_PTR RawArg2,
+                                        _In_ ULONG_PTR RawArg3, _In_ ULONG_PTR RawArg4)
 {
     const ULONG_PTR args[] = {RawArg1, RawArg2, RawArg3, RawArg4};
     ULONG preferredPid = 0;
@@ -287,12 +272,9 @@ static ULONG ResolveHookTargetProcessId(
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
 // time dispatch is called, so no deferred work is needed.
 // ----------------------------------------------------------------------------
-static NTSTATUS CompleteIrpInline(
-    _In_ PIRP     Irp,
-    _In_ NTSTATUS Status,
-    _In_ ULONG_PTR Info)
+static NTSTATUS CompleteIrpInline(_In_ PIRP Irp, _In_ NTSTATUS Status, _In_ ULONG_PTR Info)
 {
-    Irp->IoStatus.Status      = Status;
+    Irp->IoStatus.Status = Status;
     Irp->IoStatus.Information = Info;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return Status;
@@ -303,9 +285,7 @@ static NTSTATUS CompleteIrpInline(
 // Accept all open/close requests; ZwCreateFile and ObInsertObject both
 // generate IRP_MJ_CREATE, which must succeed for the handle to be valid.
 // ----------------------------------------------------------------------------
-static NTSTATUS HookDeviceCreateClose(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP           Irp)
+static NTSTATUS HookDeviceCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     return CompleteIrpInline(Irp, STATUS_SUCCESS, 0);
@@ -331,40 +311,39 @@ static NTSTATUS HookDeviceCreateClose(
 //   3. Bare (unqualified) name from the payload.
 //   4. Empty string - event is still delivered.
 // ----------------------------------------------------------------------------
-static NTSTATUS HookDeviceControl(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP           Irp)
+static NTSTATUS HookDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
 
-    PIO_STACK_LOCATION stack    = IoGetCurrentIrpStackLocation(Irp);
-    ULONG              code     = stack->Parameters.DeviceIoControl.IoControlCode;
-    ULONG              inputLen = stack->Parameters.DeviceIoControl.InputBufferLength;
-    PVOID              sysBuf   = Irp->AssociatedIrp.SystemBuffer;
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    ULONG code = stack->Parameters.DeviceIoControl.IoControlCode;
+    ULONG inputLen = stack->Parameters.DeviceIoControl.InputBufferLength;
+    PVOID sysBuf = Irp->AssociatedIrp.SystemBuffer;
 
     if (code != IOCTL_REPORT_HOOK_EVENT)
         return CompleteIrpInline(Irp, STATUS_INVALID_DEVICE_REQUEST, 0);
 
     // Minimum: legacy wire format (EventType + ProcessId + FunctionName[64] + Arg1)
-    typedef struct _HOOK_EVENT_DATA_WIRE80 {
-        ULONG      EventType;
-        ULONG      ProcessId;
-        CHAR       FunctionName[64];
-        ULONG_PTR  Arg1;
+    typedef struct _HOOK_EVENT_DATA_WIRE80
+    {
+        ULONG EventType;
+        ULONG ProcessId;
+        CHAR FunctionName[64];
+        ULONG_PTR Arg1;
     } HOOK_EVENT_DATA_WIRE80, *PHOOK_EVENT_DATA_WIRE80;
 
     if (sysBuf == NULL || inputLen < sizeof(HOOK_EVENT_DATA_WIRE80))
         return CompleteIrpInline(Irp, STATUS_BUFFER_TOO_SMALL, 0);
 
-    ULONG      eventType = 0;
-    ULONG      processId = 0;
-    ULONG_PTR  rawArg1   = 0;
-    ULONG_PTR  rawArg2   = 0;
-    ULONG_PTR  rawArg3   = 0;
-    ULONG_PTR  rawArg4   = 0;
-    ULONG      targetProcessId = 0;
-    WCHAR      convertedName[64] = {0};
-    PCWSTR     incomingWideName  = NULL;
+    ULONG eventType = 0;
+    ULONG processId = 0;
+    ULONG_PTR rawArg1 = 0;
+    ULONG_PTR rawArg2 = 0;
+    ULONG_PTR rawArg3 = 0;
+    ULONG_PTR rawArg4 = 0;
+    ULONG targetProcessId = 0;
+    WCHAR convertedName[64] = {0};
+    PCWSTR incomingWideName = NULL;
 
     if (inputLen >= sizeof(HOOK_EVENT_DATA))
     {
@@ -372,19 +351,19 @@ static NTSTATUS HookDeviceControl(
         PHOOK_EVENT_DATA ev = (PHOOK_EVENT_DATA)sysBuf;
         eventType = ev->EventType;
         processId = ev->ProcessId;
-        rawArg1   = ev->Arg1;
-        rawArg2   = ev->Arg2;
-        rawArg3   = ev->Arg3;
-        rawArg4   = ev->Arg4;
+        rawArg1 = ev->Arg1;
+        rawArg2 = ev->Arg2;
+        rawArg3 = ev->Arg3;
+        rawArg4 = ev->Arg4;
 
         if (ev->FunctionName[0] != '\0')
         {
-            ANSI_STRING    asFunc;
+            ANSI_STRING asFunc;
             UNICODE_STRING usFunc;
             RtlInitAnsiString(&asFunc, ev->FunctionName);
-            usFunc.Buffer         = convertedName;
-            usFunc.Length         = 0;
-            usFunc.MaximumLength  = sizeof(convertedName);
+            usFunc.Buffer = convertedName;
+            usFunc.Length = 0;
+            usFunc.MaximumLength = sizeof(convertedName);
             if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
             {
                 convertedName[RTL_NUMBER_OF(convertedName) - 1] = L'\0';
@@ -398,19 +377,19 @@ static NTSTATUS HookDeviceControl(
         PHOOK_EVENT_DATA_WIRE80 ev80 = (PHOOK_EVENT_DATA_WIRE80)sysBuf;
         eventType = ev80->EventType;
         processId = ev80->ProcessId;
-        rawArg1   = ev80->Arg1;
-        rawArg2   = 0;
-        rawArg3   = 0;
-        rawArg4   = 0;
+        rawArg1 = ev80->Arg1;
+        rawArg2 = 0;
+        rawArg3 = 0;
+        rawArg4 = 0;
 
         if (ev80->FunctionName[0] != '\0')
         {
-            ANSI_STRING    asFunc;
+            ANSI_STRING asFunc;
             UNICODE_STRING usFunc;
             RtlInitAnsiString(&asFunc, ev80->FunctionName);
-            usFunc.Buffer         = convertedName;
-            usFunc.Length         = 0;
-            usFunc.MaximumLength  = sizeof(convertedName);
+            usFunc.Buffer = convertedName;
+            usFunc.Length = 0;
+            usFunc.MaximumLength = sizeof(convertedName);
             if (NT_SUCCESS(RtlAnsiStringToUnicodeString(&usFunc, &asFunc, FALSE)))
             {
                 convertedName[RTL_NUMBER_OF(convertedName) - 1] = L'\0';
@@ -420,8 +399,8 @@ static NTSTATUS HookDeviceControl(
     }
 
     // Resolve the best function name available
-    WCHAR   resolvedName[MAX_FILE_NAME_LENGTH] = {0};
-    PCWSTR  functionName = L"";
+    WCHAR resolvedName[MAX_FILE_NAME_LENGTH] = {0};
+    PCWSTR functionName = L"";
 
     BOOLEAN incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
     BOOLEAN incomingQualified = FALSE;
@@ -436,8 +415,7 @@ static NTSTATUS HookDeviceControl(
         // Trust fully-qualified "module!function" labels directly
         functionName = incomingWideName;
     }
-    else if (ResolveHookNameByEventId(eventType, resolvedName, RTL_NUMBER_OF(resolvedName)) &&
-             resolvedName[0] != L'\0')
+    else if (ResolveHookNameByEventId(eventType, resolvedName, RTL_NUMBER_OF(resolvedName)) && resolvedName[0] != L'\0')
     {
         functionName = resolvedName;
     }
@@ -453,15 +431,10 @@ static NTSTATUS HookDeviceControl(
     FormatProcessDescriptorByPid(processId, sourceProcessDescriptor, RTL_NUMBER_OF(sourceProcessDescriptor));
     FormatProcessDescriptorByPid(targetProcessId, targetProcessDescriptor, RTL_NUMBER_OF(targetProcessDescriptor));
 
-    DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
-             eventType,
-             functionName,
-             sourceProcessDescriptor,
-             targetProcessDescriptor,
-             (PVOID)rawArg1,
-             (PVOID)rawArg2,
-             (PVOID)rawArg3,
-             (PVOID)rawArg4);
+    DbgPrint("HookDevice: API HOOKING EVENT RawType=%lu Name=%ws src_pid_path=%ws target_pid_path=%ws Arg1=0x%p "
+             "Arg2=0x%p Arg3=0x%p Arg4=0x%p\n",
+             eventType, functionName, sourceProcessDescriptor, targetProcessDescriptor, (PVOID)rawArg1, (PVOID)rawArg2,
+             (PVOID)rawArg3, (PVOID)rawArg4);
 
     // Deliver to the classification pipeline (ProcessProtection.cpp).
     // Also enqueue for user-mode delivery via MESSAGE_GET_OPS.
@@ -487,17 +460,15 @@ static VOID HookNotifyDriverUnload(_In_ PDRIVER_OBJECT DriverObject)
 // DriverObject.  FltMgr never sees this object, so writing MajorFunction
 // entries here cannot cause FLTMGR_FILE_SYSTEM (0xF5).
 // ----------------------------------------------------------------------------
-static NTSTATUS HookNotifyDriverInit(
-    _In_ PDRIVER_OBJECT  DriverObject,
-    _In_ PUNICODE_STRING RegistryPath)
+static NTSTATUS HookNotifyDriverInit(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
     UNREFERENCED_PARAMETER(RegistryPath);
 
     g_HookNotifyDriverObject = DriverObject;
     DriverObject->DriverUnload = HookNotifyDriverUnload;
 
-    DriverObject->MajorFunction[IRP_MJ_CREATE]         = HookDeviceCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = HookDeviceCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = HookDeviceCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = HookDeviceCreateClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = HookDeviceControl;
 
     UNICODE_STRING devName, symName;
@@ -512,14 +483,8 @@ static NTSTATUS HookNotifyDriverInit(
     // fail and no usermode hook events are ever delivered.
     IoDeleteSymbolicLink(&symName);
 
-    NTSTATUS status = IoCreateDevice(
-        DriverObject,
-        0,
-        &devName,
-        FILE_DEVICE_UNKNOWN,
-        FILE_DEVICE_SECURE_OPEN,
-        FALSE,
-        &g_HookNotifyDevice);
+    NTSTATUS status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE,
+                                     &g_HookNotifyDevice);
 
     if (!NT_SUCCESS(status))
     {
@@ -527,7 +492,7 @@ static NTSTATUS HookNotifyDriverInit(
         return status;
     }
 
-    g_HookNotifyDevice->Flags |=  DO_BUFFERED_IO;
+    g_HookNotifyDevice->Flags |= DO_BUFFERED_IO;
     g_HookNotifyDevice->Flags &= ~DO_DEVICE_INITIALIZING;
 
     status = IoCreateSymbolicLink(&symName, &devName);
@@ -557,14 +522,27 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
 
+    // Resolve IoCreateDriver on first call.
+    if (fnIoCreateDriver == NULL)
+    {
+        UNICODE_STRING routineName;
+        RtlInitUnicodeString(&routineName, L"IoCreateDriver");
+        fnIoCreateDriver = (PIO_CREATE_DRIVER)MmGetSystemRoutineAddress(&routineName);
+        if (fnIoCreateDriver == NULL)
+        {
+            DbgPrint("!!! HookDevice: MmGetSystemRoutineAddress(IoCreateDriver) failed\n");
+            return STATUS_NOT_IMPLEMENTED;
+        }
+    }
+
     UNICODE_STRING driverName;
     RtlInitUnicodeString(&driverName, OWLY_HOOK_DRIVER_NAME);
 
-    NTSTATUS status = IoCreateDriver(&driverName, HookNotifyDriverInit);
+    NTSTATUS status = fnIoCreateDriver(&driverName, HookNotifyDriverInit);
     if (!NT_SUCCESS(status))
     {
         DbgPrint("!!! HookDevice: IoCreateDriver failed 0x%X\n", status);
-        g_HookNotifyDevice       = NULL;
+        g_HookNotifyDevice = NULL;
         g_HookNotifyDriverObject = NULL;
     }
     return status;
@@ -584,7 +562,7 @@ VOID CleanupHookNotifyDevice(VOID)
     IoDeleteSymbolicLink(&symName);
 
     IoDeleteDevice(g_HookNotifyDevice);
-    g_HookNotifyDevice       = NULL;
+    g_HookNotifyDevice = NULL;
     g_HookNotifyDriverObject = NULL;
 
     DbgPrint("!!! HookDevice: Cleaned up\n");
@@ -605,31 +583,28 @@ extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID)
 
 typedef struct _OWLY_HV_EVENT_ENTRY
 {
-    LIST_ENTRY     Entry;
+    LIST_ENTRY Entry;
     DRIVER_MESSAGE Message;
 } OWLY_HV_EVENT_ENTRY, *POWLY_HV_EVENT_ENTRY;
 
 static LIST_ENTRY g_OwlyHvEventQueue;
 static KSPIN_LOCK g_OwlyHvEventQueueLock;
-static BOOLEAN    g_OwlyHvEventQueueInitialized = FALSE;
-static ULONG      g_OwlyHvEventQueueSize        = 0;
+static BOOLEAN g_OwlyHvEventQueueInitialized = FALSE;
+static ULONG g_OwlyHvEventQueueSize = 0;
 
-static VOID
-EnsureQueuedHypervisorEventsInitialized(VOID)
+static VOID EnsureQueuedHypervisorEventsInitialized(VOID)
 {
     if (!g_OwlyHvEventQueueInitialized)
     {
         InitializeListHead(&g_OwlyHvEventQueue);
         KeInitializeSpinLock(&g_OwlyHvEventQueueLock);
-        g_OwlyHvEventQueueSize        = 0;
+        g_OwlyHvEventQueueSize = 0;
         g_OwlyHvEventQueueInitialized = TRUE;
     }
 }
 
 BOOLEAN
-QueueHypervisorEvent(_In_ ULONG RawEventType,
-                     _In_opt_z_ PCWSTR EventName,
-                     _In_ ULONG_PTR EventArg1,
+QueueHypervisorEvent(_In_ ULONG RawEventType, _In_opt_z_ PCWSTR EventName, _In_ ULONG_PTR EventArg1,
                      _In_ ULONG_PTR EventArg2)
 {
     KIRQL oldIrql;
@@ -639,9 +614,8 @@ QueueHypervisorEvent(_In_ ULONG RawEventType,
 
     EnsureQueuedHypervisorEventsInitialized();
 
-    newEntry = (POWLY_HV_EVENT_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED,
-                                                      sizeof(OWLY_HV_EVENT_ENTRY),
-                                                      OWLY_HV_EVENT_QUEUE_TAG);
+    newEntry = (POWLY_HV_EVENT_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(OWLY_HV_EVENT_ENTRY),
+                                                     OWLY_HV_EVENT_QUEUE_TAG);
     if (newEntry == NULL)
     {
         return FALSE;
@@ -649,20 +623,20 @@ QueueHypervisorEvent(_In_ ULONG RawEventType,
 
     RtlZeroMemory(newEntry, sizeof(OWLY_HV_EVENT_ENTRY));
 
-    newEntry->Message.PID         = currentPid;
+    newEntry->Message.PID = currentPid;
     newEntry->Message.AttackerPID = currentPid;
-    newEntry->Message.IRP_OP      = IRP_HYPERVISOR_EVENT;
+    newEntry->Message.IRP_OP = IRP_HYPERVISOR_EVENT;
 
     KeQuerySystemTime(&timestamp);
-    newEntry->Message.KernelEventInfo.EventType       = RawEventType;
-    newEntry->Message.KernelEventInfo.Timestamp       = (ULONGLONG)timestamp.QuadPart;
+    newEntry->Message.KernelEventInfo.EventType = RawEventType;
+    newEntry->Message.KernelEventInfo.Timestamp = (ULONGLONG)timestamp.QuadPart;
     newEntry->Message.KernelEventInfo.SourceProcessId = currentPid;
     newEntry->Message.KernelEventInfo.TargetProcessId = currentPid;
-    newEntry->Message.KernelEventInfo.RawArgument1    = EventArg1;
-    newEntry->Message.KernelEventInfo.RawArgument2    = EventArg2;
-    newEntry->Message.KernelEventInfo.MemoryAddress   = (PVOID)EventArg2;
-    newEntry->Message.KernelEventInfo.ThreadHandle    = (HANDLE)EventArg1;
-    newEntry->Message.KernelEventInfo.AccessMask      = (ACCESS_MASK)EventArg1;
+    newEntry->Message.KernelEventInfo.RawArgument1 = EventArg1;
+    newEntry->Message.KernelEventInfo.RawArgument2 = EventArg2;
+    newEntry->Message.KernelEventInfo.MemoryAddress = (PVOID)EventArg2;
+    newEntry->Message.KernelEventInfo.ThreadHandle = (HANDLE)EventArg1;
+    newEntry->Message.KernelEventInfo.AccessMask = (ACCESS_MASK)EventArg1;
     newEntry->Message.KernelEventInfo.OperationStatus = STATUS_SUCCESS;
 
     if (EventName != NULL && EventName[0] != L'\0')
@@ -670,9 +644,7 @@ QueueHypervisorEvent(_In_ ULONG RawEventType,
         size_t eventNameLength = wcsnlen(EventName, MAX_FILE_NAME_LENGTH - 1);
         if (eventNameLength > 0)
         {
-            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName,
-                          EventName,
-                          eventNameLength * sizeof(WCHAR));
+            RtlCopyMemory(newEntry->Message.KernelEventInfo.ObjectName, EventName, eventNameLength * sizeof(WCHAR));
         }
     }
 
@@ -690,8 +662,7 @@ QueueHypervisorEvent(_In_ ULONG RawEventType,
     return TRUE;
 }
 
-VOID
-ResetQueuedHypervisorEvents(VOID)
+VOID ResetQueuedHypervisorEvents(VOID)
 {
     KIRQL oldIrql;
     LIST_ENTRY localList;
@@ -714,16 +685,14 @@ ResetQueuedHypervisorEvents(VOID)
 
     while (!IsListEmpty(&localList))
     {
-        PLIST_ENTRY          entry = RemoveHeadList(&localList);
-        POWLY_HV_EVENT_ENTRY item  = CONTAINING_RECORD(entry, OWLY_HV_EVENT_ENTRY, Entry);
+        PLIST_ENTRY entry = RemoveHeadList(&localList);
+        POWLY_HV_EVENT_ENTRY item = CONTAINING_RECORD(entry, OWLY_HV_EVENT_ENTRY, Entry);
         ExFreePoolWithTag(item, OWLY_HV_EVENT_QUEUE_TAG);
     }
 }
 
-VOID
-DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID OutputBuffer,
-                            _In_ ULONG OutputBufferLength,
-                            _Inout_ PULONG ReturnOutputBufferLength)
+VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID OutputBuffer,
+                                 _In_ ULONG OutputBufferLength, _Inout_ PULONG ReturnOutputBufferLength)
 {
     PRWD_REPLY_IRPS outHeader;
 
@@ -742,17 +711,17 @@ DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID Outp
     {
         RtlZeroMemory(outHeader, sizeof(RWD_REPLY_IRPS));
         outHeader->dataSize = sizeof(RWD_REPLY_IRPS);
-        outHeader->data     = nullptr;
-        outHeader->num_ops  = 0;
+        outHeader->data = nullptr;
+        outHeader->num_ops = 0;
         *ReturnOutputBufferLength = sizeof(RWD_REPLY_IRPS);
     }
 
     while (*ReturnOutputBufferLength + sizeof(DRIVER_MESSAGE) <= OutputBufferLength)
     {
-        KIRQL                oldIrql;
+        KIRQL oldIrql;
         POWLY_HV_EVENT_ENTRY item = NULL;
-        PDRIVER_MESSAGE      outMsg;
-        PCHAR                writePtr;
+        PDRIVER_MESSAGE outMsg;
+        PCHAR writePtr;
 
         KeAcquireSpinLock(&g_OwlyHvEventQueueLock, &oldIrql);
         if (!IsListEmpty(&g_OwlyHvEventQueue))
@@ -769,12 +738,12 @@ DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID Outp
         }
 
         writePtr = (PCHAR)OutputBuffer + *ReturnOutputBufferLength;
-        outMsg   = (PDRIVER_MESSAGE)writePtr;
+        outMsg = (PDRIVER_MESSAGE)writePtr;
 
-        item->Message.filePath.Buffer        = nullptr;
-        item->Message.filePath.Length        = 0;
+        item->Message.filePath.Buffer = nullptr;
+        item->Message.filePath.Length = 0;
         item->Message.filePath.MaximumLength = 0;
-        item->Message.next                   = nullptr;
+        item->Message.next = nullptr;
 
         RtlCopyMemory(outMsg, &item->Message, sizeof(DRIVER_MESSAGE));
         ExFreePoolWithTag(item, OWLY_HV_EVENT_QUEUE_TAG);
@@ -940,7 +909,7 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
         }
         else if (removalMode == 2)
         {
-             DbgPrint("!!! FS : Kill and REMOVE action for GID: %llu\n", GID);
+            DbgPrint("!!! FS : Kill and REMOVE action for GID: %llu\n", GID);
         }
         else
         {
@@ -982,7 +951,8 @@ NTSTATUS KillProcessesInGid(ULONGLONG GID, PLONG OutputStatus, ULONG removalMode
                 }
                 else
                 {
-                    DbgPrint("!!! FS : Warning: Could not get exe path for PID %lu (Status: 0x%X)\n", Buffer[i], pathStatus);
+                    DbgPrint("!!! FS : Warning: Could not get exe path for PID %lu (Status: 0x%X)\n", Buffer[i],
+                             pathStatus);
                 }
             }
 
@@ -1180,9 +1150,7 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         NTSTATUS status;
 
         RtlZeroMemory(&config, sizeof(config));
-        RtlCopyMemory(config.ModuleName,
-                      message->path,
-                      min(sizeof(config.ModuleName), sizeof(message->path)));
+        RtlCopyMemory(config.ModuleName, message->path, min(sizeof(config.ModuleName), sizeof(message->path)));
         config.ModuleName[RTL_NUMBER_OF(config.ModuleName) - 1] = L'\0';
 
         RtlInitUnicodeString(&usFunc, message->quarantine_path);

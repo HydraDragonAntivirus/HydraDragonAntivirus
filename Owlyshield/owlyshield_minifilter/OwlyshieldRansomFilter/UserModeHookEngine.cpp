@@ -59,27 +59,30 @@ Environment:
 
 #pragma pack(push, 4)
 
-typedef struct _PEB_LDR_DATA32 {
-    ULONG        Length;
-    BOOLEAN      Initialized;
-    ULONG        SsHandle;
+typedef struct _PEB_LDR_DATA32
+{
+    ULONG Length;
+    BOOLEAN Initialized;
+    ULONG SsHandle;
     LIST_ENTRY32 InLoadOrderModuleList;
     LIST_ENTRY32 InMemoryOrderModuleList;
     LIST_ENTRY32 InInitializationOrderModuleList;
 } PEB_LDR_DATA32;
 
-typedef struct _LDR_DATA_TABLE_ENTRY32 {
-    LIST_ENTRY32     InLoadOrderLinks;
-    LIST_ENTRY32     InMemoryOrderLinks;
-    LIST_ENTRY32     InInitializationOrderLinks;
-    ULONG            DllBase;         // 32-bit VA stored as ULONG
-    ULONG            EntryPoint;      // 32-bit VA stored as ULONG
-    ULONG            SizeOfImage;
+typedef struct _LDR_DATA_TABLE_ENTRY32
+{
+    LIST_ENTRY32 InLoadOrderLinks;
+    LIST_ENTRY32 InMemoryOrderLinks;
+    LIST_ENTRY32 InInitializationOrderLinks;
+    ULONG DllBase;    // 32-bit VA stored as ULONG
+    ULONG EntryPoint; // 32-bit VA stored as ULONG
+    ULONG SizeOfImage;
     UNICODE_STRING32 FullDllName;
     UNICODE_STRING32 BaseDllName;
 } LDR_DATA_TABLE_ENTRY32;
 
-typedef struct _PEB32 {
+typedef struct _PEB32
+{
     UCHAR InheritedAddressSpace;    // +0x00
     UCHAR ReadImageFileExecOptions; // +0x01
     UCHAR BeingDebugged;            // +0x02
@@ -112,8 +115,8 @@ typedef struct _PEB32 {
 // on the local stack frame ([RSP+0x70] / [ESP+0x78]) and restored after
 // the IOCTL completes, so any pre-existing value in the field is preserved.
 // -------------------------------------------------------------------------
-#define HOOK_REENTRANCY_MAGIC_64  ((ULONG64)0xFEEDF00DFEEDF00DUI64)
-#define HOOK_REENTRANCY_MAGIC_32  ((ULONG32)0xFEEDF00DUL)
+#define HOOK_REENTRANCY_MAGIC_64 ((ULONG64)0xFEEDF00DFEEDF00DUI64)
+#define HOOK_REENTRANCY_MAGIC_32 ((ULONG32)0xFEEDF00DUL)
 
 // Function Pointer Types
 typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
@@ -126,9 +129,9 @@ typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, 
                                                      _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
                                                      _In_ ULONG AllocationType, _In_ ULONG Protect);
 typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
-                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
-                                               _In_ ULONG Options);
+                                              _In_ HANDLE TargetProcessHandle, _Out_ PHANDLE TargetHandle,
+                                              _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
+                                              _In_ ULONG Options);
 typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
                                                  _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
@@ -214,8 +217,7 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
         // Only the first thread to flip MutexInitialized from FALSE to TRUE
         // copies the initialized mutex into the global. Losers harmlessly
         // discard their local copy - the winner's mutex is already valid.
-        if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized,
-                                       TRUE, FALSE) == FALSE)
+        if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, TRUE, FALSE) == FALSE)
         {
             RtlCopyMemory(&g_HookExcludeRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
 
@@ -230,8 +232,7 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
         }
 
         // Losers spin-wait until the winner's writes are visible.
-        while (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized,
-                                          0, 0) == FALSE)
+        while (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, 0, 0) == FALSE)
         {
             YieldProcessor();
         }
@@ -297,10 +298,8 @@ static NTSTATUS EnsureHookExcludeRuleCapacityUnlocked(_In_ ULONG RequiredCount)
     return STATUS_SUCCESS;
 }
 
-static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buffer,
-                                _In_ SIZE_T BufferLength,
-                                _In_reads_bytes_(PatternLength) const UCHAR *Pattern,
-                                _In_ SIZE_T PatternLength)
+static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buffer, _In_ SIZE_T BufferLength,
+                                _In_reads_bytes_(PatternLength) const UCHAR *Pattern, _In_ SIZE_T PatternLength)
 {
     if (Buffer == NULL || Pattern == NULL || PatternLength == 0 || BufferLength < PatternLength)
     {
@@ -362,8 +361,8 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
         end = commentPos;
     }
 
-    while (end > start &&
-           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
+    while (end > start && (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' ||
+                           RuleText[end - 1] == L'"'))
     {
         end--;
     }
@@ -383,19 +382,13 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
     }
     normalizedLine[lineLen] = L'\0';
 
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'?' &&
-        normalizedLine[2] == L'?' &&
+    if (lineLen >= 4 && normalizedLine[0] == L'\\' && normalizedLine[1] == L'?' && normalizedLine[2] == L'?' &&
         normalizedLine[3] == L'\\')
     {
         RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
         lineLen -= 4;
     }
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'\\' &&
-        normalizedLine[2] == L'?' &&
+    if (lineLen >= 4 && normalizedLine[0] == L'\\' && normalizedLine[1] == L'\\' && normalizedLine[2] == L'?' &&
         normalizedLine[3] == L'\\')
     {
         RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
@@ -441,7 +434,8 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer, _In_ ULONG BytesRead)
+static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesRead) PUCHAR Buffer,
+                                                         _In_ ULONG BytesRead)
 {
     if (Buffer == NULL || BytesRead == 0)
     {
@@ -460,7 +454,7 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
             {
                 if (i > start)
                 {
-                    (VOID)AddHookExcludeRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
+                    (VOID) AddHookExcludeRuleNormalizedUnlocked(&utf16Buffer[start], i - start);
                 }
                 start = i + 1;
             }
@@ -484,7 +478,7 @@ static NTSTATUS AppendHookExcludeRulesFromBufferUnlocked(_In_reads_bytes_(BytesR
                         lineBuffer[lineLen++] = (WCHAR)Buffer[j];
                     }
                     lineBuffer[lineLen] = L'\0';
-                    (VOID)AddHookExcludeRuleNormalizedUnlocked(lineBuffer, lineLen);
+                    (VOID) AddHookExcludeRuleNormalizedUnlocked(lineBuffer, lineLen);
                 }
                 start = i + 1;
             }
@@ -511,28 +505,15 @@ static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FileP
 
     InitializeObjectAttributes(&oa, (PUNICODE_STRING)FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwCreateFile(&fileHandle,
-                          GENERIC_READ,
-                          &oa,
-                          &ioStatus,
-                          NULL,
-                          FILE_ATTRIBUTE_NORMAL,
-                          FILE_SHARE_READ,
-                          FILE_OPEN,
-                          FILE_SYNCHRONOUS_IO_NONALERT,
-                          NULL,
-                          0);
+    status = ZwCreateFile(&fileHandle, GENERIC_READ, &oa, &ioStatus, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
+                          FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     if (!NT_SUCCESS(status))
     {
         return status;
     }
 
     RtlZeroMemory(&fileInfo, sizeof(fileInfo));
-    status = ZwQueryInformationFile(fileHandle,
-                                    &ioStatus,
-                                    &fileInfo,
-                                    sizeof(fileInfo),
-                                    FileStandardInformation);
+    status = ZwQueryInformationFile(fileHandle, &ioStatus, &fileInfo, sizeof(fileInfo), FileStandardInformation);
     if (!NT_SUCCESS(status))
     {
         ZwClose(fileHandle);
@@ -555,18 +536,10 @@ static NTSTATUS LoadHookExcludeRulesFromFileUnlocked(_In_ PCUNICODE_STRING FileP
     RtlZeroMemory(buffer, bufferSize);
 
     RtlZeroMemory(&ioStatus, sizeof(ioStatus));
-    status = ZwReadFile(fileHandle,
-                        NULL,
-                        NULL,
-                        NULL,
-                        &ioStatus,
-                        buffer,
-                        bufferSize,
-                        NULL,
-                        NULL);
+    status = ZwReadFile(fileHandle, NULL, NULL, NULL, &ioStatus, buffer, bufferSize, NULL, NULL);
     if (NT_SUCCESS(status))
     {
-        (VOID)AppendHookExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
+        (VOID) AppendHookExcludeRulesFromBufferUnlocked(buffer, (ULONG)ioStatus.Information);
     }
 
     ExFreePoolWithTag(buffer, HOOK_RULE_POOL_TAG);
@@ -630,14 +603,12 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
 
     // File I/O at PASSIVE_LEVEL, no mutex held.
     // Safe because we are the sole thread in this path (state == 1).
-    static const PCWSTR ruleFiles[] = {
-        OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL
-    };
+    static const PCWSTR ruleFiles[] = {OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL};
     for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {
         UNICODE_STRING ruleFile;
         RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        (VOID)LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
+        (VOID) LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
     }
 
     // Mark loaded in the struct (for callers that check Loaded directly).
@@ -653,9 +624,7 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
 {
     BOOLEAN matched = FALSE;
 
-    if (NormalizedPath == NULL ||
-        NormalizedPath->Buffer == NULL ||
-        NormalizedPath->Length < 3 * sizeof(WCHAR))
+    if (NormalizedPath == NULL || NormalizedPath->Buffer == NULL || NormalizedPath->Length < 3 * sizeof(WCHAR))
     {
         return FALSE;
     }
@@ -668,13 +637,10 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     // wcsstr() finds "c:\program files\vendor\" as a substring and the
     // process is silently excluded from hooking - a trivial evasion vector.
     // The guard must remain 'c' so only genuine system-drive paths match.
-    if (!(NormalizedPath->Buffer[0] == L'c' &&
-          NormalizedPath->Buffer[1] == L':' &&
-          NormalizedPath->Buffer[2] == L'\\'))
+    if (!(NormalizedPath->Buffer[0] == L'c' && NormalizedPath->Buffer[1] == L':' && NormalizedPath->Buffer[2] == L'\\'))
     {
         return FALSE;
     }
-
 
     EnsureHookExcludeRulesLoaded();
     EnsureHookExcludeRuleMutex();
@@ -706,9 +672,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process)
     }
 
     status = SeLocateProcessImageName(Process, &processImagePath);
-    if (!NT_SUCCESS(status) ||
-        processImagePath == NULL ||
-        processImagePath->Buffer == NULL ||
+    if (!NT_SUCCESS(status) || processImagePath == NULL || processImagePath->Buffer == NULL ||
         processImagePath->Length == 0)
     {
         if (processImagePath != NULL)
@@ -742,14 +706,16 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
         return TRUE;
     }
 
-    if (fnPsIsProtectedProcess != NULL && fnPsIsProtectedProcess(Process))
+    if (fnPsIsProtectedProcess != NULL)
     {
-        return TRUE;
+        if (fnPsIsProtectedProcess(Process))
+            return TRUE;
     }
 
-    if (fnPsIsProtectedProcessLight != NULL && fnPsIsProtectedProcessLight(Process))
+    if (fnPsIsProtectedProcessLight != NULL)
     {
-        return TRUE;
+        if (fnPsIsProtectedProcessLight(Process))
+            return TRUE;
     }
 
     if (IsSensitiveSystemPathForHookingProcess(Process))
@@ -760,7 +726,7 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
     return FALSE;
 }
 
-static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_CONFIG_DATA* B)
+static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA *A, _In_ const HOOK_CONFIG_DATA *B)
 {
     ANSI_STRING aFunc;
     ANSI_STRING bFunc;
@@ -773,8 +739,9 @@ static BOOLEAN IsSameHookConfig(_In_ const HOOK_CONFIG_DATA* A, _In_ const HOOK_
     RtlInitAnsiString(&aFunc, A->FunctionName);
     RtlInitAnsiString(&bFunc, B->FunctionName);
 
-    return (_wcsicmp(A->ModuleName, B->ModuleName) == 0) &&
-           RtlEqualString(&aFunc, &bFunc, TRUE);
+    if (_wcsicmp(A->ModuleName, B->ModuleName) != 0)
+        return FALSE;
+    return RtlEqualString(&aFunc, &bFunc, TRUE);
 }
 
 NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
@@ -794,9 +761,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     // malformed-but-recoverable usermode API labels such as "!LoadLibraryA".
     if (normalizedConfig.ModuleName[0] == L'\0')
     {
-        (VOID)RtlStringCchCopyW(normalizedConfig.ModuleName,
-                                RTL_NUMBER_OF(normalizedConfig.ModuleName),
-                                L"*");
+        (VOID) RtlStringCchCopyW(normalizedConfig.ModuleName, RTL_NUMBER_OF(normalizedConfig.ModuleName), L"*");
     }
 
     ExAcquireFastMutex(&g_ConfigMutex);
@@ -814,25 +779,30 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
         }
     }
 
-    if (g_CustomHookCount >= MAX_CUSTOM_HOOKS) {
+    if (g_CustomHookCount >= MAX_CUSTOM_HOOKS)
+    {
         ExReleaseFastMutex(&g_ConfigMutex);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    
+
     RtlCopyMemory(&g_GlobalCustomHooks[g_CustomHookCount], &normalizedConfig, sizeof(HOOK_CONFIG_DATA));
-    g_GlobalCustomHooks[g_CustomHookCount].ModuleName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].ModuleName) - 1] = L'\0';
-    g_GlobalCustomHooks[g_CustomHookCount].FunctionName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].FunctionName) - 1] = '\0';
+    g_GlobalCustomHooks[g_CustomHookCount]
+        .ModuleName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].ModuleName) - 1] = L'\0';
+    g_GlobalCustomHooks[g_CustomHookCount]
+        .FunctionName[RTL_NUMBER_OF(g_GlobalCustomHooks[g_CustomHookCount].FunctionName) - 1] = '\0';
     if (g_GlobalCustomHooks[g_CustomHookCount].EventId == 0)
     {
         g_GlobalCustomHooks[g_CustomHookCount].EventId = 0x6000u;
     }
     g_CustomHookCount++;
-    
+
     ExReleaseFastMutex(&g_ConfigMutex);
     return STATUS_SUCCESS;
 }
 
-BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch)
+_Success_(return != FALSE) BOOLEAN
+    ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName,
+                             _In_ ULONG OutNameCch)
 {
     BOOLEAN found = FALSE;
 
@@ -869,15 +839,12 @@ BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_
 
         if (g_GlobalCustomHooks[i].ModuleName[0] != L'\0' && _wcsicmp(g_GlobalCustomHooks[i].ModuleName, L"*") != 0)
         {
-            (VOID)RtlStringCchPrintfW(OutName,
-                                      OutNameCch,
-                                      L"%ws!%ws",
-                                      g_GlobalCustomHooks[i].ModuleName,
-                                      functionNameW);
+            (VOID)
+                RtlStringCchPrintfW(OutName, OutNameCch, L"%ws!%ws", g_GlobalCustomHooks[i].ModuleName, functionNameW);
         }
         else
         {
-            (VOID)RtlStringCchCopyW(OutName, OutNameCch, functionNameW);
+            (VOID) RtlStringCchCopyW(OutName, OutNameCch, functionNameW);
         }
 
         found = TRUE;
@@ -904,107 +871,154 @@ BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_
 // Returns 0 for unknown or truncated instructions.
 // Handles all instruction classes found in real function prologues.
 // -------------------------------------------------------------------------
-static SIZE_T X64InstrLen(
-    _In_reads_bytes_(maxLen) const UCHAR *p,
-    _In_ SIZE_T maxLen)
+static SIZE_T X64InstrLen(_In_reads_bytes_(maxLen) const UCHAR *p, _In_ SIZE_T maxLen)
 {
-    if (maxLen == 0) return 0;
+    if (maxLen == 0)
+        return 0;
     SIZE_T i = 0;
 
     BOOLEAN hasRexW = FALSE;
-    BOOLEAN has66   = FALSE;
+    BOOLEAN has66 = FALSE;
     while (i < maxLen)
     {
         UCHAR b = p[i];
-        if (b == 0x66)  { has66 = TRUE; i++; continue; }
-        if (b == 0x67 || b == 0xF0 || b == 0xF2 || b == 0xF3) { i++; continue; }
-        if (b == 0x2E || b == 0x3E || b == 0x26 || b == 0x36 ||
-            b == 0x64 || b == 0x65) { i++; continue; }
-        if ((b & 0xF0) == 0x40) { hasRexW = (b & 0x08) != 0; i++; continue; }
+        if (b == 0x66)
+        {
+            has66 = TRUE;
+            i++;
+            continue;
+        }
+        if (b == 0x67 || b == 0xF0 || b == 0xF2 || b == 0xF3)
+        {
+            i++;
+            continue;
+        }
+        if (b == 0x2E || b == 0x3E || b == 0x26 || b == 0x36 || b == 0x64 || b == 0x65)
+        {
+            i++;
+            continue;
+        }
+        if ((b & 0xF0) == 0x40)
+        {
+            hasRexW = (b & 0x08) != 0;
+            i++;
+            continue;
+        }
         break;
     }
-    if (i >= maxLen) return 0;
+    if (i >= maxLen)
+        return 0;
     UCHAR op = p[i++];
 
     // 0F two-byte escape
     if (op == 0x0F)
     {
-        if (i >= maxLen) return 0;
+        if (i >= maxLen)
+            return 0;
         UCHAR op2 = p[i++];
         // Jcc near: 0F 80-8F rel32
-        if (op2 >= 0x80 && op2 <= 0x8F) return i + 4;
+        if (op2 >= 0x80 && op2 <= 0x8F)
+            return i + 4;
         // No-operand: SYSCALL(05) SYSRET(07) WRMSR(30) RDMSR(32) RDTSC(31) CPUID(A2)
-        if (op2 == 0x05 || op2 == 0x07 || op2 == 0x30 || op2 == 0x31 ||
-            op2 == 0x32 || op2 == 0xA2) return i;
+        if (op2 == 0x05 || op2 == 0x07 || op2 == 0x30 || op2 == 0x31 || op2 == 0x32 || op2 == 0xA2)
+            return i;
         // Everything else: assume ModRM follows
-        if (i >= maxLen) return 0;
+        if (i >= maxLen)
+            return 0;
         UCHAR modrm = p[i++];
         UCHAR mod = (modrm >> 6) & 3;
-        UCHAR rm  =  modrm & 7;
+        UCHAR rm = modrm & 7;
         SIZE_T disp = 0;
-        if      (mod == 1) disp = 1;
-        else if (mod == 2) disp = 4;
-        else if (mod == 0 && rm == 5) disp = 4;
-        if (rm == 4 && mod != 3) {
-            if (i >= maxLen) return 0;
+        if (mod == 1)
+            disp = 1;
+        else if (mod == 2)
+            disp = 4;
+        else if (mod == 0 && rm == 5)
+            disp = 4;
+        if (rm == 4 && mod != 3)
+        {
+            if (i >= maxLen)
+                return 0;
             UCHAR sib = p[i++];
-            if (mod == 0 && (sib & 7) == 5) disp = 4;
+            if (mod == 0 && (sib & 7) == 5)
+                disp = 4;
         }
         i += disp;
         return i;
     }
 
     // Single-byte, no operands
-    if ((op >= 0x50 && op <= 0x5F) || op == 0x90 || op == 0x9C || op == 0x9D ||
-        op == 0xC3 || op == 0xC9 || op == 0xCB) return i;
+    if ((op >= 0x50 && op <= 0x5F) || op == 0x90 || op == 0x9C || op == 0x9D || op == 0xC3 || op == 0xC9 || op == 0xCB)
+        return i;
     // INT n
-    if (op == 0xCD) return i + 1;
+    if (op == 0xCD)
+        return i + 1;
     // RET imm16
-    if (op == 0xC2) return i + 2;
+    if (op == 0xC2)
+        return i + 2;
     // Short relative (EB rel8, Jcc rel8 70-7F)
-    if (op == 0xEB || (op >= 0x70 && op <= 0x7F)) return i + 1;
+    if (op == 0xEB || (op >= 0x70 && op <= 0x7F))
+        return i + 1;
     // Near relative (E9 rel32, E8 rel32 CALL)
-    if (op == 0xE9 || op == 0xE8) return i + 4;
+    if (op == 0xE9 || op == 0xE8)
+        return i + 4;
     // MOV reg, imm8 (B0-B7)
-    if (op >= 0xB0 && op <= 0xB7) return i + 1;
+    if (op >= 0xB0 && op <= 0xB7)
+        return i + 1;
     // MOV reg, imm (B8-BF)
-    if (op >= 0xB8 && op <= 0xBF) return i + (hasRexW ? 8 : (has66 ? 2 : 4));
+    if (op >= 0xB8 && op <= 0xBF)
+        return i + (hasRexW ? 8 : (has66 ? 2 : 4));
     // PUSH imm
-    if (op == 0x6A) return i + 1;
-    if (op == 0x68) return i + 4;
+    if (op == 0x6A)
+        return i + 1;
+    if (op == 0x68)
+        return i + 4;
     // TEST (r)AX, imm
-    if (op == 0xA8) return i + 1;
-    if (op == 0xA9) return i + (has66 ? 2 : 4);
+    if (op == 0xA8)
+        return i + 1;
+    if (op == 0xA9)
+        return i + (has66 ? 2 : 4);
     // MOV moffs (A0-A3): 64-bit absolute address
-    if (op >= 0xA0 && op <= 0xA3) return i + 8;
+    if (op >= 0xA0 && op <= 0xA3)
+        return i + 8;
 
     // ModRM opcodes
     {
         static const UCHAR kModrm[] = {
-            0x01,0x03,0x09,0x0B,0x11,0x13,0x19,0x1B,
-            0x21,0x23,0x29,0x2B,0x31,0x33,0x39,0x3B,
-            0x63,0x69,0x6B,0x80,0x81,0x83,
-            0x84,0x85,0x87,0x88,0x89,0x8B,0x8D,0x8F,
-            0xC0,0xC1,0xC7,0xD0,0xD1,0xD2,0xD3,0xF6,0xF7,0xFF,
+            0x01, 0x03, 0x09, 0x0B, 0x11, 0x13, 0x19, 0x1B, 0x21, 0x23, 0x29, 0x2B, 0x31, 0x33,
+            0x39, 0x3B, 0x63, 0x69, 0x6B, 0x80, 0x81, 0x83, 0x84, 0x85, 0x87, 0x88, 0x89, 0x8B,
+            0x8D, 0x8F, 0xC0, 0xC1, 0xC7, 0xD0, 0xD1, 0xD2, 0xD3, 0xF6, 0xF7, 0xFF,
         };
         BOOLEAN hm = FALSE;
         for (SIZE_T k = 0; k < RTL_NUMBER_OF(kModrm); k++)
-            if (op == kModrm[k]) { hm = TRUE; break; }
-        if (!hm) return 0;
+            if (op == kModrm[k])
+            {
+                hm = TRUE;
+                break;
+            }
+        if (!hm)
+            return 0;
 
-        if (i >= maxLen) return 0;
+        if (i >= maxLen)
+            return 0;
         UCHAR modrm = p[i++];
         UCHAR mod = (modrm >> 6) & 3;
         UCHAR reg = (modrm >> 3) & 7;
-        UCHAR rm  =  modrm & 7;
+        UCHAR rm = modrm & 7;
         SIZE_T disp = 0;
-        if      (mod == 1) disp = 1;
-        else if (mod == 2) disp = 4;
-        else if (mod == 0 && rm == 5) disp = 4;
-        if (rm == 4 && mod != 3) {
-            if (i >= maxLen) return 0;
+        if (mod == 1)
+            disp = 1;
+        else if (mod == 2)
+            disp = 4;
+        else if (mod == 0 && rm == 5)
+            disp = 4;
+        if (rm == 4 && mod != 3)
+        {
+            if (i >= maxLen)
+                return 0;
             UCHAR sib = p[i++];
-            if (mod == 0 && (sib & 7) == 5) disp = 4;
+            if (mod == 0 && (sib & 7) == 5)
+                disp = 4;
         }
         i += disp;
         // Immediates
@@ -1012,8 +1026,10 @@ static SIZE_T X64InstrLen(
             i += 1;
         else if (op == 0x81 || op == 0xC7 || op == 0x69)
             i += (has66 ? 2 : 4);
-        else if (op == 0xF6 && reg == 0) i += 1;
-        else if (op == 0xF7 && reg == 0) i += (hasRexW ? 4 : (has66 ? 2 : 4));
+        else if (op == 0xF6 && reg == 0)
+            i += 1;
+        else if (op == 0xF7 && reg == 0)
+            i += (hasRexW ? 4 : (has66 ? 2 : 4));
         return i;
     }
 }
@@ -1028,8 +1044,7 @@ static SIZE_T X64InstrLen(
 //   * an unrecognised opcode is encountered, OR
 //   * no boundary is found within USERMODE_HOOK_STOLEN_MAX bytes.
 // -------------------------------------------------------------------------
-static SIZE_T ComputeStolenSize64(
-    _In_reads_bytes_(USERMODE_HOOK_STOLEN_MAX) const UCHAR *Code)
+static SIZE_T ComputeStolenSize64(_In_reads_bytes_(USERMODE_HOOK_STOLEN_MAX) const UCHAR *Code)
 {
     SIZE_T pos = 0;
     while (pos < USERMODE_HOOK_SIZE)
@@ -1039,7 +1054,7 @@ static SIZE_T ComputeStolenSize64(
             return 0;
         pos += ilen;
     }
-    return pos;   // first instruction boundary >= USERMODE_HOOK_SIZE
+    return pos; // first instruction boundary >= USERMODE_HOOK_SIZE
 }
 
 // FIX #4b: ContainsUnrelocatableInstructions
@@ -1056,9 +1071,8 @@ static SIZE_T ComputeStolenSize64(
 //
 // Returns TRUE if at least one unrelocatable instruction was found.
 // -------------------------------------------------------------------------
-static BOOLEAN ContainsUnrelocatableInstructions(
-    _In_reads_bytes_(StolenSize) const UCHAR *Bytes,
-    _In_ SIZE_T StolenSize)
+static BOOLEAN ContainsUnrelocatableInstructions(_In_reads_bytes_(StolenSize) const UCHAR *Bytes,
+                                                 _In_ SIZE_T StolenSize)
 {
     SIZE_T i = 0;
 
@@ -1080,7 +1094,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
         // Short/near relative branches - target changes at new VA.
         if (b == 0xEB || b == 0xE9 || b == 0xE8)
             return TRUE;
-        if ((b & 0xF0) == 0x70)  // Jcc rel8: JO/JNO/JB/JAE/JE/JNE/.../JG
+        if ((b & 0xF0) == 0x70) // Jcc rel8: JO/JNO/JB/JAE/JE/JNE/.../JG
             return TRUE;
 
         // Two-byte opcode escape (0F xx)
@@ -1097,7 +1111,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             if (i + 1 < StolenSize)
             {
                 UCHAR modrm = Bytes[i + 1];
-                if ((modrm & 0xC7) == 0x05)   // mod=00, rm=101 = RIP-relative
+                if ((modrm & 0xC7) == 0x05) // mod=00, rm=101 = RIP-relative
                     return TRUE;
             }
             // Consume this byte and keep going (simplified)
@@ -1108,12 +1122,12 @@ static BOOLEAN ContainsUnrelocatableInstructions(
         // One-byte opcodes that may carry a RIP-relative ModRM:
         // 8x, 0x-3x (ALU), C7, FF, etc.
         static const UCHAR kModrmOpcodes[] = {
-            0x01, 0x03, 0x09, 0x0B, 0x11, 0x13,    // ADD/OR/ADC/SBB
-            0x21, 0x23, 0x29, 0x2B, 0x31, 0x33,    // AND/SUB/XOR
-            0x39, 0x3B,                              // CMP
-            0x85, 0x87, 0x89, 0x8B, 0x8D,           // TEST/XCHG/MOV/LEA
-            0xC7,                                    // MOV r/m, imm
-            0xFF,                                    // INC/DEC/CALL/JMP/PUSH
+            0x01, 0x03, 0x09, 0x0B, 0x11, 0x13, // ADD/OR/ADC/SBB
+            0x21, 0x23, 0x29, 0x2B, 0x31, 0x33, // AND/SUB/XOR
+            0x39, 0x3B,                         // CMP
+            0x85, 0x87, 0x89, 0x8B, 0x8D,       // TEST/XCHG/MOV/LEA
+            0xC7,                               // MOV r/m, imm
+            0xFF,                               // INC/DEC/CALL/JMP/PUSH
         };
         BOOLEAN hasModrm = FALSE;
         for (SIZE_T k = 0; k < RTL_NUMBER_OF(kModrmOpcodes); ++k)
@@ -1128,21 +1142,25 @@ static BOOLEAN ContainsUnrelocatableInstructions(
         if (hasModrm && i + 1 < StolenSize)
         {
             UCHAR modrm = Bytes[i + 1];
-            if ((modrm & 0xC7) == 0x05)   // mod=00, rm=101 = RIP-relative
+            if ((modrm & 0xC7) == 0x05) // mod=00, rm=101 = RIP-relative
                 return TRUE;
 
             // Estimate instruction length to advance i correctly
             // (simplified - good enough for 14-byte prologues)
             UCHAR mod = (modrm >> 6) & 0x03;
-            UCHAR rm  = modrm & 0x07;
-            SIZE_T instrLen = 2;   // opcode + ModRM
-            if (mod == 0x01) instrLen += 1;        // +disp8
-            else if (mod == 0x02) instrLen += 4;   // +disp32
-            else if (mod == 0x00 && rm == 0x04)    // SIB byte follows
+            UCHAR rm = modrm & 0x07;
+            SIZE_T instrLen = 2; // opcode + ModRM
+            if (mod == 0x01)
+                instrLen += 1; // +disp8
+            else if (mod == 0x02)
+                instrLen += 4;                  // +disp32
+            else if (mod == 0x00 && rm == 0x04) // SIB byte follows
                 instrLen += 1;
             // special case: C7 also carries an imm32
-            if (b == 0xC7 && mod == 0x03) instrLen += 4;
-            else if (b == 0xC7) instrLen += 4;
+            if (b == 0xC7 && mod == 0x03)
+                instrLen += 4;
+            else if (b == 0xC7)
+                instrLen += 4;
 
             i += instrLen;
             continue;
@@ -1175,9 +1193,8 @@ static BOOLEAN ContainsUnrelocatableInstructions(
 // For USERMODE_HOOK_SIZE_32 = 5 stolen bytes the check only needs to confirm
 // that no relative branch starts inside the first 5 bytes.
 // -------------------------------------------------------------------------
-static BOOLEAN ContainsUnrelocatableInstructions32(
-    _In_reads_bytes_(StolenSize) const UCHAR *Bytes,
-    _In_ SIZE_T StolenSize)
+static BOOLEAN ContainsUnrelocatableInstructions32(_In_reads_bytes_(StolenSize) const UCHAR *Bytes,
+                                                   _In_ SIZE_T StolenSize)
 {
     SIZE_T i = 0;
 
@@ -1306,8 +1323,8 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
     // ---- Save all GP registers and flags --------------------------------
-    0x60,                                // pushad
-    0x9C,                                // pushfd
+    0x60, // pushad
+    0x9C, // pushfd
 
     // ---- Allocate local frame: 0x80 bytes --------------------------------
     0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, // sub esp, 0x80
@@ -1315,17 +1332,17 @@ UCHAR g_ShellcodeTemplate32[] = {
     // ---- RE-ENTRANCY GUARD (new) -----------------------------------------
     // Load sentinel into EBX (already saved by PUSHAD at [LB+0x90]).
     // kGuardMagicSig32 = { 0xBB, 0x88, 0x88, 0x88, 0x88 }
-    0xBB, 0x88, 0x88, 0x88, 0x88,       // mov ebx, MAGIC32
+    0xBB, 0x88, 0x88, 0x88, 0x88, // mov ebx, MAGIC32
 
     // Read TEB32.NtTib.ArbitraryUserPointer from FS:[0x14]
     // FS(64) A1 [14 00 00 00]  = MOV EAX, moffs32 with FS prefix (6 bytes)
     0x64, 0xA1, 0x14, 0x00, 0x00, 0x00, // mov eax, fs:[0x14]
 
     // Save old value so we can restore it after the IOCTL
-    0x89, 0x44, 0x24, 0x78,             // mov [esp+0x78], eax
+    0x89, 0x44, 0x24, 0x78, // mov [esp+0x78], eax
 
     // If eax == magic -> already inside shellcode, skip IOCTL
-    0x3B, 0xC3,                          // cmp eax, ebx
+    0x3B, 0xC3, // cmp eax, ebx
 
     // je rel32 - kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
     // rel32 patched at install time to reach kSkipLabelSig32
@@ -1335,9 +1352,9 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x64, 0x89, 0x1D, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], ebx
 
     // ---- Zero IoStatusBlock at [esp+0x00..0x07] -------------------------
-    0x31, 0xC0,                          // xor eax, eax
-    0x89, 0x04, 0x24,                    // mov [esp+0x00], eax
-    0x89, 0x44, 0x24, 0x04,             // mov [esp+0x04], eax
+    0x31, 0xC0,             // xor eax, eax
+    0x89, 0x04, 0x24,       // mov [esp+0x00], eax
+    0x89, 0x44, 0x24, 0x04, // mov [esp+0x04], eax
 
     // ---- Fill HOOK_EVENT_DATA at [esp+0x08] -----------------------------
     // EventType <- patched: kEventSig32
@@ -1349,52 +1366,52 @@ UCHAR g_ShellcodeTemplate32[] = {
 
     // ---- Arg1 -> HOOK_EVENT_DATA.Arg1 ------------------------------------
     // [esp+0xA8] = arg1 of hooked fn (LB+0x80=EFLAGS + 0x84..0xA0=PUSHAD + 0xA4=retaddr)
-    0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, // mov eax, [esp+0xA8]
-    0x89, 0x44, 0x24, 0x50,                    // mov [esp+0x50], eax
+    0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00,       // mov eax, [esp+0xA8]
+    0x89, 0x44, 0x24, 0x50,                         // mov [esp+0x50], eax
     0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x54] = 0
 
     // ---- Arg2 -> HOOK_EVENT_DATA.Arg2 ------------------------------------
-    0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00, // mov eax, [esp+0xAC]
-    0x89, 0x44, 0x24, 0x58,                    // mov [esp+0x58], eax
+    0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00,       // mov eax, [esp+0xAC]
+    0x89, 0x44, 0x24, 0x58,                         // mov [esp+0x58], eax
     0xC7, 0x44, 0x24, 0x5C, 0x00, 0x00, 0x00, 0x00, // dword [esp+0x5C] = 0
 
     // ---- Build NtDeviceIoControlFile args (stdcall, right-to-left) ------
     // arg10: OutputBufferLength = 0
-    0x6A, 0x00,                          // push 0               ESP=LB-4
+    0x6A, 0x00, // push 0               ESP=LB-4
     // arg9: OutputBuffer = NULL
-    0x6A, 0x00,                          // push 0               ESP=LB-8
+    0x6A, 0x00, // push 0               ESP=LB-8
     // arg8: InputBufferLength <- patched: kSizeSig32
-    0x68, 0x77, 0x77, 0x77, 0x77,       //                       ESP=LB-0xC
+    0x68, 0x77, 0x77, 0x77, 0x77, //                       ESP=LB-0xC
     // arg7: InputBuffer = &HOOK_EVENT_DATA = [esp+0x14] at this point
-    0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
-    0x50,                               // push eax              ESP=LB-0x10
+    0x8D, 0x44, 0x24, 0x14, // lea eax,[esp+0x14]
+    0x50,                   // push eax              ESP=LB-0x10
     // arg6: IoControlCode <- patched: kIoctlSig32
-    0x68, 0x66, 0x66, 0x66, 0x66,       //                       ESP=LB-0x14
+    0x68, 0x66, 0x66, 0x66, 0x66, //                       ESP=LB-0x14
     // arg5: &IoStatusBlock = [esp+0x14] at this point
-    0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
-    0x50,                               // push eax              ESP=LB-0x18
+    0x8D, 0x44, 0x24, 0x14, // lea eax,[esp+0x14]
+    0x50,                   // push eax              ESP=LB-0x18
     // arg4: ApcContext = NULL
-    0x6A, 0x00,                         //                       ESP=LB-0x1C
+    0x6A, 0x00, //                       ESP=LB-0x1C
     // arg3: ApcRoutine = NULL
-    0x6A, 0x00,                         //                       ESP=LB-0x20
+    0x6A, 0x00, //                       ESP=LB-0x20
     // arg2: Event = NULL
-    0x6A, 0x00,                         //                       ESP=LB-0x24
+    0x6A, 0x00, //                       ESP=LB-0x24
     // arg1: FileHandle <- patched: kHandleSig32
-    0x68, 0x33, 0x33, 0x33, 0x33,       //                       ESP=LB-0x28
+    0x68, 0x33, 0x33, 0x33, 0x33, //                       ESP=LB-0x28
 
     // ---- Call NtDeviceIoControlFile (stdcall - callee cleans 40 bytes) --
     // Address <- patched: kNtIoSig32
-    0xB8, 0x44, 0x44, 0x44, 0x44,       // mov eax, imm32
-    0xFF, 0xD0,                          // call eax
+    0xB8, 0x44, 0x44, 0x44, 0x44, // mov eax, imm32
+    0xFF, 0xD0,                   // call eax
 
     // ---- Restore re-entrancy guard (clear back to old FS:[0x14] value) --
-    0x8B, 0x44, 0x24, 0x78,             // mov eax, [esp+0x78]
+    0x8B, 0x44, 0x24, 0x78, // mov eax, [esp+0x78]
     // FS(64) A3 [14 00 00 00] = MOV [moffs32], EAX
     0x64, 0xA3, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], eax
 
     // ---- skip_notification32 label <- JE rel32 target --------------------
     // kSkipLabelSig32 = { 0x0F, 0x1F, 0x00 }  (3-byte NOP)
-    0x0F, 0x1F, 0x00,                   // nop dword ptr [eax]
+    0x0F, 0x1F, 0x00, // nop dword ptr [eax]
 
     // ---- Restore local frame and all registers --------------------------
     0x81, 0xC4, 0x80, 0x00, 0x00, 0x00, // add esp, 0x80
@@ -1408,8 +1425,7 @@ UCHAR g_ShellcodeTemplate32[] = {
     0xE9, 0x55, 0x55, 0x55, 0x55,
 
     // ---- Padding --------------------------------------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
-};
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
 // NtDeviceIoControlFile, leaving the rest as garbage - causing an access
 // violation inside the kernel on almost every hooked call.
 //
@@ -1484,41 +1500,40 @@ UCHAR g_ShellcodeTemplate32[] = {
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate[] = {
     // ---- Save volatile registers ----------------------------------------
-    0x50,                                           // push rax
-    0x51,                                           // push rcx
-    0x52,                                           // push rdx
-    0x53,                                           // push rbx
-    0x41, 0x50,                                     // push r8
-    0x41, 0x51,                                     // push r9
-    0x41, 0x52,                                     // push r10
-    0x41, 0x53,                                     // push r11
+    0x50,       // push rax
+    0x51,       // push rcx
+    0x52,       // push rdx
+    0x53,       // push rbx
+    0x41, 0x50, // push r8
+    0x41, 0x51, // push r9
+    0x41, 0x52, // push r10
+    0x41, 0x53, // push r11
 
     // ---- Allocate 0xF8 bytes of local frame -----------------------------
     // After 8 pushes (64 bytes) RSP%16 == 8.  sub 0xF8 (248, 8 mod 16):
     // RSP%16 -> 0 at the CALL, satisfying the x64 ABI.
-    0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00,      // sub rsp, 0xF8
+    0x48, 0x81, 0xEC, 0xF8, 0x00, 0x00, 0x00, // sub rsp, 0xF8
 
     // ---- RE-ENTRANCY GUARD (new) ----------------------------------------
     // Load sentinel into R10 (already saved at [RSP+0x100]).
     // Placeholder 0x88... is patched with HOOK_REENTRANCY_MAGIC_64.
     // kGuardMagicSig = { 0x49,0xBA,0x88,0x88,0x88,0x88,0x88,0x88,0x88,0x88 }
-    0x49, 0xBA,
-    0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,// mov r10, MAGIC  (imm64)
+    0x49, 0xBA, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, // mov r10, MAGIC  (imm64)
 
     // Read TEB.NtTib.ArbitraryUserPointer from GS:[0x28]
     // Encoding: GS(65) REX.W(48) 8B /r SIB(04 25) disp32
     0x65, 0x48, 0x8B, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov rax, gs:[0x28]
 
     // Save old value so we can restore it after the IOCTL
-    0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov [rsp+0x70], rax
+    0x48, 0x89, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov [rsp+0x70], rax
 
     // If rax == magic -> already inside shellcode on this thread, skip IOCTL
     // cmp rax, r10  -> REX.WB(49) 3B C2
-    0x49, 0x3B, 0xC2,                               // cmp rax, r10
+    0x49, 0x3B, 0xC2, // cmp rax, r10
 
     // je rel32 - kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
     // rel32 patched at install time to reach kSkipLabelSig
-    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00,             // je skip_notification
+    0x0F, 0x84, 0x00, 0x00, 0x00, 0x00, // je skip_notification
 
     // Set guard: mark this thread as inside our shellcode
     // mov gs:[0x28], r10  -> GS(65) REX.WR(4C) 89 SIB(14 25) disp32
@@ -1526,8 +1541,8 @@ UCHAR g_ShellcodeTemplate[] = {
 
     // ---- Zero IO_STATUS_BLOCK at RSP+0x80 --------------------------------
     0x48, 0x31, 0xC0,                               // xor rax, rax
-    0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// mov [rsp+0x80], rax
-    0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00,// mov [rsp+0x88], rax
+    0x48, 0x89, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00, // mov [rsp+0x80], rax
+    0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00, // mov [rsp+0x88], rax
 
     // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -----------------------
     // EventType at RSP+0x90  <- patched: kEventSig
@@ -1541,48 +1556,45 @@ UCHAR g_ShellcodeTemplate[] = {
     // Register save layout after sub rsp,0xF8:
     //   r11=[RSP+0xF8] r10=[RSP+0x100] r9=[RSP+0x108] r8=[RSP+0x110]
     //   rbx=[RSP+0x118] rdx=[RSP+0x120] rcx=[RSP+0x128] rax=[RSP+0x130]
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax,[rsp+0x128] <- RCX
-    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8],rax -> Arg1
+    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00, // mov rax,[rsp+0x128] <- RCX
+    0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00, // mov [rsp+0xD8],rax -> Arg1
 
     // ---- Copy original RDX (arg2) -> HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax,[rsp+0x120] <- RDX
-    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0],rax -> Arg2
+    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00, // mov rax,[rsp+0x120] <- RDX
+    0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00, // mov [rsp+0xE0],rax -> Arg2
 
     // ---- Build NtDeviceIoControlFile argument frame ----------------------
     // RCX = FileHandle <- patched: kHandleSig
     0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
     // RDX = Event = NULL
-    0x31, 0xD2,                                     // xor edx, edx
+    0x31, 0xD2, // xor edx, edx
     // R8 = ApcRoutine = NULL
-    0x45, 0x31, 0xC0,                               // xor r8d, r8d
+    0x45, 0x31, 0xC0, // xor r8d, r8d
     // R9 = ApcContext = NULL
-    0x45, 0x31, 0xC9,                               // xor r9d, r9d
+    0x45, 0x31, 0xC9, // xor r9d, r9d
     // arg5 [rsp+0x20] = &IoStatusBlock
-    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// lea rax,[rsp+0x80]
+    0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00, // lea rax,[rsp+0x80]
     0x48, 0x89, 0x44, 0x24, 0x20,                   // mov [rsp+0x20], rax
     // arg6 [rsp+0x28] = IoControlCode <- patched: kIoctlSig
-    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x48, 0x89, 0x44, 0x24, 0x28,                   // mov [rsp+0x28], rax
+    0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x48, 0x89, 0x44, 0x24, 0x28, // mov [rsp+0x28], rax
     // arg7 [rsp+0x30] = InputBuffer = &HOOK_EVENT_DATA
-    0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00,// lea rax,[rsp+0x90]
+    0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, // lea rax,[rsp+0x90]
     0x48, 0x89, 0x44, 0x24, 0x30,                   // mov [rsp+0x30], rax
     // arg8 [rsp+0x38] = InputBufferLength <- patched: kSizeSig
-    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77,
-    0x48, 0x89, 0x44, 0x24, 0x38,                   // mov [rsp+0x38], rax
+    0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x48, 0x89, 0x44, 0x24, 0x38, // mov [rsp+0x38], rax
     // arg9 [rsp+0x40] = NULL, arg10 [rsp+0x48] = 0
-    0x48, 0x31, 0xC0,                               // xor rax, rax
-    0x48, 0x89, 0x44, 0x24, 0x40,                   // mov [rsp+0x40], rax
-    0x48, 0x89, 0x44, 0x24, 0x48,                   // mov [rsp+0x48], rax
+    0x48, 0x31, 0xC0,             // xor rax, rax
+    0x48, 0x89, 0x44, 0x24, 0x40, // mov [rsp+0x40], rax
+    0x48, 0x89, 0x44, 0x24, 0x48, // mov [rsp+0x48], rax
 
     // ---- Call NtDeviceIoControlFile <- patched: kNtIoSig -----------------
-    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-    0xFF, 0xD0,                                     // call rax
+    0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, // call rax
 
     // ---- Restore re-entrancy guard ---------------------------------------
     // Restores the old TEB.ArbitraryUserPointer value saved at [RSP+0x70].
     // This correctly handles the case where the field was non-zero before we
     // set the sentinel (e.g. the CRT had its own value there).
-    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00,// mov rax, [rsp+0x70]
+    0x48, 0x8B, 0x84, 0x24, 0x70, 0x00, 0x00, 0x00, // mov rax, [rsp+0x70]
     // mov gs:[0x28], rax -> GS(65) REX.W(48) 89 SIB(04 25) disp32
     0x65, 0x48, 0x89, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], rax
 
@@ -1591,38 +1603,32 @@ UCHAR g_ShellcodeTemplate[] = {
     // 5-byte NOP: nop dword ptr [rax+rax*1+0h]
     // On the re-entrant path the JE jumps here, bypassing the IOCTL entirely.
     // On the normal path execution falls through from the guard restore above.
-    0x0F, 0x1F, 0x44, 0x00, 0x00,                  // (5-byte NPAD)
+    0x0F, 0x1F, 0x44, 0x00, 0x00, // (5-byte NPAD)
 
     // ---- Restore local space and registers ------------------------------
-    0x48, 0x81, 0xC4, 0xF8, 0x00, 0x00, 0x00,      // add rsp, 0xF8
-    0x41, 0x5B,                                     // pop r11
-    0x41, 0x5A,                                     // pop r10
-    0x41, 0x59,                                     // pop r9
-    0x41, 0x58,                                     // pop r8
-    0x5B,                                           // pop rbx
-    0x5A,                                           // pop rdx
-    0x59,                                           // pop rcx
-    0x58,                                           // pop rax
+    0x48, 0x81, 0xC4, 0xF8, 0x00, 0x00, 0x00, // add rsp, 0xF8
+    0x41, 0x5B,                               // pop r11
+    0x41, 0x5A,                               // pop r10
+    0x41, 0x59,                               // pop r9
+    0x41, 0x58,                               // pop r8
+    0x5B,                                     // pop rbx
+    0x5A,                                     // pop rdx
+    0x59,                                     // pop rcx
+    0x58,                                     // pop rax
 
     // ---- 28-byte stolen-instruction placeholder -------------------------
     // Accommodates up to 28 bytes of original prologue rounded to an
     // instruction boundary.  Unused trailing bytes remain as NOPs and are
     // never reached (execution falls through to mov rax,retVA; jmp rax).
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
     // ---- Return jump <- patched: kRetSig ---------------------------------
-    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-    0xFF, 0xE0,                                     // jmp rax
+    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xE0, // jmp rax
 
     // ---- Padding --------------------------------------------------------
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-    0x90, 0x90, 0x90, 0x90
-};
-
+    0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    0x90};
 
 //
 // Initialize the user-mode hooking engine
@@ -1660,23 +1666,26 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // Resolve ZwAllocateVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwAllocateVirtualMemory");
     fnZwAllocateVirtualMemory = (PZW_ALLOCATE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
-    if (!fnZwAllocateVirtualMemory) {
+    if (!fnZwAllocateVirtualMemory)
+    {
         DbgPrint("!!! UserModeHook: Failed to resolve ZwAllocateVirtualMemory\n");
     }
 
     // Resolve ZwDuplicateObject
     RtlInitUnicodeString(&routineName, L"ZwDuplicateObject");
     fnZwDuplicateObject = (PZW_DUPLICATE_OBJECT)MmGetSystemRoutineAddress(&routineName);
-    
+
     // Resolve ZwFreeVirtualMemory
     RtlInitUnicodeString(&routineName, L"ZwFreeVirtualMemory");
     fnZwFreeVirtualMemory = (PZW_FREE_VIRTUAL_MEMORY)MmGetSystemRoutineAddress(&routineName);
     // FIX 2a: original code checked !fnZwDuplicateObject here instead of !fnZwFreeVirtualMemory.
-    if (!fnZwFreeVirtualMemory) {
-         DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
+    if (!fnZwFreeVirtualMemory)
+    {
+        DbgPrint("!!! UserModeHook: Failed to resolve ZwFreeVirtualMemory\n");
     }
-    if (!fnZwDuplicateObject) {
-         DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
+    if (!fnZwDuplicateObject)
+    {
+        DbgPrint("!!! UserModeHook: Failed to resolve ZwDuplicateObject\n");
     }
 
     // Resolve optional process protection helpers (best-effort).
@@ -1690,8 +1699,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     // old kernels), WoW64 hooking is disabled and only 64-bit processes are
     // hooked.
     RtlInitUnicodeString(&routineName, L"PsGetProcessWow64Process");
-    fnPsGetProcessWow64Process =
-        (PPS_GET_PROCESS_WOW64_PROCESS)MmGetSystemRoutineAddress(&routineName);
+    fnPsGetProcessWow64Process = (PPS_GET_PROCESS_WOW64_PROCESS)MmGetSystemRoutineAddress(&routineName);
     if (!fnPsGetProcessWow64Process)
     {
         DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking disabled\n");
@@ -1737,8 +1745,7 @@ VOID UserModeHookEngineCleanup(VOID)
 
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
-        if (g_UserHookEngine->Processes[i].IsHooked &&
-            g_UserHookEngine->Processes[i].ProcessId != 0 &&
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId != 0 &&
             hookedPidCount < MAX_HOOKED_PROCESSES)
         {
             hookedPids[hookedPidCount++] = g_UserHookEngine->Processes[i].ProcessId;
@@ -1749,7 +1756,7 @@ VOID UserModeHookEngineCleanup(VOID)
 
     for (ULONG i = 0; i < hookedPidCount; ++i)
     {
-        (VOID)UserModeUnhookProcess(hookedPids[i]);
+        (VOID) UserModeUnhookProcess(hookedPids[i]);
     }
 
     // FIX: wait up to 1 s for IsInProgress threads to finish.
@@ -1760,14 +1767,19 @@ VOID UserModeHookEngineCleanup(VOID)
     {
         BOOLEAN anyInProgress = FALSE;
         ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-        for (ULONG j = 0; j < MAX_HOOKED_PROCESSES; j++) {
-            if (g_UserHookEngine->Processes[j].IsInProgress) {
-                anyInProgress = TRUE; break;
+        for (ULONG j = 0; j < MAX_HOOKED_PROCESSES; j++)
+        {
+            if (g_UserHookEngine->Processes[j].IsInProgress)
+            {
+                anyInProgress = TRUE;
+                break;
             }
         }
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
-        if (!anyInProgress) break;
-        LARGE_INTEGER w; w.QuadPart = -10LL * 1000LL * 10LL; // 10 ms
+        if (!anyInProgress)
+            break;
+        LARGE_INTEGER w;
+        w.QuadPart = -10LL * 1000LL * 10LL; // 10 ms
         KeDelayExecutionThread(KernelMode, FALSE, &w);
     }
 
@@ -1778,11 +1790,13 @@ VOID UserModeHookEngineCleanup(VOID)
     for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
     {
         PPROCESS_HOOK_ENTRY e = &g_UserHookEngine->Processes[i];
-        if (e->CustomHooks != NULL) {
+        if (e->CustomHooks != NULL)
+        {
             ExFreePoolWithTag(e->CustomHooks, 'cHuM');
             e->CustomHooks = NULL;
         }
-        if (e->ProcessObject != NULL) {
+        if (e->ProcessObject != NULL)
+        {
             ObDereferenceObject(e->ProcessObject);
             e->ProcessObject = NULL;
         }
@@ -1850,9 +1864,7 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
                     {
                         UNICODE_STRING currentBaseName;
 
-                        ProbeForRead(ldrEntry->BaseDllName.Buffer,
-                                     ldrEntry->BaseDllName.Length,
-                                     sizeof(WCHAR));
+                        ProbeForRead(ldrEntry->BaseDllName.Buffer, ldrEntry->BaseDllName.Length, sizeof(WCHAR));
                         currentBaseName.Length = ldrEntry->BaseDllName.Length;
                         currentBaseName.MaximumLength = ldrEntry->BaseDllName.Length;
                         currentBaseName.Buffer = ldrEntry->BaseDllName.Buffer;
@@ -1884,10 +1896,8 @@ PVOID FindModuleBaseAddress(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _Out
 
 #define USERMODE_HOOK_MAX_FORWARDER_DEPTH 8
 
-static BOOLEAN ReadNullTerminatedAnsiString(
-    _In_ PCSTR Source,
-    _Out_writes_(DestinationCount) PCHAR Destination,
-    _In_ SIZE_T DestinationCount)
+static BOOLEAN ReadNullTerminatedAnsiString(_In_ PCSTR Source, _Out_writes_(DestinationCount) PCHAR Destination,
+                                            _In_ SIZE_T DestinationCount)
 {
     if (Source == NULL || Destination == NULL || DestinationCount < 2)
         return FALSE;
@@ -1912,12 +1922,10 @@ static BOOLEAN ReadNullTerminatedAnsiString(
     return FALSE;
 }
 
-static BOOLEAN ParseForwarderString(
-    _In_ PCSTR ForwarderString,
-    _Out_writes_(ModuleNameCch) PWSTR ModuleNameW,
-    _In_ SIZE_T ModuleNameCch,
-    _Out_writes_(ExportNameCch) PCHAR ExportNameA,
-    _In_ SIZE_T ExportNameCch)
+_Success_(return != FALSE) static BOOLEAN
+    ParseForwarderString(_In_ PCSTR ForwarderString, _Out_writes_(ModuleNameCch) PWSTR ModuleNameW,
+                         _In_ SIZE_T ModuleNameCch, _Out_writes_(ExportNameCch) PCHAR ExportNameA,
+                         _In_ SIZE_T ExportNameCch)
 {
     CHAR forwarder[256];
     LONG splitIndex = -1;
@@ -1925,8 +1933,7 @@ static BOOLEAN ParseForwarderString(
     SIZE_T moduleLen = 0;
     BOOLEAN hasDotInModuleName = FALSE;
 
-    if (ModuleNameW == NULL || ExportNameA == NULL ||
-        ModuleNameCch < RTL_NUMBER_OF(L".dll") + 1 || ExportNameCch < 2)
+    if (ModuleNameW == NULL || ExportNameA == NULL || ModuleNameCch < RTL_NUMBER_OF(L".dll") + 1 || ExportNameCch < 2)
     {
         return FALSE;
     }
@@ -1986,12 +1993,8 @@ static BOOLEAN ParseForwarderString(
     return TRUE;
 }
 
-static PVOID FindExportedFunctionDirect(
-    _In_ PVOID ModuleBase,
-    _In_opt_z_ PCSTR FunctionName,
-    _In_ USHORT Ordinal,
-    _In_ BOOLEAN ResolveByOrdinal,
-    _Out_opt_ PCSTR *ForwarderString)
+static PVOID FindExportedFunctionDirect(_In_ PVOID ModuleBase, _In_opt_z_ PCSTR FunctionName, _In_ USHORT Ordinal,
+                                        _In_ BOOLEAN ResolveByOrdinal, _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
     SIZE_T targetLen = 0;
@@ -2019,35 +2022,28 @@ static PVOID FindExportedFunctionDirect(
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) ||
-            dosHeader->e_lfanew > 0x10000000UL)
+        if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) || dosHeader->e_lfanew > 0x10000000UL)
             return NULL;
 
-        PIMAGE_NT_HEADERS ntHeaders =
-            (PIMAGE_NT_HEADERS)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
+        PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
         ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS), 1);
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
             return NULL;
 
-        ULONG exportDirRva =
-            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-        ULONG exportDirSize =
-            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+        ULONG exportDirRva = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+        ULONG exportDirSize = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
 
         if (exportDirRva == 0 || exportDirSize < sizeof(IMAGE_EXPORT_DIRECTORY))
             return NULL;
 
-        PIMAGE_EXPORT_DIRECTORY exportDir =
-            (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
+        PIMAGE_EXPORT_DIRECTORY exportDir = (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
         if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        PULONG addressOfFunctions =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        ProbeForRead(addressOfFunctions,
-                     (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
+        PULONG addressOfFunctions = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
+        ProbeForRead(addressOfFunctions, (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
 
         ULONG funcRva = 0;
 
@@ -2067,15 +2063,11 @@ static PVOID FindExportedFunctionDirect(
             if (exportDir->NumberOfNames == 0)
                 return NULL;
 
-            PULONG addressOfNames =
-                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-            PUSHORT addressOfNameOrdinals =
-                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+            PULONG addressOfNames = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals = (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
 
-            ProbeForRead(addressOfNames,
-                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-            ProbeForRead(addressOfNameOrdinals,
-                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+            ProbeForRead(addressOfNames, (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals, (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
             for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
@@ -2126,28 +2118,22 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
     return FindExportedFunctionDirect(ModuleBase, FunctionName, 0, FALSE, NULL);
 }
 
-static PVOID FindExportedFunctionResolvedInternal(
-    _In_ PEPROCESS Process,
-    _In_ PVOID ModuleBase,
-    _In_opt_z_ PCSTR FunctionName,
-    _In_ USHORT Ordinal,
-    _In_ BOOLEAN ResolveByOrdinal,
-    _In_ ULONG ForwarderDepth)
+static PVOID FindExportedFunctionResolvedInternal(_In_ PEPROCESS Process, _In_ PVOID ModuleBase,
+                                                  _In_opt_z_ PCSTR FunctionName, _In_ USHORT Ordinal,
+                                                  _In_ BOOLEAN ResolveByOrdinal, _In_ ULONG ForwarderDepth)
 {
     PCSTR forwarderString = NULL;
-    PVOID functionAddress = FindExportedFunctionDirect(
-        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+    PVOID functionAddress =
+        FindExportedFunctionDirect(ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
 
-    if (functionAddress != NULL || forwarderString == NULL ||
-        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    if (functionAddress != NULL || forwarderString == NULL || ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
     {
         return functionAddress;
     }
 
     WCHAR forwardedModuleName[128];
     CHAR forwardedExportName[128];
-    if (!ParseForwarderString(forwarderString,
-                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+    if (!ParseForwarderString(forwarderString, forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
                               forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
     {
         return NULL;
@@ -2160,18 +2146,17 @@ static PVOID FindExportedFunctionResolvedInternal(
     if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
     {
         ULONG ordinalValue = 0;
-        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
-            ordinalValue > 0xFFFFUL)
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) || ordinalValue > 0xFFFFUL)
         {
             return NULL;
         }
 
-        return FindExportedFunctionResolvedInternal(
-            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+        return FindExportedFunctionResolvedInternal(Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE,
+                                                    ForwarderDepth + 1);
     }
 
-    return FindExportedFunctionResolvedInternal(
-        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+    return FindExportedFunctionResolvedInternal(Process, forwardedModuleBase, forwardedExportName, 0, FALSE,
+                                                ForwarderDepth + 1);
 }
 
 PVOID FindExportedFunctionResolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
@@ -2221,19 +2206,15 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
 
         // Compute the address of the list head (InLoadOrderModuleList inside the
         // LDR structure) so we know when we have looped back to the start.
-        ULONG listHeadAddr = peb32->Ldr +
-            (ULONG)FIELD_OFFSET(PEB_LDR_DATA32, InLoadOrderModuleList);
-        ULONG entryAddr    = ldr->InLoadOrderModuleList.Flink;
+        ULONG listHeadAddr = peb32->Ldr + (ULONG)FIELD_OFFSET(PEB_LDR_DATA32, InLoadOrderModuleList);
+        ULONG entryAddr = ldr->InLoadOrderModuleList.Flink;
 
         ULONG safetyCounter = 0;
-        while (entryAddr != listHeadAddr &&
-               entryAddr != 0          &&
-               safetyCounter++ < 1024)
+        while (entryAddr != listHeadAddr && entryAddr != 0 && safetyCounter++ < 1024)
         {
             // All 32-bit pointers are stored as ULONG; cast through ULONG_PTR
             // to suppress sign-extension warnings on x64.
-            LDR_DATA_TABLE_ENTRY32 *entry =
-                (LDR_DATA_TABLE_ENTRY32 *)(ULONG_PTR)entryAddr;
+            LDR_DATA_TABLE_ENTRY32 *entry = (LDR_DATA_TABLE_ENTRY32 *)(ULONG_PTR)entryAddr;
 
             ProbeForRead(entry, sizeof(LDR_DATA_TABLE_ENTRY32), 1);
 
@@ -2281,12 +2262,8 @@ PVOID FindModuleBaseAddress32(_In_ PEPROCESS Process, _In_ PCWSTR ModuleName, _O
 //
 // Must be called from within a KeStackAttachProcess context.
 // -------------------------------------------------------------------------
-static PVOID FindExportedFunction32Direct(
-    _In_ PVOID ModuleBase,
-    _In_opt_z_ PCSTR FunctionName,
-    _In_ USHORT Ordinal,
-    _In_ BOOLEAN ResolveByOrdinal,
-    _Out_opt_ PCSTR *ForwarderString)
+static PVOID FindExportedFunction32Direct(_In_ PVOID ModuleBase, _In_opt_z_ PCSTR FunctionName, _In_ USHORT Ordinal,
+                                          _In_ BOOLEAN ResolveByOrdinal, _Out_opt_ PCSTR *ForwarderString)
 {
     PVOID functionAddress = NULL;
     SIZE_T targetLen = 0;
@@ -2314,12 +2291,10 @@ static PVOID FindExportedFunction32Direct(
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        if (dosHeader->e_lfanew < (LONG)sizeof(IMAGE_DOS_HEADER) ||
-            dosHeader->e_lfanew > 0x10000000L)
+        if (dosHeader->e_lfanew < (LONG)sizeof(IMAGE_DOS_HEADER) || dosHeader->e_lfanew > 0x10000000L)
             return NULL;
 
-        PIMAGE_NT_HEADERS32 ntHeaders =
-            (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
+        PIMAGE_NT_HEADERS32 ntHeaders = (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
         ProbeForRead(ntHeaders, sizeof(IMAGE_NT_HEADERS32), 1);
 
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
@@ -2328,25 +2303,20 @@ static PVOID FindExportedFunction32Direct(
         if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
             return NULL;
 
-        ULONG exportDirRva =
-            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-        ULONG exportDirSize =
-            ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+        ULONG exportDirRva = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+        ULONG exportDirSize = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
 
         if (exportDirRva == 0 || exportDirSize < sizeof(IMAGE_EXPORT_DIRECTORY))
             return NULL;
 
-        PIMAGE_EXPORT_DIRECTORY exportDir =
-            (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
+        PIMAGE_EXPORT_DIRECTORY exportDir = (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)ModuleBase + exportDirRva);
         ProbeForRead(exportDir, sizeof(IMAGE_EXPORT_DIRECTORY), 1);
 
         if (exportDir->NumberOfFunctions == 0)
             return NULL;
 
-        PULONG addressOfFunctions =
-            (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
-        ProbeForRead(addressOfFunctions,
-                     (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
+        PULONG addressOfFunctions = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfFunctions);
+        ProbeForRead(addressOfFunctions, (SIZE_T)exportDir->NumberOfFunctions * sizeof(ULONG), sizeof(ULONG));
 
         ULONG funcRva = 0;
 
@@ -2366,15 +2336,11 @@ static PVOID FindExportedFunction32Direct(
             if (exportDir->NumberOfNames == 0)
                 return NULL;
 
-            PULONG addressOfNames =
-                (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
-            PUSHORT addressOfNameOrdinals =
-                (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
+            PULONG addressOfNames = (PULONG)((PUCHAR)ModuleBase + exportDir->AddressOfNames);
+            PUSHORT addressOfNameOrdinals = (PUSHORT)((PUCHAR)ModuleBase + exportDir->AddressOfNameOrdinals);
 
-            ProbeForRead(addressOfNames,
-                         (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
-            ProbeForRead(addressOfNameOrdinals,
-                         (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
+            ProbeForRead(addressOfNames, (SIZE_T)exportDir->NumberOfNames * sizeof(ULONG), sizeof(ULONG));
+            ProbeForRead(addressOfNameOrdinals, (SIZE_T)exportDir->NumberOfNames * sizeof(USHORT), sizeof(USHORT));
 
             for (ULONG i = 0; i < exportDir->NumberOfNames; i++)
             {
@@ -2426,28 +2392,22 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
     return FindExportedFunction32Direct(ModuleBase, FunctionName, 0, FALSE, NULL);
 }
 
-static PVOID FindExportedFunction32ResolvedInternal(
-    _In_ PEPROCESS Process,
-    _In_ PVOID ModuleBase,
-    _In_opt_z_ PCSTR FunctionName,
-    _In_ USHORT Ordinal,
-    _In_ BOOLEAN ResolveByOrdinal,
-    _In_ ULONG ForwarderDepth)
+static PVOID FindExportedFunction32ResolvedInternal(_In_ PEPROCESS Process, _In_ PVOID ModuleBase,
+                                                    _In_opt_z_ PCSTR FunctionName, _In_ USHORT Ordinal,
+                                                    _In_ BOOLEAN ResolveByOrdinal, _In_ ULONG ForwarderDepth)
 {
     PCSTR forwarderString = NULL;
-    PVOID functionAddress = FindExportedFunction32Direct(
-        ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
+    PVOID functionAddress =
+        FindExportedFunction32Direct(ModuleBase, FunctionName, Ordinal, ResolveByOrdinal, &forwarderString);
 
-    if (functionAddress != NULL || forwarderString == NULL ||
-        ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
+    if (functionAddress != NULL || forwarderString == NULL || ForwarderDepth >= USERMODE_HOOK_MAX_FORWARDER_DEPTH)
     {
         return functionAddress;
     }
 
     WCHAR forwardedModuleName[128];
     CHAR forwardedExportName[128];
-    if (!ParseForwarderString(forwarderString,
-                              forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
+    if (!ParseForwarderString(forwarderString, forwardedModuleName, RTL_NUMBER_OF(forwardedModuleName),
                               forwardedExportName, RTL_NUMBER_OF(forwardedExportName)))
     {
         return NULL;
@@ -2460,18 +2420,17 @@ static PVOID FindExportedFunction32ResolvedInternal(
     if (forwardedExportName[0] == '#' && forwardedExportName[1] != '\0')
     {
         ULONG ordinalValue = 0;
-        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) ||
-            ordinalValue > 0xFFFFUL)
+        if (!NT_SUCCESS(RtlCharToInteger(forwardedExportName + 1, 10, &ordinalValue)) || ordinalValue > 0xFFFFUL)
         {
             return NULL;
         }
 
-        return FindExportedFunction32ResolvedInternal(
-            Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE, ForwarderDepth + 1);
+        return FindExportedFunction32ResolvedInternal(Process, forwardedModuleBase, NULL, (USHORT)ordinalValue, TRUE,
+                                                      ForwarderDepth + 1);
     }
 
-    return FindExportedFunction32ResolvedInternal(
-        Process, forwardedModuleBase, forwardedExportName, 0, FALSE, ForwarderDepth + 1);
+    return FindExportedFunction32ResolvedInternal(Process, forwardedModuleBase, forwardedExportName, 0, FALSE,
+                                                  ForwarderDepth + 1);
 }
 
 PVOID FindExportedFunction32Resolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
@@ -2493,9 +2452,7 @@ PVOID FindExportedFunction32Resolved(_In_ PEPROCESS Process, _In_ PVOID ModuleBa
 // Callers that used PEPROCESS must now call this from within a
 // KeStackAttachProcess / KeUnstackDetachProcess bracket and pass
 // ZwCurrentProcess() as ProcessHandle.
-NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
-                             _In_ PVOID TargetAddress,
-                             _In_ PVOID DetourAddress,
+NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle, _In_ PVOID TargetAddress, _In_ PVOID DetourAddress,
                              _Out_writes_bytes_(USERMODE_HOOK_SIZE) PUCHAR OriginalBytes)
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -2517,8 +2474,7 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
         // 1. Change protection to RWX so we can write the JMP patch.
         //    Use the caller-supplied ProcessHandle (not ZwCurrentProcess()
         //    blindly) so the protection change targets the correct process.
-        status = fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize,
-                                          newProtect, &oldProtect);
+        status = fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize, newProtect, &oldProtect);
         if (!NT_SUCCESS(status))
         {
             DbgPrint("!!! UserModeHook: Protect failed: 0x%X\n", status);
@@ -2544,8 +2500,7 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
         //    oldProtect may have been modified by the kernel (rounded page);
         //    baseAddress / regionSize likewise - that is intentional and
         //    correct for the restore call.
-        fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize,
-                                  oldProtect, &oldProtect);
+        fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize, oldProtect, &oldProtect);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -2562,20 +2517,16 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
 //
 // Helper to Inject a Single Hook
 //
-NTSTATUS InjectSingleHook(
-    _In_ PEPROCESS Process,
-    _In_ ULONG ProcessId,
-    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-    _Inout_ PHOOK_DEF HookDef,
-    _In_ ULONG EventId,
-    _In_ PVOID TargetNtDeviceIo
-)
+NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
+                          _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId, _In_ PVOID TargetNtDeviceIo)
 {
     NTSTATUS status = STATUS_SUCCESS;
     UNREFERENCED_PARAMETER(Process);
-    
-    if (!HookDef->Address) return STATUS_INVALID_PARAMETER;
-    if (HookDef->IsHooked) return STATUS_SUCCESS; // Already hooked
+
+    if (!HookDef->Address)
+        return STATUS_INVALID_PARAMETER;
+    if (HookDef->IsHooked)
+        return STATUS_SUCCESS; // Already hooked
 
     // Determine the actual steal size: minimum number of complete x64
     // instructions that covers USERMODE_HOOK_SIZE (14) bytes.  A fixed
@@ -2594,33 +2545,32 @@ NTSTATUS InjectSingleHook(
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n",
-                     HookDef->Address);
+            DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n", HookDef->Address);
             return STATUS_ACCESS_VIOLATION;
         }
 
         stolenSize = ComputeStolenSize64(prologue);
         if (stolenSize == 0)
         {
-            DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n",
-                     HookDef->Address, (ULONG)USERMODE_HOOK_STOLEN_MAX);
+            DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n", HookDef->Address,
+                     (ULONG)USERMODE_HOOK_STOLEN_MAX);
             return STATUS_NOT_SUPPORTED;
         }
 
         BOOLEAN unrelocatable = ContainsUnrelocatableInstructions(prologue, stolenSize);
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n",
-                     HookDef->Address);
+            DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n", HookDef->Address);
             return STATUS_NOT_SUPPORTED;
         }
     }
 
     // Calculate Offset
-    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize) {
+    if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate) > HookEntry->ShellcodeSize)
+    {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    
+
     PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
 
     // 1. Prepare Shellcode (Copy and Patch by signature to avoid fragile hardcoded offsets)
@@ -2630,38 +2580,30 @@ NTSTATUS InjectSingleHook(
     {
         // Updated signatures matching the corrected shellcode template
         static const UCHAR kGuardMagicSig[] = {0x49, 0xBA, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88};
-        static const UCHAR kJeSig64[]        = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
-        static const UCHAR kSkipLabelSig[]   = {0x0F, 0x1F, 0x44, 0x00, 0x00};
-        static const UCHAR kEventSig[]  = {0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11};
-        static const UCHAR kPidSig[]    = {0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22};
+        static const UCHAR kJeSig64[] = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
+        static const UCHAR kSkipLabelSig[] = {0x0F, 0x1F, 0x44, 0x00, 0x00};
+        static const UCHAR kEventSig[] = {0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11};
+        static const UCHAR kPidSig[] = {0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22};
         static const UCHAR kHandleSig[] = {0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33};
-        static const UCHAR kIoctlSig[]  = {0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
-        static const UCHAR kSizeSig[]   = {0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
-        static const UCHAR kNtIoSig[]   = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
-        static const UCHAR kRetSig[]    = {0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+        static const UCHAR kIoctlSig[] = {0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
+        static const UCHAR kSizeSig[] = {0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
+        static const UCHAR kNtIoSig[] = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
+        static const UCHAR kRetSig[] = {0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
 
         SIZE_T offGuardMagic = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig, sizeof(kGuardMagicSig));
-        SIZE_T offJe64       = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig64,       sizeof(kJeSig64));
-        SIZE_T offSkipLabel  = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig,  sizeof(kSkipLabelSig));
-        SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig,  sizeof(kEventSig));
-        SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig,    sizeof(kPidSig));
+        SIZE_T offJe64 = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig64, sizeof(kJeSig64));
+        SIZE_T offSkipLabel = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig, sizeof(kSkipLabelSig));
+        SIZE_T offEvent = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig, sizeof(kEventSig));
+        SIZE_T offPid = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig, sizeof(kPidSig));
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig, sizeof(kHandleSig));
-        SIZE_T offIoctl  = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig,  sizeof(kIoctlSig));
-        SIZE_T offSize   = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig,   sizeof(kSizeSig));
-        SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig,   sizeof(kNtIoSig));
-        SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig,    sizeof(kRetSig));
+        SIZE_T offIoctl = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig, sizeof(kIoctlSig));
+        SIZE_T offSize = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig, sizeof(kSizeSig));
+        SIZE_T offNtIo = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig, sizeof(kNtIoSig));
+        SIZE_T offRet = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig, sizeof(kRetSig));
 
-        if (offGuardMagic == (SIZE_T)-1 ||
-            offJe64       == (SIZE_T)-1 ||
-            offSkipLabel  == (SIZE_T)-1 ||
-            offEvent  == (SIZE_T)-1 ||
-            offPid    == (SIZE_T)-1 ||
-            offHandle == (SIZE_T)-1 ||
-            offIoctl  == (SIZE_T)-1 ||
-            offSize   == (SIZE_T)-1 ||
-            offNtIo   == (SIZE_T)-1 ||
-            offRet    == (SIZE_T)-1 ||
-            offRet     < USERMODE_HOOK_STOLEN_MAX)
+        if (offGuardMagic == (SIZE_T)-1 || offJe64 == (SIZE_T)-1 || offSkipLabel == (SIZE_T)-1 ||
+            offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 || offHandle == (SIZE_T)-1 || offIoctl == (SIZE_T)-1 ||
+            offSize == (SIZE_T)-1 || offNtIo == (SIZE_T)-1 || offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_STOLEN_MAX)
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
@@ -2702,8 +2644,7 @@ NTSTATUS InjectSingleHook(
             RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE);
             // Trampoline: embed stolenSize bytes in the placeholder
             //   placeholder starts at (offRet - USERMODE_HOOK_STOLEN_MAX)
-            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_STOLEN_MAX),
-                          HookDef->Address, stolenSize);
+            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_STOLEN_MAX), HookDef->Address, stolenSize);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -2728,9 +2669,9 @@ NTSTATUS InjectSingleHook(
 
     // 2. Install Hook (JMP to Shellcode)
     {
-        PVOID pageAddr  = HookDef->Address;
+        PVOID pageAddr = HookDef->Address;
         SIZE_T pageSize = 14;
-        ULONG oldProt   = 0;
+        ULONG oldProt = 0;
 
         if (!fnZwProtectVirtualMemory)
             return STATUS_NOT_SUPPORTED;
@@ -2746,41 +2687,36 @@ NTSTATUS InjectSingleHook(
             MEMORY_BASIC_INFORMATION mbi;
             RtlZeroMemory(&mbi, sizeof(mbi));
             SIZE_T retLen = 0;
-            NTSTATUS qst = ZwQueryVirtualMemory(ZwCurrentProcess(),
-                                                HookDef->Address,
-                                                MemoryBasicInformation,
-                                                &mbi, sizeof(mbi), &retLen);
+            NTSTATUS qst = ZwQueryVirtualMemory(ZwCurrentProcess(), HookDef->Address, MemoryBasicInformation, &mbi,
+                                                sizeof(mbi), &retLen);
             if (!NT_SUCCESS(qst))
             {
-                DbgPrint("UserModeHook: ZwQueryVirtualMemory failed 0x%X for %p\n",
-                         qst, HookDef->Address);
+                DbgPrint("UserModeHook: ZwQueryVirtualMemory failed 0x%X for %p\n", qst, HookDef->Address);
                 return qst;
             }
             if (mbi.State != MEM_COMMIT)
             {
-                DbgPrint("UserModeHook: Target %p is not in a committed region\n",
-                         HookDef->Address);
+                DbgPrint("UserModeHook: Target %p is not in a committed region\n", HookDef->Address);
                 return STATUS_INVALID_ADDRESS;
             }
             // Ensure all 14 patch bytes fall within this single VAD region.
-            if ((ULONG_PTR)HookDef->Address + 14 >
-                (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
+            if ((ULONG_PTR)HookDef->Address + 14 > (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
             {
-                DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n",
-                         HookDef->Address);
+                DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n", HookDef->Address);
                 return STATUS_CONFLICTING_ADDRESSES;
             }
         }
 
-        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                          PAGE_EXECUTE_READWRITE, &oldProt);
-        if (NT_SUCCESS(status)) {
+        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        if (NT_SUCCESS(status))
+        {
             // Write JMP [RIP+0] -> Shellcode Address: FF 25 00 00 00 00 [Address]
             UCHAR jmp[14];
             RtlZeroMemory(jmp, 14);
-            jmp[0] = 0xFF; jmp[1] = 0x25;
+            jmp[0] = 0xFF;
+            jmp[1] = 0x25;
             *(PULONG)&jmp[2] = 0;
-            *(PVOID*)&jmp[6] = myShellcodeAddress;
+            *(PVOID *)&jmp[6] = myShellcodeAddress;
 
             // HookDef->Address is user-mode memory - must be guarded.
             __try
@@ -2798,7 +2734,7 @@ NTSTATUS InjectSingleHook(
             fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
             HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
-            HookDef->IsHooked     = TRUE;
+            HookDef->IsHooked = TRUE;
             HookDef->HookPatchSize = USERMODE_HOOK_SIZE; // 14 - FF 25 absolute JMP
         }
         else
@@ -2824,20 +2760,18 @@ NTSTATUS InjectSingleHook(
 //   * HookDef->HookPatchSize is set to USERMODE_HOOK_SIZE_32 (5).
 //     The HOOK_DEF structure must carry this field (see header note).
 // -------------------------------------------------------------------------
-NTSTATUS InjectSingleHook32(
-    _In_  PEPROCESS          Process,
-    _In_  ULONG              ProcessId,
-    _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
-    _Inout_ PHOOK_DEF         HookDef,
-    _In_  ULONG              EventId,
-    _In_  PVOID              TargetNtDeviceIo32   // 32-bit VA of NtDeviceIoControlFile
+NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ PPROCESS_HOOK_ENTRY HookEntry,
+                            _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
+                            _In_ PVOID TargetNtDeviceIo32 // 32-bit VA of NtDeviceIoControlFile
 )
 {
     NTSTATUS status = STATUS_SUCCESS;
     UNREFERENCED_PARAMETER(Process);
 
-    if (!HookDef->Address)    return STATUS_INVALID_PARAMETER;
-    if (HookDef->IsHooked)    return STATUS_SUCCESS;
+    if (!HookDef->Address)
+        return STATUS_INVALID_PARAMETER;
+    if (HookDef->IsHooked)
+        return STATUS_SUCCESS;
 
     // ------------------------------------------------------------------
     // 1. Reject hooks whose 5 stolen bytes contain relative branches.
@@ -2849,20 +2783,17 @@ NTSTATUS InjectSingleHook32(
         __try
         {
             ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE_32, 1);
-            unrelocatable = ContainsUnrelocatableInstructions32(
-                (const UCHAR *)HookDef->Address, USERMODE_HOOK_SIZE_32);
+            unrelocatable = ContainsUnrelocatableInstructions32((const UCHAR *)HookDef->Address, USERMODE_HOOK_SIZE_32);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n",
-                     HookDef->Address);
+            DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n", HookDef->Address);
             return STATUS_ACCESS_VIOLATION;
         }
 
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n",
-                     HookDef->Address);
+            DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n", HookDef->Address);
             return STATUS_NOT_SUPPORTED;
         }
     }
@@ -2873,8 +2804,7 @@ NTSTATUS InjectSingleHook32(
     if (HookEntry->ShellcodeUsed + sizeof(g_ShellcodeTemplate32) > HookEntry->ShellcodeSize)
         return STATUS_INSUFFICIENT_RESOURCES;
 
-    PVOID myShellcodeAddress =
-        (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
+    PVOID myShellcodeAddress = (PVOID)((ULONG_PTR)HookEntry->ShellcodeBase + HookEntry->ShellcodeUsed);
 
     // ------------------------------------------------------------------
     // 3. Build and patch the 32-bit shellcode.
@@ -2885,38 +2815,32 @@ NTSTATUS InjectSingleHook32(
     {
         // Signature definitions (must be unique within the template).
         static const UCHAR kGuardMagicSig32[] = {0xBB, 0x88, 0x88, 0x88, 0x88};
-        static const UCHAR kJeSig32[]          = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
-        static const UCHAR kSkipLabelSig32[]   = {0x0F, 0x1F, 0x00};
-        static const UCHAR kEventSig32[]  = {0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11};
-        static const UCHAR kPidSig32[]    = {0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22};
-        static const UCHAR kSizeSig32[]   = {0x68, 0x77, 0x77, 0x77, 0x77};
-        static const UCHAR kIoctlSig32[]  = {0x68, 0x66, 0x66, 0x66, 0x66};
+        static const UCHAR kJeSig32[] = {0x0F, 0x84, 0x00, 0x00, 0x00, 0x00};
+        static const UCHAR kSkipLabelSig32[] = {0x0F, 0x1F, 0x00};
+        static const UCHAR kEventSig32[] = {0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11};
+        static const UCHAR kPidSig32[] = {0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22};
+        static const UCHAR kSizeSig32[] = {0x68, 0x77, 0x77, 0x77, 0x77};
+        static const UCHAR kIoctlSig32[] = {0x68, 0x66, 0x66, 0x66, 0x66};
         static const UCHAR kHandleSig32[] = {0x68, 0x33, 0x33, 0x33, 0x33};
-        static const UCHAR kNtIoSig32[]   = {0xB8, 0x44, 0x44, 0x44, 0x44};
-        static const UCHAR kRetSig32[]    = {0xE9, 0x55, 0x55, 0x55, 0x55};
+        static const UCHAR kNtIoSig32[] = {0xB8, 0x44, 0x44, 0x44, 0x44};
+        static const UCHAR kRetSig32[] = {0xE9, 0x55, 0x55, 0x55, 0x55};
 
-        SIZE_T offGuardMagic32 = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig32, sizeof(kGuardMagicSig32));
-        SIZE_T offJe32         = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig32,         sizeof(kJeSig32));
-        SIZE_T offSkipLabel32  = FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig32,  sizeof(kSkipLabelSig32));
-        SIZE_T offEvent  = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig32,  sizeof(kEventSig32));
-        SIZE_T offPid    = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig32,    sizeof(kPidSig32));
-        SIZE_T offSize   = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig32,   sizeof(kSizeSig32));
-        SIZE_T offIoctl  = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig32,  sizeof(kIoctlSig32));
+        SIZE_T offGuardMagic32 =
+            FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig32, sizeof(kGuardMagicSig32));
+        SIZE_T offJe32 = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig32, sizeof(kJeSig32));
+        SIZE_T offSkipLabel32 =
+            FindPatternOffset(shellcode, sizeof(shellcode), kSkipLabelSig32, sizeof(kSkipLabelSig32));
+        SIZE_T offEvent = FindPatternOffset(shellcode, sizeof(shellcode), kEventSig32, sizeof(kEventSig32));
+        SIZE_T offPid = FindPatternOffset(shellcode, sizeof(shellcode), kPidSig32, sizeof(kPidSig32));
+        SIZE_T offSize = FindPatternOffset(shellcode, sizeof(shellcode), kSizeSig32, sizeof(kSizeSig32));
+        SIZE_T offIoctl = FindPatternOffset(shellcode, sizeof(shellcode), kIoctlSig32, sizeof(kIoctlSig32));
         SIZE_T offHandle = FindPatternOffset(shellcode, sizeof(shellcode), kHandleSig32, sizeof(kHandleSig32));
-        SIZE_T offNtIo   = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32,   sizeof(kNtIoSig32));
-        SIZE_T offRet    = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32,    sizeof(kRetSig32));
+        SIZE_T offNtIo = FindPatternOffset(shellcode, sizeof(shellcode), kNtIoSig32, sizeof(kNtIoSig32));
+        SIZE_T offRet = FindPatternOffset(shellcode, sizeof(shellcode), kRetSig32, sizeof(kRetSig32));
 
-        if (offGuardMagic32 == (SIZE_T)-1 ||
-            offJe32         == (SIZE_T)-1 ||
-            offSkipLabel32  == (SIZE_T)-1 ||
-            offEvent  == (SIZE_T)-1 ||
-            offPid    == (SIZE_T)-1 ||
-            offSize   == (SIZE_T)-1 ||
-            offIoctl  == (SIZE_T)-1 ||
-            offHandle == (SIZE_T)-1 ||
-            offNtIo   == (SIZE_T)-1 ||
-            offRet    == (SIZE_T)-1 ||
-            offRet    < USERMODE_HOOK_SIZE_32)
+        if (offGuardMagic32 == (SIZE_T)-1 || offJe32 == (SIZE_T)-1 || offSkipLabel32 == (SIZE_T)-1 ||
+            offEvent == (SIZE_T)-1 || offPid == (SIZE_T)-1 || offSize == (SIZE_T)-1 || offIoctl == (SIZE_T)-1 ||
+            offHandle == (SIZE_T)-1 || offNtIo == (SIZE_T)-1 || offRet == (SIZE_T)-1 || offRet < USERMODE_HOOK_SIZE_32)
         {
             return STATUS_INVALID_IMAGE_FORMAT;
         }
@@ -2952,8 +2876,7 @@ NTSTATUS InjectSingleHook32(
         {
             ProbeForRead(HookDef->Address, USERMODE_HOOK_SIZE_32, 1);
             RtlCopyMemory(HookDef->OriginalBytes, HookDef->Address, USERMODE_HOOK_SIZE_32);
-            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE_32),
-                          HookDef->Address, USERMODE_HOOK_SIZE_32);
+            RtlCopyMemory(shellcode + (offRet - USERMODE_HOOK_SIZE_32), HookDef->Address, USERMODE_HOOK_SIZE_32);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -2966,9 +2889,8 @@ NTSTATUS InjectSingleHook32(
         //   rel32 = target - (E9_VA + 5)
         //         = target - myShellcodeAddress - offRet - 5
         // All values are 32-bit VAs; arithmetic is safe.
-        LONG retRel32 = (LONG)(
-            (ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32 -
-            ((ULONG_PTR)myShellcodeAddress + offRet + 5));
+        LONG retRel32 =
+            (LONG)((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32 - ((ULONG_PTR)myShellcodeAddress + offRet + 5));
         *(PLONG)(shellcode + offRet + 1) = retRel32;
     }
 
@@ -2992,16 +2914,13 @@ NTSTATUS InjectSingleHook32(
         MEMORY_BASIC_INFORMATION mbi;
         RtlZeroMemory(&mbi, sizeof(mbi));
         SIZE_T retLen = 0;
-        NTSTATUS qst = ZwQueryVirtualMemory(ZwCurrentProcess(),
-                                            HookDef->Address,
-                                            MemoryBasicInformation,
-                                            &mbi, sizeof(mbi), &retLen);
+        NTSTATUS qst = ZwQueryVirtualMemory(ZwCurrentProcess(), HookDef->Address, MemoryBasicInformation, &mbi,
+                                            sizeof(mbi), &retLen);
         if (!NT_SUCCESS(qst))
             return qst;
         if (mbi.State != MEM_COMMIT)
             return STATUS_INVALID_ADDRESS;
-        if ((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32 >
-            (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
+        if ((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32 > (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
             return STATUS_CONFLICTING_ADDRESSES;
     }
 
@@ -3012,12 +2931,11 @@ NTSTATUS InjectSingleHook32(
         return STATUS_NOT_SUPPORTED;
 
     {
-        PVOID  pageAddr = HookDef->Address;
+        PVOID pageAddr = HookDef->Address;
         SIZE_T pageSize = USERMODE_HOOK_SIZE_32;
-        ULONG  oldProt  = 0;
+        ULONG oldProt = 0;
 
-        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                          PAGE_EXECUTE_READWRITE, &oldProt);
+        status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
         if (!NT_SUCCESS(status))
             return status;
 
@@ -3025,9 +2943,8 @@ NTSTATUS InjectSingleHook32(
         //   rel32 = myShellcodeAddress - (HookDef->Address + 5)
         UCHAR jmp32[USERMODE_HOOK_SIZE_32];
         jmp32[0] = 0xE9;
-        *(PLONG)(&jmp32[1]) = (LONG)(
-            (ULONG_PTR)myShellcodeAddress -
-            ((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32));
+        *(PLONG)(&jmp32[1]) =
+            (LONG)((ULONG_PTR)myShellcodeAddress - ((ULONG_PTR)HookDef->Address + USERMODE_HOOK_SIZE_32));
 
         __try
         {
@@ -3036,16 +2953,14 @@ NTSTATUS InjectSingleHook32(
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                     oldProt, &oldProt);
+            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             return STATUS_ACCESS_VIOLATION;
         }
 
-        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                  oldProt, &oldProt);
+        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
 
         HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate32);
-        HookDef->IsHooked    = TRUE;
+        HookDef->IsHooked = TRUE;
         HookDef->HookPatchSize = USERMODE_HOOK_SIZE_32; // 5 - used by UnhookSingleFunction
     }
 
@@ -3058,25 +2973,20 @@ NTSTATUS InjectSingleHook32(
 // 32-bit counterpart to ResolveAndHook.  Uses the 32-bit PEB LDR to find
 // the module and the 32-bit PE export table to resolve the function.
 // -------------------------------------------------------------------------
-NTSTATUS ResolveAndHook32(
-    _In_    PEPROCESS           Process,
-    _In_    PPROCESS_HOOK_ENTRY HookEntry,
-    _In_    PCWSTR              ModuleName,
-    _In_    PCSTR               FunctionName,
-    _Inout_ PHOOK_DEF           HookDef,
-    _In_    ULONG               EventId,
-    _In_    PVOID               TargetNtDeviceIo32
-)
+NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+                          _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
+                          _In_ PVOID TargetNtDeviceIo32)
 {
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress32(Process, ModuleName, &modSize);
-    if (!modBase) return STATUS_NOT_FOUND;
+    if (!modBase)
+        return STATUS_NOT_FOUND;
 
     HookDef->Address = FindExportedFunction32Resolved(Process, modBase, FunctionName);
-    if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
+    if (!HookDef->Address)
+        return STATUS_PROCEDURE_NOT_FOUND;
 
-    return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry,
-                               HookDef, EventId, TargetNtDeviceIo32);
+    return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo32);
 }
 //
 // ROOT CAUSE FIX - keep the notification handle SYNCHRONOUS.
@@ -3100,9 +3010,9 @@ NTSTATUS ResolveAndHook32(
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     BOOLEAN isWow64 = HookEntry->IsWow64;
-    NTSTATUS  status;
-    PVOID     baseAddress = NULL;
-    HANDLE    targetDeviceHandle = NULL;
+    NTSTATUS status;
+    PVOID baseAddress = NULL;
+    HANDLE targetDeviceHandle = NULL;
     SIZE_T hookSlots = (SIZE_T)HookEntry->CustomHookCapacity;
     if (hookSlots == 0)
     {
@@ -3116,67 +3026,76 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
     // -----------------------------------------------------------------------
-    // Open the device handle while attached to the target process.
-    // ZwCreateFile inside KeStackAttachProcess is safe here because:
-    //   - We are NOT in a process-creation callback (called from hook setup,
-    //     well after the target process is fully initialized).
-    //   - The target device (\Device\OwlyshieldHook) is a simple named
-    //     METHOD_BUFFERED IOCTL device with no filesystem stack involvement.
-    //   - ObInsertObject on a raw DEVICE_OBJECT does NOT produce a FILE_OBJECT
-    //     handle - NtDeviceIoControlFile in the shellcode would get
-    //     STATUS_OBJECT_TYPE_MISMATCH on every IOCTL call, killing all events.
-    //     ZwCreateFile is the only way to get a proper FILE_OBJECT handle.
+    // Resolve the hook device FILE_OBJECT BEFORE attaching to the target
+    // process, then open a handle into the target's table INSIDE the attach.
+    //
+    // WHY NOT ZwCreateFile:
+    //   ZwCreateFile routes through IopCreateFile -> ObOpenObjectByName ->
+    //   SeAccessCheck.  The device is created with FILE_DEVICE_SECURE_OPEN
+    //   in Communication.cpp, which causes the I/O manager to enforce the
+    //   device DACL even against kernel-mode callers.  A default IoCreateDevice
+    //   DACL only permits SYSTEM/Admin; any non-privileged target process token
+    //   (which is the effective security context during KeStackAttachProcess)
+    //   causes STATUS_ACCESS_DENIED and no shellcode handle is ever installed.
+    //
+    // FIX - two-step kernel bypass:
+    //   1. IoGetDeviceObjectPointer  (before attach)
+    //      Pure kernel-internal lookup by device name.  Does NOT go through
+    //      the Object Manager security path at all - no DACL check, no
+    //      FILE_DEVICE_SECURE_OPEN enforcement.  Returns a referenced
+    //      FILE_OBJECT* and the underlying DEVICE_OBJECT*.
+    //
+    //   2. ObOpenObjectByPointer     (inside attach, AccessMode = KernelMode)
+    //      Inserts the FILE_OBJECT directly into the currently-attached
+    //      process's handle table.  KernelMode skips all DACL verification.
+    //      The handle has no OBJ_KERNEL_HANDLE so it lives in the target
+    //      process table and is directly usable by the shellcode via
+    //      NtDeviceIoControlFile.
+    //
+    //   ObInsertObject on a raw DEVICE_OBJECT still does NOT work - it
+    //   produces a handle to the DEVICE_OBJECT, not a FILE_OBJECT, and
+    //   NtDeviceIoControlFile returns STATUS_OBJECT_TYPE_MISMATCH.
+    //   IoGetDeviceObjectPointer produces the correct FILE_OBJECT.
     //
     // ZwAllocateVirtualMemory also requires attachment (ZwCurrentProcess()).
     // Both operations share one attach/detach bracket.
     // -----------------------------------------------------------------------
+
+    // Step 1: resolve FILE_OBJECT outside the attach bracket.
+    PFILE_OBJECT hookFileObject = NULL;
+    PDEVICE_OBJECT hookDevObject = NULL;
     {
-        static const PCWSTR hookDevicePaths[] = {
-            L"\\DosDevices\\OwlyshieldHook",
-            L"\\??\\OwlyshieldHook",
-            L"\\Device\\OwlyshieldHook"
-        };
+        UNICODE_STRING devName;
+        RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
+        status = IoGetDeviceObjectPointer(&devName, FILE_READ_DATA | FILE_WRITE_DATA, &hookFileObject, &hookDevObject);
+    }
+    if (!NT_SUCCESS(status) || hookFileObject == NULL)
+    {
+        // Device not yet created or name wrong - nothing to attach to.
+        DbgPrint("UserModeHook: IoGetDeviceObjectPointer failed 0x%X\n", status);
+        return NT_SUCCESS(status) ? STATUS_OBJECT_NAME_NOT_FOUND : status;
+    }
+
+    {
         KAPC_STATE apcState;
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
-        __try  // outer: guarantees detach
+        __try // outer: guarantees detach
         {
-            __try  // inner: catches exceptions from ZwCreateFile / ZwAllocate
+            __try // inner: catches exceptions from ObOpenObjectByPointer / ZwAllocate
             {
-                status = STATUS_OBJECT_NAME_NOT_FOUND;
-                targetDeviceHandle = NULL;
-                for (ULONG i = 0; i < RTL_NUMBER_OF(hookDevicePaths); ++i)
-                {
-                    UNICODE_STRING devPath;
-                    OBJECT_ATTRIBUTES oa;
-                    IO_STATUS_BLOCK ioStatus = {0};
-
-                    RtlInitUnicodeString(&devPath, hookDevicePaths[i]);
-                    InitializeObjectAttributes(&oa, &devPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
-
-                    status = ZwCreateFile(
-                        &targetDeviceHandle,
-                        FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
-                        &oa,
-                        &ioStatus,
-                        NULL,
-                        FILE_ATTRIBUTE_NORMAL,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE,
-                        FILE_OPEN,
-                        // The hook shellcode passes a stack-based IO_STATUS_BLOCK
-                        // to NtDeviceIoControlFile, so this handle MUST remain
-                        // synchronous for the lifetime of the design.
-                        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-                        NULL,
-                        0);
-
-                    if (NT_SUCCESS(status))
-                    {
-                        break;
-                    }
-                }
+                // Step 2: open a handle to the FILE_OBJECT in the target process's
+                // handle table.  KernelMode bypasses all security checks so
+                // FILE_DEVICE_SECURE_OPEN cannot deny us.
+                status = ObOpenObjectByPointer(hookFileObject,
+                                               0,    // no OBJ_KERNEL_HANDLE: goes into target table
+                                               NULL, // no PassedAccessState
+                                               FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE, *IoFileObjectType,
+                                               KernelMode, // bypass DACL / FILE_DEVICE_SECURE_OPEN
+                                               &targetDeviceHandle);
 
                 if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
                 {
+                    DbgPrint("UserModeHook: ObOpenObjectByPointer failed 0x%X\n", status);
                     __leave;
                 }
 
@@ -3185,9 +3104,8 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                     if (!isWow64)
                     {
                         // Native 64-bit: FF 25 absolute JMP, no range limit.
-                        status = fnZwAllocateVirtualMemory(
-                            ZwCurrentProcess(), &baseAddress, 0,
-                            &regionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
+                                                           MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                     }
                     else
                     {
@@ -3198,21 +3116,18 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         // the low address range so the 5-byte E9 rel32 trampoline
                         // remains reachable.
                         const ULONG_PTR lowBaseStart = 0x10000000UL;
-                        const ULONG_PTR lowBaseEnd   = 0x70000000UL;
-                        const ULONG_PTR granularity  = 0x00010000UL; // 64 KB
+                        const ULONG_PTR lowBaseEnd = 0x70000000UL;
+                        const ULONG_PTR granularity = 0x00010000UL; // 64 KB
                         NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
                         BOOLEAN allocated = FALSE;
 
-                        for (ULONG_PTR hint = lowBaseStart;
-                             hint + regionSize < lowBaseEnd;
-                             hint += granularity)
+                        for (ULONG_PTR hint = lowBaseStart; hint + regionSize < lowBaseEnd; hint += granularity)
                         {
                             PVOID candidate = (PVOID)hint;
                             SIZE_T candidateSize = regionSize;
-                            NTSTATUS allocStatus = fnZwAllocateVirtualMemory(
-                                ZwCurrentProcess(), &candidate, 0,
-                                &candidateSize, MEM_COMMIT | MEM_RESERVE,
-                                PAGE_EXECUTE_READWRITE);
+                            NTSTATUS allocStatus =
+                                fnZwAllocateVirtualMemory(ZwCurrentProcess(), &candidate, 0, &candidateSize,
+                                                          MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                             if (NT_SUCCESS(allocStatus))
                             {
                                 baseAddress = candidate;
@@ -3240,9 +3155,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                     __leave;
                 }
 
-                HookEntry->ShellcodeBase      = baseAddress;
-                HookEntry->ShellcodeSize      = regionSize;
-                HookEntry->ShellcodeUsed      = 0;
+                HookEntry->ShellcodeBase = baseAddress;
+                HookEntry->ShellcodeSize = regionSize;
+                HookEntry->ShellcodeUsed = 0;
                 HookEntry->DriverDeviceHandle = targetDeviceHandle;
                 targetDeviceHandle = NULL; // ownership moved to hook entry
             }
@@ -3263,9 +3178,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                     SIZE_T freeSize = 0;
                     fnZwFreeVirtualMemory(ZwCurrentProcess(), &baseAddress, &freeSize, MEM_RELEASE);
                 }
-                HookEntry->ShellcodeBase      = NULL;
-                HookEntry->ShellcodeSize      = 0;
-                HookEntry->ShellcodeUsed      = 0;
+                HookEntry->ShellcodeBase = NULL;
+                HookEntry->ShellcodeSize = 0;
+                HookEntry->ShellcodeUsed = 0;
                 HookEntry->DriverDeviceHandle = NULL;
             }
         }
@@ -3274,6 +3189,10 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             KeUnstackDetachProcess(&apcState);
         }
     }
+
+    // Release the reference taken by IoGetDeviceObjectPointer.
+    // Must be outside the attach bracket (after KeUnstackDetachProcess).
+    ObDereferenceObject(hookFileObject);
 
     return status;
 }
@@ -3287,22 +3206,18 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
 // cleared afterward.  If NtDeviceIoControlFile is in the hook list, its
 // shellcode sees the sentinel already set on entry and jumps past the IOCTL.
 // Process/directory exclusions are enforced via ShouldSkipHookingProcess.
-NTSTATUS ResolveAndHook(
-    _In_    PEPROCESS           Process,
-    _In_    PPROCESS_HOOK_ENTRY HookEntry,
-    _In_    PCWSTR              ModuleName,
-    _In_    PCSTR               FunctionName,
-    _Inout_ PHOOK_DEF           HookDef,
-    _In_    ULONG               EventId,
-    _In_    PVOID               TargetNtDeviceIo
-)
+NTSTATUS ResolveAndHook(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookEntry, _In_ PCWSTR ModuleName,
+                        _In_ PCSTR FunctionName, _Inout_ PHOOK_DEF HookDef, _In_ ULONG EventId,
+                        _In_ PVOID TargetNtDeviceIo)
 {
     SIZE_T modSize = 0;
     PVOID modBase = FindModuleBaseAddress(Process, ModuleName, &modSize);
-    if (!modBase) return STATUS_NOT_FOUND;
+    if (!modBase)
+        return STATUS_NOT_FOUND;
 
     HookDef->Address = FindExportedFunctionResolved(Process, modBase, FunctionName);
-    if (!HookDef->Address) return STATUS_PROCEDURE_NOT_FOUND;
+    if (!HookDef->Address)
+        return STATUS_PROCEDURE_NOT_FOUND;
 
     return InjectSingleHook(Process, HookEntry->ProcessId, HookEntry, HookDef, EventId, TargetNtDeviceIo);
 }
@@ -3378,7 +3293,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
         // Explicitly reference the object for the global array
         ObReferenceObject(process);
-    
+
         ExAcquireFastMutex(&g_ConfigMutex);
         customHookCountSnapshot = g_CustomHookCount;
         ExReleaseFastMutex(&g_ConfigMutex);
@@ -3415,8 +3330,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         // silently overflows and jumps to garbage, causing crashes and
         // stopping all I/O events.  PsGetProcessWow64Process is safe to
         // call on any PEPROCESS at any IRQL without attaching.
-        hookEntry->IsWow64 = (fnPsGetProcessWow64Process != NULL &&
-                              fnPsGetProcessWow64Process(process) != NULL);
+        hookEntry->IsWow64 = (fnPsGetProcessWow64Process != NULL && fnPsGetProcessWow64Process(process) != NULL);
 
         status = InitializeShellcodeInfrastructure(process, hookEntry);
         if (!NT_SUCCESS(status))
@@ -3424,9 +3338,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
             goto HookProcessFailure;
         }
 
-
-        DbgPrint("UserModeHook: PID %lu is %s process\n",
-                 ProcessId, hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
+        DbgPrint("UserModeHook: PID %lu is %s process\n", ProcessId,
+                 hookEntry->IsWow64 ? "WoW64 (32-bit)" : "native 64-bit");
 
         if (hookEntry->CustomHookCapacity > 0)
         {
@@ -3443,148 +3356,137 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
     // Single attachment for resolving exports and writing hooks
     {
-    KAPC_STATE apcState;
-    BOOLEAN configMutexHeld = FALSE;
-    KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    __try  // outer: guarantees detach and mutex release
-    {
-        __try  // inner: catches exceptions from resolve/hook calls
+        KAPC_STATE apcState;
+        BOOLEAN configMutexHeld = FALSE;
+        KeStackAttachProcess((PRKPROCESS)process, &apcState);
+        __try // outer: guarantees detach and mutex release
         {
-            ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
-            targetNtDeviceIo = FindExportedFunctionResolved(process, ntdllBase, "NtDeviceIoControlFile");
-            if (!targetNtDeviceIo)
+            __try // inner: catches exceptions from resolve/hook calls
             {
-                status = STATUS_NOT_FOUND;
-                __leave;
-            }
-
-            // For WoW64 processes, also resolve the 32-bit NtDeviceIoControlFile
-            // from the 32-bit ntdll.dll mapped in the WoW64 VA space.
-            PVOID ntdllBase32        = NULL;
-            PVOID targetNtDeviceIo32 = NULL;
-            if (hookEntry->IsWow64)
-            {
-                ntdllBase32 = FindModuleBaseAddress32(process, L"ntdll.dll", NULL);
-                if (ntdllBase32)
-                    targetNtDeviceIo32 = FindExportedFunction32Resolved(process, ntdllBase32, "NtDeviceIoControlFile");
-
-                if (!targetNtDeviceIo32)
+                ntdllBase = FindModuleBaseAddress(process, L"ntdll.dll", NULL);
+                targetNtDeviceIo = FindExportedFunctionResolved(process, ntdllBase, "NtDeviceIoControlFile");
+                if (!targetNtDeviceIo)
                 {
-                    DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
-                             ProcessId);
                     status = STATUS_NOT_FOUND;
                     __leave;
                 }
-            }
 
-            ExAcquireFastMutex(&g_ConfigMutex);
-            configMutexHeld = TRUE;
-            customHookCountToApply = g_CustomHookCount;
-            if (customHookCountToApply > hookEntry->CustomHookCapacity)
-            {
-                customHookCountToApply = hookEntry->CustomHookCapacity;
-            }
-            for (ULONG i = 0; i < customHookCountToApply; i++)
-            {
-                NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
-                __try
+                // For WoW64 processes, also resolve the 32-bit NtDeviceIoControlFile
+                // from the 32-bit ntdll.dll mapped in the WoW64 VA space.
+                PVOID ntdllBase32 = NULL;
+                PVOID targetNtDeviceIo32 = NULL;
+                if (hookEntry->IsWow64)
                 {
-                    // Route to the correct architecture's hook installer.
-                    if (hookEntry->IsWow64)
+                    ntdllBase32 = FindModuleBaseAddress32(process, L"ntdll.dll", NULL);
+                    if (ntdllBase32)
+                        targetNtDeviceIo32 =
+                            FindExportedFunction32Resolved(process, ntdllBase32, "NtDeviceIoControlFile");
+
+                    if (!targetNtDeviceIo32)
                     {
-                        // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
-                        // use 32-bit shellcode template.
-                        hookStatus = ResolveAndHook32(
-                            process, hookEntry,
-                            g_GlobalCustomHooks[i].ModuleName,
-                            g_GlobalCustomHooks[i].FunctionName,
-                            &hookEntry->CustomHooks[i],
-                            g_GlobalCustomHooks[i].EventId,
-                            targetNtDeviceIo32);
-                    }
-                    else
-                    {
-                        // Native 64-bit: resolve from 64-bit LDR, install 14-byte
-                        // FF 25 JMP, use 64-bit shellcode template.
-                        hookStatus = ResolveAndHook(
-                            process, hookEntry,
-                            g_GlobalCustomHooks[i].ModuleName,
-                            g_GlobalCustomHooks[i].FunctionName,
-                            &hookEntry->CustomHooks[i],
-                            g_GlobalCustomHooks[i].EventId,
-                            targetNtDeviceIo);
+                        DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
+                                 ProcessId);
+                        status = STATUS_NOT_FOUND;
+                        __leave;
                     }
                 }
-                __except (EXCEPTION_EXECUTE_HANDLER)
-                {
-                    hookStatus = GetExceptionCode();
-                }
 
-                if (NT_SUCCESS(hookStatus))
+                ExAcquireFastMutex(&g_ConfigMutex);
+                configMutexHeld = TRUE;
+                customHookCountToApply = g_CustomHookCount;
+                if (customHookCountToApply > hookEntry->CustomHookCapacity)
                 {
-                    appliedHookCount++;
-                    continue;
+                    customHookCountToApply = hookEntry->CustomHookCapacity;
                 }
-
-                // FIX #1: The previous code had a second `if (!NT_SUCCESS(...))`
-                // that was logically dead - it was always reached and always
-                // true, so EVERY failure (including benign ones) aborted the
-                // entire hook operation and propagated STATUS_INVALID_PARAMETER
-                // or STATUS_NOT_FOUND to the caller.
-                // recoverableHookFailureCount was declared but never incremented.
-                //
-                // Fix: classify failures explicitly.
-                //
-                // Recoverable - the specific function is not available in this
-                // process (module absent, export absent, RIP-relative prologue,
-                // VAD boundary conflict, access fault).  Skip this target and
-                // continue installing the remaining hooks.
-                if (hookStatus == STATUS_NOT_FOUND             ||
-                    hookStatus == STATUS_PROCEDURE_NOT_FOUND   ||
-                    hookStatus == STATUS_NOT_SUPPORTED         ||
-                    hookStatus == STATUS_ACCESS_VIOLATION      ||
-                    hookStatus == STATUS_INVALID_ADDRESS       ||
-                    hookStatus == STATUS_CONFLICTING_ADDRESSES)
+                for (ULONG i = 0; i < customHookCountToApply; i++)
                 {
-                    DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n",
-                             ProcessId, i,
-                             g_GlobalCustomHooks[i].FunctionName,
-                             hookStatus);
-                    recoverableHookFailureCount++;
-                    continue;
-                }
+                    NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
+                    __try
+                    {
+                        // Route to the correct architecture's hook installer.
+                        if (hookEntry->IsWow64)
+                        {
+                            // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
+                            // use 32-bit shellcode template.
+                            hookStatus =
+                                ResolveAndHook32(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
+                                                 g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                 g_GlobalCustomHooks[i].EventId, targetNtDeviceIo32);
+                        }
+                        else
+                        {
+                            // Native 64-bit: resolve from 64-bit LDR, install 14-byte
+                            // FF 25 JMP, use 64-bit shellcode template.
+                            hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
+                                                        g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                        g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
+                        }
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER)
+                    {
+                        hookStatus = GetExceptionCode();
+                    }
 
-                // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
-                //                  STATUS_INVALID_IMAGE_FORMAT,
-                //                  STATUS_DEVICE_DOES_NOT_EXIST).
-                status = hookStatus;
+                    if (NT_SUCCESS(hookStatus))
+                    {
+                        appliedHookCount++;
+                        continue;
+                    }
+
+                    // FIX #1: The previous code had a second `if (!NT_SUCCESS(...))`
+                    // that was logically dead - it was always reached and always
+                    // true, so EVERY failure (including benign ones) aborted the
+                    // entire hook operation and propagated STATUS_INVALID_PARAMETER
+                    // or STATUS_NOT_FOUND to the caller.
+                    // recoverableHookFailureCount was declared but never incremented.
+                    //
+                    // Fix: classify failures explicitly.
+                    //
+                    // Recoverable - the specific function is not available in this
+                    // process (module absent, export absent, RIP-relative prologue,
+                    // VAD boundary conflict, access fault).  Skip this target and
+                    // continue installing the remaining hooks.
+                    if (hookStatus == STATUS_NOT_FOUND || hookStatus == STATUS_PROCEDURE_NOT_FOUND ||
+                        hookStatus == STATUS_NOT_SUPPORTED || hookStatus == STATUS_ACCESS_VIOLATION ||
+                        hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES)
+                    {
+                        DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
+                                 g_GlobalCustomHooks[i].FunctionName, hookStatus);
+                        recoverableHookFailureCount++;
+                        continue;
+                    }
+
+                    // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
+                    //                  STATUS_INVALID_IMAGE_FORMAT,
+                    //                  STATUS_DEVICE_DOES_NOT_EXIST).
+                    status = hookStatus;
+                    ExReleaseFastMutex(&g_ConfigMutex);
+                    configMutexHeld = FALSE;
+                    __leave;
+                }
                 ExReleaseFastMutex(&g_ConfigMutex);
                 configMutexHeld = FALSE;
-                __leave;
-            }
-            ExReleaseFastMutex(&g_ConfigMutex);
-            configMutexHeld = FALSE;
 
-            if (recoverableHookFailureCount > 0)
+                if (recoverableHookFailureCount > 0)
+                {
+                    DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
+                             ProcessId, appliedHookCount, recoverableHookFailureCount);
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                DbgPrint("UserModeHook: PID %lu partial hook result: applied=%lu recoverable_failures=%lu\n",
-                         ProcessId, appliedHookCount, recoverableHookFailureCount);
+                status = GetExceptionCode();
             }
         }
-        __except (EXCEPTION_EXECUTE_HANDLER)
+        __finally
         {
-            status = GetExceptionCode();
+            if (configMutexHeld)
+            {
+                ExReleaseFastMutex(&g_ConfigMutex);
+                configMutexHeld = FALSE;
+            }
+            KeUnstackDetachProcess(&apcState);
         }
-    }
-    __finally
-    {
-        if (configMutexHeld)
-        {
-            ExReleaseFastMutex(&g_ConfigMutex);
-            configMutexHeld = FALSE;
-        }
-        KeUnstackDetachProcess(&apcState);
-    }
 
         // FIX: read NeedsCleanup atomically with IsInProgress clear.
         // UnhookProcess sets NeedsCleanup when it arrives while we are
@@ -3593,7 +3495,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
         hookEntry->IsInProgress = FALSE;
         needsCleanupNow = hookEntry->NeedsCleanup;
-        if (needsCleanupNow) hookEntry->NeedsCleanup = FALSE;
+        if (needsCleanupNow)
+            hookEntry->NeedsCleanup = FALSE;
         if (NT_SUCCESS(status))
         {
             hookEntry->IsHooked = TRUE;
@@ -3619,7 +3522,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         // Perform deferred unhook: the terminate callback fired while we
         // were in-flight and set NeedsCleanup instead of leaking the ref.
         if (needsCleanupNow)
-            (VOID)UserModeUnhookProcess(ProcessId);
+            (VOID) UserModeUnhookProcess(ProcessId);
 
         return status;
     } // end attach scope block
@@ -3649,9 +3552,9 @@ HookProcessFailure:
         {
             KAPC_STATE cleanupApcState;
             KeStackAttachProcess((PRKPROCESS)process, &cleanupApcState);
-            __try  // outer: guarantees detach
+            __try // outer: guarantees detach
             {
-                __try  // inner: catches exceptions from ZwClose/ZwFree
+                __try // inner: catches exceptions from ZwClose/ZwFree
                 {
                     if (hookEntry->DriverDeviceHandle != NULL)
                     {
@@ -3679,7 +3582,8 @@ HookProcessFailure:
         }
 
         // Drop the global array's reference before clearing the entry
-        if (hookEntry->ProcessObject != NULL) {
+        if (hookEntry->ProcessObject != NULL)
+        {
             ObDereferenceObject(hookEntry->ProcessObject);
         }
 
@@ -3708,10 +3612,7 @@ HookProcessFailure:
 // 64-bit hooks and USERMODE_HOOK_SIZE_32 (5) for WoW64 hooks at hook
 // installation time (InjectSingleHook and InjectSingleHook32 do this).
 // -------------------------------------------------------------------------
-VOID UnhookSingleFunction(
-    _In_    PEPROCESS Process,
-    _Inout_ PHOOK_DEF HookDef
-)
+VOID UnhookSingleFunction(_In_ PEPROCESS Process, _Inout_ PHOOK_DEF HookDef)
 {
     UNREFERENCED_PARAMETER(Process);
     NTSTATUS status;
@@ -3723,18 +3624,17 @@ VOID UnhookSingleFunction(
     // (14) for backwards compatibility with hook entries that predate the
     // HookPatchSize field.
     ULONG patchSize = (HookDef->HookPatchSize == USERMODE_HOOK_SIZE_32)
-                      ? USERMODE_HOOK_SIZE_32   // WoW64 5-byte E9 patch
-                      : USERMODE_HOOK_SIZE;     // 64-bit 14-byte FF 25 patch
+                          ? USERMODE_HOOK_SIZE_32 // WoW64 5-byte E9 patch
+                          : USERMODE_HOOK_SIZE;   // 64-bit 14-byte FF 25 patch
 
     if (!fnZwProtectVirtualMemory)
         return;
 
-    PVOID  pageAddr = HookDef->Address;
+    PVOID pageAddr = HookDef->Address;
     SIZE_T pageSize = patchSize;
-    ULONG  oldProt  = 0;
+    ULONG oldProt = 0;
 
-    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                      PAGE_EXECUTE_READWRITE, &oldProt);
+    status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
     if (NT_SUCCESS(status))
     {
         __try
@@ -3744,16 +3644,14 @@ VOID UnhookSingleFunction(
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                     oldProt, &oldProt);
+            fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
             return;
         }
 
         // Flush the CPU instruction pipeline for this address range.
         KeInvalidateAllCaches();
 
-        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize,
-                                  oldProt, &oldProt);
+        fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, oldProt, &oldProt);
         HookDef->IsHooked = FALSE;
     }
 }
@@ -3770,19 +3668,23 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     // 1. Lock the slot
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
-    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++) {
-        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId) {
+    for (ULONG i = 0; i < MAX_HOOKED_PROCESSES; i++)
+    {
+        if (g_UserHookEngine->Processes[i].IsHooked && g_UserHookEngine->Processes[i].ProcessId == ProcessId)
+        {
             hookEntry = &g_UserHookEngine->Processes[i];
             break;
         }
     }
 
-    if (hookEntry == NULL) {
+    if (hookEntry == NULL)
+    {
         ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
         return STATUS_NOT_FOUND;
     }
 
-    if (hookEntry->IsInProgress) {
+    if (hookEntry->IsInProgress)
+    {
         // FIX: process terminated while HookProcess was still in-flight.
         // Returning STATUS_NOT_FOUND here leaves hookEntry->ProcessObject
         // with a live ObReference - the PEPROCESS object is never freed,
@@ -3798,43 +3700,47 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     // 2. Lookup and Zombie Check
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &process);
-    if (!NT_SUCCESS(status)) goto FinalCleanup;
+    if (!NT_SUCCESS(status))
+        goto FinalCleanup;
 
     // Check if process is exiting/zombie - Attaching to a dying process causes hard resets.
-    if (PsGetProcessExitStatus(process) != STATUS_PENDING) {
+    if (PsGetProcessExitStatus(process) != STATUS_PENDING)
+    {
         // FIX: Even though we cannot attach (unsafe on dying process),
         // we must not leave a dangling handle reference tracked in hookEntry.
         // The Object Manager tears down the handle table for us as part of
         // process exit rundown, so the actual kernel handle is cleaned up.
         // We just clear our pointer so NeedsCleanup path does not double-close.
         hookEntry->DriverDeviceHandle = NULL;
-        hookEntry->ShellcodeBase      = NULL;
-        hookEntry->ShellcodeSize      = 0;
+        hookEntry->ShellcodeBase = NULL;
+        hookEntry->ShellcodeSize = 0;
         ObDereferenceObject(process);
         goto FinalCleanup;
     }
 
     // 3. PHASE 1: RESTORE BYTES
     KeStackAttachProcess((PRKPROCESS)process, &apcState);
-    __try  // outer: guarantees detach
+    __try // outer: guarantees detach
     {
-        __try  // inner: catches exceptions from UnhookSingleFunction/ZwClose
+        __try // inner: catches exceptions from UnhookSingleFunction/ZwClose
         {
-            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i) {
-                if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked) {
+            for (ULONG i = 0; i < hookEntry->CustomHookCapacity; ++i)
+            {
+                if (hookEntry->CustomHooks != NULL && hookEntry->CustomHooks[i].IsHooked)
+                {
                     UnhookSingleFunction(process, &hookEntry->CustomHooks[i]);
                 }
             }
-            
-            if (hookEntry->DriverDeviceHandle) {
+
+            if (hookEntry->DriverDeviceHandle)
+            {
                 ZwClose(hookEntry->DriverDeviceHandle);
                 hookEntry->DriverDeviceHandle = NULL;
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n",
-                     GetExceptionCode(), ProcessId);
+            DbgPrint("UserModeHook: Exception 0x%X during unhook of PID %lu\n", GetExceptionCode(), ProcessId);
         }
     }
     __finally
@@ -3854,20 +3760,23 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
 FinalCleanup:
     // 6. INTERNAL CLEANUP
-    if (hookEntry->CustomHooks != NULL) {
+    if (hookEntry->CustomHooks != NULL)
+    {
         ExFreePoolWithTag(hookEntry->CustomHooks, 'cHuM');
         hookEntry->CustomHooks = NULL;
     }
 
     // Release the array-held reference before wiping the entry.
-    if (hookEntry->ProcessObject != NULL) {
+    if (hookEntry->ProcessObject != NULL)
+    {
         ObDereferenceObject(hookEntry->ProcessObject);
         hookEntry->ProcessObject = NULL;
     }
 
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     RtlZeroMemory(hookEntry, sizeof(PROCESS_HOOK_ENTRY));
-    if (g_UserHookEngine->HookedProcessCount > 0) g_UserHookEngine->HookedProcessCount--;
+    if (g_UserHookEngine->HookedProcessCount > 0)
+        g_UserHookEngine->HookedProcessCount--;
     ExReleaseFastMutex(&g_UserHookEngine->EngineMutex);
 
     return STATUS_SUCCESS;
