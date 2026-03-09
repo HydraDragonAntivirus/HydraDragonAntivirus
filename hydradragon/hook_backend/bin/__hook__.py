@@ -675,7 +675,7 @@ def get_next_dump_path(base_dir):
 # =============================================================================
 def run_decompiler():
     # Use incremental path instead of timestamp
-    backup_dir = get_next_dump_path("C:\\ProgramData\\HydraDragonAntivirus\\pythondumps")
+    backup_dir = get_next_dump_path("C:\\ProgramData\\HydraDragonAntivirus\\python_dumps")
     
     # Debug log file with UTF-8 encoding
     log_file = open(os.path.join(os.environ.get('TEMP', '/tmp'), "decompiler_debug.txt"), "w", encoding='utf-8', errors='replace')

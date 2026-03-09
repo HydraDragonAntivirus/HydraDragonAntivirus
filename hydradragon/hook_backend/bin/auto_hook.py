@@ -179,7 +179,7 @@ class LiteInjector:
             self.log(f"Using DLL: {target_dll_path}")
             
             # Create config file - CRITICAL FIX: Use correct path
-            config_dir = "C:\\ProgramData\\HydraDragonAntivirus\\pythondumps" # antivirus.py must be use non hardcoded path which exists in path_and_variables.py
+            config_dir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps" # antivirus.py must be use non hardcoded path which exists in path_and_variables.py
             os.makedirs(config_dir, exist_ok=True)
             config_path = os.path.join(config_dir, "hook_config.ini")
             
