@@ -1278,11 +1278,17 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0x54]        HOOK_EVENT_DATA.Arg1 high 32 bits (zero)
 //   [LB+0x58]        HOOK_EVENT_DATA.Arg2 low  32 bits (from hooked arg2)
 //   [LB+0x5C]        HOOK_EVENT_DATA.Arg2 high 32 bits (zero)
+//   [LB+0x60]        HOOK_EVENT_DATA.Arg3 low  32 bits (from hooked arg3)
+//   [LB+0x64]        HOOK_EVENT_DATA.Arg3 high 32 bits (zero)
+//   [LB+0x68]        HOOK_EVENT_DATA.Arg4 low  32 bits (from hooked arg4)
+//   [LB+0x6C]        HOOK_EVENT_DATA.Arg4 high 32 bits (zero)
 //   [LB+0x80]        EFLAGS
 //   [LB+0x84..0xA0]  EDI, ESI, EBP, ESP_orig, EBX, EDX, ECX, EAX (PUSHAD order)
 //   [LB+0xA4]        return address of the hooked call
 //   [LB+0xA8]        arg1 of the hooked function
 //   [LB+0xAC]        arg2 of the hooked function
+//   [LB+0xB0]        arg3 of the hooked function
+//   [LB+0xB4]        arg4 of the hooked function
 //
 // NtDeviceIoControlFile call (stdcall, 10 args, callee cleans 40 bytes):
 //   Args are pushed right-to-left.  IoStatusBlock and InputBuffer addresses
@@ -1320,12 +1326,18 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0x54]   HOOK_EVENT_DATA.Arg1 hi = 0
 //   [LB+0x58]   HOOK_EVENT_DATA.Arg2 lo
 //   [LB+0x5C]   HOOK_EVENT_DATA.Arg2 hi = 0
+//   [LB+0x60]   HOOK_EVENT_DATA.Arg3 lo
+//   [LB+0x64]   HOOK_EVENT_DATA.Arg3 hi = 0
+//   [LB+0x68]   HOOK_EVENT_DATA.Arg4 lo
+//   [LB+0x6C]   HOOK_EVENT_DATA.Arg4 hi = 0
 //   [LB+0x78]   saved old FS:[0x14]          ← NEW
 //   [LB+0x80]   EFLAGS  (PUSHFD)
 //   [LB+0x84]   EDI,ESI,EBP,ESP_orig,EBX,EDX,ECX,EAX  (PUSHAD, 32 bytes)
 //   [LB+0xA4]   return address (caller's CALL pushed this)
 //   [LB+0xA8]   arg1 of hooked function
 //   [LB+0xAC]   arg2 of hooked function
+//   [LB+0xB0]   arg3 of hooked function
+//   [LB+0xB4]   arg4 of hooked function
 //
 // PATCH SIGNATURES:
 //   kGuardMagicSig32  BB [88×4]             -> imm32 = HOOK_REENTRANCY_MAGIC_32
@@ -1340,10 +1352,14 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   kRetSig32         E9 [55×4]             -> rel32  = return target
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
+    // Save caller state, allocate the local frame, read FS:[0x14], and skip
+    // the notification path if this thread is already inside the hook.
     0x60, 0x9C, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0xBB, 0x88,
     0x88, 0x88, 0x88, 0x64, 0xA1, 0x14, 0x00, 0x00, 0x00, 0x89,
     0x44, 0x24, 0x78, 0x3B, 0xC3, 0x0F, 0x84, 0x00, 0x00, 0x00,
     0x00, 0x64, 0x89, 0x1D, 0x14, 0x00, 0x00, 0x00, 0x31, 0xC0,
+    // Zero IO_STATUS_BLOCK, stamp EventType/ProcessId, and leave the 64-byte
+    // FunctionName placeholder block for the injector to patch in-place.
     0x89, 0x04, 0x24, 0x89, 0x44, 0x24, 0x04, 0xC7, 0x44, 0x24,
     0x08, 0x11, 0x11, 0x11, 0x11, 0xC7, 0x44, 0x24, 0x0C, 0x22,
     0x22, 0x22, 0x22, 0xC7, 0x44, 0x24, 0x10, 0x99, 0x99, 0x99,
@@ -1359,6 +1375,8 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x44, 0x24, 0x40, 0x99, 0x99, 0x99, 0x99, 0xC7, 0x44, 0x24,
     0x44, 0x99, 0x99, 0x99, 0x99, 0xC7, 0x44, 0x24, 0x48, 0x99,
     0x99, 0x99, 0x99, 0xC7, 0x44, 0x24, 0x4C, 0x99, 0x99, 0x99,
+    // Copy the original hooked call arguments from the pre-hook stack frame
+    // into HOOK_EVENT_DATA.Arg1..Arg4 before notifying the driver.
     0x99, 0x8B, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, 0x89, 0x44,
     0x24, 0x50, 0xC7, 0x44, 0x24, 0x54, 0x00, 0x00, 0x00, 0x00,
     0x8B, 0x84, 0x24, 0xAC, 0x00, 0x00, 0x00, 0x89, 0x44, 0x24,
@@ -1366,17 +1384,23 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x84, 0x24, 0xB0, 0x00, 0x00, 0x00, 0x89, 0x44, 0x24, 0x60,
     0xC7, 0x44, 0x24, 0x64, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x84,
     0x24, 0xB4, 0x00, 0x00, 0x00, 0x89, 0x44, 0x24, 0x68, 0xC7,
+    // Build the 10 stdcall NtDeviceIoControlFile arguments and issue the
+    // buffered IOCTL that exports the captured hook event to the driver.
     0x44, 0x24, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x6A, 0x00, 0x6A,
     0x00, 0x68, 0x77, 0x77, 0x77, 0x77, 0x8D, 0x44, 0x24, 0x14,
     0x50, 0x68, 0x66, 0x66, 0x66, 0x66, 0x8D, 0x44, 0x24, 0x14,
     0x50, 0x6A, 0x00, 0x6A, 0x00, 0x6A, 0x00, 0x68, 0x33, 0x33,
     0x33, 0x33, 0xB8, 0x44, 0x44, 0x44, 0x44, 0xFF, 0xD0, 0x8B,
+    // Restore the previous FS:[0x14] value, unwind the frame, replay the
+    // stolen prologue bytes, and jump back after the 5-byte E9 hook.
     0x44, 0x24, 0x78, 0x64, 0xA3, 0x14, 0x00, 0x00, 0x00, 0x0F,
     0x1F, 0x00, 0x81, 0xC4, 0x80, 0x00, 0x00, 0x00, 0x9D, 0x61,
     0x90, 0x90, 0x90, 0x90, 0x90, 0xE9, 0x55, 0x55, 0x55, 0x55,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 };
 // NtDeviceIoControlFile, leaving the rest as garbage — causing an access
+// The 64-bit template must populate all ten NtDeviceIoControlFile arguments.
+// Older variants that left arg5..arg10 undefined could fault in kernel mode.
 // violation inside the kernel on almost every hooked call.
 //
 // STACK LAYOUT (RSP = RSP_entry - 304 after pushes + sub):
@@ -1392,11 +1416,15 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   RSP+0x90+0x04   HOOK_EVENT_DATA.ProcessId    (patched: ProcessId)
 //   RSP+0x90+0x48   HOOK_EVENT_DATA.Arg1         (copied from original RCX)
 //   RSP+0x90+0x50   HOOK_EVENT_DATA.Arg2         (copied from original RDX)
+//   RSP+0x90+0x58   HOOK_EVENT_DATA.Arg3         (copied from original R8)
+//   RSP+0x90+0x60   HOOK_EVENT_DATA.Arg4         (copied from original R9)
 //   RSP+0xF0        saved R11 ... RAX (8 * 8 = 64 bytes)
 //
 // Register sources (from the saved register block above RSP+0xF0):
 //   saved RCX (original arg1 of hooked fn) lives at RSP + 0xF8
 //   saved RDX (original arg2 of hooked fn) lives at RSP + 0x100
+//   saved R8  (original arg3 of hooked fn) lives at RSP + 0x110
+//   saved R9  (original arg4 of hooked fn) lives at RSP + 0x108
 // -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
 // g_ShellcodeTemplate  (native 64-bit process hook)
