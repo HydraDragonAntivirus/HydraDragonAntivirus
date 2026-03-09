@@ -33,12 +33,48 @@ _def(ntdll.NtCreateThreadEx, ctypes.c_long,
      wintypes.HANDLE, wintypes.LPVOID, wintypes.LPVOID, wintypes.ULONG,
      ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, wintypes.LPVOID)
 
+def enable_debug_privilege():
+    """Enable SeDebugPrivilege so OpenProcess works on protected targets."""
+    try:
+        advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
+        TOKEN_ADJUST_PRIVILEGES = 0x0020
+        TOKEN_QUERY             = 0x0008
+        SE_PRIVILEGE_ENABLED    = 0x00000002
+
+        class LUID(ctypes.Structure):
+            _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
+
+        class LUID_AND_ATTRIBUTES(ctypes.Structure):
+            _fields_ = [("Luid", LUID), ("Attributes", wintypes.DWORD)]
+
+        class TOKEN_PRIVILEGES(ctypes.Structure):
+            _fields_ = [("PrivilegeCount", wintypes.DWORD),
+                        ("Privileges", LUID_AND_ATTRIBUTES * 1)]
+
+        h_token = wintypes.HANDLE()
+        advapi32.OpenProcessToken(
+            k32.GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            ctypes.byref(h_token)
+        )
+        luid = LUID()
+        advapi32.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(luid))
+        tp = TOKEN_PRIVILEGES()
+        tp.PrivilegeCount = 1
+        tp.Privileges[0].Luid = luid
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+        advapi32.AdjustTokenPrivileges(h_token, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
+        k32.CloseHandle(h_token)
+    except Exception as e:
+        print(f"[WARN] Could not enable SeDebugPrivilege: {e}")
+
 class LiteInjector:
     def __init__(self, root):
         self.root = root
         self.root.title("Python Arch-Aware Injector - FIXED")
         self.root.geometry("750x650")
         
+        enable_debug_privilege()
         self.ninja_on, self.processed = False, set()
         self.hook_var = tk.StringVar(value=self._path("__hook__.py"))
         
@@ -140,18 +176,45 @@ class LiteInjector:
         return True  # Default to 64-bit
 
     def refresh(self):
-        self.procs = [p for p in psutil.process_iter(['pid', 'name', 'exe'])]
+        """Scan processes in a background thread so the UI never freezes."""
+        self._set_refresh_btn('disabled')
+        threading.Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _set_refresh_btn(self, state):
+        for w in self.root.winfo_children():
+            for c in (w.winfo_children() if hasattr(w, 'winfo_children') else []):
+                if isinstance(c, tk.Button) and 'Refresh' in str(c.cget('text')):
+                    try: c.config(state=state)
+                    except Exception: pass
+
+    def _refresh_worker(self):
+        rows = []
+        try:
+            for p in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    if self.is_target(p):
+                        pid  = p.info['pid']
+                        name = p.info['name'] or ""
+                        exe  = p.info['exe']  or ""
+                        arch = "x64" if self.get_target_arch_64(pid) else "x86"
+                        rows.append((pid, name, arch, exe))
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+        self.root.after(0, self._refresh_done, rows)
+
+    def _refresh_done(self, rows):
+        self._proc_rows = rows
         self.update_view()
+        self._set_refresh_btn('normal')
 
     def update_view(self):
         self.tree.delete(*self.tree.get_children())
         q = self.search.get().lower()
-        for p in self.procs:
-            if self.is_target(p):
-                pid, name, exe = p.info['pid'], p.info['name'], p.info['exe'] or ""
-                if q in name.lower() or q in str(pid):
-                    arch = "x64" if self.get_target_arch_64(pid) else "x86"
-                    self.tree.insert("", tk.END, values=(pid, name, arch, exe))
+        for (pid, name, arch, exe) in getattr(self, '_proc_rows', []):
+            if q in name.lower() or q in str(pid):
+                self.tree.insert("", tk.END, values=(pid, name, arch, exe))
 
     def run_inject(self):
         sel = self.tree.selection()
@@ -242,6 +305,10 @@ class LiteInjector:
                 )
                 
                 if not h_thread:
+                    # Check if the process died between OpenProcess and thread creation
+                    if not psutil.pid_exists(pid):
+                        self.log(f"SKIP: PID {pid} terminated before thread creation — will catch next instance")
+                        return
                     # Try NtCreateThreadEx fallback
                     self.log("CreateRemoteThread failed, trying NtCreateThreadEx...")
                     h_thread_nt = wintypes.HANDLE()
@@ -256,12 +323,23 @@ class LiteInjector:
                         0, 0, 0,
                         None
                     )
-                    
-                    if status == 0:  # STATUS_SUCCESS
+
+                    # status is a signed c_long — mask to get the real NTSTATUS
+                    status_u = status & 0xFFFFFFFF
+                    if status_u == 0:  # STATUS_SUCCESS
                         h_thread = h_thread_nt.value
+                        # Retrieve TID from the new handle
+                        _GetThreadId = ctypes.windll.kernel32.GetThreadId
+                        _GetThreadId.restype = wintypes.DWORD
+                        _GetThreadId.argtypes = [wintypes.HANDLE]
+                        thread_id.value = _GetThreadId(h_thread)
                         self.log(f"NtCreateThreadEx succeeded (TID: {thread_id.value})")
+                    elif status_u == 0xC000010A:  # STATUS_PROCESS_IS_TERMINATING
+                        self.log(f"SKIP: PID {pid} is already terminating (respawning process) — will catch next instance")
+                        return
                     else:
-                        self.log(f"ERROR: Both CreateRemoteThread and NtCreateThreadEx failed (NTSTATUS: 0x{status:X})")
+                        self.log(f"ERROR: Both CreateRemoteThread and NtCreateThreadEx failed "
+                                 f"(NTSTATUS: 0x{status_u:08X})")
                         return
 
                 if h_thread:
@@ -273,10 +351,14 @@ class LiteInjector:
                     if wait_result == 0:  # WAIT_OBJECT_0
                         exit_code = wintypes.DWORD()
                         if k32.GetExitCodeThread(h_thread, ctypes.byref(exit_code)):
-                            if exit_code.value == 0:
-                                self.log(f"SUCCESS: {target_dll_name} injected into {name}!")
+                            # LoadLibraryW is the thread proc: it returns an HMODULE.
+                            # Non-zero = valid handle = success. Zero = LoadLibrary failed.
+                            if exit_code.value != 0:
+                                self.log(f"SUCCESS: {target_dll_name} injected into {name}! "
+                                         f"(module @ 0x{exit_code.value:X})")
                             else:
-                                self.log(f"WARNING: Thread exited with code {exit_code.value}")
+                                self.log(f"WARNING: LoadLibraryW returned NULL — DLL load failed "
+                                         f"(check DLL path / dependencies)")
                         else:
                             self.log("SUCCESS: Injection completed (could not get exit code)")
                     elif wait_result == 0x102:  # WAIT_TIMEOUT
@@ -312,7 +394,6 @@ class LiteInjector:
                         self.inject(p.pid, p.name())
             except Exception as e:
                 self.log(f"Ninja error: {e}")
-            time.sleep(1.5)
 
 if __name__ == "__main__":
     # Check admin privileges
