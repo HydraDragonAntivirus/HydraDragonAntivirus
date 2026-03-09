@@ -241,9 +241,14 @@ static __forceinline BOOLEAN OwlyNormalizeRuleLineForMatch(_In_reads_(RuleChars)
         }
     }
 
-    if (lineLen == 0)
+    if (lineLen <= 3)
     {
         OutputBuffer[0] = L'\0';
+        if (NormalizedChars != NULL)
+        {
+            *NormalizedChars = 0;
+        }
+        return FALSE;
     }
 
     if (NormalizedChars != NULL)
