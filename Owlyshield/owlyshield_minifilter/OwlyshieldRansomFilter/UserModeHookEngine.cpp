@@ -3050,25 +3050,27 @@ NTSTATUS ResolveAndHook32(
     return InjectSingleHook32(Process, HookEntry->ProcessId, HookEntry,
                                HookDef, ModuleName, FunctionName, EventId, TargetNtDeviceIo32);
 }
+// -------------------------------------------------------------------------
+// Synchronous notification design (required).
 //
-// ROOT CAUSE FIX — keep the notification handle SYNCHRONOUS.
+// The shellcode passes a stack-resident IO_STATUS_BLOCK to
+// NtDeviceIoControlFile.  The handle MUST be opened with
+// FILE_SYNCHRONOUS_IO_NONALERT so that NtDeviceIoControlFile completes
+// before the shellcode tears down its stack frame and returns.  Without
+// this flag, NtDeviceIoControlFile may return STATUS_PENDING and the
+// kernel will write the final status into a dead stack slot, corrupting
+// caller state and producing crashes or hangs.
 //
-// The shellcode passes an IO_STATUS_BLOCK that lives on its stack frame.
-// If the handle is opened asynchronously, NtDeviceIoControlFile can return
-// STATUS_PENDING and complete later, after the shellcode has already restored
-// registers and returned to the caller. The eventual completion then writes
-// final status back through a stale stack pointer, corrupting user-mode state
-// and producing hangs during exit, restart, and general I/O.
-//
-// Fix: open the device handle WITH FILE_SYNCHRONOUS_IO_NONALERT.
-//   • NtDeviceIoControlFile does not return until the driver completes.
-//   • The stack-based IO_STATUS_BLOCK remains valid for the entire call.
-//   • No completion APC is needed for correctness.
-//
-// The device handle is created while attached to the target process so the
-// Object Manager places it directly into that process handle table.
-// No ObInsertObject is used.
-//
+// Deadlock avoidance (files in the AV's own installation directory):
+// The driver's IOCTL dispatch handler (Communication.cpp) must NOT
+// perform file I/O for paths that match the exclusion rules while
+// processing a hook-notification IOCTL.  If it does, the minifilter
+// pre-create fires for that secondary open while the original hooked
+// thread is still blocked waiting for the IOCTL to complete, which can
+// deadlock the thread.  The correct fix is to return early from the IOCTL
+// handler for events whose Arg3 (OBJECT_ATTRIBUTES*) resolves to an
+// excluded path, without doing any further file I/O.
+// -------------------------------------------------------------------------
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
     BOOLEAN isWow64 = HookEntry->IsWow64;
@@ -3134,9 +3136,8 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         FILE_ATTRIBUTE_NORMAL,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         FILE_OPEN,
-                        // The hook shellcode passes a stack-based IO_STATUS_BLOCK
-                        // to NtDeviceIoControlFile, so this handle MUST remain
-                        // synchronous for the lifetime of the design.
+                        // Synchronous handle: FILE_SYNCHRONOUS_IO_NONALERT is required
+                        // because the shellcode's IO_STATUS_BLOCK lives on the stack.
                         FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
                         NULL,
                         0);
@@ -3515,6 +3516,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 if (hookStatus == STATUS_NOT_FOUND             ||
                     hookStatus == STATUS_PROCEDURE_NOT_FOUND   ||
                     hookStatus == STATUS_NOT_SUPPORTED         ||
+                    hookStatus == STATUS_INVALID_PARAMETER     ||
                     hookStatus == STATUS_ACCESS_VIOLATION      ||
                     hookStatus == STATUS_INVALID_ADDRESS       ||
                     hookStatus == STATUS_CONFLICTING_ADDRESSES)
