@@ -336,6 +336,17 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
         return STATUS_SUCCESS;
     }
 
+    // Reject rules that are too short to be meaningful.
+    // A rule like "c:\" (3 chars) would prefix-match every path on the
+    // system drive, effectively excluding ALL processes.  Empty lines
+    // or whitespace-only lines in the rules file can also produce such
+    // short strings after normalization.  Require at least 4 chars
+    // (e.g. "c:\x") so only real directory paths are accepted.
+    if (lineLen <= 3)
+    {
+        return STATUS_SUCCESS;
+    }
+
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
         if (_wcsicmp(g_HookExcludeRules.Rules[i], normalizedLine) == 0)
@@ -586,10 +597,14 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
         }
 
         // Use prefix matching: the process path must START WITH the rule.
-        // Previously wcsstr did a substring match, which could match a rule
-        // appearing anywhere inside a path (e.g. in a nested subdirectory
-        // name), causing unrelated processes to be incorrectly excluded.
+        // Also reject trivially short rules (<=3 chars like "c:\") that
+        // would match everything on the drive — defense in depth against
+        // empty or malformed lines in the rules file.
         SIZE_T ruleLen = wcslen(rule);
+        if (ruleLen <= 3)
+        {
+            continue;
+        }
         SIZE_T pathChars = NormalizedPath->Length / sizeof(WCHAR);
         if (pathChars >= ruleLen && _wcsnicmp(NormalizedPath->Buffer, rule, ruleLen) == 0)
         {
