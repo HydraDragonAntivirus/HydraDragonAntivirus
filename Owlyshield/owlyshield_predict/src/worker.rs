@@ -1898,23 +1898,13 @@ pub mod worker_instance {
 
                 let (module, function) = if let Some(idx) = api_spec.find('!') {
                     (
-                        Self::normalize_hook_module_name(api_spec[..idx].trim()),
-                        api_spec[idx + 1..].trim().to_string(),
+                        Self::normalize_hook_module_name(&api_spec[..idx]),
+                        api_spec[idx + 1..].to_string(),
                     )
                 } else {
                     wildcard_count += 1;
-                    ("*".to_string(), api_spec.trim().to_string())
+                    ("*".to_string(), api_spec.clone())
                 };
-
-                if function.is_empty() {
-                    failed_count += 1;
-                    Logging::warning(&format!(
-                        "[DYNAMIC HOOK] PID {} registration skipped: malformed API spec with empty function name: {}",
-                        pid,
-                        api_spec
-                    ));
-                    continue;
-                }
 
                 // SharedDefs.HOOK_CONFIG_DATA currently supports ModuleName[64] and FunctionName[256].
                 if module != "*" && module.len() >= 64 {

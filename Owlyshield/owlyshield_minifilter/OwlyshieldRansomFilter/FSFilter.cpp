@@ -2424,41 +2424,6 @@ NTSTATUS DeleteFileByPath(PUNICODE_STRING FilePath)
     return ZwDeleteFile(&objAttributes);
 }
 
-static PUNICODE_STRING DuplicateUnicodeStringToPool(_In_ PCUNICODE_STRING Source)
-{
-    if (Source == NULL || Source->Buffer == NULL)
-    {
-        return NULL;
-    }
-
-    USHORT copyLength = Source->Length;
-    if (copyLength > (MAX_FILE_NAME_SIZE - sizeof(WCHAR)))
-    {
-        copyLength = (USHORT)(MAX_FILE_NAME_SIZE - sizeof(WCHAR));
-    }
-
-    USHORT allocLength = (USHORT)(copyLength + sizeof(WCHAR));
-    PUNICODE_STRING duplicate = (PUNICODE_STRING)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
-        sizeof(UNICODE_STRING) + allocLength,
-        'RW');
-    if (duplicate == NULL)
-    {
-        return NULL;
-    }
-
-    duplicate->Buffer = (PWCH)((PUCHAR)duplicate + sizeof(UNICODE_STRING));
-    duplicate->Length = copyLength;
-    duplicate->MaximumLength = allocLength;
-
-    if (copyLength > 0)
-    {
-        RtlCopyMemory(duplicate->Buffer, Source->Buffer, copyLength);
-    }
-    duplicate->Buffer[copyLength / sizeof(WCHAR)] = L'\0';
-    return duplicate;
-}
-
 // Quarantine a file by moving it to an isolated folder
 NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 {
@@ -2659,7 +2624,6 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         NTSTATUS hr;
         HANDLE procHandleParent = NULL;
         HANDLE procHandleProcess = NULL;
-        const ACCESS_MASK processQueryAccess = PROCESS_QUERY_LIMITED_INFORMATION;
 
         CLIENT_ID clientIdParent;
         clientIdParent.UniqueProcess = ParentId;
@@ -2673,85 +2637,54 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
 
         InitializeObjectAttributes(&objAttribs, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
-        hr = ZwOpenProcess(&procHandleParent, processQueryAccess, &objAttribs, &clientIdParent);
+        hr = ZwOpenProcess(&procHandleParent, PROCESS_ALL_ACCESS, &objAttribs, &clientIdParent);
         if (!NT_SUCCESS(hr))
         {
-            DbgPrint("!!! FSFilter: Parent query handle unavailable for PID %lu: %#010x.\n",
-                     (ULONG)(ULONG_PTR)ParentId, hr);
+            DbgPrint("!!! FSFilter: Failed to open parent process: %#010x.\n", hr);
+            return;
         }
-        hr = ZwOpenProcess(&procHandleProcess, processQueryAccess, &objAttribs, &clientIdProcess);
+        hr = ZwOpenProcess(&procHandleProcess, PROCESS_ALL_ACCESS, &objAttribs, &clientIdProcess);
         if (!NT_SUCCESS(hr))
         {
-            DbgPrint("!!! FSFilter: Process query handle unavailable for PID %lu: %#010x.\n",
-                     (ULONG)(ULONG_PTR)ProcessId, hr);
+            DbgPrint("!!! FSFilter: Failed to open process: %#010x.\n", hr);
+            ZwClose(procHandleParent);
+            return;
         }
 
         PUNICODE_STRING procName = NULL;
         PUNICODE_STRING parentName = NULL;
         PUNICODE_STRING procCmdLine = NULL;
 
-        if (procHandleParent != NULL)
+        hr = GetProcessNameByHandle(procHandleParent, &parentName);
+        if (!NT_SUCCESS(hr))
         {
-            hr = GetProcessNameByHandle(procHandleParent, &parentName);
-            if (!NT_SUCCESS(hr))
-            {
-                DbgPrint("!!! FSFilter: Failed to get parent name for PID %lu: %#010x\n",
-                         (ULONG)(ULONG_PTR)ParentId, hr);
-            }
+            DbgPrint("!!! FSFilter: Failed to get parent name: %#010x\n", hr);
+            ZwClose(procHandleParent);
+            ZwClose(procHandleProcess);
+            return;
         }
 
-        if (procHandleProcess != NULL)
+        hr = GetProcessNameByHandle(procHandleProcess, &procName);
+        if (!NT_SUCCESS(hr))
         {
-            hr = GetProcessNameByHandle(procHandleProcess, &procName);
-            if (!NT_SUCCESS(hr))
-            {
-                DbgPrint("!!! FSFilter: Failed to get process name for PID %lu: %#010x\n",
-                         (ULONG)(ULONG_PTR)ProcessId, hr);
-            }
+            DbgPrint("!!! FSFilter: Failed to get process name: %#010x\n", hr);
+            if (parentName != NULL)
+                ExFreePoolWithTag(parentName, 'RW');
+            ZwClose(procHandleParent);
+            ZwClose(procHandleProcess);
+            return;
         }
 
-        if (procName == NULL && CreateInfo != NULL && CreateInfo->ImageFileName != NULL)
-        {
-            procName = DuplicateUnicodeStringToPool(CreateInfo->ImageFileName);
-            if (procName == NULL)
-            {
-                DbgPrint("!!! FSFilter: Failed to duplicate CreateInfo image name for PID %lu\n",
-                         (ULONG)(ULONG_PTR)ProcessId);
-            }
-        }
-
-        if (parentName != NULL)
-        {
-            DbgPrint("!!! FSFilter: New Process, parent: %wZ. Pid: %d\n",
-                     parentName, (ULONG)(ULONG_PTR)ParentId);
-        }
-        else
-        {
-            DbgPrint("!!! FSFilter: New Process, parent pid: %d (name unavailable)\n",
-                     (ULONG)(ULONG_PTR)ParentId);
-        }
+        DbgPrint("!!! FSFilter: New Process, parent: %wZ. Pid: %d\n", parentName, (ULONG)(ULONG_PTR)ParentId);
 
         // In legacy callback path, command line is not provided by CreateInfo.
         // Best-effort fallback: query ProcessCommandLineInformation directly.
-        if (CreateInfo == NULL && procHandleProcess != NULL) {
+        if (CreateInfo == NULL) {
             (VOID)GetProcessCommandLineByHandle(procHandleProcess, &procCmdLine);
         }
 
-        if (procHandleParent != NULL)
-            ZwClose(procHandleParent);
-        if (procHandleProcess != NULL)
-            ZwClose(procHandleProcess);
-
-        if (procName == NULL)
-        {
-            DbgPrint("!!! FSFilter: New Process, process pid: %d (name unavailable, skipping record)\n",
-                     (ULONG)(ULONG_PTR)ProcessId);
-            if (parentName != NULL)
-                ExFreePoolWithTag(parentName, 'RW');
-            if (procCmdLine != NULL)
-                ExFreePoolWithTag(procCmdLine, 'RW');
-            return;
-        }
+        ZwClose(procHandleParent);
+        ZwClose(procHandleProcess);
 
         DbgPrint("!!! FSFilter: New Process, process: %wZ , pid: %d.\n", procName, (ULONG)(ULONG_PTR)ProcessId);
 
