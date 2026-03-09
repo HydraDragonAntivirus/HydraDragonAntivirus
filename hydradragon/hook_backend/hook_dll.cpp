@@ -8,19 +8,21 @@
  * Changes from original
  *   - All strncpy  -> strncpy_s  (safe, _TRUNCATE)
  *   - All fopen    -> fopen_s    (safe)
- *   - PROCESSENTRY32A / Process32FirstA / Process32NextA
- *       -> PROCESSENTRY32 / Process32First / Process32Next
- *       (MSVC tlhelp32.h does not expose explicit *A variants)
+ *   - PROCESSENTRY32 / Process32First / Process32Next (no explicit A suffix)
  *   - All C-style GetProcAddress casts -> reinterpret_cast<>
  *   - PyGILState typed via int alias to match CPython ABI
  *   - NULL -> nullptr throughout
  *   - [[maybe_unused]] on unused params to silence C4100
  *   - #pragma comment(lib) for every Win32 import lib
+ *   - ALL MessageBoxA calls removed — they block the host process message loop
+ *     and cause watchdog-monitored processes (like WebRB.exe) to be killed
+ *   - Py_IsInitialized() polled before PyGILState_Ensure() — calling GIL
+ *     functions before Python is initialized is UB and crashes the host
+ *   - SetErrorMode guard around CreateToolhelp32Snapshot to suppress popups
  */
 
 // ─── Required Windows libraries ──────────────────────────────────────────────
 #pragma comment(lib, "kernel32.lib")
-#pragma comment(lib, "user32.lib")
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "shell32.lib")
@@ -118,7 +120,11 @@ static bool GetHookFilePathFromConfig(char *outPath, size_t maxLen) {
 
 // ─── Find python.exe in running processes ────────────────────────────────────
 static bool FindPythonExePath(char *outPath, size_t maxLen) {
+    // Guard: CreateToolhelp32Snapshot holds a system lock.
+    // Suppress any hard-error popup the OS might show if it fails.
+    UINT prevErrMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    SetErrorMode(prevErrMode);
     if (hSnapshot == INVALID_HANDLE_VALUE) return false;
 
     // Use un-suffixed PROCESSENTRY32 / Process32First / Process32Next.
@@ -383,7 +389,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
     }
 
     if (!hPyDll) {
-        MessageBoxA(nullptr, "No python3x.dll found", "Hook Error", MB_ICONEXCLAMATION);
+        dbgPrintf("[HOOK] ERROR: No python3x.dll found\n");
         return 1;
     }
 
@@ -402,9 +408,28 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
         reinterpret_cast<PyRun_SimpleStrFunc>(GetProcAddress(hPyDll, "PyRun_SimpleString"));
 
     if (!PyImport_ImportModule || !PyGILState_Ensure || !PyGILState_Release) {
-        MessageBoxA(nullptr, "Cannot load Python C-API functions", "Hook Error",
-                    MB_ICONEXCLAMATION);
+        dbgPrintf("[HOOK] ERROR: Cannot load Python C-API functions\n");
         return 1;
+    }
+
+    // ── Wait for Python runtime to be fully initialized ───────────────────────
+    // Calling PyGILState_Ensure before Py_Initialize completes is UB and will
+    // crash the host process. Poll Py_IsInitialized() with a timeout instead.
+    using Py_IsInitializedFunc = int (*)();
+    auto Py_IsInitialized =
+        reinterpret_cast<Py_IsInitializedFunc>(GetProcAddress(hPyDll, "Py_IsInitialized"));
+
+    if (Py_IsInitialized) {
+        int waited_ms = 0;
+        while (!Py_IsInitialized() && waited_ms < 10000) {
+            Sleep(50);
+            waited_ms += 50;
+        }
+        if (!Py_IsInitialized()) {
+            dbgPrintf("[HOOK] ERROR: Python runtime not initialized after 10s — aborting\n");
+            return 1;
+        }
+        dbgPrintf("[HOOK] Python is initialized (waited %dms)\n", waited_ms);
     }
 
     PyGILState_STATE gilState = PyGILState_Ensure();
@@ -412,7 +437,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
     // ── Python setup command ──────────────────────────────────────────────────
     char *pycmd = static_cast<char *>(malloc(16384));
     if (!pycmd) {
-        MessageBoxA(nullptr, "Memory allocation failed", "Hook Error", MB_ICONEXCLAMATION);
+        dbgPrintf("[HOOK] ERROR: Memory allocation failed\n");
         PyGILState_Release(gilState);
         return 1;
     }
@@ -498,7 +523,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
         Py_DecRef(hook_module);
         PyGILState_Release(gilState);
         dbgPrintf("[HOOK] Successfully imported %s\n", PYMODULE_NAME);
-        MessageBoxA(nullptr, "Hook injection successful!", "Success", MB_OK);
+        dbgPrintf("[HOOK] SUCCESS: Hook injection successful!\n");
         return 0;
     }
 
@@ -565,7 +590,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
                     PyGILState_Release(gilState);
                     dbgPrintf("[HOOK] Successfully imported %s after adding path\n",
                               PYMODULE_NAME);
-                    MessageBoxA(nullptr, "Hook injection successful!", "Success", MB_OK);
+                    dbgPrintf("[HOOK] SUCCESS: Hook injection successful!\n");
                     return 0;
                 } else {
                     dbgPrintf("[HOOK] Import still failed after adding path\n");
@@ -631,7 +656,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
                     free(execCmd);
                     PyGILState_Release(gilState);
                     dbgPrintf("[HOOK] Hook executed successfully via direct exec\n");
-                    MessageBoxA(nullptr, "Hook successful (direct exec)!", "Success", MB_OK);
+                    dbgPrintf("[HOOK] SUCCESS: Hook successful (direct exec)!\n");
                     return 0;
                 } else {
                     dbgPrintf("[HOOK] Direct execution failed with code: %d\n", execRes);
@@ -650,7 +675,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
     PyGILState_Release(gilState);
 
     dbgPrintf("[HOOK] Failed to import %s\n", PYMODULE_NAME);
-    MessageBoxA(nullptr, "Failed to import hook\nCheck logs", "Hook Error", MB_ICONEXCLAMATION);
+    dbgPrintf("[HOOK] ERROR: Failed to import hook. Check logs.\n");
     return 1;
 }
 
