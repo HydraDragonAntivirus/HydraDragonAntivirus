@@ -390,7 +390,18 @@ static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_S
     for (ULONG i = 0; i < g_ProcessProtectionExcludeRules.Count; ++i)
     {
         PCWSTR rule = g_ProcessProtectionExcludeRules.Rules[i];
-        if (rule != NULL && rule[0] != L'\0' && wcsstr(NormalizedPath->Buffer, rule) != NULL)
+        if (rule == NULL || rule[0] == L'\0')
+        {
+            continue;
+        }
+
+        // Use prefix matching: the process path must START WITH the rule.
+        // Previously wcsstr did a substring match, which could match a rule
+        // appearing anywhere inside a path, causing unrelated processes to
+        // be incorrectly excluded from process protection detection.
+        SIZE_T ruleLen = wcslen(rule);
+        SIZE_T pathChars = NormalizedPath->Length / sizeof(WCHAR);
+        if (pathChars >= ruleLen && _wcsnicmp(NormalizedPath->Buffer, rule, ruleLen) == 0)
         {
             matched = TRUE;
             break;
@@ -525,12 +536,18 @@ static BOOLEAN ShouldSkipProcessProtectionPid(_In_ ULONG ProcessId, _In_ BOOLEAN
 
 static BOOLEAN ShouldSkipProcessProtectionPair(_In_ ULONG SourcePid, _In_ ULONG TargetPid, _In_ BOOLEAN AllowSlowLookup)
 {
-    if (ShouldSkipProcessProtectionPid(SourcePid, AllowSlowLookup))
-    {
-        return TRUE;
-    }
+    UNREFERENCED_PARAMETER(TargetPid);
 
-    if (TargetPid != 0 && TargetPid != SourcePid && ShouldSkipProcessProtectionPid(TargetPid, AllowSlowLookup))
+    // Only skip if the SOURCE process (the actor performing the operation)
+    // is excluded. If the source is a trusted/excluded process, its actions
+    // are considered benign and don't need to be reported.
+    //
+    // We intentionally do NOT skip when the TARGET is excluded. If an
+    // unknown process tries to terminate or inject into a trusted target
+    // (e.g. HydraDragonAntivirus), that IS suspicious and MUST be detected.
+    // The old logic dropped those events, letting attackers target our own
+    // processes silently.
+    if (ShouldSkipProcessProtectionPid(SourcePid, AllowSlowLookup))
     {
         return TRUE;
     }

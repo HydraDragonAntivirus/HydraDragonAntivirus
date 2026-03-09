@@ -317,20 +317,11 @@ static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buff
     return (SIZE_T)-1;
 }
 
-static BOOLEAN NormalizeKernelPathLower(_In_ PCUNICODE_STRING InputPath,
-                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
-                                        _Out_ PUNICODE_STRING NormalizedPath)
-{
-    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
-}
 
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[HOOK_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
-    SIZE_T start = 0;
-    SIZE_T end = RuleChars;
-    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
     if (RuleText == NULL || RuleChars == 0)
@@ -338,68 +329,9 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
         return STATUS_SUCCESS;
     }
 
-    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
-    {
-        start++;
-    }
-
-    for (SIZE_T i = start; i < end; ++i)
-    {
-        if (RuleText[i] == L'#')
-        {
-            commentPos = i;
-            break;
-        }
-        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
-        {
-            commentPos = i;
-            break;
-        }
-    }
-    if (commentPos != (SIZE_T)-1)
-    {
-        end = commentPos;
-    }
-
-    while (end > start && (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' ||
-                           RuleText[end - 1] == L'"'))
-    {
-        end--;
-    }
-    if (end <= start)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
-    {
-        WCHAR ch = RuleText[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
-    }
-    normalizedLine[lineLen] = L'\0';
-
-    if (lineLen >= 4 && normalizedLine[0] == L'\\' && normalizedLine[1] == L'?' && normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-    if (lineLen >= 4 && normalizedLine[0] == L'\\' && normalizedLine[1] == L'\\' && normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-
-    if (lineLen == 0 || normalizedLine[0] == L'#')
-    {
-        return STATUS_SUCCESS;
-    }
-    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    if (!OwlyNormalizeRuleLineForMatch(RuleText, RuleChars, normalizedLine, RTL_NUMBER_OF(normalizedLine), FALSE,
+                                       &lineLen) ||
+        lineLen == 0)
     {
         return STATUS_SUCCESS;
     }
@@ -634,7 +566,7 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     // Rules in the exclusion file are written against the system drive.
     // Accepting any drive letter here would allow a malicious binary at
     // d:\c:\program files\vendor\evil.exe to pass the guard, after which
-    // wcsstr() finds "c:\program files\vendor\" as a substring and the
+    // a substring match finds "c:\program files\vendor\" and the
     // process is silently excluded from hooking - a trivial evasion vector.
     // The guard must remain 'c' so only genuine system-drive paths match.
     if (!(NormalizedPath->Buffer[0] == L'c' && NormalizedPath->Buffer[1] == L':' && NormalizedPath->Buffer[2] == L'\\'))
@@ -648,7 +580,18 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
         PCWSTR rule = g_HookExcludeRules.Rules[i];
-        if (rule != NULL && rule[0] != L'\0' && wcsstr(NormalizedPath->Buffer, rule) != NULL)
+        if (rule == NULL || rule[0] == L'\0')
+        {
+            continue;
+        }
+
+        // Use prefix matching: the process path must START WITH the rule.
+        // Previously wcsstr did a substring match, which could match a rule
+        // appearing anywhere inside a path (e.g. in a nested subdirectory
+        // name), causing unrelated processes to be incorrectly excluded.
+        SIZE_T ruleLen = wcslen(rule);
+        SIZE_T pathChars = NormalizedPath->Length / sizeof(WCHAR);
+        if (pathChars >= ruleLen && _wcsnicmp(NormalizedPath->Buffer, rule, ruleLen) == 0)
         {
             matched = TRUE;
             break;
@@ -701,6 +644,7 @@ static BOOLEAN ShouldSkipHookingProcess(_In_ PEPROCESS Process, _In_ ULONG Proce
         return TRUE;
     }
 
+    // System (PID 4) and Idle (PID 0) cannot be hooked.
     if (ProcessId <= 4)
     {
         return TRUE;
