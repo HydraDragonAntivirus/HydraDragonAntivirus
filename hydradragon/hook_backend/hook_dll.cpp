@@ -66,7 +66,7 @@ static void CheckForProtection() {
 }
 
 static bool GetHookFilePathFromConfig(char *outPath, size_t maxLen) {
-  const char *configPath = "C:\\pythondumps\\hook_config.ini";
+  const char *configPath = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps\\hook_config.ini";
   FILE *f = fopen(configPath, "r");
   if (!f) return false;
 
@@ -319,7 +319,7 @@ static void AutoSetPythonHome() {
 }
 
 static bool SetupStdoutStderrToLog(char *outLogPath) {
-  char logDir[] = "C:\\pythondumps";
+  char logDir[] = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps";
   CreateDirectoryA(logDir, NULL);
 
   char logPath[MAX_PATH];
@@ -327,17 +327,6 @@ static bool SetupStdoutStderrToLog(char *outLogPath) {
   logPath[MAX_PATH - 1] = '\0';
 
   g_logFile = fopen(logPath, "a");
-  if (!g_logFile) {
-    char publicLogDir[] = "C:\\Users\\Public\\pythondumps";
-    CreateDirectoryA(publicLogDir, NULL);
-    snprintf(logPath, MAX_PATH, "%s\\hook_dll.log", publicLogDir);
-    logPath[MAX_PATH - 1] = '\0';
-    g_logFile = fopen(logPath, "a");
-  }
-
-  if (!g_logFile)
-    return false;
-
   setvbuf(g_logFile, NULL, _IOLBF, 0);
   
   // Don't redirect stdout/stderr via freopen - can cause crashes

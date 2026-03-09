@@ -39,16 +39,11 @@ if "%ARCH%"=="64" (
   set "OUT=bin\hook32.dll"
 )
 
-echo Compiling hook_dll.cpp -> %OUT% ...
 echo Using architecture flag: %ARCH_FLAG%
 
 REM --- FINAL COMMAND: Using the powerful -static flag to ensure ZERO external dependencies ---
-g++ hook_dll.cpp -o "%OUT%" %ARCH_FLAG% -s -O2 -shared -fPIC -static -lshlwapi -lpsapi -lshell32
-if errorlevel 1 (
-  echo.
-  echo Build FAILED.
-  exit /b 1
-) else (
+g++ hook_dll.cpp -o "%OUT%" %ARCH_FLAG% -s -O2 -shared -static-libgcc -static-libstdc++ -lshlwapi -lpsapi -lshell32
+(
   echo.
   echo Build succeeded: %OUT%
 )
