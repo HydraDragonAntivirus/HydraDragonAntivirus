@@ -1259,7 +1259,7 @@ namespace Mega_Dumper
                 int frawAddress = BitConverter.ToInt32(input, sectionHeaderOffset + 0x14);
 
                 // Use the larger of VirtualSize or SizeOfRawData for bounds checking
-                // This handles sections where VirtualSize is 0 (common in Scylla-created sections)
+                // This handles sections where VirtualSize is 0 in rebuilt sections.
                 int effectiveSize = Math.Max(fvirtualsize, frawsize);
                 if (effectiveSize <= 0) effectiveSize = frawsize > 0 ? frawsize : fvirtualsize;
 
@@ -1302,157 +1302,6 @@ namespace Mega_Dumper
             }
 
             return -1;
-        }
-
-        /// <summary>
-        /// Sanitizes a Scylla-fixed PE file by removing invalid import descriptors.
-        /// This is necessary because Scylla's advanced search can generate garbage imports
-        /// with DLL names like "?.DLL" or containing unprintable characters.
-        /// This function COMPACTS valid imports together (doesn't just zero invalid ones).
-        /// </summary>
-        /// <param name="filePath">Path to the scyfix file to sanitize</param>
-        /// <returns>True if sanitization was successful or no changes were needed</returns>
-        private bool SanitizeScyfixFile(string filePath)
-        {
-            try
-            {
-                if (!File.Exists(filePath))
-                    return false;
-
-                byte[] fileData = File.ReadAllBytes(filePath);
-                if (fileData.Length < 0x40)
-                    return false;
-
-                int peOffset = BitConverter.ToInt32(fileData, 0x3C);
-                if (peOffset < 0 || peOffset + 0x80 + 8 > fileData.Length)
-                    return false;
-
-                // Check PE signature
-                if (fileData[peOffset] != 'P' || fileData[peOffset + 1] != 'E')
-                    return false;
-
-                // Determine if PE32 or PE32+ (64-bit)
-                ushort magic = BitConverter.ToUInt16(fileData, peOffset + 0x18);
-                bool isPE32Plus = magic == 0x20b;
-
-                // Import directory offset differs between PE32 and PE32+
-                int importDirRvaOffset = isPE32Plus ? (peOffset + 0x90) : (peOffset + 0x80);
-
-                if (importDirRvaOffset + 8 > fileData.Length)
-                    return false;
-
-                int importDirRva = BitConverter.ToInt32(fileData, importDirRvaOffset);
-                int importDirSize = BitConverter.ToInt32(fileData, importDirRvaOffset + 4);
-
-                if (importDirRva == 0 || importDirSize == 0)
-                    return true;
-
-                // Convert RVA to file offset
-                int importDirOffset = RVA2Offset(fileData, importDirRva);
-                if (importDirOffset < 0 || importDirOffset >= fileData.Length)
-                    return false;
-
-                const int IMPORT_DESCRIPTOR_SIZE = 20;
-
-                // First pass: collect all descriptors and determine which are valid
-                var allDescriptors = new System.Collections.Generic.List<byte[]>();
-                var validDescriptors = new System.Collections.Generic.List<byte[]>();
-                var invalidNames = new System.Collections.Generic.List<string>();
-                int current = 0;
-
-                // Parse all import descriptors
-                while (importDirOffset + current + IMPORT_DESCRIPTOR_SIZE <= fileData.Length)
-                {
-                    // Read the descriptor
-                    byte[] descriptor = new byte[IMPORT_DESCRIPTOR_SIZE];
-                    Array.Copy(fileData, importDirOffset + current, descriptor, 0, IMPORT_DESCRIPTOR_SIZE);
-
-                    // Check if this is a null terminator (all zeros)
-                    int nameRva = BitConverter.ToInt32(descriptor, 12);
-                    if (nameRva == 0)
-                        break;
-
-                    allDescriptors.Add(descriptor);
-
-                    // Get the DLL name
-                    int nameOffset = RVA2Offset(fileData, nameRva);
-                    bool isValid = true;
-                    string dllName = "<unknown>";
-
-                    if (nameOffset < 0 || nameOffset >= fileData.Length)
-                    {
-                        isValid = false;
-                        dllName = $"<invalid RVA 0x{nameRva:X}>";
-                    }
-                    else
-                    {
-                        // Read the DLL name (null-terminated ASCII string)
-                        var sb = new System.Text.StringBuilder();
-                        int maxLen = Math.Min(260, fileData.Length - nameOffset);
-                        for (int i = 0; i < maxLen; i++)
-                        {
-                            byte b = fileData[nameOffset + i];
-                            if (b == 0) break;
-                            sb.Append((char)b);
-                        }
-                        dllName = sb.ToString();
-
-                        // Check if DLL name is valid
-                        // Invalid if: empty, contains '?', has unprintable chars, or doesn't end with .dll
-                        if (string.IsNullOrEmpty(dllName) ||
-                            dllName.Contains("?") ||
-                            dllName.Any(c => c < 32 || c > 126) ||
-                            !dllName.ToLower().EndsWith(".dll"))
-                        {
-                            isValid = false;
-                        }
-                    }
-
-                    if (isValid)
-                        validDescriptors.Add(descriptor);
-                    else
-                        invalidNames.Add(dllName);
-
-                    current += IMPORT_DESCRIPTOR_SIZE;
-                }
-
-                if (invalidNames.Count == 0)
-                    return true;
-
-                // Second pass: Write valid descriptors contiguously, then null terminator
-                int writeOffset = importDirOffset;
-
-                // Write all valid descriptors
-                foreach (var descriptor in validDescriptors)
-                {
-                    if (writeOffset + IMPORT_DESCRIPTOR_SIZE <= fileData.Length)
-                    {
-                        Array.Copy(descriptor, 0, fileData, writeOffset, IMPORT_DESCRIPTOR_SIZE);
-                        writeOffset += IMPORT_DESCRIPTOR_SIZE;
-                    }
-                }
-
-                // Write null terminator (20 zero bytes)
-                for (int i = 0; i < IMPORT_DESCRIPTOR_SIZE; i++)
-                {
-                    if (writeOffset + i < fileData.Length)
-                        fileData[writeOffset + i] = 0;
-                }
-                writeOffset += IMPORT_DESCRIPTOR_SIZE;
-
-                int oldEndOffset = importDirOffset + (allDescriptors.Count + 1) * IMPORT_DESCRIPTOR_SIZE;
-                for (int i = writeOffset; i < oldEndOffset && i < fileData.Length; i++)
-                {
-                    fileData[i] = 0;
-                }
-
-                File.WriteAllBytes(filePath, fileData);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
         }
 
         public unsafe struct image_section_header
@@ -2063,7 +1912,6 @@ namespace Mega_Dumper
                                                                         File.WriteAllBytes(filename, rawdump);
                                                                         sessionDumpedFiles.Add(filename);
 
-                                                                        // Scylla Integration moved to post-processing
                                                                     }
                                                                     catch
                                                                     {
@@ -2185,7 +2033,6 @@ namespace Mega_Dumper
                                                             fout.Close();
                                                             sessionDumpedFiles.Add(filename);
 
-                                                            // Scylla Integration moved to post-processing
                                                         }
                                                         CurrentCount++;
                                                     }
@@ -2213,88 +2060,6 @@ namespace Mega_Dumper
                         // Reached the end of the 64-bit address space
                         // This catch is now less likely to be hit, but kept as a safeguard.
                         break;
-                    }
-                }
-
-                // --- Scylla Integration Block (Before renaming to keep Address info) ---
-                if (MegaDumper.ScyllaBindings.IsAvailable)
-                {
-                    // Collect all files to process
-                    HashSet<string> filesToScylla = new HashSet<string>(sessionDumpedFiles);
-                    try
-                    {
-                        if (Directory.Exists(ddirs.dumps))
-                        {
-                            foreach (var f in Directory.GetFiles(ddirs.dumps, "rawdump_*.*", SearchOption.AllDirectories))
-                            {
-                                filesToScylla.Add(f);
-                            }
-                        }
-                    }
-                    catch { }
-
-                    foreach (string dumpedFile in filesToScylla)
-                    {
-                        if (!File.Exists(dumpedFile)) continue;
-                        string fileNameNoExt = Path.GetFileNameWithoutExtension(dumpedFile);
-
-                        // We strictly only process rawdumps with Scylla as requested
-                        if (!fileNameNoExt.StartsWith("rawdump", StringComparison.OrdinalIgnoreCase)) continue;
-
-                        bool isDotNetFile = false;
-                        bool isSystemFile = false;
-
-                        try
-                        {
-                            // 1. Check for .NET (CLR Header)
-                            byte[] header = new byte[0x400];
-                            using (FileStream fs = new FileStream(dumpedFile, FileMode.Open, FileAccess.Read))
-                            {
-                                fs.Read(header, 0, 0x400);
-                            }
-                            int pe = BitConverter.ToInt32(header, 0x3C);
-                            int opt = pe + 4 + 20;
-                            bool is64 = BitConverter.ToUInt16(header, opt) == 0x20B;
-                            int dataDir = opt + (is64 ? 112 : 96);
-                            // CLR Header is index 14
-                            uint clrRva = BitConverter.ToUInt32(header, dataDir + (14 * 8));
-                            if (clrRva > 0) isDotNetFile = true;
-
-                            // 2. Check for System file (Microsoft Corporation)
-                            FileVersionInfo info = FileVersionInfo.GetVersionInfo(dumpedFile);
-                            if (info.CompanyName?.IndexOf("microsoft", StringComparison.OrdinalIgnoreCase) >= 0)
-                                isSystemFile = true;
-                        }
-                        catch { } // If check fails, assume Native/Non-System to be safe or skip? Let's proceed carefully.
-
-                        // The User Requirement: "use scylla for non system files non dotnet files"
-                        if (!isDotNetFile && !isSystemFile)
-                        {
-                            try
-                            {
-                                string hexAddress = fileNameNoExt.Split('_').Last();
-                                ulong imageBase = Convert.ToUInt64(hexAddress, 16);
-                                if (imageBase > 0)
-                                {
-                                    string scyFixFilename = Path.ChangeExtension(dumpedFile, null) + "_scyfix" + Path.GetExtension(dumpedFile);
-
-                                    // Use simple auto-detect logic with Scylla
-                                    MegaDumper.ScyllaBindings.FixImportsAutoDetect(
-                                        processId,
-                                        imageBase,
-                                        imageBase, // Use image base as OEP guess for raw dumps
-                                        dumpedFile,
-                                        scyFixFilename,
-                                        advancedSearch: true,
-                                        createNewIat: true);
-
-                                    // Attempt to sanitize if successful
-                                    if (File.Exists(scyFixFilename))
-                                        SanitizeScyfixFile(scyFixFilename);
-                                }
-                            }
-                            catch { }
-                        }
                     }
                 }
 
@@ -2340,14 +2105,6 @@ namespace Mega_Dumper
                                     if (!string.IsNullOrEmpty(info.OriginalFilename))
                                     {
                                         string safeName = string.Concat(info.OriginalFilename.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
-
-                                        // Preserve _scyfix suffix if present
-                                        if (fi.Name.Contains("_scyfix"))
-                                        {
-                                            string ext = Path.GetExtension(safeName);
-                                            string nameNoExt = Path.GetFileNameWithoutExtension(safeName);
-                                            safeName = nameNoExt + "_scyfix" + ext;
-                                        }
 
                                         string newFilename = Path.Combine(finalDir, safeName);
 

@@ -1109,11 +1109,6 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
         os.makedirs(output_dir, exist_ok=True)
         # HydraDragonDumper (Mega Dumper CLI) expected arguments:
         #   -pid <PID> -o <output_dir>
-        # If the Hydra CLI has different switches, update accordingly.
-
-        # Prepare environment with COMPlus setting
-        env = os.environ.copy()
-        env["COMPlus_legacyCorruptedStateExceptionsPolicy"] = "1"
 
         subprocess.run(
             [
@@ -1123,8 +1118,7 @@ def extract_with_hydra(pid: str, output_dir: str) -> bool:
                 "--output",
                 output_dir
             ],
-            check=True,
-            env=env
+            check=True
         )
 
         logger.info(

@@ -163,103 +163,20 @@ static NTSTATUS EnsureProcessProtectionRuleCapacityUnlocked(_In_ ULONG RequiredC
     return STATUS_SUCCESS;
 }
 
-static BOOLEAN NormalizeProcessProtectionPathLower(_In_ PCUNICODE_STRING InputPath,
-                                                   _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
-                                                   _Out_ PUNICODE_STRING NormalizedPath)
-{
-    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
-}
-
 static NTSTATUS AddProcessProtectionExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText,
                                                                   _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[PROCESS_PROTECTION_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
-    SIZE_T start = 0;
-    SIZE_T end = RuleChars;
-    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
-    if (RuleText == NULL || RuleChars == 0)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
-    {
-        start++;
-    }
-
-    for (SIZE_T i = start; i < end; ++i)
-    {
-        if (RuleText[i] == L'#')
-        {
-            commentPos = i;
-            break;
-        }
-        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
-        {
-            commentPos = i;
-            break;
-        }
-    }
-    if (commentPos != (SIZE_T)-1)
-    {
-        end = commentPos;
-    }
-
-    while (end > start &&
-           (RuleText[end - 1] == L' ' ||
-            RuleText[end - 1] == L'\t' ||
-            RuleText[end - 1] == L'\r' ||
-            RuleText[end - 1] == L'"'))
-    {
-        end--;
-    }
-    if (end <= start)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
-    {
-        WCHAR ch = RuleText[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
-    }
-    normalizedLine[lineLen] = L'\0';
-
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'?' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine,
-                      normalizedLine + 4,
-                      (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'\\' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine,
-                      normalizedLine + 4,
-                      (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-
-    if (lineLen == 0 || normalizedLine[0] == L'#')
-    {
-        return STATUS_SUCCESS;
-    }
-    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    if (!OwlyNormalizeRuleLineForMatch(RuleText,
+                                       RuleChars,
+                                       normalizedLine,
+                                       RTL_NUMBER_OF(normalizedLine),
+                                       FALSE,
+                                       &lineLen) ||
+        lineLen == 0)
     {
         return STATUS_SUCCESS;
     }
@@ -661,9 +578,9 @@ static BOOLEAN ShouldSkipProcessProtectionPid(
     }
 
     RtlInitUnicodeString(&processPathString, processPath);
-    if (!NormalizeProcessProtectionPathLower(&processPathString,
-                                             normalizedBuffer,
-                                             &normalizedPath))
+    if (!OwlyNormalizePathForMatch(&processPathString,
+                                   normalizedBuffer,
+                                   &normalizedPath))
     {
         return FALSE;
     }

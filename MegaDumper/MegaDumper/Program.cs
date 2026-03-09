@@ -5,7 +5,6 @@
  * - Supports CLI when run with arguments
  * - Allocates a console automatically when needed (so this file can be used in a Windows Application build)
  * - Better argument parsing, exit codes, and optional pause-for-read (--wait)
- * - CRITICAL: Enables legacy corrupted state exception handling for .NET 8 compatibility with Scylla.dll
  */
 
 using System;
@@ -25,25 +24,6 @@ namespace Mega_Dumper
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool FreeConsole();
-
-        /// <summary>
-        /// Static constructor runs BEFORE Main(). This is critical for setting up
-        ///環境 variables that must be present before P/Invoke calls are made.
-        /// </summary>
-        static Program()
-        {
-            // CRITICAL: Enable legacy corrupted state exception handling for .NET 8
-            // Without this, AccessViolationException from Scylla.dll P/Invoke calls
-            // will terminate the process. This MUST be set before any P/Invoke calls.
-            try
-            {
-                Environment.SetEnvironmentVariable("COMPlus_legacyCorruptedStateExceptionsPolicy", "1");
-            }
-            catch
-            {
-                // If this fails, we're in trouble but don't crash here
-            }
-        }
 
         /// <summary>
         /// Single entry point. Runs GUI when no arguments are present, otherwise runs CLI mode.
@@ -287,17 +267,8 @@ namespace Mega_Dumper
                 }
                 catch { }
 
-                // Check if this is an AccessViolationException from Scylla
-                if (e.Exception is AccessViolationException)
-                {
-                    MessageBox.Show("A memory access error occurred in Scylla.dll. The operation was aborted but the application will continue.\n\nThis can happen when the target process exits or has invalid memory.", 
-                        "Scylla Memory Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-                else
-                {
-                    MessageBox.Show($"An error occurred:\n\n{e.Exception?.Message ?? "Unknown error"}\n\nClick OK to continue.", 
-                        "MegaDumper Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
+                MessageBox.Show($"An error occurred:\n\n{e.Exception?.Message ?? "Unknown error"}\n\nClick OK to continue.",
+                    "MegaDumper Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch { }
         }

@@ -174,84 +174,15 @@ static NTSTATUS FSAddPyasWhitelistRuleNormalizedUnlocked(_In_reads_(RuleChars) P
 {
     WCHAR normalizedLine[PYAS_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
-    SIZE_T start = 0;
-    SIZE_T end = RuleChars;
-    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
-    if (RuleText == NULL || RuleChars == 0)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
-    {
-        start++;
-    }
-
-    for (SIZE_T i = start; i < end; ++i)
-    {
-        if (RuleText[i] == L'#')
-        {
-            commentPos = i;
-            break;
-        }
-        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
-        {
-            commentPos = i;
-            break;
-        }
-    }
-    if (commentPos != (SIZE_T)-1)
-    {
-        end = commentPos;
-    }
-
-    while (end > start &&
-           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
-    {
-        end--;
-    }
-    if (end <= start)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
-    {
-        WCHAR ch = RuleText[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
-    }
-    normalizedLine[lineLen] = L'\0';
-
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'?' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'\\' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-
-    if (lineLen == 0 || normalizedLine[0] == L'#')
-    {
-        return STATUS_SUCCESS;
-    }
-    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
+    if (!OwlyNormalizeRuleLineForMatch(RuleText,
+                                       RuleChars,
+                                       normalizedLine,
+                                       RTL_NUMBER_OF(normalizedLine),
+                                       FALSE,
+                                       &lineLen) ||
+        lineLen == 0)
     {
         return STATUS_SUCCESS;
     }
@@ -911,7 +842,7 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
             // ImageLoadCallback runs while the process loader lock is held, at an
             // elevated call depth. UserModeHookProcess does KeStackAttachProcess,
             // ZwAllocateVirtualMemory, and ZwCreateFile - all of which can block
-            // waiting for APCs or locks already owned on the loader path → freeze.
+            // waiting for APCs or locks already owned on the loader path -> freeze.
             // Queue a DelayedWorkQueue item so it runs on a system worker thread
             // at PASSIVE_LEVEL with no loader lock held.
             //
@@ -2138,14 +2069,6 @@ FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
 }
 
 BOOLEAN
-FSNormalizePathForRuleMatch(_In_ PCUNICODE_STRING InputPath,
-                            _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
-                            _Out_ PUNICODE_STRING NormalizedPath)
-{
-    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
-}
-
-BOOLEAN
 FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path)
 {
     WCHAR normalizedPathBuffer[MAX_FILE_NAME_LENGTH] = {0};
@@ -2162,7 +2085,7 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path)
         FSLoadPyasWhitelistRules();
     }
 
-    if (!FSNormalizePathForRuleMatch(Path, normalizedPathBuffer, &normalizedPath))
+    if (!OwlyNormalizePathForMatch(Path, normalizedPathBuffer, &normalizedPath))
     {
         return FALSE;
     }

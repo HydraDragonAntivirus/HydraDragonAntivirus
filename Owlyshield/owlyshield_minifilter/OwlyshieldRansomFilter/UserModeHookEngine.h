@@ -242,7 +242,7 @@ extern PZW_FLUSH_INSTRUCTION_CACHE fnZwFlushInstructionCache;
 #define MAX_HOOKED_PROCESSES 256
 #define USERMODE_HOOK_SIZE             14   // FF 25 JMP patch written at hooked function
 #define USERMODE_HOOK_STOLEN_MAX       28   // shellcode trampoline placeholder;
-                                            //   steal ≥ 14 bytes, rounded up to
+                                            //   steal >= 14 bytes, rounded up to
                                             //   instruction boundary (max 28)
 #define USERMODE_HOOK_SIZE_32 5   // 5-byte  E9 rel32 JMP    for WoW64 (32-bit) hooks
 #define MAX_CUSTOM_HOOKS 65536
@@ -262,7 +262,7 @@ typedef struct _PROCESS_HOOK_ENTRY
     BOOLEAN IsInProgress;
     BOOLEAN IsWow64;          // TRUE if process is WoW64 (32-bit on 64-bit Windows)
     // Set by UserModeUnhookProcess when IsInProgress=TRUE (process died mid-hook).
-    // Checked and cleared by UserModeHookProcess when it exits — triggers deferred unhook.
+    // Checked and cleared by UserModeHookProcess when it exits - triggers deferred unhook.
     BOOLEAN NeedsCleanup;
 
     // Dynamic hooks configured from user mode (allocated per process).

@@ -11,13 +11,13 @@ Abstract:
     64-bit Windows.
 
     Architecture overview
-    ─────────────────────
+    ---------------------
     64-bit process:
       Shellcode written to the target VA, uses 14-byte FF 25 indirect JMP.
       Stolen instructions: first 14 bytes of the target function.
       Notification: calls 64-bit ntdll!NtDeviceIoControlFile via absolute
       mov rax / call rax.  The device handle is opened WITHOUT
-      FILE_SYNCHRONOUS_IO_NONALERT so the call is ASYNCHRONOUS — it returns
+      FILE_SYNCHRONOUS_IO_NONALERT so the call is ASYNCHRONOUS - it returns
       STATUS_PENDING immediately after the I/O manager copies HOOK_EVENT_DATA
       (METHOD_BUFFERED) into a system buffer.  The calling thread is NEVER
       blocked.
@@ -27,11 +27,11 @@ Abstract:
       Shellcode written to the target VA, uses 5-byte E9 rel32 JMP.
       Stolen instructions: first 5 bytes of the target function.
       Notification: calls 32-bit ntdll!NtDeviceIoControlFile via 32-bit
-      stdcall (mov eax / call eax).  Same async model — fire-and-forget,
+      stdcall (mov eax / call eax).  Same async model - fire-and-forget,
       thread never blocked.
 
-    NOTE — required changes to UserModeHookEngine.h
-    ─────────────────────────────────────────────────
+    NOTE - required changes to UserModeHookEngine.h
+    -------------------------------------------------
       1. Add to PROCESS_HOOK_ENTRY:   BOOLEAN IsWow64;
       2. Add to HOOK_DEF:             ULONG   HookPatchSize;
          (14 for 64-bit hooks, 5 for WoW64 hooks; drives unhook byte count)
@@ -51,7 +51,7 @@ Environment:
 // WoW64 / 32-bit PE type definitions
 //
 // UNICODE_STRING32 and LIST_ENTRY32 are defined by ntdef.h (pulled in via
-// ntifs.h in WDK 10.0.26100.0+) — we must NOT redefine them.
+// ntifs.h in WDK 10.0.26100.0+) - we must NOT redefine them.
 //
 // PEB_LDR_DATA32, LDR_DATA_TABLE_ENTRY32, and PEB32 are not exported by
 // any WDK header and are defined here verbatim from public documentation.
@@ -116,25 +116,11 @@ typedef struct _PEB32 {
 #define HOOK_REENTRANCY_MAGIC_32  ((ULONG32)0xFEEDF00DUL)
 
 // Function Pointer Types
-typedef NTSTATUS(NTAPI *PZW_PROTECT_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
-                                                    _Inout_ PSIZE_T RegionSize, _In_ ULONG NewProtect,
-                                                    _Out_ PULONG OldProtect);
-
 typedef PPEB(NTAPI *PPS_GET_PROCESS_PEB)(_In_ PEPROCESS Process);
-
-typedef NTSTATUS(NTAPI *PZW_ALLOCATE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
-                                                     _In_ ULONG_PTR ZeroBits, _Inout_ PSIZE_T RegionSize,
-                                                     _In_ ULONG AllocationType, _In_ ULONG Protect);
-typedef NTSTATUS(NTAPI *PZW_DUPLICATE_OBJECT)(_In_ HANDLE SourceProcessHandle, _In_ HANDLE SourceHandle,
-                                               _In_opt_ HANDLE TargetProcessHandle, _Out_opt_ PHANDLE TargetHandle,
-                                               _In_ ACCESS_MASK DesiredAccess, _In_ ULONG HandleAttributes,
-                                               _In_ ULONG Options);
-typedef NTSTATUS(NTAPI *PZW_FREE_VIRTUAL_MEMORY)(_In_ HANDLE ProcessHandle, _Inout_ PVOID *BaseAddress,
-                                                 _Inout_ PSIZE_T RegionSize, _In_ ULONG FreeType);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS)(_In_ PEPROCESS Process);
 typedef BOOLEAN(NTAPI *PPS_IS_PROTECTED_PROCESS_LIGHT)(_In_ PEPROCESS Process);
 
-// PsGetProcessWow64Process — returns the PEB32 pointer for a WoW64 process,
+// PsGetProcessWow64Process - returns the PEB32 pointer for a WoW64 process,
 // or NULL if the process is a native 64-bit process.
 typedef PVOID(NTAPI *PPS_GET_PROCESS_WOW64_PROCESS)(_In_ PEPROCESS Process);
 
@@ -152,7 +138,7 @@ PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
 // The hook notification device is owned by Communication.cpp.
-// The handle is opened via ZwCreateFile inside KeStackAttachProcess —
+// The handle is opened via ZwCreateFile inside KeStackAttachProcess -
 // safe for our use case (not a process-creation callback, simple IOCTL device).
 // GetHookNotifyDeviceObject() was removed: ObInsertObject on a DEVICE_OBJECT
 // does not produce a FILE_OBJECT handle, breaking NtDeviceIoControlFile.
@@ -213,7 +199,7 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
 
         // Only the first thread to flip MutexInitialized from FALSE to TRUE
         // copies the initialized mutex into the global. Losers harmlessly
-        // discard their local copy — the winner's mutex is already valid.
+        // discard their local copy - the winner's mutex is already valid.
         if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized,
                                        TRUE, FALSE) == FALSE)
         {
@@ -224,7 +210,7 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
             // before any loser thread observes MutexInitialized == TRUE.
             KeMemoryBarrier();
 
-            // Mark initialized — this CAS is only for the winner; the earlier
+            // Mark initialized - this CAS is only for the winner; the earlier
             // CAS (above) already won the race, so this always succeeds.
             InterlockedExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, TRUE);
         }
@@ -318,104 +304,22 @@ static SIZE_T FindPatternOffset(_In_reads_bytes_(BufferLength) const UCHAR *Buff
     return (SIZE_T)-1;
 }
 
-static BOOLEAN NormalizeKernelPathLower(_In_ PCUNICODE_STRING InputPath,
-                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
-                                        _Out_ PUNICODE_STRING NormalizedPath)
-{
-    return OwlyNormalizePathForMatch(InputPath, OutputBuffer, NormalizedPath);
-}
-
 static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWSTR RuleText, _In_ SIZE_T RuleChars)
 {
     WCHAR normalizedLine[HOOK_RULE_MAX_LINE_CHARS];
     SIZE_T lineLen = 0;
-    SIZE_T start = 0;
-    SIZE_T end = RuleChars;
-    SIZE_T commentPos = (SIZE_T)-1;
     NTSTATUS status;
 
-    if (RuleText == NULL || RuleChars == 0)
+    if (!OwlyNormalizeRuleLineForMatch(RuleText,
+                                       RuleChars,
+                                       normalizedLine,
+                                       RTL_NUMBER_OF(normalizedLine),
+                                       TRUE,
+                                       &lineLen) ||
+        lineLen == 0)
     {
         return STATUS_SUCCESS;
     }
-
-    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
-    {
-        start++;
-    }
-
-    for (SIZE_T i = start; i < end; ++i)
-    {
-        if (RuleText[i] == L'#')
-        {
-            commentPos = i;
-            break;
-        }
-        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
-        {
-            commentPos = i;
-            break;
-        }
-    }
-    if (commentPos != (SIZE_T)-1)
-    {
-        end = commentPos;
-    }
-
-    while (end > start &&
-           (RuleText[end - 1] == L' ' || RuleText[end - 1] == L'\t' || RuleText[end - 1] == L'\r' || RuleText[end - 1] == L'"'))
-    {
-        end--;
-    }
-    if (end <= start)
-    {
-        return STATUS_SUCCESS;
-    }
-
-    for (SIZE_T i = start; i < end && lineLen + 1 < RTL_NUMBER_OF(normalizedLine); ++i)
-    {
-        WCHAR ch = RuleText[i];
-        if (ch == L'/')
-        {
-            ch = L'\\';
-        }
-        normalizedLine[lineLen++] = RtlDowncaseUnicodeChar(ch);
-    }
-    normalizedLine[lineLen] = L'\0';
-
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\\' &&
-        normalizedLine[1] == L'?' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-    if (lineLen >= 4 &&
-        normalizedLine[0] == L'\' &&
-        normalizedLine[1] == L'\' &&
-        normalizedLine[2] == L'?' &&
-        normalizedLine[3] == L'\')
-    {
-        RtlMoveMemory(normalizedLine, normalizedLine + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
-        lineLen -= 4;
-    }
-
-    while (lineLen > 3 && normalizedLine[lineLen - 1] == L'\')
-    {
-        normalizedLine[--lineLen] = L' ';
-    }
-
-    if (lineLen == 0 || normalizedLine[0] == L'#')
-    {
-        return STATUS_SUCCESS;
-    }
-    if (lineLen >= 2 && normalizedLine[0] == L'/' && normalizedLine[1] == L'/')
-    {
-        return STATUS_SUCCESS;
-    }
-
     for (ULONG i = 0; i < g_HookExcludeRules.Count; ++i)
     {
         if (_wcsicmp(g_HookExcludeRules.Rules[i], normalizedLine) == 0)
@@ -423,13 +327,11 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
             return STATUS_SUCCESS;
         }
     }
-
     status = EnsureHookExcludeRuleCapacityUnlocked(g_HookExcludeRules.Count + 1);
     if (!NT_SUCCESS(status))
     {
         return status;
     }
-
     {
         SIZE_T allocSize = (lineLen + 1) * sizeof(WCHAR);
         PWSTR newRule = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, allocSize, HOOK_RULE_POOL_TAG);
@@ -442,7 +344,6 @@ static NTSTATUS AddHookExcludeRuleNormalizedUnlocked(_In_reads_(RuleChars) PCWST
         newRule[lineLen] = L'\0';
         g_HookExcludeRules.Rules[g_HookExcludeRules.Count++] = newRule;
     }
-
     return STATUS_SUCCESS;
 }
 
@@ -588,7 +489,7 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     // mutex, both called FreeHookExcludeRulesUnlocked (double-free the Rules
     // array), then ran LoadHookExcludeRulesFromFileUnlocked concurrently.
     // Inside that call, EnsureHookExcludeRuleCapacityUnlocked reallocated
-    // and freed Rules with no lock — pure pool corruption / system freeze.
+    // and freed Rules with no lock - pure pool corruption / system freeze.
     //
     // Fix: InterlockedCompareExchange(0->1) is atomic, so exactly ONE thread
     // becomes the loader. Others spin-wait (1ms per iteration) until state 2.
@@ -762,7 +663,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process)
         return FALSE;
     }
 
-    if (!NormalizeKernelPathLower(processImagePath, normalizedPathBuffer, &normalizedPath))
+    if (!OwlyNormalizePathForMatch(processImagePath, normalizedPathBuffer, &normalizedPath))
     {
         ExFreePool(processImagePath);
         return FALSE;
@@ -876,6 +777,7 @@ NTSTATUS AddCustomHook(_In_ PHOOK_CONFIG_DATA Config)
     return STATUS_SUCCESS;
 }
 
+_Success_(return != FALSE)
 BOOLEAN ResolveHookNameByEventId(_In_ ULONG EventId, _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutName, _In_ ULONG OutNameCch)
 {
     BOOLEAN found = FALSE;
@@ -1069,8 +971,8 @@ static SIZE_T X64InstrLen(
 // USERMODE_HOOK_SIZE bytes AND are at an instruction boundary.
 //
 // Returns 0 (reject hook) if:
-//   • an unrecognised opcode is encountered, OR
-//   • no boundary is found within USERMODE_HOOK_STOLEN_MAX bytes.
+//   * an unrecognised opcode is encountered, OR
+//   * no boundary is found within USERMODE_HOOK_STOLEN_MAX bytes.
 // -------------------------------------------------------------------------
 static SIZE_T ComputeStolenSize64(
     _In_reads_bytes_(USERMODE_HOOK_STOLEN_MAX) const UCHAR *Code)
@@ -1093,9 +995,9 @@ static SIZE_T ComputeStolenSize64(
 // the hook is skipped rather than copying broken bytes into the shellcode.
 //
 // Handles the most common x64 patterns:
-//   • REX prefix (optional) + opcode + ModRM(00_xxx_101) + disp32
-//   • FF /2 CALL [RIP+d32] and FF /4 JMP [RIP+d32]
-//   • EB/E9/E8 short/near relative branches (always skip – branch target
+//   * REX prefix (optional) + opcode + ModRM(00_xxx_101) + disp32
+//   * FF /2 CALL [RIP+d32] and FF /4 JMP [RIP+d32]
+//   * EB/E9/E8 short/near relative branches (always skip - branch target
 //     would also be wrong from the new VA)
 //
 // Returns TRUE if at least one unrelocatable instruction was found.
@@ -1121,7 +1023,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             b = Bytes[i];
         }
 
-        // Short/near relative branches â target changes at new VA.
+        // Short/near relative branches target changes at new VA.
         if (b == 0xEB || b == 0xE9 || b == 0xE8)
             return TRUE;
         if ((b & 0xF0) == 0x70)  // Jcc rel8: JO/JNO/JB/JAE/JE/JNE/.../JG
@@ -1134,10 +1036,10 @@ static BOOLEAN ContainsUnrelocatableInstructions(
             if (i >= StolenSize)
                 break;
             b = Bytes[i];
-            // Jcc near: 0F 80-8F rel32 — always unrelocatable.
+            // Jcc near: 0F 80-8F rel32 - always unrelocatable.
             if (b >= 0x80 && b <= 0x8F)
                 return TRUE;
-            // 0F 1F etc. – check ModRM for RIP-relative
+            // 0F 1F etc. - check ModRM for RIP-relative
             if (i + 1 < StolenSize)
             {
                 UCHAR modrm = Bytes[i + 1];
@@ -1150,7 +1052,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
         }
 
         // One-byte opcodes that may carry a RIP-relative ModRM:
-        // 8x, 0x–3x (ALU), C7, FF, etc.
+        // 8x, 0x-3x (ALU), C7, FF, etc.
         static const UCHAR kModrmOpcodes[] = {
             0x01, 0x03, 0x09, 0x0B, 0x11, 0x13,    // ADD/OR/ADC/SBB
             0x21, 0x23, 0x29, 0x2B, 0x31, 0x33,    // AND/SUB/XOR
@@ -1176,7 +1078,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
                 return TRUE;
 
             // Estimate instruction length to advance i correctly
-            // (simplified – good enough for 14-byte prologues)
+            // (simplified - good enough for 14-byte prologues)
             UCHAR mod = (modrm >> 6) & 0x03;
             UCHAR rm  = modrm & 0x07;
             SIZE_T instrLen = 2;   // opcode + ModRM
@@ -1206,7 +1108,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(
 //
 // 32-bit mode does NOT have RIP-relative addressing, so the only genuinely
 // unrelocatable instructions are those with PC-relative operands:
-//   E8 rel32   CALL near        5 bytes — relative to EIP after the call
+//   E8 rel32   CALL near        5 bytes - relative to EIP after the call
 //   E9 rel32   JMP  near        5 bytes
 //   EB rel8    JMP  short       2 bytes
 //   70..7F cb  Jcc  short       2 bytes
@@ -1229,7 +1131,7 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
     {
         UCHAR b = Bytes[i];
 
-        // Unconditional near/short jumps and near calls — all relative.
+        // Unconditional near/short jumps and near calls - all relative.
         if (b == 0xE8 || b == 0xE9 || b == 0xEB)
             return TRUE;
 
@@ -1252,7 +1154,7 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
         }
 
         // All other instructions: advance one byte.
-        // This is a deliberate simplification — it is correct for all
+        // This is a deliberate simplification - it is correct for all
         // instructions we realistically expect in a function prologue (PUSH,
         // MOV, SUB, AND, NOP, etc.) and safe because any false advance at
         // most causes us to inspect the middle of a longer instruction, which
@@ -1306,7 +1208,7 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   FileHandle           68          [33 33 33 33]   -> imm32 at +1
 //   NtDeviceIoControlFile B8         [44 44 44 44]   -> imm32 at +1
 //   ReturnJMP            E9          [55 55 55 55]   -> rel32 at +1
-//   StolenBytes          5 × NOP (at offset offRet32 - USERMODE_HOOK_SIZE_32)
+//   StolenBytes          5 x NOP (at offset offRet32 - USERMODE_HOOK_SIZE_32)
 // -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
 // g_ShellcodeTemplate32  (WoW64 / 32-bit process hook)
@@ -1322,14 +1224,14 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 // STACK LAYOUT at entry (JMP already taken, return addr on stack):
 //   [LB]        = ESP after sub ESP,0x80  (LB = Local Base)
 //   [LB+0x00]   IoStatusBlock (8 bytes)
-//   [LB+0x08]   HOOK_EVENT_DATA.EventType    ← PATCH
-//   [LB+0x0C]   HOOK_EVENT_DATA.ProcessId    ← PATCH
+//   [LB+0x08]   HOOK_EVENT_DATA.EventType    <- PATCH
+//   [LB+0x0C]   HOOK_EVENT_DATA.ProcessId    <- PATCH
 //   [LB+0x10]   HOOK_EVENT_DATA.FunctionName[0] = 0
 //   [LB+0x50]   HOOK_EVENT_DATA.Arg1 lo
 //   [LB+0x54]   HOOK_EVENT_DATA.Arg1 hi = 0
 //   [LB+0x58]   HOOK_EVENT_DATA.Arg2 lo
 //   [LB+0x5C]   HOOK_EVENT_DATA.Arg2 hi = 0
-//   [LB+0x78]   saved old FS:[0x14]          ← NEW
+//   [LB+0x78]   saved old FS:[0x14]          <- NEW
 //   [LB+0x80]   EFLAGS  (PUSHFD)
 //   [LB+0x84]   EDI,ESI,EBP,ESP_orig,EBX,EDX,ECX,EAX  (PUSHAD, 32 bytes)
 //   [LB+0xA4]   return address (caller's CALL pushed this)
@@ -1337,16 +1239,16 @@ static BOOLEAN ContainsUnrelocatableInstructions32(
 //   [LB+0xAC]   arg2 of hooked function
 //
 // PATCH SIGNATURES:
-//   kGuardMagicSig32  BB [88×4]             -> imm32 = HOOK_REENTRANCY_MAGIC_32
-//   kJeSig32          0F 84 [00×4]          -> rel32  = offset to kSkipLabelSig32
-//   kEventSig32       C7 44 24 08 [11×4]    -> imm32  = EventId
-//   kPidSig32         C7 44 24 0C [22×4]    -> imm32  = ProcessId
-//   kSizeSig32        68 [77×4]             -> imm32  = sizeof(HOOK_EVENT_DATA)
-//   kIoctlSig32       68 [66×4]             -> imm32  = HOOK_NOTIFY_IOCTL_CODE
-//   kHandleSig32      68 [33×4]             -> imm32  = DriverDeviceHandle
-//   kNtIoSig32        B8 [44×4]             -> imm32  = NtDeviceIoControlFile VA
-//   kSkipLabelSig32   0F 1F 00              -> (3-byte NOP — JE rel32 target)
-//   kRetSig32         E9 [55×4]             -> rel32  = return target
+//   kGuardMagicSig32  BB [88x4]             -> imm32 = HOOK_REENTRANCY_MAGIC_32
+//   kJeSig32          0F 84 [00x4]          -> rel32  = offset to kSkipLabelSig32
+//   kEventSig32       C7 44 24 08 [11x4]    -> imm32  = EventId
+//   kPidSig32         C7 44 24 0C [22x4]    -> imm32  = ProcessId
+//   kSizeSig32        68 [77x4]             -> imm32  = sizeof(HOOK_EVENT_DATA)
+//   kIoctlSig32       68 [66x4]             -> imm32  = HOOK_NOTIFY_IOCTL_CODE
+//   kHandleSig32      68 [33x4]             -> imm32  = DriverDeviceHandle
+//   kNtIoSig32        B8 [44x4]             -> imm32  = NtDeviceIoControlFile VA
+//   kSkipLabelSig32   0F 1F 00              -> (3-byte NOP - JE rel32 target)
+//   kRetSig32         E9 [55x4]             -> rel32  = return target
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate32[] = {
     // ---- Save all GP registers and flags --------------------------------
@@ -1371,7 +1273,7 @@ UCHAR g_ShellcodeTemplate32[] = {
     // If eax == magic -> already inside shellcode, skip IOCTL
     0x3B, 0xC3,                          // cmp eax, ebx
 
-    // je rel32 — kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
+    // je rel32 - kJeSig32 = { 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 }
     // rel32 patched at install time to reach kSkipLabelSig32
     0x0F, 0x84, 0x00, 0x00, 0x00, 0x00, // je skip_notification32
 
@@ -1384,9 +1286,9 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x89, 0x44, 0x24, 0x04,             // mov [esp+0x04], eax
 
     // ---- Fill HOOK_EVENT_DATA at [esp+0x08] -----------------------------
-    // EventType ← patched: kEventSig32
+    // EventType <- patched: kEventSig32
     0xC7, 0x44, 0x24, 0x08, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId ← patched: kPidSig32
+    // ProcessId <- patched: kPidSig32
     0xC7, 0x44, 0x24, 0x0C, 0x22, 0x22, 0x22, 0x22,
     // FunctionName[0] = '\0'
     0xC6, 0x44, 0x24, 0x10, 0x00,
@@ -1407,12 +1309,12 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x6A, 0x00,                          // push 0               ESP=LB-4
     // arg9: OutputBuffer = NULL
     0x6A, 0x00,                          // push 0               ESP=LB-8
-    // arg8: InputBufferLength ← patched: kSizeSig32
+    // arg8: InputBufferLength <- patched: kSizeSig32
     0x68, 0x77, 0x77, 0x77, 0x77,       //                       ESP=LB-0xC
     // arg7: InputBuffer = &HOOK_EVENT_DATA = [esp+0x14] at this point
     0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
     0x50,                               // push eax              ESP=LB-0x10
-    // arg6: IoControlCode ← patched: kIoctlSig32
+    // arg6: IoControlCode <- patched: kIoctlSig32
     0x68, 0x66, 0x66, 0x66, 0x66,       //                       ESP=LB-0x14
     // arg5: &IoStatusBlock = [esp+0x14] at this point
     0x8D, 0x44, 0x24, 0x14,             // lea eax,[esp+0x14]
@@ -1423,11 +1325,11 @@ UCHAR g_ShellcodeTemplate32[] = {
     0x6A, 0x00,                         //                       ESP=LB-0x20
     // arg2: Event = NULL
     0x6A, 0x00,                         //                       ESP=LB-0x24
-    // arg1: FileHandle ← patched: kHandleSig32
+    // arg1: FileHandle <- patched: kHandleSig32
     0x68, 0x33, 0x33, 0x33, 0x33,       //                       ESP=LB-0x28
 
-    // ---- Call NtDeviceIoControlFile (stdcall — callee cleans 40 bytes) --
-    // Address ← patched: kNtIoSig32
+    // ---- Call NtDeviceIoControlFile (stdcall - callee cleans 40 bytes) --
+    // Address <- patched: kNtIoSig32
     0xB8, 0x44, 0x44, 0x44, 0x44,       // mov eax, imm32
     0xFF, 0xD0,                          // call eax
 
@@ -1436,7 +1338,7 @@ UCHAR g_ShellcodeTemplate32[] = {
     // FS(64) A3 [14 00 00 00] = MOV [moffs32], EAX
     0x64, 0xA3, 0x14, 0x00, 0x00, 0x00, // mov fs:[0x14], eax
 
-    // ---- skip_notification32 label ← JE rel32 target --------------------
+    // ---- skip_notification32 label <- JE rel32 target --------------------
     // kSkipLabelSig32 = { 0x0F, 0x1F, 0x00 }  (3-byte NOP)
     0x0F, 0x1F, 0x00,                   // nop dword ptr [eax]
 
@@ -1448,13 +1350,13 @@ UCHAR g_ShellcodeTemplate32[] = {
     // ---- 5-byte stolen-instruction placeholder --------------------------
     0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ---- Return jump ← patched: kRetSig32 (E9 rel32) --------------------
+    // ---- Return jump <- patched: kRetSig32 (E9 rel32) --------------------
     0xE9, 0x55, 0x55, 0x55, 0x55,
 
     // ---- Padding --------------------------------------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
 };
-// NtDeviceIoControlFile, leaving the rest as garbage — causing an access
+// NtDeviceIoControlFile, leaving the rest as garbage - causing an access
 // violation inside the kernel on almost every hooked call.
 //
 // STACK LAYOUT (RSP = RSP_entry - 304 after pushes + sub):
@@ -1498,7 +1400,7 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x40]        arg9:  OutputBuffer      NULL
 //   [RSP+0x48]        arg10: OutputBufferLength 0
 //   [RSP+0x50..0x6F]  (unused)
-//   [RSP+0x70]        saved old TEB.ArbitraryUserPointer  ← NEW
+//   [RSP+0x70]        saved old TEB.ArbitraryUserPointer  <- NEW
 //   [RSP+0x80..0x8F]  IO_STATUS_BLOCK
 //   [RSP+0x90+0x00]   HOOK_EVENT_DATA.EventType    (patched)
 //   [RSP+0x90+0x04]   HOOK_EVENT_DATA.ProcessId    (patched)
@@ -1510,21 +1412,21 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x108]       saved R9
 //   [RSP+0x110]       saved R8
 //   [RSP+0x118]       saved RBX
-//   [RSP+0x120]       saved RDX  ← Arg2 source
-//   [RSP+0x128]       saved RCX  ← Arg1 source
+//   [RSP+0x120]       saved RDX  <- Arg2 source
+//   [RSP+0x128]       saved RCX  <- Arg1 source
 //   [RSP+0x130]       saved RAX
 //
 // PATCH SIGNATURES (searched by FindPatternOffset at install time):
-//   kGuardMagicSig  49 BA [88×8]         -> imm64  = HOOK_REENTRANCY_MAGIC_64
-//   kJeSig64        0F 84 [00×4]         -> rel32  = offset to kSkipLabelSig
-//   kEventSig       C7 84 24 90 .. 11×4  -> imm32  = EventId
-//   kPidSig         C7 84 24 94 .. 22×4  -> imm32  = ProcessId
-//   kHandleSig      48 B9 [33×8]         -> imm64  = DriverDeviceHandle
-//   kIoctlSig       48 B8 [66×8]         -> imm64  = HOOK_NOTIFY_IOCTL_CODE
-//   kSizeSig        48 B8 [77×8]         -> imm64  = sizeof(HOOK_EVENT_DATA)
-//   kNtIoSig        48 B8 [44×8]         -> imm64  = NtDeviceIoControlFile VA
-//   kSkipLabelSig   0F 1F 44 00 00       -> (5-byte NOP — JE rel32 target)
-//   kRetSig         48 B8 [55×8]         -> imm64  = return target VA
+//   kGuardMagicSig  49 BA [88x8]         -> imm64  = HOOK_REENTRANCY_MAGIC_64
+//   kJeSig64        0F 84 [00x4]         -> rel32  = offset to kSkipLabelSig
+//   kEventSig       C7 84 24 90 .. 11x4  -> imm32  = EventId
+//   kPidSig         C7 84 24 94 .. 22x4  -> imm32  = ProcessId
+//   kHandleSig      48 B9 [33x8]         -> imm64  = DriverDeviceHandle
+//   kIoctlSig       48 B8 [66x8]         -> imm64  = HOOK_NOTIFY_IOCTL_CODE
+//   kSizeSig        48 B8 [77x8]         -> imm64  = sizeof(HOOK_EVENT_DATA)
+//   kNtIoSig        48 B8 [44x8]         -> imm64  = NtDeviceIoControlFile VA
+//   kSkipLabelSig   0F 1F 44 00 00       -> (5-byte NOP - JE rel32 target)
+//   kRetSig         48 B8 [55x8]         -> imm64  = return target VA
 // -------------------------------------------------------------------------
 UCHAR g_ShellcodeTemplate[] = {
     // ---- Save volatile registers ----------------------------------------
@@ -1560,7 +1462,7 @@ UCHAR g_ShellcodeTemplate[] = {
     // cmp rax, r10  -> REX.WB(49) 3B C2
     0x49, 0x3B, 0xC2,                               // cmp rax, r10
 
-    // je rel32 — kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
+    // je rel32 - kJeSig64 = { 0x0F,0x84,0x00,0x00,0x00,0x00 }
     // rel32 patched at install time to reach kSkipLabelSig
     0x0F, 0x84, 0x00, 0x00, 0x00, 0x00,             // je skip_notification
 
@@ -1574,9 +1476,9 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x89, 0x84, 0x24, 0x88, 0x00, 0x00, 0x00,// mov [rsp+0x88], rax
 
     // ---- Fill HOOK_EVENT_DATA (starts at RSP+0x90) -----------------------
-    // EventType at RSP+0x90  ← patched: kEventSig
+    // EventType at RSP+0x90  <- patched: kEventSig
     0xC7, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11,
-    // ProcessId at RSP+0x94 ← patched: kPidSig
+    // ProcessId at RSP+0x94 <- patched: kPidSig
     0xC7, 0x84, 0x24, 0x94, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22,
     // FunctionName[0] = '\0'
     0xC6, 0x84, 0x24, 0x98, 0x00, 0x00, 0x00, 0x00,
@@ -1585,15 +1487,15 @@ UCHAR g_ShellcodeTemplate[] = {
     // Register save layout after sub rsp,0xF8:
     //   r11=[RSP+0xF8] r10=[RSP+0x100] r9=[RSP+0x108] r8=[RSP+0x110]
     //   rbx=[RSP+0x118] rdx=[RSP+0x120] rcx=[RSP+0x128] rax=[RSP+0x130]
-    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax,[rsp+0x128] ← RCX
+    0x48, 0x8B, 0x84, 0x24, 0x28, 0x01, 0x00, 0x00,// mov rax,[rsp+0x128] <- RCX
     0x48, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,// mov [rsp+0xD8],rax -> Arg1
 
     // ---- Copy original RDX (arg2) -> HOOK_EVENT_DATA.Arg2 at RSP+0xE0 ----
-    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax,[rsp+0x120] ← RDX
+    0x48, 0x8B, 0x84, 0x24, 0x20, 0x01, 0x00, 0x00,// mov rax,[rsp+0x120] <- RDX
     0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,// mov [rsp+0xE0],rax -> Arg2
 
     // ---- Build NtDeviceIoControlFile argument frame ----------------------
-    // RCX = FileHandle ← patched: kHandleSig
+    // RCX = FileHandle <- patched: kHandleSig
     0x48, 0xB9, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
     // RDX = Event = NULL
     0x31, 0xD2,                                     // xor edx, edx
@@ -1604,13 +1506,13 @@ UCHAR g_ShellcodeTemplate[] = {
     // arg5 [rsp+0x20] = &IoStatusBlock
     0x48, 0x8D, 0x84, 0x24, 0x80, 0x00, 0x00, 0x00,// lea rax,[rsp+0x80]
     0x48, 0x89, 0x44, 0x24, 0x20,                   // mov [rsp+0x20], rax
-    // arg6 [rsp+0x28] = IoControlCode ← patched: kIoctlSig
+    // arg6 [rsp+0x28] = IoControlCode <- patched: kIoctlSig
     0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x48, 0x89, 0x44, 0x24, 0x28,                   // mov [rsp+0x28], rax
     // arg7 [rsp+0x30] = InputBuffer = &HOOK_EVENT_DATA
     0x48, 0x8D, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00,// lea rax,[rsp+0x90]
     0x48, 0x89, 0x44, 0x24, 0x30,                   // mov [rsp+0x30], rax
-    // arg8 [rsp+0x38] = InputBufferLength ← patched: kSizeSig
+    // arg8 [rsp+0x38] = InputBufferLength <- patched: kSizeSig
     0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77,
     0x48, 0x89, 0x44, 0x24, 0x38,                   // mov [rsp+0x38], rax
     // arg9 [rsp+0x40] = NULL, arg10 [rsp+0x48] = 0
@@ -1618,7 +1520,7 @@ UCHAR g_ShellcodeTemplate[] = {
     0x48, 0x89, 0x44, 0x24, 0x40,                   // mov [rsp+0x40], rax
     0x48, 0x89, 0x44, 0x24, 0x48,                   // mov [rsp+0x48], rax
 
-    // ---- Call NtDeviceIoControlFile ← patched: kNtIoSig -----------------
+    // ---- Call NtDeviceIoControlFile <- patched: kNtIoSig -----------------
     0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
     0xFF, 0xD0,                                     // call rax
 
@@ -1630,7 +1532,7 @@ UCHAR g_ShellcodeTemplate[] = {
     // mov gs:[0x28], rax -> GS(65) REX.W(48) 89 SIB(04 25) disp32
     0x65, 0x48, 0x89, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00, // mov gs:[0x28], rax
 
-    // ---- skip_notification label ← JE rel32 target ----------------------
+    // ---- skip_notification label <- JE rel32 target ----------------------
     // kSkipLabelSig = { 0x0F,0x1F,0x44,0x00,0x00 }
     // 5-byte NOP: nop dword ptr [rax+rax*1+0h]
     // On the re-entrant path the JE jumps here, bypassing the IOCTL entirely.
@@ -1657,7 +1559,7 @@ UCHAR g_ShellcodeTemplate[] = {
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
-    // ---- Return jump ← patched: kRetSig ---------------------------------
+    // ---- Return jump <- patched: kRetSig ---------------------------------
     0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
     0xFF, 0xE0,                                     // jmp rax
 
@@ -1729,7 +1631,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
     RtlInitUnicodeString(&routineName, L"PsIsProtectedProcessLight");
     fnPsIsProtectedProcessLight = (PPS_IS_PROTECTED_PROCESS_LIGHT)MmGetSystemRoutineAddress(&routineName);
 
-    // Resolve PsGetProcessWow64Process — used to detect WoW64 processes and
+    // Resolve PsGetProcessWow64Process - used to detect WoW64 processes and
     // obtain their PEB32 pointer.  Best-effort: if unavailable (e.g., on very
     // old kernels), WoW64 hooking is disabled and only 64-bit processes are
     // hooked.
@@ -1738,7 +1640,7 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         (PPS_GET_PROCESS_WOW64_PROCESS)MmGetSystemRoutineAddress(&routineName);
     if (!fnPsGetProcessWow64Process)
     {
-        DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable — WoW64 hooking disabled\n");
+        DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking disabled\n");
     }
 
     // ---------------------------------------------------------------------
@@ -1938,7 +1840,7 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
             return NULL;
 
-        // e_lfanew is a ULONG — validate range before pointer arithmetic.
+        // e_lfanew is a ULONG - validate range before pointer arithmetic.
         if (dosHeader->e_lfanew < sizeof(IMAGE_DOS_HEADER) ||
             dosHeader->e_lfanew > 0x10000000UL)
             return NULL;
@@ -1988,7 +1890,7 @@ PVOID FindExportedFunction(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
 
             PCSTR currentName = (PCSTR)((PUCHAR)ModuleBase + nameRva);
 
-            // Probe a fixed maximum — we MUST probe currentName BEFORE calling
+            // Probe a fixed maximum - we MUST probe currentName BEFORE calling
             // any C-runtime string function on it.  The old code passed
             // strlen(FunctionName) as the probe length, which probed the
             // WRONG length and on the WRONG memory: if currentName pointed to
@@ -2136,7 +2038,7 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
             dosHeader->e_lfanew > 0x10000000L)
             return NULL;
 
-        // Use IMAGE_NT_HEADERS32 explicitly — the image is 32-bit regardless
+        // Use IMAGE_NT_HEADERS32 explicitly - the image is 32-bit regardless
         // of the host architecture.
         PIMAGE_NT_HEADERS32 ntHeaders =
             (PIMAGE_NT_HEADERS32)((PUCHAR)ModuleBase + dosHeader->e_lfanew);
@@ -2145,7 +2047,7 @@ PVOID FindExportedFunction32(_In_ PVOID ModuleBase, _In_ PCSTR FunctionName)
         if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
             return NULL;
 
-        // Validate magic — must be PE32 (0x10B), not PE32+ (0x20B).
+        // Validate magic - must be PE32 (0x10B), not PE32+ (0x20B).
         if (ntHeaders->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
             return NULL;
 
@@ -2277,7 +2179,7 @@ NTSTATUS InstallUsermodeHook(_In_ HANDLE ProcessHandle,
 
         // 5. Restore original protection.
         //    oldProtect may have been modified by the kernel (rounded page);
-        //    baseAddress / regionSize likewise — that is intentional and
+        //    baseAddress / regionSize likewise - that is intentional and
         //    correct for the restore call.
         fnZwProtectVirtualMemory(ProcessHandle, &baseAddress, &regionSize,
                                   oldProtect, &oldProtect);
@@ -2329,7 +2231,7 @@ NTSTATUS InjectSingleHook(
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook: ProbeForRead faulted at %p — skipping hook\n",
+            DbgPrint("UserModeHook: ProbeForRead faulted at %p - skipping hook\n",
                      HookDef->Address);
             return STATUS_ACCESS_VIOLATION;
         }
@@ -2337,7 +2239,7 @@ NTSTATUS InjectSingleHook(
         stolenSize = ComputeStolenSize64(prologue);
         if (stolenSize == 0)
         {
-            DbgPrint("UserModeHook: Skipping %p — no instruction boundary within %u bytes\n",
+            DbgPrint("UserModeHook: Skipping %p - no instruction boundary within %u bytes\n",
                      HookDef->Address, (ULONG)USERMODE_HOOK_STOLEN_MAX);
             return STATUS_NOT_SUPPORTED;
         }
@@ -2345,7 +2247,7 @@ NTSTATUS InjectSingleHook(
         BOOLEAN unrelocatable = ContainsUnrelocatableInstructions(prologue, stolenSize);
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook: Skipping %p — stolen bytes contain relative branch\n",
+            DbgPrint("UserModeHook: Skipping %p - stolen bytes contain relative branch\n",
                      HookDef->Address);
             return STATUS_NOT_SUPPORTED;
         }
@@ -2408,19 +2310,19 @@ NTSTATUS InjectSingleHook(
         // rel32 = offSkipLabel - (offJe64 + 6)
         *(PLONG)(shellcode + offJe64 + 2) = (LONG)(offSkipLabel - (offJe64 + 6));
 
-        // Patch EventId — ULONG at instruction+7 (mov dword ptr [rsp+0x90], imm32)
+        // Patch EventId - ULONG at instruction+7 (mov dword ptr [rsp+0x90], imm32)
         *(PULONG)(shellcode + offEvent + 7) = EventId;
 
-        // Patch ProcessId — ULONG at instruction+7
+        // Patch ProcessId - ULONG at instruction+7
         *(PULONG)(shellcode + offPid + 7) = ProcessId;
 
-        // Patch FileHandle — HANDLE (8 bytes) at mov rcx, imm64 offset+2
+        // Patch FileHandle - HANDLE (8 bytes) at mov rcx, imm64 offset+2
         *(PHANDLE)(shellcode + offHandle + 2) = HookEntry->DriverDeviceHandle;
 
-        // Patch IoControlCode — store as ULONG64 in the mov rax, imm64 slot
+        // Patch IoControlCode - store as ULONG64 in the mov rax, imm64 slot
         *(PULONG64)(shellcode + offIoctl + 2) = (ULONG64)HOOK_NOTIFY_IOCTL_CODE;
 
-        // Patch InputBufferLength — sizeof(HOOK_EVENT_DATA) as ULONG64
+        // Patch InputBufferLength - sizeof(HOOK_EVENT_DATA) as ULONG64
         *(PULONG64)(shellcode + offSize + 2) = (ULONG64)sizeof(HOOK_EVENT_DATA);
 
         // Patch NtDeviceIoControlFile address
@@ -2450,7 +2352,7 @@ NTSTATUS InjectSingleHook(
     }
 
     // Write Shellcode to Target at specific offset.
-    // myShellcodeAddress is user-mode memory — must be guarded.
+    // myShellcodeAddress is user-mode memory - must be guarded.
     __try
     {
         ProbeForWrite(myShellcodeAddress, sizeof(shellcode), 1);
@@ -2501,7 +2403,7 @@ NTSTATUS InjectSingleHook(
             if ((ULONG_PTR)HookDef->Address + 14 >
                 (ULONG_PTR)mbi.BaseAddress + mbi.RegionSize)
             {
-                DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary — skipping\n",
+                DbgPrint("UserModeHook: 14-byte patch at %p straddles VAD boundary - skipping\n",
                          HookDef->Address);
                 return STATUS_CONFLICTING_ADDRESSES;
             }
@@ -2517,7 +2419,7 @@ NTSTATUS InjectSingleHook(
             *(PULONG)&jmp[2] = 0;
             *(PVOID*)&jmp[6] = myShellcodeAddress;
 
-            // HookDef->Address is user-mode memory — must be guarded.
+            // HookDef->Address is user-mode memory - must be guarded.
             __try
             {
                 ProbeForWrite(HookDef->Address, 14, 1);
@@ -2534,7 +2436,7 @@ NTSTATUS InjectSingleHook(
 
             HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate);
             HookDef->IsHooked     = TRUE;
-            HookDef->HookPatchSize = USERMODE_HOOK_SIZE; // 14 — FF 25 absolute JMP
+            HookDef->HookPatchSize = USERMODE_HOOK_SIZE; // 14 - FF 25 absolute JMP
         }
         else
         {
@@ -2551,12 +2453,12 @@ NTSTATUS InjectSingleHook(
 // 32-bit (WoW64) counterpart to InjectSingleHook.
 //
 // Differences from the 64-bit version:
-//   • Stolen bytes: USERMODE_HOOK_SIZE_32 = 5 (one E9 rel32 JMP).
-//   • Hook JMP: 5-byte E9 rel32.  All 32-bit targets fit in signed int32
-//     because the WoW64 VA space is 0x00000000–0x7FFFFFFF (< 2 GB).
-//   • Shellcode: g_ShellcodeTemplate32 (x86 stdcall, PUSHAD/POPAD).
-//   • ZwQueryVirtualMemory VAD check: same principle, smaller patch size.
-//   • HookDef->HookPatchSize is set to USERMODE_HOOK_SIZE_32 (5).
+//   * Stolen bytes: USERMODE_HOOK_SIZE_32 = 5 (one E9 rel32 JMP).
+//   * Hook JMP: 5-byte E9 rel32.  All 32-bit targets fit in signed int32
+//     because the WoW64 VA space is 0x00000000-0x7FFFFFFF (< 2 GB).
+//   * Shellcode: g_ShellcodeTemplate32 (x86 stdcall, PUSHAD/POPAD).
+//   * ZwQueryVirtualMemory VAD check: same principle, smaller patch size.
+//   * HookDef->HookPatchSize is set to USERMODE_HOOK_SIZE_32 (5).
 //     The HOOK_DEF structure must carry this field (see header note).
 // -------------------------------------------------------------------------
 NTSTATUS InjectSingleHook32(
@@ -2589,14 +2491,14 @@ NTSTATUS InjectSingleHook32(
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            DbgPrint("UserModeHook32: ProbeForRead faulted at %p — skipping\n",
+            DbgPrint("UserModeHook32: ProbeForRead faulted at %p - skipping\n",
                      HookDef->Address);
             return STATUS_ACCESS_VIOLATION;
         }
 
         if (unrelocatable)
         {
-            DbgPrint("UserModeHook32: Skipping %p — relative branch in prologue\n",
+            DbgPrint("UserModeHook32: Skipping %p - relative branch in prologue\n",
                      HookDef->Address);
             return STATUS_NOT_SUPPORTED;
         }
@@ -2781,7 +2683,7 @@ NTSTATUS InjectSingleHook32(
 
         HookEntry->ShellcodeUsed += sizeof(g_ShellcodeTemplate32);
         HookDef->IsHooked    = TRUE;
-        HookDef->HookPatchSize = USERMODE_HOOK_SIZE_32; // 5 — used by UnhookSingleFunction
+        HookDef->HookPatchSize = USERMODE_HOOK_SIZE_32; // 5 - used by UnhookSingleFunction
     }
 
     return STATUS_SUCCESS;
@@ -2814,23 +2716,23 @@ NTSTATUS ResolveAndHook32(
                                HookDef, EventId, TargetNtDeviceIo32);
 }
 //
-// ROOT CAUSE FIX — device handle opened in ASYNCHRONOUS mode.
+// ROOT CAUSE FIX - device handle opened in ASYNCHRONOUS mode.
 //
 // The original design opened the device handle with FILE_SYNCHRONOUS_IO_NONALERT.
 // That flag causes NtDeviceIoControlFile (called by the shellcode in the target
 // process) to block the calling thread inside the kernel until the driver
 // completes the IRP.  Any resource that thread holds and that the driver or
 // kernel requires to make progress produces a deadlock.  Consequences observed:
-//   • Process exit hang     — teardown waits on thread stuck in IOCTL
-//   • I/O events stopping   — hooked NtWriteFile/NtReadFile thread never returns
-//   • Restart impossible    — process object not released while thread is stuck
+//   * Process exit hang     - teardown waits on thread stuck in IOCTL
+//   * I/O events stopping   - hooked NtWriteFile/NtReadFile thread never returns
+//   * Restart impossible    - process object not released while thread is stuck
 //
 // Fix: open the device handle WITHOUT FILE_SYNCHRONOUS_IO_NONALERT.
-//   • NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING immediately.
-//   • METHOD_BUFFERED copies HOOK_EVENT_DATA into a system buffer BEFORE queuing,
+//   * NtDeviceIoControlFile queues the IRP and returns STATUS_PENDING immediately.
+//   * METHOD_BUFFERED copies HOOK_EVENT_DATA into a system buffer BEFORE queuing,
 //     so the stack payload is captured correctly even though the call is async.
-//   • The calling thread is NEVER blocked — fire-and-forget notification.
-//   • IRP completion APC fires on the next alertable wait; harmless for our use.
+//   * The calling thread is NEVER blocked - fire-and-forget notification.
+//   * IRP completion APC fires on the next alertable wait; harmless for our use.
 //
 // The device handle is created while attached to the target process so the
 // Object Manager places it directly into that process handle table.
@@ -2862,7 +2764,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     //   - The target device (\Device\OwlyshieldHook) is a simple named
     //     METHOD_BUFFERED IOCTL device with no filesystem stack involvement.
     //   - ObInsertObject on a raw DEVICE_OBJECT does NOT produce a FILE_OBJECT
-    //     handle — NtDeviceIoControlFile in the shellcode would get
+    //     handle - NtDeviceIoControlFile in the shellcode would get
     //     STATUS_OBJECT_TYPE_MISMATCH on every IOCTL call, killing all events.
     //     ZwCreateFile is the only way to get a proper FILE_OBJECT handle.
     //
@@ -2901,7 +2803,7 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
                         FILE_ATTRIBUTE_NORMAL,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         FILE_OPEN,
-                        FILE_NON_DIRECTORY_FILE, // async — no FILE_SYNCHRONOUS_IO_NONALERT
+                        FILE_NON_DIRECTORY_FILE, // async - no FILE_SYNCHRONOUS_IO_NONALERT
                         NULL,
                         0);
 
@@ -3026,7 +2928,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     // FIX #6: ShouldSkipHookingProcess was previously called before acquiring
     // EngineMutex.  Two concurrent threads calling UserModeHookProcess for the
     // same PID could both pass the skip-check, both enter the mutex, and both
-    // find and claim the same free slot before either set IsInProgress — leading
+    // find and claim the same free slot before either set IsInProgress - leading
     // to double-initialisation of shellcode infrastructure and a handle/memory
     // leak when the second thread's data overwrote the first's.
     //
@@ -3116,7 +3018,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     {
         // Detect WoW64 BEFORE allocating shellcode so the allocator can
         // constrain the region to the low 2 GB.  32-bit E9 rel32 JMPs
-        // cannot reach a shellcode region above 0x7FFFFFFF — the JMP
+        // cannot reach a shellcode region above 0x7FFFFFFF - the JMP
         // silently overflows and jumps to garbage, causing crashes and
         // stopping all I/O events.  PsGetProcessWow64Process is safe to
         // call on any PEPROCESS at any IRQL without attaching.
@@ -3175,7 +3077,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 
                 if (!targetNtDeviceIo32)
                 {
-                    DbgPrint("UserModeHook: PID %lu WoW64 — could not resolve 32-bit NtDeviceIoControlFile\n",
+                    DbgPrint("UserModeHook: PID %lu WoW64 - could not resolve 32-bit NtDeviceIoControlFile\n",
                              ProcessId);
                     status = STATUS_NOT_FOUND;
                     __leave;
@@ -3232,7 +3134,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 }
 
                 // FIX #1: The previous code had a second `if (!NT_SUCCESS(...))`
-                // that was logically dead — it was always reached and always
+                // that was logically dead - it was always reached and always
                 // true, so EVERY failure (including benign ones) aborted the
                 // entire hook operation and propagated STATUS_INVALID_PARAMETER
                 // or STATUS_NOT_FOUND to the caller.
@@ -3240,7 +3142,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                 //
                 // Fix: classify failures explicitly.
                 //
-                // Recoverable — the specific function is not available in this
+                // Recoverable - the specific function is not available in this
                 // process (module absent, export absent, RIP-relative prologue,
                 // VAD boundary conflict, access fault).  Skip this target and
                 // continue installing the remaining hooks.
@@ -3251,7 +3153,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     hookStatus == STATUS_INVALID_ADDRESS       ||
                     hookStatus == STATUS_CONFLICTING_ADDRESSES)
                 {
-                    DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' — recoverable 0x%X\n",
+                    DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n",
                              ProcessId, i,
                              g_GlobalCustomHooks[i].FunctionName,
                              hookStatus);
@@ -3259,7 +3161,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     continue;
                 }
 
-                // Fatal — abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
+                // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
                 //                  STATUS_INVALID_IMAGE_FORMAT,
                 //                  STATUS_DEVICE_DOES_NOT_EXIST).
                 status = hookStatus;
@@ -3490,7 +3392,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
     if (hookEntry->IsInProgress) {
         // FIX: process terminated while HookProcess was still in-flight.
         // Returning STATUS_NOT_FOUND here leaves hookEntry->ProcessObject
-        // with a live ObReference — the PEPROCESS object is never freed,
+        // with a live ObReference - the PEPROCESS object is never freed,
         // the process appears in the task list but can't be killed (zombie),
         // and the system can't restart because cleanup also misses the slot.
         hookEntry->NeedsCleanup = TRUE;
@@ -3549,7 +3451,7 @@ NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId)
 
     // The shellcode VA region (shellcodeToFree) is intentionally NOT freed here.
     // When the process exits, the OS tears down its entire VA space and reclaims
-    // all committed pages — including shellcode — automatically.  Trying to free
+    // all committed pages - including shellcode - automatically.  Trying to free
     // it ourselves requires a 500ms drain (to avoid freeing pages still executing
     // in another thread), and that drain WAS the zombie: the EPROCESS reference
     // was held through the delay, keeping the process alive and unkillable in

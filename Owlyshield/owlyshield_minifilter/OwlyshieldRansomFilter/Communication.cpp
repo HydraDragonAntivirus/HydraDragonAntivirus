@@ -1,13 +1,13 @@
 #include "Communication.h"
 #include "FsFilter.h"
-#include "ProcessProtection.h"   // OnKernelApiEvent — called by HookDeviceControl
+#include "ProcessProtection.h"   // OnKernelApiEvent - called by HookDeviceControl
 #include "UserModeHookEngine.h"
 #include <ntstrsafe.h>
 
-// IoCreateDriver is an undocumented ntoskrnl export — not declared in any
+// IoCreateDriver is an undocumented ntoskrnl export - not declared in any
 // WDK header.  Declare it manually so the compiler can resolve the call at
 // line ~317.  The linker finds the export in ntoskrnl.lib at link time.
-extern "C" NTSTATUS IoCreateDriver(
+EXTERN_C NTKERNELAPI NTSTATUS NTAPI IoCreateDriver(
     _In_opt_ PUNICODE_STRING DriverName,
     _In_     PDRIVER_INITIALIZE InitializationFunction);
 
@@ -34,13 +34,13 @@ extern "C" NTSTATUS IoCreateDriver(
 // --------------
 // The device is opened WITHOUT FILE_SYNCHRONOUS_IO_NONALERT (see
 // UserModeHookEngine.cpp).  NtDeviceIoControlFile is therefore asynchronous
-// — it returns STATUS_PENDING immediately.  The IRP arrives here in the
+// - it returns STATUS_PENDING immediately.  The IRP arrives here in the
 // context of the calling thread (the hooked user-mode thread) via a normal
 // kernel I/O path.  This dispatch routine MUST call IoCompleteRequest
 // BEFORE returning (synchronous inline completion).  This makes
 // NtDeviceIoControlFile return STATUS_SUCCESS with IoStatusBlock written
 // while the shellcode's stack frame is still alive.  Pending the IRP would
-// cause the I/O manager to write IoStatusBlock after the stack unwinds —
+// cause the I/O manager to write IoStatusBlock after the stack unwinds -
 // a use-after-return bug.  For a fire-and-forget notify IOCTL (no output
 // data, no deferred work), synchronous completion is correct and sufficient.
 //
@@ -50,7 +50,7 @@ extern "C" NTSTATUS IoCreateDriver(
 // the caller's InputBuffer (HOOK_EVENT_DATA on the shellcode's stack) into
 // a kernel-mode system buffer BEFORE calling this dispatch routine.  The
 // system buffer is accessed via Irp->AssociatedIrp.SystemBuffer.  No
-// ProbeForRead is needed — the data is already in kernel address space.
+// ProbeForRead is needed - the data is already in kernel address space.
 //
 // INDEPENDENT DRIVER OBJECT
 // -------------------------
@@ -283,7 +283,7 @@ static ULONG ResolveHookTargetProcessId(
 }
 
 // ----------------------------------------------------------------------------
-// CompleteIrpInline — complete an IRP synchronously, before returning.
+// CompleteIrpInline - complete an IRP synchronously, before returning.
 // METHOD_BUFFERED guarantees HOOK_EVENT_DATA is already in sysBuf by the
 // time dispatch is called, so no deferred work is needed.
 // ----------------------------------------------------------------------------
@@ -299,7 +299,7 @@ static NTSTATUS CompleteIrpInline(
 }
 
 // ----------------------------------------------------------------------------
-// HookDeviceCreateClose — IRP_MJ_CREATE / IRP_MJ_CLOSE
+// HookDeviceCreateClose - IRP_MJ_CREATE / IRP_MJ_CLOSE
 // Accept all open/close requests; ZwCreateFile and ObInsertObject both
 // generate IRP_MJ_CREATE, which must succeed for the handle to be valid.
 // ----------------------------------------------------------------------------
@@ -312,14 +312,14 @@ static NTSTATUS HookDeviceCreateClose(
 }
 
 // ----------------------------------------------------------------------------
-// HookDeviceControl — IRP_MJ_DEVICE_CONTROL
+// HookDeviceControl - IRP_MJ_DEVICE_CONTROL
 //
 // Receives HOOK_EVENT_DATA (or the legacy HOOK_EVENT_DATA_WIRE80 subset) from
 // the shellcode running inside the hooked user-mode process.
 //
 // Runs in the hooked thread's context at PASSIVE_LEVEL.
 // METHOD_BUFFERED: the I/O manager copies the caller's InputBuffer into
-// Irp->AssociatedIrp.SystemBuffer before calling here — no ProbeForRead needed.
+// Irp->AssociatedIrp.SystemBuffer before calling here - no ProbeForRead needed.
 //
 // Async contract: IoCompleteRequest is called before returning (inline
 // completion), so NtDeviceIoControlFile in the shellcode returns STATUS_SUCCESS
@@ -329,7 +329,7 @@ static NTSTATUS HookDeviceCreateClose(
 //   1. Fully-qualified "module!function" label in the incoming payload.
 //   2. ResolveHookNameByEventId (driver-side lookup by EventId).
 //   3. Bare (unqualified) name from the payload.
-//   4. Empty string — event is still delivered.
+//   4. Empty string - event is still delivered.
 // ----------------------------------------------------------------------------
 static NTSTATUS HookDeviceControl(
     _In_ PDEVICE_OBJECT DeviceObject,
@@ -423,8 +423,13 @@ static NTSTATUS HookDeviceControl(
     WCHAR   resolvedName[MAX_FILE_NAME_LENGTH] = {0};
     PCWSTR  functionName = L"";
 
-    BOOLEAN incomingHasName  = (incomingWideName != NULL && incomingWideName[0] != L'\0');
-    BOOLEAN incomingQualified = incomingHasName && (wcschr(incomingWideName, L'!') != NULL);
+    BOOLEAN incomingHasName = (incomingWideName != NULL && incomingWideName[0] != L'\0');
+    BOOLEAN incomingQualified = FALSE;
+
+    if (incomingHasName)
+    {
+        incomingQualified = (wcschr(incomingWideName, L'!') != NULL) ? TRUE : FALSE;
+    }
 
     if (incomingQualified)
     {
@@ -466,7 +471,7 @@ static NTSTATUS HookDeviceControl(
 }
 
 // ----------------------------------------------------------------------------
-// HookNotifyDriverUnload — fires when the I/O manager drops the last
+// HookNotifyDriverUnload - fires when the I/O manager drops the last
 // reference to g_HookNotifyDriverObject after IoDeleteDevice.
 // ----------------------------------------------------------------------------
 static VOID HookNotifyDriverUnload(_In_ PDRIVER_OBJECT DriverObject)
@@ -476,7 +481,7 @@ static VOID HookNotifyDriverUnload(_In_ PDRIVER_OBJECT DriverObject)
 }
 
 // ----------------------------------------------------------------------------
-// HookNotifyDriverInit — IoCreateDriver callback.
+// HookNotifyDriverInit - IoCreateDriver callback.
 //
 // Receives a fresh DRIVER_OBJECT completely independent of the minifilter's
 // DriverObject.  FltMgr never sees this object, so writing MajorFunction
@@ -503,7 +508,7 @@ static NTSTATUS HookNotifyDriverInit(
     // session that crashed without a clean unload. If these don't exist,
     // IoDeleteSymbolicLink / IoDeleteDevice return non-success silently.
     // Without this, IoCreateDevice returns STATUS_OBJECT_NAME_COLLISION on
-    // reload and g_HookNotifyDevice stays NULL — shellcode IOCTLs silently
+    // reload and g_HookNotifyDevice stays NULL - shellcode IOCTLs silently
     // fail and no usermode hook events are ever delivered.
     IoDeleteSymbolicLink(&symName);
 
@@ -539,11 +544,11 @@ static NTSTATUS HookNotifyDriverInit(
 }
 
 // ----------------------------------------------------------------------------
-// InitHookNotifyDevice — public entry point, called from DriverEntry.
+// InitHookNotifyDevice - public entry point, called from DriverEntry.
 //
 // IoCreateDriver allocates a fully independent DRIVER_OBJECT and calls
 // HookNotifyDriverInit synchronously.  The minifilter's DriverObject
-// (owned by FltMgr) is NEVER touched — no MajorFunction entries are
+// (owned by FltMgr) is NEVER touched - no MajorFunction entries are
 // replaced, so FLTMGR_FILE_SYSTEM (0xF5) cannot occur.
 //
 // No ordering dependency on FltRegisterFilter or FltStartFiltering.
@@ -566,7 +571,7 @@ NTSTATUS InitHookNotifyDevice(_In_ PDRIVER_OBJECT DriverObject)
 }
 
 // ----------------------------------------------------------------------------
-// CleanupHookNotifyDevice — called from DriverUnload.
+// CleanupHookNotifyDevice - called from DriverUnload.
 // No ordering constraint relative to FltUnregisterFilter.
 // ----------------------------------------------------------------------------
 VOID CleanupHookNotifyDevice(VOID)
@@ -589,7 +594,7 @@ VOID CleanupHookNotifyDevice(VOID)
 // ObOpenObjectByPointer + ObInsertObject instead of ZwCreateFile
 // (ZwCreateFile is forbidden inside KeStackAttachProcess).
 // extern "C" must match the declaration in Communication.h which is
-// inside an extern "C" block — without this the linker sees a C++
+// inside an extern "C" block - without this the linker sees a C++
 // mangled name here vs. an unmangled C name at the call site.
 extern "C" PDEVICE_OBJECT GetHookNotifyDeviceObject(VOID)
 {

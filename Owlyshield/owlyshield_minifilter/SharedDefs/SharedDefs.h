@@ -46,8 +46,8 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 // - strips leading "\??\" / "\\?\"
 // - maps "\Device\HarddiskVolumeX\..." to "c:\..."
 static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING InputPath,
-                                                        _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
-                                                        _Out_ PUNICODE_STRING NormalizedPath)
+                                                         _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
+                                                         _Out_ PUNICODE_STRING NormalizedPath)
 {
     static const WCHAR kDevicePrefix[] = L"\\device\\harddiskvolume";
     const USHORT kDevicePrefixLen = (USHORT)(RTL_NUMBER_OF(kDevicePrefix) - 1);
@@ -132,6 +132,125 @@ static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING Inp
     NormalizedPath->Buffer = OutputBuffer;
     NormalizedPath->Length = charsToCopy * sizeof(WCHAR);
     NormalizedPath->MaximumLength = (charsToCopy + 1) * sizeof(WCHAR);
+    return TRUE;
+}
+
+static __forceinline BOOLEAN OwlyNormalizeRuleLineForMatch(_In_reads_(RuleChars) PCWSTR RuleText,
+                                                           _In_ SIZE_T RuleChars,
+                                                           _Out_writes_(OutputCch) PWCHAR OutputBuffer,
+                                                           _In_ SIZE_T OutputCch,
+                                                           _In_ BOOLEAN TrimTrailingBackslashes,
+                                                           _Out_opt_ PSIZE_T NormalizedChars)
+{
+    SIZE_T lineLen = 0;
+    SIZE_T start = 0;
+    SIZE_T end = RuleChars;
+    SIZE_T commentPos = (SIZE_T)-1;
+
+    if (NormalizedChars != NULL)
+    {
+        *NormalizedChars = 0;
+    }
+
+    if (RuleText == NULL || OutputBuffer == NULL || OutputCch == 0)
+    {
+        return FALSE;
+    }
+
+    OutputBuffer[0] = L'\0';
+    if (RuleChars == 0)
+    {
+        return TRUE;
+    }
+
+    while (start < end && (RuleText[start] == L' ' || RuleText[start] == L'\t'))
+    {
+        start++;
+    }
+
+    for (SIZE_T i = start; i < end; ++i)
+    {
+        if (RuleText[i] == L'#')
+        {
+            commentPos = i;
+            break;
+        }
+
+        if ((i + 1) < end && RuleText[i] == L'/' && RuleText[i + 1] == L'/')
+        {
+            commentPos = i;
+            break;
+        }
+    }
+
+    if (commentPos != (SIZE_T)-1)
+    {
+        end = commentPos;
+    }
+
+    while (end > start &&
+           (RuleText[end - 1] == L' ' ||
+            RuleText[end - 1] == L'\t' ||
+            RuleText[end - 1] == L'\r' ||
+            RuleText[end - 1] == L'"'))
+    {
+        end--;
+    }
+
+    if (end <= start)
+    {
+        return TRUE;
+    }
+
+    for (SIZE_T i = start; i < end && (lineLen + 1) < OutputCch; ++i)
+    {
+        WCHAR ch = RuleText[i];
+        if (ch == L'/')
+        {
+            ch = L'\\';
+        }
+
+        OutputBuffer[lineLen++] = RtlDowncaseUnicodeChar(ch);
+    }
+    OutputBuffer[lineLen] = L'\0';
+
+    if (lineLen >= 4 &&
+        OutputBuffer[0] == L'\\' &&
+        OutputBuffer[1] == L'?' &&
+        OutputBuffer[2] == L'?' &&
+        OutputBuffer[3] == L'\\')
+    {
+        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+    else if (lineLen >= 4 &&
+             OutputBuffer[0] == L'\\' &&
+             OutputBuffer[1] == L'\\' &&
+             OutputBuffer[2] == L'?' &&
+             OutputBuffer[3] == L'\\')
+    {
+        RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
+        lineLen -= 4;
+    }
+
+    if (TrimTrailingBackslashes)
+    {
+        while (lineLen > 3 && OutputBuffer[lineLen - 1] == L'\\')
+        {
+            OutputBuffer[--lineLen] = L'\0';
+        }
+    }
+
+    if (lineLen == 0)
+    {
+        OutputBuffer[0] = L'\0';
+    }
+
+    if (NormalizedChars != NULL)
+    {
+        *NormalizedChars = lineLen;
+    }
+
     return TRUE;
 }
 
