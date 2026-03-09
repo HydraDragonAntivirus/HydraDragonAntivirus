@@ -625,7 +625,7 @@ static BOOLEAN IsSensitiveSystemPathForHookingProcess(_In_ PEPROCESS Process)
         return FALSE;
     }
 
-    if (!NormalizeKernelPathLower(processImagePath, normalizedPathBuffer, &normalizedPath))
+    if (!OwlyNormalizePathForMatch(processImagePath, normalizedPathBuffer, &normalizedPath))
     {
         ExFreePool(processImagePath);
         return FALSE;
