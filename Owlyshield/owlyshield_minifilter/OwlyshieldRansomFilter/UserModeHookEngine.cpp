@@ -1455,6 +1455,8 @@ UCHAR g_ShellcodeTemplate32[] = {
 //   [RSP+0x90+0x08]   HOOK_EVENT_DATA.FunctionName[0] = 0
 //   [RSP+0xD8]        HOOK_EVENT_DATA.Arg1
 //   [RSP+0xE0]        HOOK_EVENT_DATA.Arg2
+//   [RSP+0xE8]        HOOK_EVENT_DATA.Arg3
+//   [RSP+0xF0]        HOOK_EVENT_DATA.Arg4
 //   [RSP+0xF8]        saved R11  (last pushed, first popped)
 //   [RSP+0x100]       saved R10
 //   [RSP+0x108]       saved R9
