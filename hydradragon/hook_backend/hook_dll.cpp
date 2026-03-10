@@ -23,6 +23,8 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
+#include <process.h>
+#include <errno.h>
 #include <exception>
 #include <new>
 
@@ -38,6 +40,20 @@ static FILE *g_logFile = NULL;
 static CRITICAL_SECTION g_logCS; // Thread-safe logging
 static bool g_logCSInitialized = false;
 static HINSTANCE g_hInstance = NULL;
+
+static void __cdecl HydraInvalidParameterHandler(
+    const wchar_t *expression,
+    const wchar_t *function,
+    const wchar_t *file,
+    unsigned int line,
+    uintptr_t reserved) {
+  UNREFERENCED_PARAMETER(expression);
+  UNREFERENCED_PARAMETER(function);
+  UNREFERENCED_PARAMETER(file);
+  UNREFERENCED_PARAMETER(line);
+  UNREFERENCED_PARAMETER(reserved);
+  OutputDebugStringA("[HOOK] ERROR: MSVC invalid parameter detected\n");
+}
 static HANDLE g_workerThread = NULL;
 static DWORD g_workerThreadId = 0;
 static volatile LONG g_started = 0;
@@ -143,8 +159,9 @@ static bool FindPythonExePath(char *outPath, size_t maxLen) {
 }
 
 static bool IsValidPythonHome(const char *dir, char *outPath, size_t maxLen) {
-  if (!dir || !outPath) return false;
-  
+  if (!dir)
+    return false;
+
   char libPath[MAX_PATH];
   _snprintf_s(libPath, MAX_PATH, _TRUNCATE, "%s\\Lib", dir);
   libPath[MAX_PATH - 1] = '\0';
@@ -152,8 +169,10 @@ static bool IsValidPythonHome(const char *dir, char *outPath, size_t maxLen) {
   DWORD attrib = GetFileAttributesA(libPath);
   if (attrib != INVALID_FILE_ATTRIBUTES &&
       (attrib & FILE_ATTRIBUTE_DIRECTORY)) {
-    strncpy_s(outPath, maxLen, dir, _TRUNCATE);
-    outPath[maxLen - 1] = '\0';
+    if (outPath && maxLen > 0 && outPath != dir) {
+      strncpy_s(outPath, maxLen, dir, _TRUNCATE);
+      outPath[maxLen - 1] = '\0';
+    }
     return true;
   }
   return false;
@@ -316,7 +335,7 @@ static void AutoSetPythonHome() {
       strncpy_s(pythonHome, MAX_PATH, pythonExe, _TRUNCATE);
       pythonHome[MAX_PATH - 1] = '\0';
       PathRemoveFileSpecA(pythonHome);
-      if (IsValidPythonHome(pythonHome, pythonHome, MAX_PATH))
+      if (IsValidPythonHome(pythonHome, NULL, 0))
         found = true;
     }
   }
@@ -394,7 +413,8 @@ static bool SetupStdoutStderrToLog(char *outLogPath) {
     return false;
   }
 
-  setvbuf(g_logFile, NULL, _IOLBF, 0);
+  // Avoid setvbuf here. In MSVC, invalid parameters can fail-fast the target
+  // process, and dbgPrintf already flushes the log file after each write.
 
   // Don't redirect stdout/stderr via freopen - can cause crashes
   // Let Python handle its own redirection
@@ -408,8 +428,10 @@ static bool SetupStdoutStderrToLog(char *outLogPath) {
   return true;
 }
 
-DWORD WINAPI hookImpl(LPVOID lpParam) {
+static unsigned __stdcall hookImpl(void *lpParam) {
   UNREFERENCED_PARAMETER(lpParam);
+
+  _set_invalid_parameter_handler(HydraInvalidParameterHandler);
 
   // Initialize logging critical section
   if (!g_logCSInitialized) {
@@ -800,12 +822,16 @@ DWORD WINAPI hookImpl(LPVOID lpParam) {
   return ERROR_DLL_INIT_FAILED;
 }
 
-static void CleanupResources() {
+static void ReleaseWorkerThreadHandle() {
   if (g_workerThread) {
     CloseHandle(g_workerThread);
     g_workerThread = NULL;
   }
   g_workerThreadId = 0;
+}
+
+static void CleanupResources() {
+  ReleaseWorkerThreadHandle();
   InterlockedExchange(&g_started, 0);
 
   if (g_logCSInitialized) {
@@ -825,14 +851,33 @@ extern "C" __declspec(dllexport) DWORD WINAPI HydraStartHook() {
   if (InterlockedCompareExchange(&g_started, 1, 0) != 0)
     return ERROR_ALREADY_EXISTS;
 
-  HANDLE hThread = CreateThread(nullptr, 0, hookImpl, nullptr, 0, &g_workerThreadId);
-  if (!hThread) {
+  unsigned threadId = 0;
+  uintptr_t workerHandle = _beginthreadex(nullptr, 0, hookImpl, nullptr, 0, &threadId);
+  if (!workerHandle) {
     InterlockedExchange(&g_started, 0);
-    return GetLastError();
+    return ERROR_DLL_INIT_FAILED;
   }
 
-  g_workerThread = hThread;
-  return ERROR_SUCCESS;
+  g_workerThread = reinterpret_cast<HANDLE>(workerHandle);
+  g_workerThreadId = static_cast<DWORD>(threadId);
+
+  DWORD waitResult = WaitForSingleObject(g_workerThread, INFINITE);
+  if (waitResult != WAIT_OBJECT_0) {
+    DWORD err = GetLastError();
+    CleanupResources();
+    return err ? err : ERROR_DLL_INIT_FAILED;
+  }
+
+  DWORD exitCode = ERROR_DLL_INIT_FAILED;
+  if (!GetExitCodeThread(g_workerThread, &exitCode))
+    exitCode = ERROR_DLL_INIT_FAILED;
+
+  ReleaseWorkerThreadHandle();
+
+  if (exitCode != ERROR_SUCCESS)
+    InterlockedExchange(&g_started, 0);
+
+  return exitCode;
 }
 
 extern "C" __declspec(dllexport) DWORD WINAPI HydraStopHook(DWORD timeoutMs) {
@@ -861,5 +906,8 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
   }
   return TRUE;
 }
+
+
+
 
 
