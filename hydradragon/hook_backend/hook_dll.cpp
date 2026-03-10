@@ -315,7 +315,10 @@ static void AutoSetPythonHome() {
         strncpy_s(g_pythonHomePath, MAX_PATH, pythonHome, _TRUNCATE);
         dbgPrintf("[HOOK] Set PYTHONHOME=%s\n", pythonHome);
 
-        char pythonPath[MAX_PATH * 2];
+        // Buffer must hold: pythonHome + "\Lib;" + pythonHome + "\Lib\site-packages" + NUL
+        // Worst case: (MAX_PATH-1)*2 + 24 = 542 bytes.
+        // MAX_PATH*2 (520) was too small — overflowed the stack cookie (0xc0000409 / BEX64).
+        char pythonPath[MAX_PATH * 3];
         snprintf(pythonPath, sizeof(pythonPath),
                  "%s\\Lib;%s\\Lib\\site-packages", pythonHome, pythonHome);
         pythonPath[sizeof(pythonPath) - 1] = '\0';
