@@ -126,7 +126,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - This very complex task. I need create wiki for that. Please contact me.
 
 ## Ghidra Source Code
-- I now using 12.04: https://ghidra-sre.org/
+- I now using 12.0.4: https://ghidra-sre.org/
 
 ## Java Development Kit
 - Just look at https://www.oracle.com/java/technologies/downloads/#jdk21-windows
