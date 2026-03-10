@@ -23,6 +23,33 @@ _def(k32.CloseHandle, wintypes.BOOL, wintypes.HANDLE)
 _def(k32.IsWow64Process, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL))
 _def(k32.WaitForSingleObject, wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD)
 _def(k32.GetExitCodeThread, wintypes.BOOL, wintypes.HANDLE, wintypes.LPDWORD)
+_def(k32.LoadLibraryW, wintypes.HMODULE, wintypes.LPCWSTR)
+_def(k32.FreeLibrary, wintypes.BOOL, wintypes.HMODULE)
+_def(k32.CreateToolhelp32Snapshot, wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD)
+
+MAX_MODULE_NAME32 = 255
+TH32CS_SNAPMODULE = 0x00000008
+TH32CS_SNAPMODULE32 = 0x00000010
+WAIT_OBJECT_0 = 0x00000000
+WAIT_TIMEOUT = 0x00000102
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+class MODULEENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("th32ModuleID", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("GlblcntUsage", wintypes.DWORD),
+        ("ProccntUsage", wintypes.DWORD),
+        ("modBaseAddr", ctypes.c_void_p),
+        ("modBaseSize", wintypes.DWORD),
+        ("hModule", wintypes.HMODULE),
+        ("szModule", wintypes.WCHAR * (MAX_MODULE_NAME32 + 1)),
+        ("szExePath", wintypes.WCHAR * wintypes.MAX_PATH),
+    ]
+
+_def(k32.Module32FirstW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(MODULEENTRY32W))
+_def(k32.Module32NextW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(MODULEENTRY32W))
 
 # NtCreateThreadEx for fallback
 class CLIENT_ID(ctypes.Structure):
@@ -140,6 +167,9 @@ class LiteInjector:
             self.dll_var.set(f)
 
     def log(self, m):
+        if threading.current_thread() is not threading.main_thread():
+            self.root.after(0, self.log, m)
+            return
         self.log_box.config(state='normal')
         self.log_box.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {m}\n")
         self.log_box.see(tk.END)
@@ -162,12 +192,100 @@ class LiteInjector:
         return False
 
     def _log_threadsafe(self, m):
-        """Schedule a log write on the main thread — safe to call from any thread."""
+        """Schedule a log write on the main thread; safe to call from any thread."""
         self.root.after(0, self.log, m)
+
+    def _create_remote_thread(self, h_proc, start_addr, param, pid, label):
+        thread_id = wintypes.DWORD(0)
+        h_thread = k32.CreateRemoteThread(
+            h_proc,
+            None,
+            0,
+            start_addr,
+            param,
+            0,
+            ctypes.byref(thread_id),
+        )
+        if h_thread:
+            self.log(f"{label}: remote thread created (TID: {thread_id.value})")
+            return h_thread
+
+        if not psutil.pid_exists(pid):
+            self.log(f"SKIP: PID {pid} terminated before {label.lower()} thread creation")
+            return None
+
+        self.log(f"{label}: CreateRemoteThread failed, trying NtCreateThreadEx...")
+        h_thread_nt = wintypes.HANDLE()
+        status = ntdll.NtCreateThreadEx(
+            ctypes.byref(h_thread_nt),
+            0x1FFFFF,
+            None,
+            h_proc,
+            start_addr,
+            param,
+            0,
+            0,
+            0,
+            0,
+            None,
+        )
+        status_u = status & 0xFFFFFFFF
+        if status_u == 0:
+            h_thread = h_thread_nt.value
+            get_thread_id = ctypes.windll.kernel32.GetThreadId
+            get_thread_id.restype = wintypes.DWORD
+            get_thread_id.argtypes = [wintypes.HANDLE]
+            thread_id.value = get_thread_id(h_thread)
+            self.log(f"{label}: NtCreateThreadEx succeeded (TID: {thread_id.value})")
+            return h_thread
+        if status_u == 0xC000010A:
+            self.log(f"SKIP: PID {pid} is already terminating during {label.lower()}")
+            return None
+
+        self.log(f"ERROR: {label} thread creation failed (NTSTATUS: 0x{status_u:08X})")
+        return None
+
+    def _wait_thread_exit(self, h_thread, timeout_ms, label):
+        wait_result = k32.WaitForSingleObject(h_thread, timeout_ms)
+        if wait_result == WAIT_OBJECT_0:
+            exit_code = wintypes.DWORD()
+            if k32.GetExitCodeThread(h_thread, ctypes.byref(exit_code)):
+                return True, exit_code.value
+            self.log(f"WARNING: {label} completed but GetExitCodeThread failed ({ctypes.get_last_error()})")
+            return True, None
+        if wait_result == WAIT_TIMEOUT:
+            self.log(f"ERROR: {label} timed out after {timeout_ms}ms")
+            return False, None
+
+        self.log(f"ERROR: {label} wait failed: 0x{wait_result:X}")
+        return False, None
+
+    def _find_remote_module_base(self, pid, module_name, retries=20, delay=0.1):
+        target_name = module_name.lower()
+        for _ in range(retries):
+            snapshot = k32.CreateToolhelp32Snapshot(
+                TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                pid,
+            )
+            if snapshot and snapshot != INVALID_HANDLE_VALUE:
+                try:
+                    entry = MODULEENTRY32W()
+                    entry.dwSize = ctypes.sizeof(MODULEENTRY32W)
+                    ok = k32.Module32FirstW(snapshot, ctypes.byref(entry))
+                    while ok:
+                        module_basename = entry.szModule.lower()
+                        exe_basename = os.path.basename(entry.szExePath).lower()
+                        if module_basename == target_name or exe_basename == target_name:
+                            return int(entry.modBaseAddr or entry.hModule or 0)
+                        ok = k32.Module32NextW(snapshot, ctypes.byref(entry))
+                finally:
+                    k32.CloseHandle(snapshot)
+            time.sleep(delay)
+        return None
 
     def get_target_arch_64(self, pid):
         # Called from background refresh thread AND main thread during inject.
-        # Must NEVER call self.log() directly — Tkinter is not thread-safe.
+        # Must NEVER call self.log() directly; Tkinter is not thread-safe.
         try:
             h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_INFORMATION
             if h:
@@ -229,35 +347,34 @@ class LiteInjector:
 
     def inject(self, pid, name):
         try:
-            # Determine target architecture
             is_target_64 = self.get_target_arch_64(pid)
-            
-            # Get DLL directory and determine correct DLL
+
             dll_path = self.dll_var.get()
             dll_dir = os.path.dirname(os.path.abspath(dll_path))
             target_dll_name = "hook64.dll" if is_target_64 else "hook32.dll"
             target_dll_path = os.path.join(dll_dir, target_dll_name)
-            
-            # Verify DLL exists
+
             if not os.path.exists(target_dll_path):
                 self.log(f"ERROR: {target_dll_name} not found at {dll_dir}")
                 return
 
+            hook_path = os.path.abspath(self.hook_var.get())
+            if not os.path.exists(hook_path):
+                self.log(f"ERROR: Hook script not found: {hook_path}")
+                return
+
             self.log(f"Target: {name} (PID: {pid}, Arch: {'x64' if is_target_64 else 'x86'})")
             self.log(f"Using DLL: {target_dll_path}")
-            
-            # Create config file - CRITICAL FIX: Use correct path
-            config_dir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps" # antivirus.py must be use non hardcoded path which exists in path_and_variables.py
+
+            config_dir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps"
             os.makedirs(config_dir, exist_ok=True)
             config_path = os.path.join(config_dir, "hook_config.ini")
-            
-            hook_dir = os.path.dirname(os.path.abspath(self.hook_var.get()))
+            hook_dir = os.path.dirname(hook_path)
             with open(config_path, "w") as f:
                 f.write(f"[General]\nHookPath={hook_dir}\n")
-            
+
             self.log(f"Config written to: {config_path}")
 
-            # Open target process with full access
             PROCESS_ALL_ACCESS = 0x1F0FFF
             h_proc = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
             if not h_proc:
@@ -266,116 +383,98 @@ class LiteInjector:
                 return
 
             try:
-                # Allocate memory in target process
-                path_bytes = os.path.abspath(target_dll_path).encode('utf-16le') + b'\0\0'
+                path_bytes = os.path.abspath(target_dll_path).encode("utf-16le") + b"\0\0"
                 path_size = len(path_bytes)
-                
-                mem = k32.VirtualAllocEx(h_proc, None, path_size, 0x3000, 0x04)  # MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE
+                mem = k32.VirtualAllocEx(h_proc, None, path_size, 0x3000, 0x04)
                 if not mem:
                     error = ctypes.get_last_error()
                     self.log(f"ERROR: VirtualAllocEx failed (error {error})")
                     return
-                
+
                 self.log(f"Allocated {path_size} bytes at 0x{mem:X}")
-                
-                # Write DLL path to target process - CRITICAL FIX
+
                 bytes_written = ctypes.c_size_t(0)
                 if not k32.WriteProcessMemory(h_proc, mem, path_bytes, path_size, ctypes.byref(bytes_written)):
                     error = ctypes.get_last_error()
                     self.log(f"ERROR: WriteProcessMemory failed (error {error})")
                     return
-                
+
                 self.log(f"Wrote {bytes_written.value} bytes to target process")
-                
-                # Get LoadLibraryW address
+
                 k32_mod = k32.GetModuleHandleW("kernel32.dll")
                 load_lib = k32.GetProcAddress(k32_mod, b"LoadLibraryW")
-                
                 if not load_lib:
                     self.log("ERROR: Could not find LoadLibraryW")
                     return
-                
+
                 self.log(f"LoadLibraryW at 0x{load_lib:X}")
-                
-                # Create remote thread - CRITICAL FIX
-                thread_id = wintypes.DWORD(0)
-                h_thread = k32.CreateRemoteThread(
-                    h_proc,           # hProcess
-                    None,             # lpThreadAttributes
-                    0,                # dwStackSize
-                    load_lib,         # lpStartAddress
-                    mem,              # lpParameter
-                    0,                # dwCreationFlags
-                    ctypes.byref(thread_id)  # lpThreadId - proper pointer
-                )
-                
-                if not h_thread:
-                    # Check if the process died between OpenProcess and thread creation
-                    if not psutil.pid_exists(pid):
-                        self.log(f"SKIP: PID {pid} terminated before thread creation — will catch next instance")
+
+                h_load_thread = self._create_remote_thread(h_proc, load_lib, mem, pid, "LoadLibraryW")
+                if not h_load_thread:
+                    return
+
+                try:
+                    load_ok, load_exit = self._wait_thread_exit(h_load_thread, 5000, "LoadLibraryW")
+                finally:
+                    k32.CloseHandle(h_load_thread)
+
+                if not load_ok:
+                    return
+                if load_exit == 0:
+                    self.log("ERROR: LoadLibraryW returned NULL; DLL load failed")
+                    return
+
+                remote_mod = self._find_remote_module_base(pid, target_dll_name)
+                if not remote_mod:
+                    self.log(f"ERROR: Could not locate {target_dll_name} in target process after injection")
+                    return
+
+                self.log(f"SUCCESS: {target_dll_name} injected into {name} (module @ 0x{remote_mod:X})")
+
+                local_mod = k32.LoadLibraryW(target_dll_path)
+                if not local_mod:
+                    self.log("ERROR: Could not load DLL locally to resolve HydraStartHook RVA")
+                    return
+
+                try:
+                    local_fn = k32.GetProcAddress(local_mod, b"HydraStartHook")
+                    if not local_fn:
+                        self.log("ERROR: Export HydraStartHook not found in DLL")
                         return
-                    # Try NtCreateThreadEx fallback
-                    self.log("CreateRemoteThread failed, trying NtCreateThreadEx...")
-                    h_thread_nt = wintypes.HANDLE()
-                    status = ntdll.NtCreateThreadEx(
-                        ctypes.byref(h_thread_nt),
-                        0x1FFFFF,  # THREAD_ALL_ACCESS
-                        None,
+
+                    rva = local_fn - local_mod
+                    remote_fn = remote_mod + rva
+                    self.log(f"HydraStartHook RVA: 0x{rva:X}")
+                    self.log(f"Remote HydraStartHook: 0x{remote_fn:X}")
+
+                    h_start_thread = self._create_remote_thread(
                         h_proc,
-                        load_lib,
-                        mem,
-                        0,  # Not suspended
-                        0, 0, 0,
-                        None
+                        remote_fn,
+                        None,
+                        pid,
+                        "HydraStartHook",
                     )
-
-                    # status is a signed c_long — mask to get the real NTSTATUS
-                    status_u = status & 0xFFFFFFFF
-                    if status_u == 0:  # STATUS_SUCCESS
-                        h_thread = h_thread_nt.value
-                        # Retrieve TID from the new handle
-                        _GetThreadId = ctypes.windll.kernel32.GetThreadId
-                        _GetThreadId.restype = wintypes.DWORD
-                        _GetThreadId.argtypes = [wintypes.HANDLE]
-                        thread_id.value = _GetThreadId(h_thread)
-                        self.log(f"NtCreateThreadEx succeeded (TID: {thread_id.value})")
-                    elif status_u == 0xC000010A:  # STATUS_PROCESS_IS_TERMINATING
-                        self.log(f"SKIP: PID {pid} is already terminating (respawning process) — will catch next instance")
-                        return
-                    else:
-                        self.log(f"ERROR: Both CreateRemoteThread and NtCreateThreadEx failed "
-                                 f"(NTSTATUS: 0x{status_u:08X})")
+                    if not h_start_thread:
                         return
 
-                if h_thread:
-                    self.log(f"Remote thread created (TID: {thread_id.value})")
-                    
-                    # Wait for thread to complete (with timeout)
-                    wait_result = k32.WaitForSingleObject(h_thread, 5000)  # 5 second timeout
-                    
-                    if wait_result == 0:  # WAIT_OBJECT_0
-                        exit_code = wintypes.DWORD()
-                        if k32.GetExitCodeThread(h_thread, ctypes.byref(exit_code)):
-                            # LoadLibraryW is the thread proc: it returns an HMODULE.
-                            # Non-zero = valid handle = success. Zero = LoadLibrary failed.
-                            if exit_code.value != 0:
-                                self.log(f"SUCCESS: {target_dll_name} injected into {name}! "
-                                         f"(module @ 0x{exit_code.value:X})")
-                            else:
-                                self.log(f"WARNING: LoadLibraryW returned NULL — DLL load failed "
-                                         f"(check DLL path / dependencies)")
-                        else:
-                            self.log("SUCCESS: Injection completed (could not get exit code)")
-                    elif wait_result == 0x102:  # WAIT_TIMEOUT
-                        self.log("Thread still running after 5 seconds (may be OK)")
+                    try:
+                        start_ok, start_exit = self._wait_thread_exit(h_start_thread, 5000, "HydraStartHook")
+                    finally:
+                        k32.CloseHandle(h_start_thread)
+
+                    if not start_ok:
+                        return
+
+                    if start_exit is None:
+                        self.log("SUCCESS: HydraStartHook completed")
+                    elif start_exit == 0:
+                        self.log("SUCCESS: DLL loaded and hook started")
                     else:
-                        self.log(f"Wait returned: 0x{wait_result:X}")
-                    
-                    k32.CloseHandle(h_thread)
-                
+                        self.log(f"WARNING: HydraStartHook returned error {start_exit}")
+                finally:
+                    k32.FreeLibrary(local_mod)
             finally:
                 k32.CloseHandle(h_proc)
-                
         except Exception as e:
             self.log(f"EXCEPTION: {type(e).__name__}: {e}")
             import traceback
@@ -384,7 +483,7 @@ class LiteInjector:
     def toggle_ninja(self):
         self.ninja_on = not self.ninja_on
         self.btn_ninja.config(
-            text="Ninja: ON" if self.ninja_on else "Ninja: OFF", 
+            text="Ninja: ON" if self.ninja_on else "Ninja: OFF",
             bg="#4caf50" if self.ninja_on else "SystemButtonFace"
         )
         if self.ninja_on:
@@ -401,18 +500,18 @@ class LiteInjector:
                         threading.Thread(target=self.inject, args=(p.pid, p.name()), daemon=True).start()
             except Exception as e:
                 self._log_threadsafe(f"Ninja error: {e}")
-            time.sleep(0.5)
 
 if __name__ == "__main__":
     # Check admin privileges
     if not ctypes.windll.shell32.IsUserAnAdmin():
-        self_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+        exe_path = sys.executable
+        params = "" if getattr(sys, 'frozen', False) else f'"{os.path.abspath(__file__)}"'
         ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable, 
-            f'"{self_path}"', None, 1
+            None, "runas", exe_path,
+            params, None, 1
         )
         sys.exit()
-    
+
     root = tk.Tk()
     LiteInjector(root)
     root.mainloop()
