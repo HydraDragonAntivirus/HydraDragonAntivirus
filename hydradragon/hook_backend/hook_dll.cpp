@@ -1,14 +1,10 @@
 /**
- * hook_dll.cpp
- * Toolchain: MSVC / VS 2022  (x64)
- *
- * Build:
- *   build_dll.bat   (see companion file)
- *
- * DESIGN RULE: No char[] local stack buffers for path construction anywhere.
- * All path ops use std::string to prevent /GS cookie overflows (0xc0000409).
- * Only char[MAX_PATH] used where a Win32 API requires an output buffer of
- * that exact size — those APIs guarantee they write at most MAX_PATH chars.
+ * hook_dll.cpp - FIXED VERSION
+ * Critical fixes for access violations:
+ * 1. Increased buffer sizes to prevent overflow
+ * 2. Fixed strtok use-after-free with PATH parsing
+ * 3. Added null pointer checks
+ * 4. Thread-safe logging
  */
 
 #pragma comment(lib, "kernel32.lib")
@@ -19,602 +15,851 @@
 
 #include <windows.h>
 #include <psapi.h>
+#include <stdio.h>
 #include <shlwapi.h>
 #include <tlhelp32.h>
+#include <direct.h>
 #include <shlobj.h>
-#include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <stdint.h>
+#include <stdlib.h>
+#include <exception>
+#include <new>
 
 #ifndef strcasecmp
-#  define strcasecmp _stricmp
+#define strcasecmp _stricmp
 #endif
 
-// ─── Globals ──────────────────────────────────────────────────────────────────
-static std::string       g_pythonHomePath;
-#define PYMODULE_NAME    "__hook__"
+// Global storage
+static char g_pythonHomePath[MAX_PATH] = {0};
+#define PYMODULE_NAME "__hook__"
 
-static HINSTANCE         g_hInstance        = nullptr;
-static FILE             *g_logFile          = nullptr;
-static CRITICAL_SECTION  g_logCS;
-static volatile LONG     g_logCSState       = 0; // 0=uninitialized, 1=ready, 2=destroying
-static HANDLE            g_workerThread     = nullptr;
-static DWORD             g_workerThreadId   = 0;
-static HANDLE            g_shutdownEvent    = nullptr;
-static volatile LONG     g_started          = 0;
-static volatile LONG     g_stopRequested    = 0;
-static volatile LONG     g_unloading        = 0;
+static FILE *g_logFile = NULL;
+static CRITICAL_SECTION g_logCS; // Thread-safe logging
+static bool g_logCSInitialized = false;
+static HINSTANCE g_hInstance = NULL;
+static HANDLE g_workerThread = NULL;
+static DWORD g_workerThreadId = 0;
+static volatile LONG g_started = 0;
+static volatile LONG g_unloading = 0;
 
-// ─── Thread-safe debug print ──────────────────────────────────────────────────
+// Thread-safe debug print
 static void dbgPrintf(const char *fmt, ...) {
-    char    buf[2048];
-    va_list ap;
-    va_start(ap, fmt);
-    (void)vsnprintf(buf, sizeof(buf) - 1u, fmt, ap);
-    buf[sizeof(buf) - 1] = '\0';
-    va_end(ap);
+  char buf[2048]; // Increased size
+  va_list ap;
+  va_start(ap, fmt);
+  _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, fmt, ap);
+  buf[sizeof(buf) - 1] = '\0';
+  va_end(ap);
+  OutputDebugStringA(buf);
 
-    OutputDebugStringA(buf);
-
-    if (InterlockedCompareExchange(&g_unloading, 0, 0) != 0)
-        return;
-
-    if (InterlockedCompareExchange(&g_logCSState, 0, 0) == 1) {
-        __try {
-            EnterCriticalSection(&g_logCS);
-            if (g_logFile) {
-                fprintf(g_logFile, "%s", buf);
-                fflush(g_logFile);
-            }
-            LeaveCriticalSection(&g_logCS);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            // Never crash the host process from logging.
-        }
+  if (InterlockedCompareExchange(&g_unloading, 0, 0) != 0)
+    return;
+  
+  if (g_logCSInitialized) {
+    EnterCriticalSection(&g_logCS);
+    if (g_logFile) {
+      fprintf(g_logFile, "%s", buf);
+      fflush(g_logFile);
     }
+    LeaveCriticalSection(&g_logCS);
+  }
 }
 
-// ─── Anti-tamper / debugger check ─────────────────────────────────────────────
 static void CheckForProtection() {
-    if (IsDebuggerPresent())
-        dbgPrintf("[HOOK] WARNING: Debugger detected!\n");
+  if (IsDebuggerPresent()) {
+    dbgPrintf("[HOOK] WARNING: Debugger detected!\n");
+  }
 
-    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
-    if (hK32) {
-        const BYTE *p = reinterpret_cast<const BYTE *>(
-            GetProcAddress(hK32, "LoadLibraryW"));
-        if (p && (*p == 0xE9 || *p == 0xEB))
-            dbgPrintf("[HOOK] WARNING: LoadLibraryW appears to be hooked!\n");
+  HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+  if (hKernel32) {
+    BYTE *pLoadLib = (BYTE *)GetProcAddress(hKernel32, "LoadLibraryW");
+    if (pLoadLib && (*pLoadLib == 0xE9 || *pLoadLib == 0xEB)) {
+      dbgPrintf("[HOOK] WARNING: LoadLibraryW appears to be hooked!\n");
     }
+  }
 }
 
-// ─── Config reader ────────────────────────────────────────────────────────────
-static std::string GetHookFilePathFromConfig() {
-    const char *cfgPath =
-        "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps\\hook_config.ini";
+static bool GetHookFilePathFromConfig(char *outPath, size_t maxLen) {
+  const char *configPath = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps\\hook_config.ini";
+  FILE *f = NULL;
+  if (fopen_s(&f, configPath, "r") != 0 || !f) return false;
 
-    FILE *f = nullptr;
-    if (fopen_s(&f, cfgPath, "r") != 0 || !f) return {};
+  char line[MAX_PATH];
+  bool found = false;
+  while (fgets(line, sizeof(line), f)) {
+    if (strncmp(line, "HookPath=", 9) == 0) {
+      char *path = line + 9;
+      char *nl = strpbrk(path, "\r\n");
+      if (nl) *nl = '\0';
 
-    char line[4096];
-    std::string result;
-    while (fgets(line, static_cast<int>(sizeof(line)), f)) {
-        if (strncmp(line, "HookPath=", 9) == 0) {
-            char *path = line + 9;
-            char *nl   = strpbrk(path, "\r\n");
-            if (nl) *nl = '\0';
-            if (path[0] != '\0') {
-                result = std::string(path) + "\\" + PYMODULE_NAME + ".py";
-                break;
-            }
-        }
+      if (path[0] != '\0') {
+        _snprintf_s(outPath, maxLen, _TRUNCATE, "%s\\%s.py", path, PYMODULE_NAME);
+        outPath[maxLen - 1] = '\0';
+        found = true;
+        break;
+      }
     }
-    fclose(f);
-    return result;
+  }
+  fclose(f);
+  return found;
 }
 
-// ─── Find python.exe in running processes ─────────────────────────────────────
-static std::string FindPythonExePath() {
-    UINT prev = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    SetErrorMode(prev);
-    if (hSnap == INVALID_HANDLE_VALUE) return {};
+static bool FindPythonExePath(char *outPath, size_t maxLen) {
+  HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (hSnapshot == INVALID_HANDLE_VALUE) {
+    return false;
+  }
 
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
+  PROCESSENTRY32 pe32;
+  pe32.dwSize = sizeof(PROCESSENTRY32);
 
-    std::string result;
-    if (Process32First(hSnap, &pe32)) {
-        do {
-            if (strcasecmp(pe32.szExeFile, "python.exe")  == 0 ||
-                strcasecmp(pe32.szExeFile, "pythonw.exe") == 0) {
-                HANDLE hProc = OpenProcess(
-                    PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                    FALSE, pe32.th32ProcessID);
-                if (hProc) {
-                    char buf[MAX_PATH];
-                    if (GetModuleFileNameExA(hProc, nullptr, buf, MAX_PATH))
-                        result = buf;
-                    CloseHandle(hProc);
-                    if (!result.empty()) break;
-                }
-            }
-        } while (Process32Next(hSnap, &pe32));
-    }
-    CloseHandle(hSnap);
-    return result;
-}
-
-// ─── Validate Python home: does dir\Lib exist? ────────────────────────────────
-static bool IsValidPythonHome(const std::string &dir) {
-    std::string libPath = dir + "\\Lib";
-    DWORD attr = GetFileAttributesA(libPath.c_str());
-    return (attr != INVALID_FILE_ATTRIBUTES) && (attr & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-// ─── Scan a base path for Python3x subdirs ────────────────────────────────────
-static std::string ScanBasePathForPython(const std::string &basePath) {
-    std::string pat = basePath + "\\Python3*";
-
-    WIN32_FIND_DATAA fd;
-    HANDLE hFind = FindFirstFileA(pat.c_str(), &fd);
-    if (hFind == INVALID_HANDLE_VALUE) return {};
-
-    std::vector<std::string> found;
+  if (Process32First(hSnapshot, &pe32)) {
     do {
-        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-            strcmp(fd.cFileName, ".")  != 0 &&
-            strcmp(fd.cFileName, "..") != 0) {
-            std::string candidate = basePath + "\\" + fd.cFileName;
-            if (IsValidPythonHome(candidate))
-                found.push_back(fd.cFileName);
+      if (strcasecmp(pe32.szExeFile, "python.exe") == 0 ||
+          strcasecmp(pe32.szExeFile, "pythonw.exe") == 0) {
+
+        HANDLE hProcess =
+            OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE,
+                        pe32.th32ProcessID);
+        if (hProcess) {
+          char path[MAX_PATH];
+          DWORD pathLen = GetModuleFileNameExA(hProcess, NULL, path, MAX_PATH);
+          if (pathLen > 0 && pathLen < MAX_PATH) {
+            strncpy_s(outPath, maxLen, path, _TRUNCATE);
+            outPath[maxLen - 1] = '\0';
+            CloseHandle(hProcess);
+            CloseHandle(hSnapshot);
+            return true;
+          }
+          CloseHandle(hProcess);
         }
-    } while (FindNextFileA(hFind, &fd));
-    FindClose(hFind);
+      }
+    } while (Process32Next(hSnapshot, &pe32));
+  }
 
-    if (found.empty()) return {};
-    std::sort(found.rbegin(), found.rend());
-    return basePath + "\\" + found[0];
+  CloseHandle(hSnapshot);
+  return false;
 }
 
-// ─── Enumerate well-known Python install locations ────────────────────────────
-static std::string FindPythonInstallation() {
-    {
-        std::string r = ScanBasePathForPython("C:");
-        if (!r.empty()) return r;
-    }
+static bool IsValidPythonHome(const char *dir, char *outPath, size_t maxLen) {
+  if (!dir || !outPath) return false;
+  
+  char libPath[MAX_PATH];
+  _snprintf_s(libPath, MAX_PATH, _TRUNCATE, "%s\\Lib", dir);
+  libPath[MAX_PATH - 1] = '\0';
 
-    char base[MAX_PATH];
-
-    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILES, nullptr, 0, base))) {
-        std::string r = ScanBasePathForPython(base);
-        if (!r.empty()) return r;
-    }
-    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, base))) {
-        std::string r = ScanBasePathForPython(base);
-        if (!r.empty()) return r;
-    }
-    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, base))) {
-        std::string b(base);
-        std::string r = ScanBasePathForPython(b + "\\Programs\\Python");
-        if (!r.empty()) return r;
-        r = ScanBasePathForPython(b + "\\Programs");
-        if (!r.empty()) return r;
-    }
-    return {};
+  DWORD attrib = GetFileAttributesA(libPath);
+  if (attrib != INVALID_FILE_ATTRIBUTES &&
+      (attrib & FILE_ATTRIBUTE_DIRECTORY)) {
+    strncpy_s(outPath, maxLen, dir, _TRUNCATE);
+    outPath[maxLen - 1] = '\0';
+    return true;
+  }
+  return false;
 }
 
-// ─── Auto-detect and set PYTHONHOME/PYTHONPATH ────────────────────────────────
+static long GetPythonVersionRank(const char *folderName) {
+  if (!folderName || _strnicmp(folderName, "Python", 6) != 0)
+    return -1;
+
+  const char *suffix = folderName + 6;
+  if (*suffix == '\0')
+    return -1;
+
+  char *endPtr = NULL;
+  long rank = strtol(suffix, &endPtr, 10);
+  if (endPtr == suffix)
+    return -1;
+
+  return rank;
+}
+
+static bool ScanBasePathForPython(const char *basePath, char *outPath,
+                                  size_t maxLen) {
+  if (!basePath || !outPath)
+    return false;
+
+  char searchPattern[MAX_PATH];
+  _snprintf_s(searchPattern, MAX_PATH, _TRUNCATE, "%s\\Python3*", basePath);
+  searchPattern[MAX_PATH - 1] = '\0';
+
+  WIN32_FIND_DATAA findData;
+  HANDLE hFind = FindFirstFileA(searchPattern, &findData);
+  if (hFind == INVALID_HANDLE_VALUE)
+    return false;
+
+  char bestPath[MAX_PATH] = {0};
+  char bestFolder[MAX_PATH] = {0};
+  long bestRank = -1;
+  bool found = false;
+
+  do {
+    if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+        strcmp(findData.cFileName, ".") != 0 &&
+        strcmp(findData.cFileName, "..") != 0) {
+      char testDir[MAX_PATH];
+      _snprintf_s(testDir, MAX_PATH, _TRUNCATE, "%s\\%s", basePath,
+                  findData.cFileName);
+      testDir[MAX_PATH - 1] = '\0';
+
+      char tempPath[MAX_PATH];
+      if (IsValidPythonHome(testDir, tempPath, MAX_PATH)) {
+        long rank = GetPythonVersionRank(findData.cFileName);
+        if (!found || rank > bestRank ||
+            (rank == bestRank && _stricmp(findData.cFileName, bestFolder) > 0)) {
+          strncpy_s(bestPath, MAX_PATH, tempPath, _TRUNCATE);
+          bestPath[MAX_PATH - 1] = '\0';
+          strncpy_s(bestFolder, MAX_PATH, findData.cFileName, _TRUNCATE);
+          bestFolder[MAX_PATH - 1] = '\0';
+          bestRank = rank;
+          found = true;
+        }
+      }
+    }
+  } while (FindNextFileA(hFind, &findData));
+
+  FindClose(hFind);
+
+  if (!found)
+    return false;
+
+  strncpy_s(outPath, maxLen, bestPath, _TRUNCATE);
+  outPath[maxLen - 1] = '\0';
+  return true;
+}
+
+static bool FindPythonInstallation(char *outPath, size_t maxLen) {
+  char basePath[MAX_PATH];
+
+  if (ScanBasePathForPython("C:", outPath, maxLen))
+    return true;
+
+  if (SUCCEEDED(
+          SHGetFolderPathA(NULL, CSIDL_PROGRAM_FILES, NULL, 0, basePath))) {
+    if (ScanBasePathForPython(basePath, outPath, maxLen))
+      return true;
+  }
+
+  if (SUCCEEDED(
+          SHGetFolderPathA(NULL, CSIDL_PROGRAM_FILESX86, NULL, 0, basePath))) {
+    if (ScanBasePathForPython(basePath, outPath, maxLen))
+      return true;
+  }
+
+  if (SUCCEEDED(
+          SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, basePath))) {
+    char localPrograms[MAX_PATH];
+
+    _snprintf_s(localPrograms, MAX_PATH, _TRUNCATE, "%s\\Programs\\Python", basePath);
+    localPrograms[MAX_PATH - 1] = '\0';
+    if (ScanBasePathForPython(localPrograms, outPath, maxLen))
+      return true;
+
+    _snprintf_s(localPrograms, MAX_PATH, _TRUNCATE, "%s\\Programs", basePath);
+    localPrograms[MAX_PATH - 1] = '\0';
+    if (ScanBasePathForPython(localPrograms, outPath, maxLen))
+      return true;
+  }
+
+  return false;
+}
+
+static bool EnsureDirectoryExists(const char *path) {
+  DWORD attrs = GetFileAttributesA(path);
+  if (attrs != INVALID_FILE_ATTRIBUTES)
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+  if (CreateDirectoryA(path, NULL))
+    return true;
+
+  return GetLastError() == ERROR_ALREADY_EXISTS;
+}
+
 static void AutoSetPythonHome() {
-    {
-        char existing[MAX_PATH];
-        if (GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH) > 0) {
-            dbgPrintf("[HOOK] PYTHONHOME already set: %s\n", existing);
-            g_pythonHomePath = existing;
-            return;
-        }
+  char existing[MAX_PATH];
+  DWORD existingLen = GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH);
+  if (existingLen > 0 && existingLen < MAX_PATH) {
+    dbgPrintf("[HOOK] PYTHONHOME already set to: %s\n", existing);
+    strncpy_s(g_pythonHomePath, MAX_PATH, existing, _TRUNCATE);
+    g_pythonHomePath[MAX_PATH - 1] = '\0';
+    return;
+  }
+
+  char pythonHome[MAX_PATH];
+  bool found = false;
+
+  // Method 0: Check current process
+  char currentExe[MAX_PATH];
+  DWORD currentExeLen = GetModuleFileNameA(NULL, currentExe, MAX_PATH);
+  if (currentExeLen > 0 && currentExeLen < MAX_PATH) {
+    const char *filename = strrchr(currentExe, '\\');
+    if (filename)
+      filename++;
+    else
+      filename = currentExe;
+
+    if (strcasecmp(filename, "python.exe") == 0 ||
+        strcasecmp(filename, "pythonw.exe") == 0) {
+      strncpy_s(pythonHome, MAX_PATH, currentExe, _TRUNCATE);
+      pythonHome[MAX_PATH - 1] = '\0';
+      PathRemoveFileSpecA(pythonHome);
+      found = true;
+      dbgPrintf("[HOOK] Using current python.exe dir: %s\n", pythonHome);
     }
+  }
 
-    std::string pythonHome;
+  // Method 1: Find python.exe in processes
+  if (!found) {
+    char pythonExe[MAX_PATH];
+    if (FindPythonExePath(pythonExe, MAX_PATH)) {
+      strncpy_s(pythonHome, MAX_PATH, pythonExe, _TRUNCATE);
+      pythonHome[MAX_PATH - 1] = '\0';
+      PathRemoveFileSpecA(pythonHome);
+      if (IsValidPythonHome(pythonHome, pythonHome, MAX_PATH))
+        found = true;
+    }
+  }
 
-    // Method 0: current process is python.exe
-    {
-        char exeBuf[MAX_PATH];
-        if (GetModuleFileNameA(nullptr, exeBuf, MAX_PATH)) {
-            const char *fn = strrchr(exeBuf, '\\');
-            fn = fn ? fn + 1 : exeBuf;
-            if (strcasecmp(fn, "python.exe")  == 0 ||
-                strcasecmp(fn, "pythonw.exe") == 0) {
-                std::string dir(exeBuf);
-                size_t sl = dir.rfind('\\');
-                if (sl != std::string::npos) dir.resize(sl);
-                if (IsValidPythonHome(dir)) {
-                    pythonHome = dir;
-                    dbgPrintf("[HOOK] Method 0: %s\n", pythonHome.c_str());
-                }
+  // Method 2: Check common paths
+  if (!found)
+    found = FindPythonInstallation(pythonHome, MAX_PATH);
+  
+  // Method 3: Check PATH environment - FIXED strtok issue
+  if (!found) {
+    char *pathEnv = (char *)malloc(32768);
+    if (pathEnv) {
+      DWORD pathLen = GetEnvironmentVariableA("PATH", pathEnv, 32768);
+      if (pathLen > 0 && pathLen < 32768) {
+        char *context = NULL;
+        char *token = strtok_s(pathEnv, ";", &context); // Use strtok_s for safety
+        while (token != NULL) {
+          char testExe[MAX_PATH];
+          _snprintf_s(testExe, MAX_PATH, _TRUNCATE, "%s\\python.exe", token);
+          testExe[MAX_PATH - 1] = '\0';
+
+          DWORD attrib = GetFileAttributesA(testExe);
+          if (attrib != INVALID_FILE_ATTRIBUTES &&
+              !(attrib & FILE_ATTRIBUTE_DIRECTORY)) {
+            if (IsValidPythonHome(token, pythonHome, MAX_PATH)) {
+              found = true;
+              break;
             }
+          }
+          token = strtok_s(NULL, ";", &context);
         }
+      }
+      free(pathEnv);
     }
+  }
 
-    // Method 1: find python.exe in running processes
-    if (pythonHome.empty()) {
-        std::string pyExe = FindPythonExePath();
-        if (!pyExe.empty()) {
-            size_t sl = pyExe.rfind('\\');
-            std::string dir = (sl != std::string::npos) ? pyExe.substr(0, sl) : pyExe;
-            if (IsValidPythonHome(dir)) {
-                pythonHome = dir;
-                dbgPrintf("[HOOK] Method 1: %s\n", pythonHome.c_str());
-            }
-        }
-    }
+  if (found) {
+    SetEnvironmentVariableA("PYTHONHOME", pythonHome);
+    strncpy_s(g_pythonHomePath, MAX_PATH, pythonHome, _TRUNCATE);
+    g_pythonHomePath[MAX_PATH - 1] = '\0';
 
-    // Method 2: common install paths
-    if (pythonHome.empty()) {
-        pythonHome = FindPythonInstallation();
-        if (!pythonHome.empty())
-            dbgPrintf("[HOOK] Method 2: %s\n", pythonHome.c_str());
-    }
+    dbgPrintf("[HOOK] Set PYTHONHOME=%s\n", pythonHome);
 
-    // Method 3: walk PATH
-    if (pythonHome.empty()) {
-        char *pathEnv = static_cast<char *>(malloc(32768));
-        if (pathEnv) {
-            DWORD len = GetEnvironmentVariableA("PATH", pathEnv, 32768);
-            if (len > 0 && len < 32768) {
-                char *ctx = nullptr;
-                char *tok = strtok_s(pathEnv, ";", &ctx);
-                while (tok) {
-                    std::string dir(tok);
-                    std::string testExe = dir + "\\python.exe";
-                    DWORD attr = GetFileAttributesA(testExe.c_str());
-                    if (attr != INVALID_FILE_ATTRIBUTES &&
-                        !(attr & FILE_ATTRIBUTE_DIRECTORY) &&
-                        IsValidPythonHome(dir)) {
-                        pythonHome = dir;
-                        dbgPrintf("[HOOK] Method 3: %s\n", pythonHome.c_str());
-                        break;
-                    }
-                    tok = strtok_s(nullptr, ";", &ctx);
-                }
-            }
-            free(pathEnv);
-        }
-    }
-
-    if (!pythonHome.empty()) {
-        g_pythonHomePath = pythonHome;
-        SetEnvironmentVariableA("PYTHONHOME", pythonHome.c_str());
-        std::string pyPath =
-            pythonHome + "\\Lib;" + pythonHome + "\\Lib\\site-packages";
-        SetEnvironmentVariableA("PYTHONPATH", pyPath.c_str());
-        dbgPrintf("[HOOK] PYTHONHOME=%s\n", pythonHome.c_str());
-        dbgPrintf("[HOOK] PYTHONPATH=%s\n", pyPath.c_str());
-    } else {
-        dbgPrintf("[HOOK] Could not auto-detect PYTHONHOME\n");
-    }
+    char pythonPath[MAX_PATH * 2];
+    _snprintf_s(pythonPath, sizeof(pythonPath), _TRUNCATE, "%s\\Lib;%s\\Lib\\site-packages",
+             pythonHome, pythonHome);
+    pythonPath[sizeof(pythonPath) - 1] = '\0';
+    SetEnvironmentVariableA("PYTHONPATH", pythonPath);
+    dbgPrintf("[HOOK] Set PYTHONPATH=%s\n", pythonPath);
+  } else {
+    dbgPrintf("[HOOK] Could not auto-detect PYTHONHOME\n");
+  }
 }
 
-// ─── Open log file ────────────────────────────────────────────────────────────
-static std::string SetupLog() {
-    const char *logDir =
-        "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps";
-    CreateDirectoryA(logDir, nullptr);
+static bool SetupStdoutStderrToLog(char *outLogPath) {
+  const char *baseDir = "C:\\ProgramData\\HydraDragonAntivirus";
+  const char *logDir = "C:\\ProgramData\\HydraDragonAntivirus\\python_dumps";
+  char logPath[MAX_PATH];
 
-    if (InterlockedCompareExchange(&g_logCSState, 1, 0) == 0) {
-        InitializeCriticalSection(&g_logCS);
-    }
+  EnsureDirectoryExists(baseDir);
+  EnsureDirectoryExists(logDir);
 
-    std::string logPath = std::string(logDir) + "\\hook_dll.log";
-    FILE *f = nullptr;
-    fopen_s(&f, logPath.c_str(), "a");
-    if (f) {
-        setvbuf(f, nullptr, _IOLBF, 0);
-        g_logFile = f;
-    }
-    dbgPrintf("[HOOK] Log: %s\n", logPath.c_str());
-    return logPath;
+  _snprintf_s(logPath, MAX_PATH, _TRUNCATE, "%s\\hook_dll.log", logDir);
+  logPath[MAX_PATH - 1] = '\0';
+
+  if (g_logFile) {
+    fclose(g_logFile);
+    g_logFile = NULL;
+  }
+
+  errno_t openErr = fopen_s(&g_logFile, logPath, "a");
+  if (openErr != 0 || !g_logFile) {
+    dbgPrintf("[HOOK] ERROR: fopen_s failed for %s (errno=%d)\n", logPath,
+              (int)openErr);
+    return false;
+  }
+
+  setvbuf(g_logFile, NULL, _IOLBF, 0);
+
+  // Don't redirect stdout/stderr via freopen - can cause crashes
+  // Let Python handle its own redirection
+
+  if (outLogPath) {
+    strncpy_s(outLogPath, MAX_PATH, logPath, _TRUNCATE);
+    outLogPath[MAX_PATH - 1] = '\0';
+  }
+
+  dbgPrintf("[HOOK] Log file: %s\n", logPath);
+  return true;
 }
 
-// ─── Replace backslashes with forward slashes ─────────────────────────────────
-static std::string ToFwdSlash(std::string s) {
-    for (char &c : s) if (c == '\\') c = '/';
-    return s;
-}
+DWORD WINAPI hookImpl(LPVOID lpParam) {
+  UNREFERENCED_PARAMETER(lpParam);
 
-// ─── Python C-API typedefs ────────────────────────────────────────────────────
-using PyGILState_STATE     = int;
-using PyImportModuleFunc   = void *(*)(const char *);
-using Py_DecRefFunc        = void  (*)(void *);
-using PyGILState_EnsureT   = PyGILState_STATE (*)();
-using PyGILState_ReleaseT  = void  (*)(PyGILState_STATE);
-using PyErr_PrintFunc      = void  (*)();
-using PyRun_SimpleStrFunc  = int   (*)(const char *);
-using Py_IsInitializedFunc = int   (*)();
+  // Initialize logging critical section
+  if (!g_logCSInitialized) {
+    InitializeCriticalSection(&g_logCS);
+    g_logCSInitialized = true;
+  }
 
-static bool StopRequested() {
-    return InterlockedCompareExchange(&g_stopRequested, 0, 0) != 0 ||
-           (g_shutdownEvent && WaitForSingleObject(g_shutdownEvent, 0) == WAIT_OBJECT_0);
-}
+  char logPathBuf[MAX_PATH] = {0};
+  SetupStdoutStderrToLog(logPathBuf);
 
-// ─── Main hook thread ─────────────────────────────────────────────────────────
-static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID) {
-    AutoSetPythonHome();
-    if (StopRequested()) { dbgPrintf("[HOOK] Stop requested before init\n"); return 1; }
+  try {
     CheckForProtection();
-    std::string logPath = SetupLog();
-    if (StopRequested()) { dbgPrintf("[HOOK] Stop requested after log setup\n"); return 1; }
+    AutoSetPythonHome();
 
-    // ── Locate python3x.dll ───────────────────────────────────────────────────
-    std::string dllName;
-    HMODULE hPyDll = GetModuleHandleA("python3.dll");
-    if (hPyDll) {
-        dllName = "python3.dll";
-        dbgPrintf("[HOOK] Found python3.dll\n");
-    } else {
-        char buf[32];
-        for (int i = 99; i >= 0; --i) {
-            snprintf(buf, sizeof(buf), "python3%d.dll", i);
-            hPyDll = GetModuleHandleA(buf);
-            if (hPyDll) {
-                dllName = buf;
-                dbgPrintf("[HOOK] Found %s\n", buf);
-                break;
-            }
-        }
+    char dllName[64];
+  HMODULE hPyDll = nullptr;
+
+  hPyDll = GetModuleHandleA("python3.dll");
+  if (hPyDll) {
+    strncpy_s(dllName, sizeof(dllName), "python3.dll", _TRUNCATE);
+    dbgPrintf("[HOOK] Found python3.dll\n");
+  } else {
+    for (int i = 13; i >= 6; i--) {
+      _snprintf_s(dllName, sizeof(dllName), _TRUNCATE, "python3%d.dll", i);
+      dllName[sizeof(dllName) - 1] = '\0';
+      hPyDll = GetModuleHandleA(dllName);
+      if (hPyDll) {
+        dbgPrintf("[HOOK] Found %s\n", dllName);
+        break;
+      }
     }
-    if (!hPyDll) { dbgPrintf("[HOOK] ERROR: No python3x.dll\n"); return 1; }
-    if (StopRequested()) { dbgPrintf("[HOOK] Stop requested before C-API resolve\n"); return 1; }
+  }
 
-    // ── Resolve Python C-API ──────────────────────────────────────────────────
-    auto PyImport_ImportModule =
-        reinterpret_cast<PyImportModuleFunc> (GetProcAddress(hPyDll, "PyImport_ImportModule"));
-    auto Py_DecRef =
-        reinterpret_cast<Py_DecRefFunc>      (GetProcAddress(hPyDll, "Py_DecRef"));
-    auto PyGILState_Ensure =
-        reinterpret_cast<PyGILState_EnsureT> (GetProcAddress(hPyDll, "PyGILState_Ensure"));
-    auto PyGILState_Release =
-        reinterpret_cast<PyGILState_ReleaseT>(GetProcAddress(hPyDll, "PyGILState_Release"));
-    auto PyErr_Print =
-        reinterpret_cast<PyErr_PrintFunc>    (GetProcAddress(hPyDll, "PyErr_Print"));
-    auto PyRun_SimpleString =
-        reinterpret_cast<PyRun_SimpleStrFunc>(GetProcAddress(hPyDll, "PyRun_SimpleString"));
-    auto Py_IsInitialized =
-        reinterpret_cast<Py_IsInitializedFunc>(GetProcAddress(hPyDll, "Py_IsInitialized"));
-
-    if (!PyImport_ImportModule || !PyGILState_Ensure || !PyGILState_Release) {
-        dbgPrintf("[HOOK] ERROR: missing C-API symbols\n"); return 1;
-    }
-
-    // ── Wait for Python to initialize ─────────────────────────────────────────
-    if (Py_IsInitialized) {
-        int waited = 0;
-        while (!Py_IsInitialized() && waited < 10000) { Sleep(50); waited += 50; }
-        if (!Py_IsInitialized()) {
-            dbgPrintf("[HOOK] ERROR: Python not initialized after 10s\n"); return 1;
-        }
-        dbgPrintf("[HOOK] Python ready (waited %dms)\n", waited);
-    }
-
-    if (StopRequested()) { dbgPrintf("[HOOK] Stop requested before GIL\n"); return 1; }
-    PyGILState_STATE gil = PyGILState_Ensure();
-
-    // ── Python setup: fix sys.path, redirect I/O ──────────────────────────────
-    if (PyRun_SimpleString) {
-        std::string pyLog  = ToFwdSlash(logPath);
-        std::string pyHome = ToFwdSlash(g_pythonHomePath);
-
-        std::string cmd =
-            "import sys, os\n"
-            "try:\n"
-            "    f = open(r'" + pyLog + "', 'a', buffering=1, encoding='utf-8')\n"
-            "    _orig_stdout, _orig_stderr = sys.stdout, sys.stderr\n"
-            "    sys.stdout = sys.stderr = f\n"
-            "    print('Python stdout/stderr redirected')\n"
-            "    print('sys.executable:', sys.executable)\n"
-            "    pythonhome = r'" + pyHome + "'\n"
-            "    if pythonhome and os.path.isdir(pythonhome):\n"
-            "        for sub in ('DLLs', 'Lib', os.path.join('Lib','site-packages')):\n"
-            "            d = os.path.join(pythonhome, sub)\n"
-            "            if os.path.isdir(d) and d not in sys.path:\n"
-            "                sys.path.insert(0, d)\n"
-            "                print('Added:', d)\n"
-            "                if 'DLLs' in d and d not in os.environ.get('PATH',''):\n"
-            "                    os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH','')\n"
-            "    for d in (os.getcwd(), os.path.dirname(sys.executable)):\n"
-            "        if d and d not in sys.path: sys.path.insert(0, d); print('Added:', d)\n"
-            "    env_hook = os.environ.get('HYDRA_HOOK_PATH')\n"
-            "    if env_hook and os.path.exists(env_hook) and env_hook not in sys.path:\n"
-            "        sys.path.insert(0, env_hook); print('Added env hook:', env_hook)\n"
-            "    for mod in ('_ctypes', 'concurrent.futures'):\n"
-            "        try: __import__(mod); print('OK:', mod)\n"
-            "        except ImportError as e: print('WARN:', mod, e)\n"
-            "    print('sys.path[:5]:', sys.path[:5])\n"
-            "    sys.stdout, sys.stderr = _orig_stdout, _orig_stderr\n"
-            "    f.close()\n"
-            "except Exception as e:\n"
-            "    import traceback; traceback.print_exc()\n";
-
-        int res = PyRun_SimpleString(cmd.c_str());
-        dbgPrintf("[HOOK] Setup: %d\n", res);
-        if (res != 0 && PyErr_Print) PyErr_Print();
-    }
-
-    // ── Standard import ───────────────────────────────────────────────────────
-    if (StopRequested()) { PyGILState_Release(gil); dbgPrintf("[HOOK] Stop requested before import\n"); return 1; }
-    void *hMod = PyImport_ImportModule(PYMODULE_NAME);
-    if (hMod) {
-        Py_DecRef(hMod);
-        PyGILState_Release(gil);
-        dbgPrintf("[HOOK] SUCCESS: imported %s\n", PYMODULE_NAME);
-        return 0;
-    }
-
-    // ── Fallback: explicit path from config ───────────────────────────────────
-    dbgPrintf("[HOOK] Standard import failed, trying config path\n");
-    std::string hookFilePath = GetHookFilePathFromConfig();
-
-    if (!hookFilePath.empty() && PyRun_SimpleString) {
-        dbgPrintf("[HOOK] Config path: %s\n", hookFilePath.c_str());
-
-        std::string hookDir = hookFilePath;
-        size_t sl = hookDir.rfind('\\');
-        if (sl != std::string::npos) hookDir.resize(sl);
-
-        std::string pyDir  = ToFwdSlash(hookDir);
-        std::string pyFile = ToFwdSlash(hookFilePath);
-
-        // Add directory to sys.path
-        std::string addCmd =
-            "import sys, os\n"
-            "try:\n"
-            "    d = os.path.abspath(r'" + pyDir + "')\n"
-            "    if d not in sys.path: sys.path.insert(0, d); print('Added:', d)\n"
-            "    hf = os.path.join(d, '__hook__.py')\n"
-            "    print('hook exists:', os.path.exists(hf))\n"
-            "    if not os.path.exists(hf):\n"
-            "        try:\n"
-            "            for x in os.listdir(d): print(' -', x)\n"
-            "        except: pass\n"
-            "except Exception as e:\n"
-            "    import traceback; traceback.print_exc()\n";
-
-        PyRun_SimpleString(addCmd.c_str());
-
-        void *hMod2 = PyImport_ImportModule(PYMODULE_NAME);
-        if (hMod2) {
-            Py_DecRef(hMod2);
-            PyGILState_Release(gil);
-            dbgPrintf("[HOOK] SUCCESS: imported after path add\n");
-            return 0;
-        }
-        if (PyErr_Print) PyErr_Print();
-
-        // Last resort: exec the file
-        std::string execCmd =
-            "import sys, os\n"
-            "path = r'" + pyFile + "'\n"
-            "print('Direct exec:', path, 'exists:', os.path.exists(path))\n"
-            "if os.path.exists(path):\n"
-            "    with open(path,'r',encoding='utf-8') as f: src=f.read()\n"
-            "    exec(compile(src, path, 'exec'), {'__name__':'" + std::string(PYMODULE_NAME) + "',"
-            "        '__file__':path,'__package__':None,'__builtins__':__builtins__})\n"
-            "    print('Direct exec done')\n"
-            "else:\n"
-            "    raise FileNotFoundError('not found: '+path)\n";
-
-        int r = PyRun_SimpleString(execCmd.c_str());
-        dbgPrintf("[HOOK] Direct exec: %d\n", r);
-        if (r == 0) {
-            PyGILState_Release(gil);
-            dbgPrintf("[HOOK] SUCCESS: hook ran via direct exec\n");
-            return 0;
-        }
-        if (PyErr_Print) PyErr_Print();
-    } else {
-        dbgPrintf("[HOOK] No config path found\n");
-    }
-
-    if (PyErr_Print) PyErr_Print();
-    PyGILState_Release(gil);
-    dbgPrintf("[HOOK] ERROR: All import methods failed\n");
+  if (!hPyDll) {
+    dbgPrintf("[HOOK] ERROR: No python3x.dll found\n");
     return 1;
+  }
+
+  typedef void *(*PyImportModuleFunc)(const char *);
+  typedef void (*Py_DecRefFunc)(void *);
+  typedef int (*PyGILState_EnsureFunc)();
+  typedef void (*PyGILState_ReleaseFunc)(int);
+  typedef void (*PyErr_PrintFunc)();
+  typedef int (*PyRun_SimpleStringFunc)(const char *);
+
+  auto PyImport_ImportModule =
+      (PyImportModuleFunc)GetProcAddress(hPyDll, "PyImport_ImportModule");
+  auto Py_DecRef = (Py_DecRefFunc)GetProcAddress(hPyDll, "Py_DecRef");
+  auto PyGILState_Ensure =
+      (PyGILState_EnsureFunc)GetProcAddress(hPyDll, "PyGILState_Ensure");
+  auto PyGILState_Release =
+      (PyGILState_ReleaseFunc)GetProcAddress(hPyDll, "PyGILState_Release");
+  auto PyErr_Print = (PyErr_PrintFunc)GetProcAddress(hPyDll, "PyErr_Print");
+  auto PyRun_SimpleString =
+      (PyRun_SimpleStringFunc)GetProcAddress(hPyDll, "PyRun_SimpleString");
+
+  if (!PyImport_ImportModule || !PyGILState_Ensure || !PyGILState_Release) {
+    dbgPrintf("[HOOK] ERROR: Cannot load Python C-API functions\n");
+    return 1;
+  }
+
+  int gilState = PyGILState_Ensure();
+
+  // CRITICAL FIX: Allocate larger buffer for Python setup code
+  char *pycmd = (char *)malloc(16384);
+  if (!pycmd) {
+    dbgPrintf("[HOOK] ERROR: Memory allocation failed for Python setup command\n");
+    PyGILState_Release(gilState);
+    return 1;
+  }
+
+  if (PyRun_SimpleString) {
+    char pyLogPath[MAX_PATH];
+    strncpy_s(pyLogPath, sizeof(pyLogPath), logPathBuf, _TRUNCATE);
+    pyLogPath[sizeof(pyLogPath) - 1] = '\0';
+
+    for (char *p = pyLogPath; *p; ++p) {
+      if (*p == '\\') *p = '/';
+    }
+
+    char pyHomePath[MAX_PATH];
+    strncpy_s(pyHomePath, sizeof(pyHomePath), g_pythonHomePath, _TRUNCATE);
+    pyHomePath[sizeof(pyHomePath) - 1] = '\0';
+    for (char *p = pyHomePath; *p; ++p) {
+      if (*p == '\\') *p = '/';
+    }
+
+    // Safely build Python setup command
+    int written = _snprintf_s(
+        pycmd, 16384,
+        _TRUNCATE,
+        "import sys, os\n"
+        "try:\n"
+        "    f = open(r'%s', 'a', buffering=1, encoding='utf-8')\n"
+        "    sys.stdout = f\n"
+        "    sys.stderr = f\n"
+        "    print('Python stdout/stderr redirected')\n"
+        "    print('sys.executable:', sys.executable)\n"
+        "    print('sys.prefix:', sys.prefix)\n"
+        "    pythonhome = r'%s'\n"
+        "    print('Detected PYTHONHOME:', pythonhome)\n"
+        "    \n"
+        "    # CRITICAL: Add DLLs directory for compiled extensions like _ctypes\n"
+        "    if pythonhome and os.path.isdir(pythonhome):\n"
+        "        dlls_dir = os.path.join(pythonhome, 'DLLs')\n"
+        "        lib_dir = os.path.join(pythonhome, 'Lib')\n"
+        "        site_packages = os.path.join(lib_dir, 'site-packages')\n"
+        "        \n"
+        "        # Add DLLs first (contains _ctypes.pyd, etc.)\n"
+        "        if os.path.isdir(dlls_dir) and dlls_dir not in sys.path:\n"
+        "            sys.path.insert(0, dlls_dir)\n"
+        "            print('Added DLLs directory:', dlls_dir)\n"
+        "            # Also add to PATH for DLL loading\n"
+        "            if dlls_dir not in os.environ.get('PATH', ''):\n"
+        "                os.environ['PATH'] = dlls_dir + os.pathsep + os.environ.get('PATH', '')\n"
+        "                print('Added DLLs to PATH')\n"
+        "        \n"
+        "        if os.path.isdir(lib_dir) and lib_dir not in sys.path:\n"
+        "            sys.path.insert(0, lib_dir)\n"
+        "            print('Added Lib directory:', lib_dir)\n"
+        "        \n"
+        "        if os.path.isdir(site_packages) and site_packages not in sys.path:\n"
+        "            sys.path.insert(0, site_packages)\n"
+        "            print('Added site-packages:', site_packages)\n"
+        "    \n"
+        "    # Add current working directory and executable directory\n"
+        "    cwd = os.getcwd()\n"
+        "    exe_dir = os.path.dirname(sys.executable)\n"
+        "    if cwd not in sys.path: \n"
+        "        sys.path.insert(0, cwd)\n"
+        "        print('Added CWD:', cwd)\n"
+        "    if exe_dir not in sys.path: \n"
+        "        sys.path.insert(0, exe_dir)\n"
+        "        print('Added exe dir:', exe_dir)\n"
+        "    \n"
+        "    # Add global hook path from environment\n"
+        "    env_hook = os.environ.get('HYDRA_HOOK_PATH')\n"
+        "    if env_hook and os.path.exists(env_hook) and env_hook not in sys.path:\n"
+        "        sys.path.insert(0, env_hook)\n"
+        "        print('Added env hook path:', env_hook)\n"
+        "    \n"
+        "    # Test if _ctypes is now available\n"
+        "    try:\n"
+        "        import _ctypes\n"
+        "        print('SUCCESS: _ctypes is available')\n"
+        "    except ImportError as e:\n"
+        "        print('WARNING: _ctypes still not available:', e)\n"
+        "        print('This will cause ctypes imports to fail')\n"
+        "    \n"
+        "    # Test concurrent.futures\n"
+        "    try:\n"
+        "        import concurrent.futures\n"
+        "        print('SUCCESS: concurrent.futures available')\n"
+        "    except ImportError as e:\n"
+        "        print('ERROR: concurrent.futures not available:', e)\n"
+        "    \n"
+        "    print('Final sys.path:', sys.path[:5], '...')\n"
+        "except Exception as e:\n"
+        "    print('Setup error:', e)\n"
+        "    import traceback\n"
+        "    traceback.print_exc()\n",
+        pyLogPath, pyHomePath);
+
+    if (written < 0) {
+      dbgPrintf("[HOOK] WARNING: Python setup command truncated!\n");
+    }
+
+    int res = PyRun_SimpleString(pycmd);
+    dbgPrintf("[HOOK] Setup returned: %d\n", res);
+    
+    if (res != 0 && PyErr_Print) {
+      PyErr_Print();
+    }
+  }
+
+  free(pycmd);
+
+  // Try importing hook module
+  void *hook_module = PyImport_ImportModule(PYMODULE_NAME);
+
+  if (hook_module) {
+    Py_DecRef(hook_module);
+    PyGILState_Release(gilState);
+    dbgPrintf("[HOOK] Successfully imported %s\n", PYMODULE_NAME);
+    return 0;
+  }
+
+  // Fallback: explicit file execution
+  dbgPrintf("[HOOK] Standard import failed, trying explicit execution\n");
+
+  char hookFilePath[MAX_PATH];
+  if (GetHookFilePathFromConfig(hookFilePath, MAX_PATH)) {
+    dbgPrintf("[HOOK] Explicit hook path: %s\n", hookFilePath);
+
+    // Extract directory from hook file path and add to sys.path
+    char hookDir[MAX_PATH];
+    strncpy_s(hookDir, MAX_PATH, hookFilePath, _TRUNCATE);
+    hookDir[MAX_PATH - 1] = '\0';
+    PathRemoveFileSpecA(hookDir); // Get directory only
+
+    // Convert backslashes for Python
+    char pyHookPath[MAX_PATH];
+    strncpy_s(pyHookPath, MAX_PATH, hookFilePath, _TRUNCATE);
+    pyHookPath[MAX_PATH - 1] = '\0';
+    for (char *p = pyHookPath; *p; ++p) 
+      if (*p == '\\') *p = '/';
+
+    char pyHookDir[MAX_PATH];
+    strncpy_s(pyHookDir, MAX_PATH, hookDir, _TRUNCATE);
+    pyHookDir[MAX_PATH - 1] = '\0';
+    for (char *p = pyHookDir; *p; ++p) 
+      if (*p == '\\') *p = '/';
+
+    // CRITICAL FIX: Add hook directory to sys.path BEFORE importing
+    char *addPathCmd = (char *)malloc(8192);
+    if (addPathCmd) {
+      _snprintf_s(addPathCmd, 8192, _TRUNCATE,
+               "import sys, os\n"
+               "try:\n"
+               "    hook_dir = r'%s'\n"
+               "    print('Target hook directory:', hook_dir)\n"
+               "    print('Directory exists:', os.path.exists(hook_dir))\n"
+               "    \n"
+               "    # Normalize path\n"
+               "    hook_dir = os.path.abspath(hook_dir)\n"
+               "    print('Normalized hook directory:', hook_dir)\n"
+               "    \n"
+               "    if hook_dir not in sys.path:\n"
+               "        sys.path.insert(0, hook_dir)\n"
+               "        print('Added to sys.path')\n"
+               "    else:\n"
+               "        print('Already in sys.path')\n"
+               "    \n"
+               "    print('Current sys.path:', sys.path)\n"
+               "    \n"
+               "    # Verify hook file exists\n"
+               "    hook_file = os.path.join(hook_dir, '__hook__.py')\n"
+               "    print('Looking for:', hook_file)\n"
+               "    print('Hook file exists:', os.path.exists(hook_file))\n"
+               "    \n"
+               "    if os.path.exists(hook_file):\n"
+               "        print('Hook file found and accessible')\n"
+               "    else:\n"
+               "        print('ERROR: Hook file not found at expected location')\n"
+               "        print('Contents of hook dir:')\n"
+               "        try:\n"
+               "            for item in os.listdir(hook_dir):\n"
+               "                print('  -', item)\n"
+               "        except Exception as e:\n"
+               "            print('Cannot list directory:', e)\n"
+               "except Exception as e:\n"
+               "    print('ERROR in path addition:', type(e).__name__, str(e))\n"
+               "    import traceback\n"
+               "    traceback.print_exc()\n",
+               pyHookDir);
+      
+      int pathRes = PyRun_SimpleString(addPathCmd);
+      dbgPrintf("[HOOK] Added hook dir to sys.path, result: %d\n", pathRes);
+      free(addPathCmd);
+      
+      // Now try importing again
+      if (pathRes == 0) {
+        void *hook_module_retry = PyImport_ImportModule(PYMODULE_NAME);
+        if (hook_module_retry) {
+          Py_DecRef(hook_module_retry);
+          PyGILState_Release(gilState);
+          dbgPrintf("[HOOK] Successfully imported %s after adding path\n", PYMODULE_NAME);
+          return 0;
+        } else {
+          dbgPrintf("[HOOK] Import still failed after adding path, checking error...\n");
+          if (PyErr_Print) PyErr_Print();
+        }
+      } else {
+        dbgPrintf("[HOOK] Path addition returned error code, checking Python error...\n");
+        if (PyErr_Print) PyErr_Print();
+      }
+    }
+
+    // If import still fails, try direct execution with proper globals
+    char *execCmd = (char *)malloc(16384);
+    if (execCmd) {
+      int written = _snprintf_s(execCmd, 16384, _TRUNCATE,
+               "import sys, os\n"
+               "print('\\n=== Direct Execution of Hook File ===')\n"
+               "path = r'%s'\n"
+               "print('Target:', path)\n"
+               "print('Path exists:', os.path.exists(path))\n"
+               "print('Path is absolute:', os.path.isabs(path))\n"
+               "print('Current working directory:', os.getcwd())\n"
+               "\n"
+               "if os.path.exists(path):\n"
+               "    try:\n"
+               "        # Verify file is readable\n"
+               "        with open(path, 'r', encoding='utf-8') as f:\n"
+               "            code_str = f.read()\n"
+               "        print('Successfully read', len(code_str), 'bytes from hook file')\n"
+               "        \n"
+               "        # Set up proper module context\n"
+               "        hook_globals = {\n"
+               "            '__name__': '%s',\n"
+               "            '__file__': path,\n"
+               "            '__package__': None,\n"
+               "            '__builtins__': __builtins__,\n"
+               "        }\n"
+               "        \n"
+               "        # Compile and execute\n"
+               "        code_obj = compile(code_str, path, 'exec')\n"
+               "        exec(code_obj, hook_globals)\n"
+               "        print('=== Hook Execution Completed Successfully ===')\n"
+               "    except SyntaxError as e:\n"
+               "        print('\\n=== SYNTAX ERROR IN HOOK FILE ===')\n"
+               "        print('Line', e.lineno, ':', e.msg)\n"
+               "        print('Text:', e.text)\n"
+               "        import traceback\n"
+               "        traceback.print_exc()\n"
+               "        raise\n"
+               "    except Exception as e:\n"
+               "        print('\\n=== HOOK EXECUTION ERROR ===')\n"
+               "        print('Error type:', type(e).__name__)\n"
+               "        print('Error message:', str(e))\n"
+               "        import traceback\n"
+               "        traceback.print_exc()\n"
+               "        print('=== END ERROR ===')\n"
+               "        raise\n"
+               "else:\n"
+               "    print('\\n=== ERROR: HOOK FILE NOT FOUND ===')\n"
+               "    print('Searched for:', path)\n"
+               "    \n"
+               "    # Try to find it\n"
+               "    hook_dir = os.path.dirname(path)\n"
+               "    hook_name = os.path.basename(path)\n"
+               "    print('Hook directory:', hook_dir)\n"
+               "    print('Hook filename:', hook_name)\n"
+               "    \n"
+               "    if os.path.exists(hook_dir):\n"
+               "        print('Directory exists. Contents:')\n"
+               "        try:\n"
+               "            for item in os.listdir(hook_dir):\n"
+               "                print('  -', item)\n"
+               "        except Exception as e:\n"
+               "            print('Cannot list directory:', e)\n"
+               "    else:\n"
+               "        print('ERROR: Directory does not exist!')\n"
+               "    \n"
+               "    print('sys.path entries:')\n"
+               "    for p in sys.path:\n"
+               "        print('  -', p)\n"
+               "    \n"
+               "    raise FileNotFoundError(f'Hook file not found: {path}')\n", 
+               pyHookPath, PYMODULE_NAME);
+
+      if (written >= 0) {
+        dbgPrintf("[HOOK] Executing hook file directly...\n");
+        int execRes = PyRun_SimpleString(execCmd);
+        dbgPrintf("[HOOK] Direct execution returned: %d\n", execRes);
+        
+        if (execRes == 0) {
+          free(execCmd);
+          PyGILState_Release(gilState);
+          dbgPrintf("[HOOK] Hook executed successfully via direct exec\n");
+          return 0;
+        } else {
+          dbgPrintf("[HOOK] Direct execution failed with code: %d\n", execRes);
+          if (PyErr_Print) PyErr_Print();
+        }
+      } else {
+        dbgPrintf("[HOOK] ERROR: execCmd buffer too small (written=%d)\n", written);
+      }
+      free(execCmd);
+    }
+  } else {
+    dbgPrintf("[HOOK] No hook path found in config\n");
+  }
+
+  if (PyErr_Print) PyErr_Print();
+  PyGILState_Release(gilState);
+
+  dbgPrintf("[HOOK] Failed to import %s\n", PYMODULE_NAME);
+  return 1;
+  } catch (const std::bad_alloc &) {
+    dbgPrintf("[HOOK] ERROR: C++ exception: bad_alloc during hook startup\n");
+  } catch (const std::exception &ex) {
+    dbgPrintf("[HOOK] ERROR: C++ exception during hook startup: %s\n", ex.what());
+  } catch (...) {
+    dbgPrintf("[HOOK] ERROR: Unknown C++ exception during hook startup\n");
+  }
+
+  return ERROR_DLL_INIT_FAILED;
 }
 
-// ─── Worker lifecycle helpers ────────────────────────────────────────────────
 static void CleanupResources() {
-    FILE *f = g_logFile;
-    g_logFile = nullptr;
-    if (f) fclose(f);
+  if (g_workerThread) {
+    CloseHandle(g_workerThread);
+    g_workerThread = NULL;
+  }
+  g_workerThreadId = 0;
+  InterlockedExchange(&g_started, 0);
 
-    if (InterlockedCompareExchange(&g_logCSState, 2, 1) == 1) {
-        DeleteCriticalSection(&g_logCS);
-        InterlockedExchange(&g_logCSState, 0);
-    }
-
-    if (g_shutdownEvent) {
-        CloseHandle(g_shutdownEvent);
-        g_shutdownEvent = nullptr;
-    }
-
-    if (g_workerThread) {
-        CloseHandle(g_workerThread);
-        g_workerThread = nullptr;
-    }
-
-    g_workerThreadId = 0;
-    InterlockedExchange(&g_started, 0);
-    InterlockedExchange(&g_stopRequested, 0);
+  if (g_logCSInitialized) {
+    DeleteCriticalSection(&g_logCS);
+    g_logCSInitialized = false;
+  }
+  if (g_logFile) {
+    fclose(g_logFile);
+    g_logFile = NULL;
+  }
 }
 
 extern "C" __declspec(dllexport) DWORD WINAPI HydraStartHook() {
-    if (InterlockedCompareExchange(&g_unloading, 0, 0) != 0)
-        return ERROR_DLL_INIT_FAILED;
+  if (InterlockedCompareExchange(&g_unloading, 0, 0) != 0)
+    return ERROR_DLL_INIT_FAILED;
 
-    if (InterlockedCompareExchange(&g_started, 1, 0) != 0)
-        return ERROR_ALREADY_EXISTS;
+  if (InterlockedCompareExchange(&g_started, 1, 0) != 0)
+    return ERROR_ALREADY_EXISTS;
 
-    InterlockedExchange(&g_stopRequested, 0);
+  HANDLE hThread = CreateThread(nullptr, 0, hookImpl, nullptr, 0, &g_workerThreadId);
+  if (!hThread) {
+    InterlockedExchange(&g_started, 0);
+    return GetLastError();
+  }
 
-    if (!g_shutdownEvent) {
-        g_shutdownEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!g_shutdownEvent) {
-            InterlockedExchange(&g_started, 0);
-            return GetLastError();
-        }
-    } else {
-        ResetEvent(g_shutdownEvent);
-    }
-
-    HANDLE h = CreateThread(nullptr, 8u * 1024u * 1024u, hookImpl, nullptr, 0, &g_workerThreadId);
-    if (!h) {
-        DWORD err = GetLastError();
-        CleanupResources();
-        return err;
-    }
-
-    g_workerThread = h;
-    return ERROR_SUCCESS;
+  g_workerThread = hThread;
+  return ERROR_SUCCESS;
 }
 
 extern "C" __declspec(dllexport) DWORD WINAPI HydraStopHook(DWORD timeoutMs) {
-    InterlockedExchange(&g_stopRequested, 1);
+  if (g_workerThread) {
+    DWORD wr = WaitForSingleObject(g_workerThread, timeoutMs);
+    if (wr == WAIT_TIMEOUT)
+      return WAIT_TIMEOUT;
+  }
 
-    if (g_shutdownEvent)
-        SetEvent(g_shutdownEvent);
-
-    if (g_workerThread) {
-        DWORD wr = WaitForSingleObject(g_workerThread, timeoutMs);
-        if (wr == WAIT_TIMEOUT)
-            return WAIT_TIMEOUT;
-    }
-
-    CleanupResources();
-    return ERROR_SUCCESS;
+  CleanupResources();
+  return ERROR_SUCCESS;
 }
 
-// Optional helper for injectors/hosts that want one-call startup.
 extern "C" __declspec(dllexport) DWORD WINAPI HydraInitialize() {
-    return HydraStartHook();
+  return HydraStartHook();
 }
 
-// ─── DLL entry point ──────────────────────────────────────────────────────────
-BOOL WINAPI DllMain(HINSTANCE hinstDLL,
-                    DWORD     fdwReason,
-                    [[maybe_unused]] LPVOID lpvReserved) {
-    if (fdwReason == DLL_PROCESS_ATTACH) {
-        g_hInstance = hinstDLL;
-        DisableThreadLibraryCalls(hinstDLL);
-    } else if (fdwReason == DLL_PROCESS_DETACH) {
-        InterlockedExchange(&g_unloading, 1);
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+  UNREFERENCED_PARAMETER(lpvReserved);
 
-        // Best-effort only. Do not create threads, wait indefinitely, or call
-        // complex teardown here. The host should call HydraStopHook() before unload.
-        if (g_shutdownEvent)
-            SetEvent(g_shutdownEvent);
-    }
-    return TRUE;
+  if (fdwReason == DLL_PROCESS_ATTACH) {
+    g_hInstance = hinstDLL;
+    DisableThreadLibraryCalls(hinstDLL);
+  } else if (fdwReason == DLL_PROCESS_DETACH) {
+    InterlockedExchange(&g_unloading, 1);
+  }
+  return TRUE;
 }
+
+
