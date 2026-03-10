@@ -295,42 +295,141 @@ static bool EnsureDirectoryExists(const char *path) {
   return GetLastError() == ERROR_ALREADY_EXISTS;
 }
 
-static void AutoSetPythonHome() {
-  char existing[MAX_PATH];
-  DWORD existingLen = GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH);
-  if (existingLen > 0 && existingLen < MAX_PATH) {
-    dbgPrintf("[HOOK] PYTHONHOME already set to: %s\n", existing);
-    strncpy_s(g_pythonHomePath, MAX_PATH, existing, _TRUNCATE);
-    g_pythonHomePath[MAX_PATH - 1] = '\0';
-    return;
-  }
+static bool FindPreferredPython312Home(char *outPath, size_t maxLen) {
+  if (!outPath || maxLen == 0)
+    return false;
 
-  char pythonHome[MAX_PATH];
-  bool found = false;
+  char candidate[MAX_PATH] = {0};
+  char localAppData[MAX_PATH] = {0};
 
-  // Method 0: Check current process
-  char currentExe[MAX_PATH];
-  DWORD currentExeLen = GetModuleFileNameA(NULL, currentExe, MAX_PATH);
-  if (currentExeLen > 0 && currentExeLen < MAX_PATH) {
-    const char *filename = strrchr(currentExe, '\\');
-    if (filename)
-      filename++;
-    else
-      filename = currentExe;
-
-    if (strcasecmp(filename, "python.exe") == 0 ||
-        strcasecmp(filename, "pythonw.exe") == 0) {
-      strncpy_s(pythonHome, MAX_PATH, currentExe, _TRUNCATE);
-      pythonHome[MAX_PATH - 1] = '\0';
-      PathRemoveFileSpecA(pythonHome);
-      found = true;
-      dbgPrintf("[HOOK] Using current python.exe dir: %s\n", pythonHome);
+  if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData))) {
+    _snprintf_s(candidate, MAX_PATH, _TRUNCATE,
+                "%s\\Programs\\Python\\Python312", localAppData);
+    candidate[MAX_PATH - 1] = '\0';
+    if (IsValidPythonHome(candidate, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Using preferred Python312 home: %s\n", outPath);
+      return true;
     }
   }
 
-  // Method 1: Find python.exe in processes
+  const char *fallbackCandidates[] = {
+      "C:\\Python312",
+      "C:\\Program Files\\Python312",
+      "C:\\Program Files (x86)\\Python312",
+  };
+
+  for (size_t i = 0; i < sizeof(fallbackCandidates) / sizeof(fallbackCandidates[0]); ++i) {
+    if (IsValidPythonHome(fallbackCandidates[i], outPath, maxLen)) {
+      dbgPrintf("[HOOK] Using preferred Python312 home: %s\n", outPath);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static bool FindLoadedPythonHome(char *outPath, size_t maxLen) {
+  if (!outPath || maxLen == 0)
+    return false;
+
+  const char *dllCandidates[] = {
+      "python313.dll", "python312.dll", "python311.dll", "python310.dll",
+      "python39.dll",  "python38.dll",  "python37.dll",  "python36.dll",
+      "python3.dll",
+  };
+
+  char modulePath[MAX_PATH] = {0};
+  char homePath[MAX_PATH] = {0};
+  char parentPath[MAX_PATH] = {0};
+
+  for (size_t i = 0; i < sizeof(dllCandidates) / sizeof(dllCandidates[0]); ++i) {
+    HMODULE hPy = GetModuleHandleA(dllCandidates[i]);
+    if (!hPy)
+      continue;
+
+    DWORD moduleLen = GetModuleFileNameA(hPy, modulePath, MAX_PATH);
+    if (moduleLen == 0 || moduleLen >= MAX_PATH)
+      continue;
+
+    strncpy_s(homePath, MAX_PATH, modulePath, _TRUNCATE);
+    homePath[MAX_PATH - 1] = '\0';
+    PathRemoveFileSpecA(homePath);
+
+    if (IsValidPythonHome(homePath, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Using loaded %s dir: %s\n", dllCandidates[i], outPath);
+      return true;
+    }
+
+    strncpy_s(parentPath, MAX_PATH, homePath, _TRUNCATE);
+    parentPath[MAX_PATH - 1] = '\0';
+    if (PathRemoveFileSpecA(parentPath) &&
+        IsValidPythonHome(parentPath, outPath, maxLen)) {
+      dbgPrintf("[HOOK] Using parent of loaded %s dir: %s\n", dllCandidates[i],
+                outPath);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void AutoSetPythonHome() {
+  char pythonHome[MAX_PATH] = {0};
+  bool found = false;
+
+  // Method 0: Prefer HydraDragonAntivirus's Python 3.12 install.
+  if (FindPreferredPython312Home(pythonHome, MAX_PATH))
+    found = true;
+
+  // Method 1: Use the current executable's Python home when available.
   if (!found) {
-    char pythonExe[MAX_PATH];
+    char currentExe[MAX_PATH] = {0};
+    DWORD currentExeLen = GetModuleFileNameA(NULL, currentExe, MAX_PATH);
+    if (currentExeLen > 0 && currentExeLen < MAX_PATH) {
+      const char *filename = strrchr(currentExe, '\\');
+      if (filename)
+        filename++;
+      else
+        filename = currentExe;
+
+      if (strcasecmp(filename, "python.exe") == 0 ||
+          strcasecmp(filename, "pythonw.exe") == 0) {
+        strncpy_s(pythonHome, MAX_PATH, currentExe, _TRUNCATE);
+        pythonHome[MAX_PATH - 1] = '\0';
+        PathRemoveFileSpecA(pythonHome);
+        if (IsValidPythonHome(pythonHome, NULL, 0)) {
+          found = true;
+          dbgPrintf("[HOOK] Using current python.exe dir: %s\n", pythonHome);
+        }
+      }
+    }
+  }
+
+  // Method 2: Prefer the Python runtime already loaded in this process.
+  if (!found && FindLoadedPythonHome(pythonHome, MAX_PATH))
+    found = true;
+
+  // Method 3: Use PYTHONHOME only when it still points to a valid install.
+  if (!found) {
+    char existing[MAX_PATH] = {0};
+    DWORD existingLen = GetEnvironmentVariableA("PYTHONHOME", existing, MAX_PATH);
+    if (existingLen > 0 && existingLen < MAX_PATH) {
+      if (IsValidPythonHome(existing, NULL, 0)) {
+        dbgPrintf("[HOOK] PYTHONHOME already set to: %s\n", existing);
+        strncpy_s(pythonHome, MAX_PATH, existing, _TRUNCATE);
+        pythonHome[MAX_PATH - 1] = '\0';
+        found = true;
+      } else {
+        dbgPrintf("[HOOK] Ignoring invalid PYTHONHOME: %s\n", existing);
+      }
+    } else if (existingLen >= MAX_PATH) {
+      dbgPrintf("[HOOK] Ignoring PYTHONHOME because it exceeds MAX_PATH\n");
+    }
+  }
+
+  // Method 4: Find python.exe in other processes.
+  if (!found) {
+    char pythonExe[MAX_PATH] = {0};
     if (FindPythonExePath(pythonExe, MAX_PATH)) {
       strncpy_s(pythonHome, MAX_PATH, pythonExe, _TRUNCATE);
       pythonHome[MAX_PATH - 1] = '\0';
@@ -340,18 +439,18 @@ static void AutoSetPythonHome() {
     }
   }
 
-  // Method 2: Check common paths
+  // Method 5: Check common installation paths.
   if (!found)
     found = FindPythonInstallation(pythonHome, MAX_PATH);
-  
-  // Method 3: Check PATH environment - FIXED strtok issue
+
+  // Method 6: Check PATH environment.
   if (!found) {
     char *pathEnv = (char *)malloc(32768);
     if (pathEnv) {
       DWORD pathLen = GetEnvironmentVariableA("PATH", pathEnv, 32768);
       if (pathLen > 0 && pathLen < 32768) {
         char *context = NULL;
-        char *token = strtok_s(pathEnv, ";", &context); // Use strtok_s for safety
+        char *token = strtok_s(pathEnv, ";", &context);
         while (token != NULL) {
           char testExe[MAX_PATH];
           _snprintf_s(testExe, MAX_PATH, _TRUNCATE, "%s\\python.exe", token);
@@ -380,8 +479,8 @@ static void AutoSetPythonHome() {
     dbgPrintf("[HOOK] Set PYTHONHOME=%s\n", pythonHome);
 
     char pythonPath[MAX_PATH * 2];
-    _snprintf_s(pythonPath, sizeof(pythonPath), _TRUNCATE, "%s\\Lib;%s\\Lib\\site-packages",
-             pythonHome, pythonHome);
+    _snprintf_s(pythonPath, sizeof(pythonPath), _TRUNCATE,
+                "%s\\Lib;%s\\Lib\\site-packages", pythonHome, pythonHome);
     pythonPath[sizeof(pythonPath) - 1] = '\0';
     SetEnvironmentVariableA("PYTHONPATH", pythonPath);
     dbgPrintf("[HOOK] Set PYTHONPATH=%s\n", pythonPath);
@@ -906,6 +1005,8 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
   }
   return TRUE;
 }
+
+
 
 
 
