@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
+import threading
 
 # Get the directory where this script is located
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +11,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-print(f"[HOOK] Bootstrap complete. Path added: {current_dir}")
+# NOTE: do NOT print here — stdout may be the host app's pipe/GUI.
+# All output goes to the log file opened inside _hook_worker().
 
 import importlib.util
 import inspect
@@ -20,7 +22,9 @@ from pathlib import Path
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-sys.setrecursionlimit(15000)
+# Do NOT call sys.setrecursionlimit at module level — it would permanently
+# alter the host process's recursion limit on the main thread before our
+# worker even starts.  It is set inside _hook_worker() instead.
 MAX_WORKER_THREADS = 64
 
 # =============================================================================
@@ -32,18 +36,16 @@ class BytecodeDecompiler:
     
     @staticmethod
     def decompile_code(code_obj):
-        if not code_obj or not hasattr(code_obj, 'co_code'):
+        if not code_obj:
             return "    pass  # No bytecode found"
-        
-        # Check if this is compiled/Nuitka code (empty or minimal bytecode)
-        if len(code_obj.co_code) < 4:
-            return BytecodeDecompiler.extract_compiled_metadata(code_obj)
-        
+
+        # Use dis.get_instructions() as the sole probe — co_code was removed
+        # as a public attribute in Python 3.12 and must not be accessed directly.
         lines = []
         try:
             instructions = list(dis.get_instructions(code_obj))
-            
-            # If very few instructions, it's likely compiled
+
+            # If very few instructions, it's likely compiled/empty
             if len(instructions) < 3:
                 return BytecodeDecompiler.extract_compiled_metadata(code_obj)
             
@@ -674,138 +676,114 @@ def get_next_dump_path(base_dir):
 # MAIN EXECUTION
 # =============================================================================
 def run_decompiler():
-    # Use incremental path instead of timestamp
+    # Set recursion limit only for this worker thread — does not affect the
+    # host process's main thread.
+    sys.setrecursionlimit(15000)
+
     backup_dir = get_next_dump_path("C:\\ProgramData\\HydraDragonAntivirus\\python_dumps")
-    
-    # Debug log file with UTF-8 encoding
-    log_file = open(os.path.join(os.environ.get('TEMP', '/tmp'), "decompiler_debug.txt"), "w", encoding='utf-8', errors='replace')
+
+    # All output goes to a log file — never print() to stdout/stderr because
+    # those belong to the host process (could be a pipe, GUI widget, etc.).
+    log_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), "decompiler_debug.txt")
+    log_file = open(log_path, "w", encoding='utf-8', errors='replace')
     log_file.write(f"Starting decompilation\n")
     log_file.write(f"Target Dir: {backup_dir}\n")
 
-    # Create directories
-    for d in ["RECONSTRUCTED_SOURCE"]:
-        p = backup_dir / d
-        p.mkdir(parents=True, exist_ok=True)
-        log_file.write(f"Created: {p}\n")
-    
+    # Create output directories
+    (backup_dir / "RECONSTRUCTED_SOURCE").mkdir(parents=True, exist_ok=True)
+    log_file.write(f"Created: {backup_dir / 'RECONSTRUCTED_SOURCE'}\n")
+
     recon = ModuleReconstructor(backup_dir)
+    # Snapshot sys.modules immediately — the set changes as imports happen.
     targets = list(sys.modules.items())
     log_file.write(f"Found {len(targets)} modules\n")
-    
-    # Try to identify the real application entry point
+
+    # Identify the application entry point(s) for the report header —
+    # __main__ that isn't the hook itself, or any non-hook module.
     potential_mains = []
-    stdlib_names = {
-        'inspect', 'os', 'sys', 'io', 're', 'collections', 'itertools', 'functools',
-        'types', 'typing', 'pathlib', 'json', 'pickle', 'struct', 'enum', 'abc',
-        'contextlib', 'warnings', 'weakref', 'copy', 'math', 'random', 'time',
-        'datetime', 'hashlib', 'hmac', 'secrets', 'uuid', 'base64', 'binascii',
-        'codecs', 'locale', 'gettext', 'string', 'textwrap', 'unicodedata',
-        'stringprep', 'difflib', 'pprint', 'reprlib', 'traceback', 'gc', 'sysconfig'
-    }
-    
     for name, mod in targets:
         if not mod or not hasattr(mod, '__file__') or not mod.__file__:
             continue
         file_path = mod.__file__
-        
-        # __main__ is the primary entry point (if it's not the hook)
-        if name == '__main__':
-            if '__hook__' not in file_path and 'hook_backend' not in file_path:
-                potential_mains.append((name, file_path))
-        # Skip known stdlib modules even if bundled by Nuitka
-        elif name in stdlib_names or name.split('.')[0] in stdlib_names:
+        if '__hook__' in file_path or 'hook_backend' in file_path:
             continue
-        # Look for other non-stdlib, non-site-packages modules
-        elif ('site-packages' not in file_path and 
-              'lib\\python' not in file_path and 
-              'lib/python' not in file_path and
-              '__hook__' not in file_path and
-              file_path.endswith('.py')):
-            potential_mains.append((name, file_path))
-    
+        potential_mains.append((name, file_path))
+
     if potential_mains:
-        log_file.write(f"\n[INFO] Potential application modules found:\n")
+        log_file.write(f"\n[INFO] Modules found in process:\n")
         for name, path in potential_mains:
             log_file.write(f"  - {name}: {path}\n")
         log_file.write("\n")
 
     processed_count = 0
     error_count = 0
-    compiled_count = 0
-    
+
     for name, mod in targets:
-        if not mod or name in sys.builtin_module_names: 
+        # Skip null entries
+        if not mod:
             continue
-        if name == '__hook__': 
+
+        # Only skip __hook__ itself — decompile everything else including stdlib
+        if name == '__hook__':
             continue
-        
-        # Skip __main__ if it's the hook script itself
+
+        # Skip __main__ only if it literally IS the hook script
         if name == '__main__':
             try:
                 if hasattr(mod, '__file__') and mod.__file__:
-                    # Check if __main__ is this hook script
                     if '__hook__' in mod.__file__ or 'hook_backend' in mod.__file__:
-                        log_file.write(f"[SKIP] Skipping __main__ (is hook script): {mod.__file__}\n")
+                        log_file.write(f"[SKIP] __main__ is the hook script: {mod.__file__}\n")
                         continue
-            except:
+            except Exception:
                 pass
-        
+
+        # is_potential_main: mark __main__ and any non-hook module that has a file
+        is_potential_main = False
+        if hasattr(mod, '__file__') and mod.__file__:
+            file_path = mod.__file__
+            if '__hook__' not in file_path and 'hook_backend' not in file_path:
+                is_potential_main = (name == '__main__')
+
         try:
-            # Check if this is a potential main application module
-            is_potential_main = False
-            if hasattr(mod, '__file__') and mod.__file__:
-                file_path = mod.__file__
-                
-                # Known stdlib modules list
-                stdlib_names = {
-                    'inspect', 'os', 'sys', 'io', 're', 'collections', 'itertools', 'functools',
-                    'types', 'typing', 'pathlib', 'json', 'pickle', 'struct', 'enum', 'abc',
-                    'contextlib', 'warnings', 'weakref', 'copy', 'math', 'random', 'time',
-                    'datetime', 'hashlib', 'hmac', 'secrets', 'uuid', 'base64', 'binascii',
-                    'codecs', 'locale', 'gettext', 'string', 'textwrap', 'unicodedata',
-                    'stringprep', 'difflib', 'pprint', 'reprlib', 'traceback', 'gc', 'sysconfig'
-                }
-                
-                # __main__ is the entry point (unless it's the hook script)
-                if name == '__main__':
-                    if '__hook__' not in file_path and 'hook_backend' not in file_path:
-                        is_potential_main = True
-                # Skip stdlib even if bundled by Nuitka
-                elif name in stdlib_names or name.split('.')[0] in stdlib_names:
-                    is_potential_main = False
-                # Also mark non-stdlib user modules
-                elif ('site-packages' not in file_path and 
-                      'lib\\python' not in file_path and 
-                      'lib/python' not in file_path and
-                      '__hook__' not in file_path and
-                      file_path.endswith('.py')):
-                    is_potential_main = True
-            
             recon.process_module(name, mod, is_potential_main)
             processed_count += 1
-            
-            # Track if this module had compiled code
-            if name == '__main__' or is_potential_main:
-                print(f"[INFO] Processed entry point: {name}")
-            
             log_file.write(f"[OK] Processed: {name}\n")
             log_file.flush()
         except Exception as e:
             error_count += 1
             log_file.write(f"[ERR] Error processing {name}: {str(e)}\n")
 
-    # Generate compiled modules report
     recon.generate_compiled_report()
 
-    log_file.write("\n" + "="*60 + "\n")
+    log_file.write("\n" + "=" * 60 + "\n")
     log_file.write("--- FINISHED ---\n")
     log_file.write(f"Output location: {backup_dir}\n")
     log_file.write(f"Processed: {processed_count} modules\n")
     log_file.write(f"Errors: {error_count}\n")
     log_file.write(f"Compiled code blocks: {len(recon.compiled_modules)}\n")
     log_file.close()
-    
-    print(f"[SUCCESS] Decompilation complete: {backup_dir}")
-    print(f"[STATS] Processed: {processed_count} | Errors: {error_count} | Compiled: {len(recon.compiled_modules)}")
-        
-run_decompiler()
+
+
+# =============================================================================
+# ENTRY POINT — runs in a daemon background thread so:
+#   1. The GIL is released immediately after import returns to the host process.
+#   2. The host process's main thread, watchdog, and GUI are never blocked.
+#   3. If the host exits normally the thread dies with it (daemon=True).
+# =============================================================================
+def _hook_worker():
+    try:
+        run_decompiler()
+    except Exception:
+        # Last-resort: write to a separate crash log so we never raise into
+        # the host process's thread.
+        try:
+            import traceback
+            crash_path = os.path.join(
+                os.environ.get('TEMP', 'C:\\Temp'), "hook_crash.txt")
+            with open(crash_path, "w", encoding='utf-8', errors='replace') as f:
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
+
+
+threading.Thread(target=_hook_worker, daemon=True, name="HydraDragonHook").start()
