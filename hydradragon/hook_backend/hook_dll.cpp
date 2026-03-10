@@ -378,7 +378,7 @@ static DWORD WINAPI hookImpl([[maybe_unused]] LPVOID lpParam) {
         strncpy_s(dllName, sizeof(dllName), "python3.dll", _TRUNCATE);
         dbgPrintf("[HOOK] Found python3.dll\n");
     } else {
-        for (int i = 13; i >= 6; --i) {
+        for (int i = 99; i >= 0; --i) {
             snprintf(dllName, sizeof(dllName), "python3%d.dll", i);
             hPyDll = GetModuleHandleA(dllName);
             if (hPyDll) {
