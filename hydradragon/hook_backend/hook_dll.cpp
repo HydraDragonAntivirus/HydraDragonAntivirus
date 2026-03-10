@@ -823,11 +823,6 @@ static unsigned __stdcall hookImpl(void *lpParam) {
                "\n"
                "if os.path.exists(path):\n"
                "    try:\n"
-               "        # Verify file is readable\n"
-               "        with open(path, 'r', encoding='utf-8') as f:\n"
-               "            hook_source = f.read()\n"
-               "        print('Successfully read', len(hook_source), 'bytes from hook file')\n"
-               "        \n"
                "        # Set up proper module context\n"
                "        hook_globals = {\n"
                "            '__name__': '%s',\n"
@@ -836,8 +831,10 @@ static unsigned __stdcall hookImpl(void *lpParam) {
                "            '__builtins__': __builtins__,\n"
                "        }\n"
                "        \n"
-               "        # Compile and execute\n"
-               "        exec(compile(hook_source, path, 'exec'), hook_globals)\n"
+               "        # Compile and execute directly from the file handle\n"
+               "        with open(path, 'r', encoding='utf-8') as f:\n"
+               "            print('Hook file opened successfully')\n"
+               "            exec(compile(f.read(), path, 'exec'), hook_globals)\n"
                "        print('=== Hook Execution Completed Successfully ===')\n"
                "    except SyntaxError as e:\n"
                "        print('\\n=== SYNTAX ERROR IN HOOK FILE ===')\n"
@@ -1004,6 +1001,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
   }
   return TRUE;
 }
+
 
 
 
