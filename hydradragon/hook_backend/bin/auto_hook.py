@@ -96,7 +96,8 @@ class LiteInjector:
         # 1. Filters
         top = tk.Frame(self.root, pady=5)
         top.pack(fill=tk.X, padx=10)
-        tk.Button(top, text="Refresh List", command=self.refresh).pack(side=tk.LEFT)
+        self.btn_refresh = tk.Button(top, text="Refresh List", command=self.refresh)
+        self.btn_refresh.pack(side=tk.LEFT)
         self.search = tk.Entry(top)
         self.search.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
         self.search.bind("<KeyRelease>", lambda e: self.update_view())
@@ -160,7 +161,13 @@ class LiteInjector:
             pass
         return False
 
+    def _log_threadsafe(self, m):
+        """Schedule a log write on the main thread — safe to call from any thread."""
+        self.root.after(0, self.log, m)
+
     def get_target_arch_64(self, pid):
+        # Called from background refresh thread AND main thread during inject.
+        # Must NEVER call self.log() directly — Tkinter is not thread-safe.
         try:
             h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_INFORMATION
             if h:
@@ -168,11 +175,10 @@ class LiteInjector:
                 k32.IsWow64Process(h, ctypes.byref(is_wow64))
                 k32.CloseHandle(h)
                 is_os_64 = platform.machine().endswith("64")
-                # If OS is 64-bit and process is NOT WoW64, it's 64-bit
-                # If OS is 64-bit and process IS WoW64, it's 32-bit
+                # Not WoW64 on a 64-bit OS -> native 64-bit process
                 return (not is_wow64.value) if is_os_64 else False
-        except Exception as e:
-            self.log(f"Arch detection error: {e}")
+        except Exception:
+            pass
         return True  # Default to 64-bit
 
     def refresh(self):
@@ -181,11 +187,10 @@ class LiteInjector:
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
     def _set_refresh_btn(self, state):
-        for w in self.root.winfo_children():
-            for c in (w.winfo_children() if hasattr(w, 'winfo_children') else []):
-                if isinstance(c, tk.Button) and 'Refresh' in str(c.cget('text')):
-                    try: c.config(state=state)
-                    except Exception: pass
+        try:
+            self.btn_refresh.config(state=state)
+        except Exception:
+            pass
 
     def _refresh_worker(self):
         rows = []
@@ -388,12 +393,15 @@ class LiteInjector:
     def ninja_loop(self):
         while self.ninja_on:
             try:
+                # Prune stale PIDs so recycled PIDs are not permanently skipped
+                self.processed = {pid for pid in self.processed if psutil.pid_exists(pid)}
                 for p in psutil.process_iter(['pid', 'name', 'exe']):
                     if p.pid not in self.processed and p.pid != os.getpid() and self.is_target(p):
                         self.processed.add(p.pid)
-                        self.inject(p.pid, p.name())
+                        threading.Thread(target=self.inject, args=(p.pid, p.name()), daemon=True).start()
             except Exception as e:
-                self.log(f"Ninja error: {e}")
+                self._log_threadsafe(f"Ninja error: {e}")
+            time.sleep(0.5)
 
 if __name__ == "__main__":
     # Check admin privileges
