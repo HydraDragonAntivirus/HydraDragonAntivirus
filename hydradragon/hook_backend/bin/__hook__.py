@@ -594,65 +594,6 @@ class ModuleReconstructor:
         
         output_path.write_text("\n".join(content), encoding='utf-8', errors='ignore')
 
-    def generate_compiled_report(self):
-        """Generate a report of all compiled modules found"""
-        if not self.compiled_modules:
-            return
-        
-        report_path = self.backup_dir / "COMPILED_MODULES_REPORT.txt"
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("=" * 80 + "\n")
-            f.write("COMPILED MODULES DETECTED (Nuitka/PyInstaller/etc.)\n")
-            f.write("=" * 80 + "\n\n")
-            f.write("These modules contain compiled code with no Python bytecode.\n")
-            f.write("Metadata has been extracted where possible.\n\n")
-            f.write(f"Total compiled functions/methods: {len(self.compiled_modules)}\n\n")
-            
-            # Group by module
-            by_module = {}
-            for mod_name, func_name, method_name in self.compiled_modules:
-                if mod_name not in by_module:
-                    by_module[mod_name] = []
-                if method_name:
-                    by_module[mod_name].append(f"  - {func_name}.{method_name}")
-                else:
-                    by_module[mod_name].append(f"  - {func_name}")
-            
-            f.write("-" * 80 + "\n")
-            for mod_name, items in sorted(by_module.items()):
-                f.write(f"\nModule: {mod_name}\n")
-                for item in items:
-                    f.write(item + "\n")
-            
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("NOTE: Check RECONSTRUCTED_SOURCE files for extracted metadata\n")
-            f.write("      (constants, variable names, argument counts, etc.)\n")
-            f.write("=" * 80 + "\n")
-            
-            # Add special note about __main__
-            if '__main__' in by_module:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("IMPORTANT: __main__.py Analysis\n")
-                f.write("=" * 80 + "\n\n")
-                f.write("__main__.py is your Nuitka-compiled application.\n")
-                f.write("Nuitka compiled the Python source code to C, then to machine code.\n\n")
-                f.write("WHAT WE RECOVERED:\n")
-                f.write("  ✓ Class names and structure\n")
-                f.write("  ✓ Function/method names\n")
-                f.write("  ✓ Parameter signatures (names, counts)\n")
-                f.write("  ✓ Module-level variables and constants\n")
-                f.write("  ✓ Docstrings (if any)\n\n")
-                f.write("WHAT IS LOST (compiled to C):\n")
-                f.write("  ✗ Function logic/implementation\n")
-                f.write("  ✗ Control flow (if/else/loops)\n")
-                f.write("  ✗ Calculations and algorithms\n")
-                f.write("  ✗ Internal function calls\n\n")
-                f.write("To recover the actual logic, you would need to:\n")
-                f.write("  - Reverse engineer the compiled C code\n")
-                f.write("  - Use a C/assembly decompiler like Ghidra or IDA Pro\n")
-                f.write("  - Analyze the machine code in the .exe file\n")
-                f.write("=" * 80 + "\n")
-
 # =============================================================================
 # HELPER: GET NEXT INCREMENTAL PATH
 # =============================================================================
@@ -752,8 +693,6 @@ def run_decompiler():
         except Exception as e:
             error_count += 1
             log_file.write(f"[ERR] Error processing {name}: {str(e)}\n")
-
-    recon.generate_compiled_report()
 
     log_file.write("\n" + "=" * 60 + "\n")
     log_file.write("--- FINISHED ---\n")
