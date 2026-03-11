@@ -55,7 +55,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs;
 
 ; External dependencies
-Source: "C:\Users\victim\Documents\hydratempinstall\7z2501-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\7z2600-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.5.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.85.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -112,7 +112,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
 ; 7-Zip (silent)
-Filename: "{tmp}\7z2501-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\7z2600-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
 ; .NET Runtime 9.0.9 (silent, no restart)
 Filename: "{tmp}\windowsdesktop-runtime-9.0.9-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
