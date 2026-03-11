@@ -63,6 +63,9 @@ FLT_POSTOP_CALLBACK_STATUS
 FSProcessPostReadSafe(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
                       _In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags);
 
+BOOLEAN
+FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
+
 // CDO Dispatch Routines
 // HookDevice* dispatch functions are now in Communication.cpp.
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
@@ -1263,8 +1266,8 @@ Arguments:
     
     // FIX: Corrected typo 'FSProcessPreOperartion' -> 'FSProcessPreOperation'
     hr = FSProcessPreOperation(Data, FltObjects, CompletionContext);
-    if (hr == FLT_PREOP_SUCCESS_WITH_CALLBACK)
-        return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+    if (hr == FLT_PREOP_SUCCESS_WITH_CALLBACK || hr == FLT_PREOP_COMPLETE)
+        return (FLT_PREOP_CALLBACK_STATUS)hr;
 
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
@@ -1346,6 +1349,15 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         }
     }
 
+    if (FSShouldIgnorePyasWhitelistPath(FilePath))
+    {
+        FltReleaseFileNameInformation(nameInfo);
+        delete newEntry;
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    const BOOLEAN isProtectedPath = driverData->IsContainingDirectory(FilePath);
+
     // get pid
     newItem->PID = FltGetRequestorProcessId(Data);
 
@@ -1405,11 +1417,13 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
     newItem->Gid = gid;
 
     // NEW: Block after predict (if Gid is marked malicious by user-mode)
-    if (driverData->IsGidMalicious(gid)) {
+    if (isProtectedPath && driverData->IsGidMalicious(gid)) {
         DbgPrint("!!! FSFilter: BLOCKING operation from malicious Gid: %llu\n", gid);
+        Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+        Data->IoStatus.Information = 0;
         FltReleaseFileNameInformation(nameInfo);
         delete newEntry;
-        return STATUS_ACCESS_DENIED;
+        return FLT_PREOP_COMPLETE;
     }
 
     // Keeping user's DbgPrint here
@@ -1425,7 +1439,7 @@ FSProcessPreOperation(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECT
         return hr;
     }
 
-    if (FSIsFileNameInScanDirs(FilePath))
+    if (isProtectedPath)
     {
         // Keeping user's DbgPrint here
         if (IS_DEBUG_IRP)
@@ -1807,7 +1821,6 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
 
     newItem->PID = FltGetRequestorProcessId(Data);
     newItem->IRP_OP = IRP_CREATE;
-    newItem->FileLocationInfo = FILE_PROTECTED;
     PUNICODE_STRING FilePath = &(newEntry->filePath);
 
     BOOLEAN isGidFound;
@@ -1858,6 +1871,18 @@ FSProcessCreateIrp(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS F
     }
 
     CopyExtension(newItem->Extension, nameInfo);
+
+    if (FSShouldIgnorePyasWhitelistPath(FilePath))
+    {
+        FltReleaseFileNameInformation(nameInfo);
+        delete newEntry;
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
+
+    if (driverData->IsContainingDirectory(FilePath))
+    {
+        newItem->FileLocationInfo = FILE_PROTECTED;
+    }
 
     FltReleaseFileNameInformation(nameInfo);
 
