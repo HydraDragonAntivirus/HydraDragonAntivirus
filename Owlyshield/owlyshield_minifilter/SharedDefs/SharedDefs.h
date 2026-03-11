@@ -44,14 +44,54 @@ const WCHAR *const ComPortName = L"\\RWFilter";
 // - lowercases
 // - '/' -> '\'
 // - strips leading "\??\" / "\\?\"
-// - maps "\Device\HarddiskVolumeX\..." to "c:\..."
+// - collapses both "c:\foo\bar" and "\Device\HarddiskVolumeX\foo\bar"
+//   to the same root-relative form: "\foo\bar"
+static __forceinline VOID OwlyCollapsePathRootForMatch(_Inout_updates_z_(MAX_FILE_NAME_LENGTH) PWCHAR Buffer,
+                                                       _Inout_ SIZE_T *PathChars)
+{
+    static const WCHAR kDevicePrefix[] = L"\\device\\harddiskvolume";
+    const SIZE_T kDevicePrefixLen = RTL_NUMBER_OF(kDevicePrefix) - 1;
+    SIZE_T charsToCopy;
+
+    if (Buffer == NULL || PathChars == NULL)
+    {
+        return;
+    }
+
+    charsToCopy = *PathChars;
+    if (charsToCopy >= 3 &&
+        ((Buffer[0] >= L'a' && Buffer[0] <= L'z') || (Buffer[0] >= L'A' && Buffer[0] <= L'Z')) &&
+        Buffer[1] == L':' &&
+        Buffer[2] == L'\\')
+    {
+        RtlMoveMemory(Buffer, Buffer + 2, (charsToCopy - 2 + 1) * sizeof(WCHAR));
+        *PathChars = charsToCopy - 2;
+        return;
+    }
+
+    if (charsToCopy > kDevicePrefixLen &&
+        RtlCompareMemory(Buffer, kDevicePrefix, kDevicePrefixLen * sizeof(WCHAR)) == (kDevicePrefixLen * sizeof(WCHAR)))
+    {
+        SIZE_T i = kDevicePrefixLen;
+        while (i < charsToCopy && Buffer[i] >= L'0' && Buffer[i] <= L'9')
+        {
+            ++i;
+        }
+
+        if (i < charsToCopy && Buffer[i] == L'\\')
+        {
+            SIZE_T tailLen = charsToCopy - i;
+            RtlMoveMemory(Buffer, Buffer + i, (tailLen + 1) * sizeof(WCHAR));
+            *PathChars = tailLen;
+        }
+    }
+}
+
 static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING InputPath,
                                                          _Out_writes_(MAX_FILE_NAME_LENGTH) PWCHAR OutputBuffer,
                                                          _Out_ PUNICODE_STRING NormalizedPath)
 {
-    static const WCHAR kDevicePrefix[] = L"\\device\\harddiskvolume";
-    const USHORT kDevicePrefixLen = (USHORT)(RTL_NUMBER_OF(kDevicePrefix) - 1);
-    USHORT charsToCopy;
+    SIZE_T charsToCopy;
 
     if (InputPath == NULL ||
         OutputBuffer == NULL ||
@@ -62,13 +102,13 @@ static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING Inp
         return FALSE;
     }
 
-    charsToCopy = InputPath->Length / sizeof(WCHAR);
+    charsToCopy = (SIZE_T)InputPath->Length / sizeof(WCHAR);
     if (charsToCopy >= MAX_FILE_NAME_LENGTH)
     {
         charsToCopy = MAX_FILE_NAME_LENGTH - 1;
     }
 
-    for (USHORT i = 0; i < charsToCopy; ++i)
+    for (SIZE_T i = 0; i < charsToCopy; ++i)
     {
         WCHAR ch = InputPath->Buffer[i];
         if (ch == L'/')
@@ -98,40 +138,11 @@ static __forceinline BOOLEAN OwlyNormalizePathForMatch(_In_ PCUNICODE_STRING Inp
         charsToCopy -= 4;
     }
 
-    if (charsToCopy > kDevicePrefixLen &&
-        RtlCompareMemory(OutputBuffer, kDevicePrefix, kDevicePrefixLen * sizeof(WCHAR)) == (kDevicePrefixLen * sizeof(WCHAR)))
-    {
-        USHORT i = kDevicePrefixLen;
-        while (i < charsToCopy && OutputBuffer[i] >= L'0' && OutputBuffer[i] <= L'9')
-        {
-            ++i;
-        }
-
-        if (i < charsToCopy && OutputBuffer[i] == L'\\')
-        {
-            USHORT tailStart = i + 1;
-            USHORT tailLen = (tailStart <= charsToCopy) ? (charsToCopy - tailStart) : 0;
-            if (tailLen + 3 >= MAX_FILE_NAME_LENGTH)
-            {
-                tailLen = MAX_FILE_NAME_LENGTH - 4;
-            }
-
-            if (tailLen > 0)
-            {
-                RtlMoveMemory(OutputBuffer + 3, OutputBuffer + tailStart, tailLen * sizeof(WCHAR));
-            }
-
-            OutputBuffer[0] = L'c';
-            OutputBuffer[1] = L':';
-            OutputBuffer[2] = L'\\';
-            charsToCopy = (USHORT)(3 + tailLen);
-            OutputBuffer[charsToCopy] = L'\0';
-        }
-    }
+    OwlyCollapsePathRootForMatch(OutputBuffer, &charsToCopy);
 
     NormalizedPath->Buffer = OutputBuffer;
-    NormalizedPath->Length = charsToCopy * sizeof(WCHAR);
-    NormalizedPath->MaximumLength = (charsToCopy + 1) * sizeof(WCHAR);
+    NormalizedPath->Length = (USHORT)(charsToCopy * sizeof(WCHAR));
+    NormalizedPath->MaximumLength = (USHORT)((charsToCopy + 1) * sizeof(WCHAR));
     return TRUE;
 }
 
@@ -232,6 +243,8 @@ static __forceinline BOOLEAN OwlyNormalizeRuleLineForMatch(_In_reads_(RuleChars)
         RtlMoveMemory(OutputBuffer, OutputBuffer + 4, (lineLen - 4 + 1) * sizeof(WCHAR));
         lineLen -= 4;
     }
+
+    OwlyCollapsePathRootForMatch(OutputBuffer, &lineLen);
 
     if (TrimTrailingBackslashes)
     {

@@ -557,20 +557,15 @@ static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING Normali
 {
     BOOLEAN matched = FALSE;
 
-    if (NormalizedPath == NULL || NormalizedPath->Buffer == NULL || NormalizedPath->Length < 3 * sizeof(WCHAR))
+    if (NormalizedPath == NULL || NormalizedPath->Buffer == NULL || NormalizedPath->Length < sizeof(WCHAR))
     {
         return FALSE;
     }
 
-    // Only consult exclusion rules for system-drive (c:\) paths.
-    //
-    // Rules in the exclusion file are written against the system drive.
-    // Accepting any drive letter here would allow a malicious binary at
-    // d:\c:\program files\vendor\evil.exe to pass the guard, after which
-    // a substring match finds "c:\program files\vendor\" and the
-    // process is silently excluded from hooking - a trivial evasion vector.
-    // The guard must remain 'c' so only genuine system-drive paths match.
-    if (!(NormalizedPath->Buffer[0] == L'c' && NormalizedPath->Buffer[1] == L':' && NormalizedPath->Buffer[2] == L'\\'))
+    // Paths and rules are normalized into a root-relative form such as
+    // "\users\victim\..." so the match is stable across both DOS paths
+    // and "\Device\HarddiskVolumeX\..." names.
+    if (NormalizedPath->Buffer[0] != L'\\')
     {
         return FALSE;
     }
