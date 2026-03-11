@@ -3164,6 +3164,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     BOOLEAN existingHookEntry = FALSE;
     ULONG appliedHookCount = 0;
     ULONG recoverableHookFailureCount = 0;
+    ULONG hookConfigSnapshotCount = 0;
+    PHOOK_CONFIG_DATA hookConfigSnapshot = NULL;
+    SIZE_T hookConfigSnapshotBytes = 0;
 
     if (g_UserHookEngine == NULL || !g_UserHookEngine->IsInitialized)
         return STATUS_DEVICE_NOT_READY;
@@ -3284,12 +3287,51 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         }
     }
 
+    // Snapshot the current hook configuration while holding g_ConfigMutex only
+    // long enough to copy the rules. Holding a FAST_MUTEX during the actual
+    // resolve/patch loop raises IRQL to APC_LEVEL, which is invalid for the
+    // ZwQuery/Protect/AllocateVirtualMemory calls used by the hook installer.
+    ExAcquireFastMutex(&g_ConfigMutex);
+    customHookCountToApply = g_CustomHookCount;
+    if (customHookCountToApply > hookEntry->CustomHookCapacity)
+    {
+        customHookCountToApply = hookEntry->CustomHookCapacity;
+    }
+    if (customHookCountToApply > 0)
+    {
+        hookConfigSnapshotCount = customHookCountToApply;
+        hookConfigSnapshotBytes = (SIZE_T)customHookCountToApply * sizeof(HOOK_CONFIG_DATA);
+    }
+    ExReleaseFastMutex(&g_ConfigMutex);
+
+    if (hookConfigSnapshotBytes > 0)
+    {
+        hookConfigSnapshot = (PHOOK_CONFIG_DATA)ExAllocatePool2(POOL_FLAG_NON_PAGED, hookConfigSnapshotBytes, 'gHuM');
+        if (hookConfigSnapshot == NULL)
+        {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto HookProcessFailure;
+        }
+
+        ExAcquireFastMutex(&g_ConfigMutex);
+        customHookCountToApply = g_CustomHookCount;
+        if (customHookCountToApply > hookConfigSnapshotCount)
+        {
+            customHookCountToApply = hookConfigSnapshotCount;
+        }
+        if (customHookCountToApply > 0)
+        {
+            RtlCopyMemory(hookConfigSnapshot, g_GlobalCustomHooks,
+                          (SIZE_T)customHookCountToApply * sizeof(HOOK_CONFIG_DATA));
+        }
+        ExReleaseFastMutex(&g_ConfigMutex);
+    }
+
     // Single attachment for resolving exports and writing hooks
     {
         KAPC_STATE apcState;
-        BOOLEAN configMutexHeld = FALSE;
         KeStackAttachProcess((PRKPROCESS)process, &apcState);
-        __try // outer: guarantees detach and mutex release
+        __try // outer: guarantees detach
         {
             __try // inner: catches exceptions from resolve/hook calls
             {
@@ -3321,13 +3363,6 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     }
                 }
 
-                ExAcquireFastMutex(&g_ConfigMutex);
-                configMutexHeld = TRUE;
-                customHookCountToApply = g_CustomHookCount;
-                if (customHookCountToApply > hookEntry->CustomHookCapacity)
-                {
-                    customHookCountToApply = hookEntry->CustomHookCapacity;
-                }
                 for (ULONG i = 0; i < customHookCountToApply; i++)
                 {
                     NTSTATUS hookStatus = STATUS_UNSUCCESSFUL;
@@ -3338,18 +3373,18 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         {
                             // WoW64: resolve from 32-bit LDR, install 5-byte E9 JMP,
                             // use 32-bit shellcode template.
-                            hookStatus =
-                                ResolveAndHook32(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
-                                                 g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
-                                                 g_GlobalCustomHooks[i].EventId, targetNtDeviceIo32);
+                            hookStatus = ResolveAndHook32(process, hookEntry, hookConfigSnapshot[i].ModuleName,
+                                                          hookConfigSnapshot[i].FunctionName,
+                                                          &hookEntry->CustomHooks[i], hookConfigSnapshot[i].EventId,
+                                                          targetNtDeviceIo32);
                         }
                         else
                         {
                             // Native 64-bit: resolve from 64-bit LDR, install 14-byte
                             // FF 25 JMP, use 64-bit shellcode template.
-                            hookStatus = ResolveAndHook(process, hookEntry, g_GlobalCustomHooks[i].ModuleName,
-                                                        g_GlobalCustomHooks[i].FunctionName, &hookEntry->CustomHooks[i],
-                                                        g_GlobalCustomHooks[i].EventId, targetNtDeviceIo);
+                            hookStatus = ResolveAndHook(process, hookEntry, hookConfigSnapshot[i].ModuleName,
+                                                        hookConfigSnapshot[i].FunctionName, &hookEntry->CustomHooks[i],
+                                                        hookConfigSnapshot[i].EventId, targetNtDeviceIo);
                         }
                     }
                     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -3381,7 +3416,7 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                         hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES)
                     {
                         DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
-                                 g_GlobalCustomHooks[i].FunctionName, hookStatus);
+                                 hookConfigSnapshot[i].FunctionName, hookStatus);
                         recoverableHookFailureCount++;
                         continue;
                     }
@@ -3390,14 +3425,10 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     //                  STATUS_INVALID_IMAGE_FORMAT,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
                     DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
-                             g_GlobalCustomHooks[i].ModuleName, g_GlobalCustomHooks[i].FunctionName, hookStatus);
+                             hookConfigSnapshot[i].ModuleName, hookConfigSnapshot[i].FunctionName, hookStatus);
                     status = hookStatus;
-                    ExReleaseFastMutex(&g_ConfigMutex);
-                    configMutexHeld = FALSE;
                     __leave;
                 }
-                ExReleaseFastMutex(&g_ConfigMutex);
-                configMutexHeld = FALSE;
 
                 if (recoverableHookFailureCount > 0)
                 {
@@ -3412,12 +3443,13 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
         }
         __finally
         {
-            if (configMutexHeld)
-            {
-                ExReleaseFastMutex(&g_ConfigMutex);
-                configMutexHeld = FALSE;
-            }
             KeUnstackDetachProcess(&apcState);
+        }
+
+        if (hookConfigSnapshot != NULL)
+        {
+            ExFreePoolWithTag(hookConfigSnapshot, 'gHuM');
+            hookConfigSnapshot = NULL;
         }
 
         // FIX: read NeedsCleanup atomically with IsInProgress clear.
@@ -3462,6 +3494,12 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
 HookProcessFailure:
     DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, status,
              existingHookEntry ? "refresh" : "initial");
+
+    if (hookConfigSnapshot != NULL)
+    {
+        ExFreePoolWithTag(hookConfigSnapshot, 'gHuM');
+        hookConfigSnapshot = NULL;
+    }
 
     // Ensure busy flag is cleared on failure
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
