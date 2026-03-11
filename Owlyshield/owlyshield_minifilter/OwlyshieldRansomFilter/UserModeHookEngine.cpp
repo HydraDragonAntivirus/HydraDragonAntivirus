@@ -16,19 +16,20 @@ Abstract:
       Shellcode written to the target VA, uses 14-byte FF 25 indirect JMP.
       Stolen instructions: first 14 bytes of the target function.
       Notification: calls 64-bit ntdll!NtDeviceIoControlFile via absolute
-      mov rax / call rax.  The device handle is opened WITHOUT
-      FILE_SYNCHRONOUS_IO_NONALERT so the call is ASYNCHRONOUS - it returns
-      STATUS_PENDING immediately after the I/O manager copies HOOK_EVENT_DATA
-      (METHOD_BUFFERED) into a system buffer.  The calling thread is NEVER
-      blocked.
+      mov rax / call rax.  The driver opens one master hook-device handle
+      with FILE_SYNCHRONOUS_IO_NONALERT, then duplicates that same FILE_OBJECT
+      into each target process.  NtDeviceIoControlFile therefore runs
+      synchronously and the shellcode's stack-resident IO_STATUS_BLOCK remains
+      valid until completion.
 
     32-bit (WoW64) process:
       Module base resolved via PEB32 (PsGetProcessWow64Process).
       Shellcode written to the target VA, uses 5-byte E9 rel32 JMP.
       Stolen instructions: first 5 bytes of the target function.
       Notification: calls 32-bit ntdll!NtDeviceIoControlFile via 32-bit
-      stdcall (mov eax / call eax).  Same async model - fire-and-forget,
-      thread never blocked.
+      stdcall (mov eax / call eax).  It uses the same duplicated synchronous
+      device handle, so the WoW64 shellcode also waits for completion before
+      returning to the caller.
 
     NOTE - required changes to UserModeHookEngine.h
     -------------------------------------------------
@@ -154,11 +155,11 @@ PPS_IS_PROTECTED_PROCESS_LIGHT fnPsIsProtectedProcessLight = NULL;
 PPS_GET_PROCESS_WOW64_PROCESS fnPsGetProcessWow64Process = NULL;
 
 PUSERMODE_HOOK_ENGINE g_UserHookEngine = NULL;
-// The hook notification device is owned by Communication.cpp.
-// The handle is opened via ZwCreateFile inside KeStackAttachProcess -
-// safe for our use case (not a process-creation callback, simple IOCTL device).
-// GetHookNotifyDeviceObject() was removed: ObInsertObject on a DEVICE_OBJECT
-// does not produce a FILE_OBJECT handle, breaking NtDeviceIoControlFile.
+// Master hook notification FILE_OBJECT. Opened once with synchronous I/O
+// semantics during engine init, then duplicated into each target process so
+// shellcode receives a user-visible handle without re-opening the device under
+// the target process token.
+static HANDLE g_HookNotifyMasterHandle = NULL;
 static volatile BOOLEAN g_HookEngineShuttingDown = FALSE;
 
 // Dynamic Configuration
@@ -1578,6 +1579,7 @@ UCHAR g_ShellcodeTemplate[] = {
 NTSTATUS UserModeHookEngineInitialize(VOID)
 {
     DbgPrint("!!! UserModeHook: Initializing user-mode hooking engine...\n");
+    NTSTATUS status;
 
     // ---------------------------------------------------------------------
     // FIX: Resolve system routines dynamically to avoid Linker Errors
@@ -1646,6 +1648,34 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
         DbgPrint("!!! UserModeHook: PsGetProcessWow64Process unavailable - WoW64 hooking disabled\n");
     }
 
+    {
+        UNICODE_STRING devName;
+        OBJECT_ATTRIBUTES oa;
+        IO_STATUS_BLOCK ioStatus;
+
+        RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
+        InitializeObjectAttributes(&oa, &devName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+        RtlZeroMemory(&ioStatus, sizeof(ioStatus));
+
+        status = ZwCreateFile(&g_HookNotifyMasterHandle,
+                              FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE,
+                              &oa,
+                              &ioStatus,
+                              NULL,
+                              FILE_ATTRIBUTE_NORMAL,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              FILE_OPEN,
+                              FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                              NULL,
+                              0);
+        if (!NT_SUCCESS(status))
+        {
+            g_HookNotifyMasterHandle = NULL;
+            DbgPrint("!!! UserModeHook: ZwCreateFile master notify handle failed 0x%X\n", status);
+            return status;
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Allocate Engine
     // ---------------------------------------------------------------------
@@ -1655,6 +1685,8 @@ NTSTATUS UserModeHookEngineInitialize(VOID)
 
     if (g_UserHookEngine == NULL)
     {
+        ZwClose(g_HookNotifyMasterHandle);
+        g_HookNotifyMasterHandle = NULL;
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -1755,6 +1787,12 @@ VOID UserModeHookEngineCleanup(VOID)
     g_HookExcludeRules.Loaded = FALSE;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
     InterlockedExchange(&g_HookExcludeLoadState, 0);
+
+    if (g_HookNotifyMasterHandle != NULL)
+    {
+        ZwClose(g_HookNotifyMasterHandle);
+        g_HookNotifyMasterHandle = NULL;
+    }
 
     ExFreePoolWithTag(g_UserHookEngine, 'UMHk');
     g_UserHookEngine = NULL;
@@ -2939,14 +2977,13 @@ NTSTATUS ResolveAndHook32(_In_ PEPROCESS Process, _In_ PPROCESS_HOOK_ENTRY HookE
 // final status back through a stale stack pointer, corrupting user-mode state
 // and producing hangs during exit, restart, and general I/O.
 //
-// Fix: open the device handle WITH FILE_SYNCHRONOUS_IO_NONALERT.
+// Fix: open one master device handle WITH FILE_SYNCHRONOUS_IO_NONALERT during
+// engine initialization, then duplicate that same FILE_OBJECT into each target
+// process while attached.
+//   * Duplicated handles preserve the source FILE_OBJECT's synchronous I/O semantics.
 //   * NtDeviceIoControlFile does not return until the driver completes.
 //   * The stack-based IO_STATUS_BLOCK remains valid for the entire call.
 //   * No completion APC is needed for correctness.
-//
-// The device handle is created while attached to the target process so the
-// Object Manager places it directly into that process handle table.
-// No ObInsertObject is used.
 //
 NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROCESS_HOOK_ENTRY HookEntry)
 {
@@ -2966,55 +3003,9 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
     }
     regionSize = (regionSize + 0xFFF) & ~(SIZE_T)0xFFF;
 
-    // -----------------------------------------------------------------------
-    // Resolve the hook device FILE_OBJECT BEFORE attaching to the target
-    // process, then open a handle into the target's table INSIDE the attach.
-    //
-    // WHY NOT ZwCreateFile:
-    //   ZwCreateFile routes through IopCreateFile -> ObOpenObjectByName ->
-    //   SeAccessCheck.  The device is created with FILE_DEVICE_SECURE_OPEN
-    //   in Communication.cpp, which causes the I/O manager to enforce the
-    //   device DACL even against kernel-mode callers.  A default IoCreateDevice
-    //   DACL only permits SYSTEM/Admin; any non-privileged target process token
-    //   (which is the effective security context during KeStackAttachProcess)
-    //   causes STATUS_ACCESS_DENIED and no shellcode handle is ever installed.
-    //
-    // FIX - two-step kernel bypass:
-    //   1. IoGetDeviceObjectPointer  (before attach)
-    //      Pure kernel-internal lookup by device name.  Does NOT go through
-    //      the Object Manager security path at all - no DACL check, no
-    //      FILE_DEVICE_SECURE_OPEN enforcement.  Returns a referenced
-    //      FILE_OBJECT* and the underlying DEVICE_OBJECT*.
-    //
-    //   2. ObOpenObjectByPointer     (inside attach, AccessMode = KernelMode)
-    //      Inserts the FILE_OBJECT directly into the currently-attached
-    //      process's handle table.  KernelMode skips all DACL verification.
-    //      The handle has no OBJ_KERNEL_HANDLE so it lives in the target
-    //      process table and is directly usable by the shellcode via
-    //      NtDeviceIoControlFile.
-    //
-    //   ObInsertObject on a raw DEVICE_OBJECT still does NOT work - it
-    //   produces a handle to the DEVICE_OBJECT, not a FILE_OBJECT, and
-    //   NtDeviceIoControlFile returns STATUS_OBJECT_TYPE_MISMATCH.
-    //   IoGetDeviceObjectPointer produces the correct FILE_OBJECT.
-    //
-    // ZwAllocateVirtualMemory also requires attachment (ZwCurrentProcess()).
-    // Both operations share one attach/detach bracket.
-    // -----------------------------------------------------------------------
-
-    // Step 1: resolve FILE_OBJECT outside the attach bracket.
-    PFILE_OBJECT hookFileObject = NULL;
-    PDEVICE_OBJECT hookDevObject = NULL;
+    if (g_HookNotifyMasterHandle == NULL)
     {
-        UNICODE_STRING devName;
-        RtlInitUnicodeString(&devName, L"\\Device\\OwlyshieldHook");
-        status = IoGetDeviceObjectPointer(&devName, FILE_READ_DATA | FILE_WRITE_DATA, &hookFileObject, &hookDevObject);
-    }
-    if (!NT_SUCCESS(status) || hookFileObject == NULL)
-    {
-        // Device not yet created or name wrong - nothing to attach to.
-        DbgPrint("UserModeHook: IoGetDeviceObjectPointer failed 0x%X\n", status);
-        return NT_SUCCESS(status) ? STATUS_OBJECT_NAME_NOT_FOUND : status;
+        return STATUS_DEVICE_NOT_READY;
     }
 
     {
@@ -3022,73 +3013,75 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
         KeStackAttachProcess((PRKPROCESS)Process, &apcState);
         __try // outer: guarantees detach
         {
-            __try // inner: catches exceptions from ObOpenObjectByPointer / ZwAllocate
+            __try // inner: catches exceptions from ZwDuplicateObject / ZwAllocate
             {
-                // Step 2: open a handle to the FILE_OBJECT in the target process's
-                // handle table.  KernelMode bypasses all security checks so
-                // FILE_DEVICE_SECURE_OPEN cannot deny us.
-                status = ObOpenObjectByPointer(hookFileObject,
-                                               0,    // no OBJ_KERNEL_HANDLE: goes into target table
-                                               NULL, // no PassedAccessState
-                                               FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE, *IoFileObjectType,
-                                               KernelMode, // bypass DACL / FILE_DEVICE_SECURE_OPEN
-                                               &targetDeviceHandle);
-
-                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
+                if (!fnZwDuplicateObject)
                 {
-                    DbgPrint("UserModeHook: ObOpenObjectByPointer failed 0x%X\n", status);
+                    status = STATUS_NOT_SUPPORTED;
                     __leave;
                 }
 
-                if (fnZwAllocateVirtualMemory)
+                status = fnZwDuplicateObject(NtCurrentProcess(),
+                                             g_HookNotifyMasterHandle,
+                                             NtCurrentProcess(),
+                                             &targetDeviceHandle,
+                                             0,
+                                             0,
+                                             DUPLICATE_SAME_ACCESS);
+                if (!NT_SUCCESS(status) || targetDeviceHandle == NULL)
                 {
-                    if (!isWow64)
-                    {
-                        // Native 64-bit: FF 25 absolute JMP, no range limit.
-                        status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
-                                                           MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-                    }
-                    else
-                    {
-                        // WoW64: do NOT use ZeroBits=33 here.
-                        // Nt/ZwAllocateVirtualMemory interprets ZeroBits > 32 as a
-                        // bitmask, not a count of high-order bits, so 33 does not
-                        // reliably mean "below 0x80000000".  Search explicitly in
-                        // the low address range so the 5-byte E9 rel32 trampoline
-                        // remains reachable.
-                        const ULONG_PTR lowBaseStart = 0x10000000UL;
-                        const ULONG_PTR lowBaseEnd = 0x70000000UL;
-                        const ULONG_PTR granularity = 0x00010000UL; // 64 KB
-                        NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
-                        BOOLEAN allocated = FALSE;
+                    DbgPrint("UserModeHook: ZwDuplicateObject master notify handle failed 0x%X\n", status);
+                    __leave;
+                }
 
-                        for (ULONG_PTR hint = lowBaseStart; hint + regionSize < lowBaseEnd; hint += granularity)
-                        {
-                            PVOID candidate = (PVOID)hint;
-                            SIZE_T candidateSize = regionSize;
-                            NTSTATUS allocStatus =
-                                fnZwAllocateVirtualMemory(ZwCurrentProcess(), &candidate, 0, &candidateSize,
-                                                          MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-                            if (NT_SUCCESS(allocStatus))
-                            {
-                                baseAddress = candidate;
-                                regionSize = candidateSize;
-                                status = STATUS_SUCCESS;
-                                allocated = TRUE;
-                                break;
-                            }
-                            lastAllocStatus = allocStatus;
-                        }
+                if (!fnZwAllocateVirtualMemory)
+                {
+                    status = STATUS_NOT_IMPLEMENTED;
+                    __leave;
+                }
 
-                        if (!allocated)
-                        {
-                            status = lastAllocStatus;
-                        }
-                    }
+                if (!isWow64)
+                {
+                    // Native 64-bit: FF 25 absolute JMP, no range limit.
+                    status = fnZwAllocateVirtualMemory(ZwCurrentProcess(), &baseAddress, 0, &regionSize,
+                                                       MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
                 }
                 else
                 {
-                    status = STATUS_NOT_IMPLEMENTED;
+                    // WoW64: do NOT use ZeroBits=33 here.
+                    // Nt/ZwAllocateVirtualMemory interprets ZeroBits > 32 as a
+                    // bitmask, not a count of high-order bits, so 33 does not
+                    // reliably mean "below 0x80000000".  Search explicitly in
+                    // the low address range so the 5-byte E9 rel32 trampoline
+                    // remains reachable.
+                    const ULONG_PTR lowBaseStart = 0x10000000UL;
+                    const ULONG_PTR lowBaseEnd = 0x70000000UL;
+                    const ULONG_PTR granularity = 0x00010000UL; // 64 KB
+                    NTSTATUS lastAllocStatus = STATUS_CONFLICTING_ADDRESSES;
+                    BOOLEAN allocated = FALSE;
+
+                    for (ULONG_PTR hint = lowBaseStart; hint + regionSize < lowBaseEnd; hint += granularity)
+                    {
+                        PVOID candidate = (PVOID)hint;
+                        SIZE_T candidateSize = regionSize;
+                        NTSTATUS allocStatus =
+                            fnZwAllocateVirtualMemory(ZwCurrentProcess(), &candidate, 0, &candidateSize,
+                                                      MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+                        if (NT_SUCCESS(allocStatus))
+                        {
+                            baseAddress = candidate;
+                            regionSize = candidateSize;
+                            status = STATUS_SUCCESS;
+                            allocated = TRUE;
+                            break;
+                        }
+                        lastAllocStatus = allocStatus;
+                    }
+
+                    if (!allocated)
+                    {
+                        status = lastAllocStatus;
+                    }
                 }
 
                 if (!NT_SUCCESS(status))
@@ -3130,10 +3123,6 @@ NTSTATUS InitializeShellcodeInfrastructure(_In_ PEPROCESS Process, _Inout_ PPROC
             KeUnstackDetachProcess(&apcState);
         }
     }
-
-    // Release the reference taken by IoGetDeviceObjectPointer.
-    // Must be outside the attach bracket (after KeUnstackDetachProcess).
-    ObDereferenceObject(hookFileObject);
 
     return status;
 }
