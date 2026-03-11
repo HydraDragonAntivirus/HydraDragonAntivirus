@@ -1997,6 +1997,13 @@ pub mod worker_instance {
                             "[DYNAMIC HOOK] PID {} apply failed: driver command not recognized for this target (hr=0x{:08X})",
                             pid, hr
                         ));
+                    } else if hr == 0x8007001F {
+                        let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
+                        *failures = failures.saturating_add(1);
+                        Logging::error(&format!(
+                            "[DYNAMIC HOOK] PID {} apply failed: generic driver failure (hr=0x{:08X}); inspect kernel 'UserModeHook' / 'MESSAGE_HOOK_PROCESS' debug output for the exact NTSTATUS",
+                            pid, hr
+                        ));
                     } else {
                         let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
                         *failures = failures.saturating_add(1);

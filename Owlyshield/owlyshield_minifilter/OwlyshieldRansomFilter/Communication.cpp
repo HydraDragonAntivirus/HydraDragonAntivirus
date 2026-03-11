@@ -1193,7 +1193,12 @@ RWFNewMessage(IN PVOID PortCookie, IN PVOID InputBuffer, IN ULONG InputBufferLen
         {
             return STATUS_INVALID_PARAMETER;
         }
-        return UserModeHookProcess(message->pid);
+        NTSTATUS status = UserModeHookProcess(message->pid);
+        if (!NT_SUCCESS(status))
+        {
+            DbgPrint("!!! FS : MESSAGE_HOOK_PROCESS PID %lu failed: 0x%X\n", message->pid, status);
+        }
+        return status;
     }
 
     return STATUS_INTERNAL_ERROR;

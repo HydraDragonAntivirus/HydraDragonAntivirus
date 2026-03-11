@@ -3400,6 +3400,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     // Fatal - abort (e.g. STATUS_INSUFFICIENT_RESOURCES,
                     //                  STATUS_INVALID_IMAGE_FORMAT,
                     //                  STATUS_DEVICE_DOES_NOT_EXIST).
+                    DbgPrint("UserModeHook: PID %lu fatal hook[%lu] '%ws!%s' failed 0x%X\n", ProcessId, i,
+                             g_GlobalCustomHooks[i].ModuleName, g_GlobalCustomHooks[i].FunctionName, hookStatus);
                     status = hookStatus;
                     ExReleaseFastMutex(&g_ConfigMutex);
                     configMutexHeld = FALSE;
@@ -3469,6 +3471,9 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
     } // end attach scope block
 
 HookProcessFailure:
+    DbgPrint("UserModeHook: PID %lu hook processing failed 0x%X (%s)\n", ProcessId, status,
+             existingHookEntry ? "refresh" : "initial");
+
     // Ensure busy flag is cleared on failure
     ExAcquireFastMutex(&g_UserHookEngine->EngineMutex);
     hookEntry->IsInProgress = FALSE;
