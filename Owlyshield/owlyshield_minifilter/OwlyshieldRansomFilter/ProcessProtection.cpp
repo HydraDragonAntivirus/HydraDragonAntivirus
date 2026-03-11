@@ -374,12 +374,15 @@ static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_S
 {
     BOOLEAN matched = FALSE;
 
-    if (NormalizedPath == NULL || NormalizedPath->Buffer == NULL || NormalizedPath->Length < 3 * sizeof(WCHAR))
+    if (NormalizedPath == NULL || NormalizedPath->Buffer == NULL || NormalizedPath->Length < sizeof(WCHAR))
     {
         return FALSE;
     }
 
-    if (!(NormalizedPath->Buffer[0] == L'c' && NormalizedPath->Buffer[1] == L':' && NormalizedPath->Buffer[2] == L'\\'))
+    // Paths and rules are normalized into a root-relative form such as
+    // "\users\victim\..." so the match is stable across both DOS paths
+    // and "\Device\HarddiskVolumeX\..." names.
+    if (NormalizedPath->Buffer[0] != L'\\')
     {
         return FALSE;
     }
