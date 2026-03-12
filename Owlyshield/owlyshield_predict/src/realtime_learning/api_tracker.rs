@@ -47,6 +47,7 @@ pub struct ApiTracker {
 
     // High-volume kernel event history (capped)
     pub kernel_event_log: Vec<String>,
+    pub raw_event_log: Vec<String>,
 
     // Timing information
     pub first_seen: std::time::SystemTime,
@@ -226,6 +227,7 @@ impl ApiTracker {
             api_sequence: Vec::new(),
             operation_sequence: Vec::new(),
             kernel_event_log: Vec::new(),
+            raw_event_log: Vec::new(),
             first_seen: now,
             last_activity: now,
         }
@@ -234,6 +236,7 @@ impl ApiTracker {
     /// Track an IO operation from the kernel driver and preserve all kernel-level telemetry.
     pub fn track_io_operation(&mut self, msg: &IOMessage, _precord: &ProcessRecord) {
         self.last_activity = msg.time;
+        self.raw_event_log.push(Self::render_raw_event(msg));
 
         let irp_op = IrpMajorOp::from_byte(msg.irp_op);
         let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
@@ -464,6 +467,86 @@ impl ApiTracker {
             let drain = self.kernel_event_log.len() - 2048;
             self.kernel_event_log.drain(0..drain);
         }
+    }
+
+    fn sanitize_raw_field(value: &str) -> String {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return "<empty>".to_string();
+        }
+
+        trimmed
+            .replace('\r', " ")
+            .replace('\n', " ")
+            .replace('\t', " ")
+    }
+
+    #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+    fn render_raw_event(msg: &IOMessage) -> String {
+        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
+            .unwrap_or(FileChangeInfo::ChangeNotSet);
+        let raw_event_type = if msg.kernel_event_info.event_type != 0 {
+            msg.kernel_event_info.event_type
+        } else {
+            msg.irp_op as u32
+        };
+        let timestamp_ms = msg
+            .time
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        format!(
+            "ts_ms={} gid={} pid={} irp={:?} raw_event_type={} change={:?} path={} ext={} bytes={} entropy={:.4} file_size={} parent_pid={} attacker_pid={} attacker_gid={} src_pid={} target_pid={} status={} object={} cmd={}",
+            timestamp_ms,
+            msg.gid,
+            msg.pid,
+            irp_op,
+            raw_event_type,
+            file_change,
+            Self::sanitize_raw_field(&msg.filepathstr),
+            Self::sanitize_raw_field(&msg.extension),
+            msg.mem_sized_used,
+            msg.entropy,
+            msg.file_size,
+            msg.parent_pid,
+            msg.attacker_pid,
+            msg.attacker_gid,
+            msg.kernel_event_info.source_process_id,
+            msg.kernel_event_info.target_process_id,
+            msg.kernel_event_info.operation_status,
+            Self::sanitize_raw_field(&msg.kernel_event_info.object_name),
+            Self::sanitize_raw_field(&msg.runtime_features.command_line),
+        )
+    }
+
+    #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
+    fn render_raw_event(msg: &IOMessage) -> String {
+        let irp_op = IrpMajorOp::from_byte(msg.irp_op);
+        let file_change: FileChangeInfo = num::FromPrimitive::from_u8(msg.file_change)
+            .unwrap_or(FileChangeInfo::ChangeNotSet);
+        let timestamp_ms = msg
+            .time
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        format!(
+            "ts_ms={} gid={} pid={} irp={:?} change={:?} path={} ext={} bytes={} entropy={:.4} file_size={} parent_pid={} cmd={}",
+            timestamp_ms,
+            msg.gid,
+            msg.pid,
+            irp_op,
+            file_change,
+            Self::sanitize_raw_field(&msg.filepathstr),
+            Self::sanitize_raw_field(&msg.extension),
+            msg.mem_sized_used,
+            msg.entropy,
+            msg.file_size,
+            msg.parent_pid,
+            Self::sanitize_raw_field(&msg.runtime_features.command_line),
+        )
     }
 
     pub fn track_api_call(&mut self, api_name: String, category: ApiCategory, associated_file: Option<String>) {

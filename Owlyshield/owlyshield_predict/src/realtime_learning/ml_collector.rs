@@ -155,6 +155,7 @@ pub struct RawBehaviorData {
     pub file_telemetry: Vec<String>,
     pub dlls_loaded: Vec<String>,
     pub operation_sequence: Vec<String>,
+    pub raw_event_log: Vec<String>,
     pub api_call_sequence: Vec<(String, String)>, // (API, category)
     pub entropy_samples: Vec<f64>,
     pub kernel_event_log: Vec<String>,
@@ -267,8 +268,12 @@ impl MLCollector {
         // Add to appropriate collection
         if is_malicious {
             self.malicious_samples.push(sample);
+            #[cfg(feature = "behavior_engine")]
+            self.auto_export_latest_sample_yaml(true);
         } else {
             self.benign_samples.push(sample);
+            #[cfg(feature = "behavior_engine")]
+            self.auto_export_latest_sample_yaml(false);
         }
 
         // Auto-save if threshold reached
@@ -400,6 +405,7 @@ impl MLCollector {
             file_telemetry,
             dlls_loaded: dlls.into_iter().collect(),
             operation_sequence,
+            raw_event_log: api_tracker.raw_event_log.clone(),
             api_call_sequence,
             entropy_samples,
             kernel_event_log: api_tracker.kernel_event_log.clone(),
@@ -857,6 +863,21 @@ impl MLCollector {
         Ok(())
     }
 
+    /// Export full dataset to YAML format, including raw sample content.
+    pub fn export_to_yaml(&self, output_path: &str) -> Result<(), std::io::Error> {
+        let dataset = MLDataset {
+            malicious_samples: self.malicious_samples.clone(),
+            benign_samples: self.benign_samples.clone(),
+            collection_timestamp: std::time::SystemTime::now(),
+            total_malicious: self.malicious_samples.len(),
+            total_benign: self.benign_samples.len(),
+        };
+
+        let file = File::create(output_path)?;
+        serde_yaml::to_writer(file, &dataset)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
     #[cfg(feature = "behavior_engine")]
     fn collected_rule_snapshots(&self) -> Vec<BehaviorRule> {
         let mut rules = Vec::new();
@@ -883,6 +904,54 @@ impl MLCollector {
         let file = File::create(output_path)?;
         serde_yaml::to_writer(file, &rules)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn sanitize_filename_component(value: &str) -> String {
+        let sanitized: String = value
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let trimmed = sanitized.trim_matches('_');
+        if trimmed.is_empty() {
+            "unknown".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    #[cfg(feature = "behavior_engine")]
+    fn auto_export_latest_sample_yaml(&self, is_malicious: bool) {
+        let sample = if is_malicious {
+            self.malicious_samples.last()
+        } else {
+            self.benign_samples.last()
+        };
+
+        let Some(sample) = sample else {
+            return;
+        };
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let safe_name = Self::sanitize_filename_component(&sample.process_name);
+        let label = if is_malicious { "malicious" } else { "benign" };
+        let path = self.output_dir.join(format!(
+            "realtime_learning_{}_gid_{}_{}_{}_full.yaml",
+            label, sample.id, safe_name, timestamp
+        ));
+
+        let artifact = YAMLSampleArtifact {
+            exported_at: std::time::SystemTime::now(),
+            artifact_type: format!("{}_sample_full_{}", label, timestamp),
+            sample: sample.clone(),
+        };
+
+        if let Ok(file) = File::create(&path) {
+            let _ = serde_yaml::to_writer(file, &artifact);
+        }
     }
 
     /// Export to CSV format for easy analysis
@@ -946,11 +1015,13 @@ impl MLCollector {
 
         let json_path = self.output_dir.join(format!("dataset_{}.json", timestamp));
         let csv_path = self.output_dir.join(format!("dataset_{}.csv", timestamp));
+        let yaml_full_path = self.output_dir.join(format!("dataset_full_{}.yaml", timestamp));
         #[cfg(feature = "behavior_engine")]
         let yaml_path = self.output_dir.join(format!("dataset_rules_{}.yaml", timestamp));
 
         self.export_to_json(json_path.to_str().unwrap()).ok();
         self.export_to_csv(csv_path.to_str().unwrap()).ok();
+        self.export_to_yaml(yaml_full_path.to_str().unwrap()).ok();
         #[cfg(feature = "behavior_engine")]
         self.export_rules_to_yaml(yaml_path.to_str().unwrap()).ok();
     }
@@ -1153,6 +1224,13 @@ pub struct MLDataset {
     pub collection_timestamp: std::time::SystemTime,
     pub total_malicious: usize,
     pub total_benign: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct YAMLSampleArtifact {
+    pub exported_at: std::time::SystemTime,
+    pub artifact_type: String,
+    pub sample: MLSample,
 }
 
 

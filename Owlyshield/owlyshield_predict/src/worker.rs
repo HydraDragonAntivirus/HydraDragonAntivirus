@@ -845,6 +845,41 @@ pub mod worker_instance {
             "./ml_data/realtime"
         }
 
+        #[cfg(feature = "realtime_learning")]
+        fn record_realtime_event(
+            learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
+            api_trackers: &mut HashMap<u64, ApiTracker>,
+            gid: u64,
+            iomsg: &IOMessage,
+            precord: &ProcessRecord,
+        ) {
+            learning_engine.update_activity(gid);
+
+            let tracker = api_trackers
+                .entry(gid)
+                .or_insert_with(|| ApiTracker::new(gid, precord.appname.clone()));
+
+            if !precord.appname.is_empty() && tracker.process_name != precord.appname {
+                tracker.process_name = precord.appname.clone();
+            }
+
+            tracker.track_io_operation(iomsg, precord);
+        }
+
+        #[cfg(feature = "realtime_learning")]
+        fn mark_realtime_process_malicious(
+            learning_engine: &mut crate::realtime_learning::RealtimeLearningEngine,
+            api_trackers: &HashMap<u64, ApiTracker>,
+            gid: u64,
+            precord: &ProcessRecord,
+        ) {
+            learning_engine.track_process(gid, precord.appname.clone());
+
+            if let Some(tracker) = api_trackers.get(&gid) {
+                learning_engine.mark_detected_malicious(gid, tracker, precord);
+            }
+        }
+
         #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
         fn default_dynamic_hook_event_map() -> std::collections::HashMap<u32, String> {
             std::collections::HashMap::new()
@@ -1239,6 +1274,10 @@ pub mod worker_instance {
             {
                 if let Some(tracker) = self.api_trackers.remove(&gid) {
                     if let Some(precord) = precord_opt {
+                        if precord.is_malicious {
+                            self.learning_engine
+                                .mark_detected_malicious(gid, &tracker, &precord);
+                        }
                         self.learning_engine.process_terminated(gid, &tracker, &precord);
                     }
                 }
@@ -1391,6 +1430,13 @@ pub mod worker_instance {
                     
                     if let Some((_, record)) = matching_record {
                         Self::apply_behavior_detection_state(record, &det);
+                        #[cfg(feature = "realtime_learning")]
+                        Self::mark_realtime_process_malicious(
+                            &mut self.learning_engine,
+                            &self.api_trackers,
+                            det.gid,
+                            record,
+                        );
                         Logging::warning(&format!("[DETECTION] Process {} (GID: {}) marked malicious", record.appname, det.gid));
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info(config, record, &dummy_pred_mtrx, &threat_info);
@@ -1402,6 +1448,13 @@ pub mod worker_instance {
                         // Handle detection for process not yet in records
                         let mut precord = ProcessRecord::new(det.gid, state.app_name.clone(), state.exe_path.clone());
                         Self::apply_behavior_detection_state(&mut precord, &det);
+                        #[cfg(feature = "realtime_learning")]
+                        Self::mark_realtime_process_malicious(
+                            &mut self.learning_engine,
+                            &self.api_trackers,
+                            det.gid,
+                            &precord,
+                        );
                         ActionsOnKill::with_handler(threat_handler.clone_box())
                             .run_actions_with_info(config, &precord, &dummy_pred_mtrx, &threat_info);
 
@@ -1542,8 +1595,10 @@ pub mod worker_instance {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
-            #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+            #[allow(unused_mut)]
             let mut cleanup_after_creation_detection = false;
+            #[allow(unused_mut, unused_variables)]
+            let mut creation_detected_malicious = false;
             
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes, run static scan immediately
@@ -1559,6 +1614,7 @@ pub mod worker_instance {
                                 Self::apply_behavior_detection_state(precord, &det);
                                 ActionsOnKill::with_handler(th.clone_box())
                                     .run_actions_with_info(config, precord, &dummy_pred_mtrx, &threat_info);
+                                creation_detected_malicious = true;
                                 Logging::info(&format!(
                                     "[BEHAVIOR SCAN] Process {} (GID: {}, PID: {}) triggered detection on creation",
                                     precord.appname, precord.gid, iomsg.pid
@@ -1573,34 +1629,60 @@ pub mod worker_instance {
                     }
                 }
 
-                if !cleanup_after_creation_detection {
-                    // Add IRP record to process
-                    #[cfg(all(target_os = "windows", feature = "hydradragon"))]
-                    {
-                        if let Some(av_integration) = self.av_integration.as_mut() {
-                            precord.add_irp_record(iomsg, Some(av_integration));
-                        } else {
-                            precord.add_irp_record(iomsg, None);
-                        }
-                    }
-
-                    #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
-                    {
+                // Add IRP record to process
+                #[cfg(all(target_os = "windows", feature = "hydradragon"))]
+                {
+                    if let Some(av_integration) = self.av_integration.as_mut() {
+                        precord.add_irp_record(iomsg, Some(av_integration));
+                    } else {
                         precord.add_irp_record(iomsg, None);
                     }
+                }
 
+                #[cfg(not(all(target_os = "windows", feature = "hydradragon")))]
+                {
+                    precord.add_irp_record(iomsg, None);
+                }
+
+                // Update learning engine before detection-time collection so the
+                // triggering event is part of the malicious sample.
+                #[cfg(feature = "realtime_learning")]
+                {
+                    Self::record_realtime_event(
+                        &mut self.learning_engine,
+                        &mut self.api_trackers,
+                        tracking_key,
+                        iomsg,
+                        precord,
+                    );
+                }
+
+                #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+                if creation_detected_malicious {
+                    #[cfg(feature = "realtime_learning")]
+                    Self::mark_realtime_process_malicious(
+                        &mut self.learning_engine,
+                        &self.api_trackers,
+                        tracking_key,
+                        precord,
+                    );
+                }
+
+                if !cleanup_after_creation_detection {
                     // Process behavioral event
                     #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
                     if let Some(ref th) = self.threat_handler {
+                        let was_malicious = precord.is_malicious;
                         self.behavior_engine.process_event(precord, iomsg, config, &**th);
-                    }
 
-                    // Update learning engine
-                    #[cfg(feature = "realtime_learning")]
-                    {
-                        self.learning_engine.update_activity(tracking_key);
-                        if let Some(tracker) = self.api_trackers.get_mut(&tracking_key) {
-                            tracker.track_io_operation(iomsg, precord);
+                        #[cfg(feature = "realtime_learning")]
+                        if !was_malicious && precord.is_malicious {
+                            Self::mark_realtime_process_malicious(
+                                &mut self.learning_engine,
+                                &self.api_trackers,
+                                tracking_key,
+                                precord,
+                            );
                         }
                     }
 
