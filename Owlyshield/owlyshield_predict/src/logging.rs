@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use chrono::{DateTime, Local};
 use log::{error, warn, info, debug};
@@ -41,6 +41,61 @@ impl Status {
 pub struct Logging;
 
 impl Logging {
+    #[cfg(target_os = "windows")]
+    fn open_windows_log_file(dir: &Path) -> std::io::Result<std::fs::File> {
+        std::fs::create_dir_all(dir)?;
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
+            .open(dir.join("owlyshield.log"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn open_log_file(dir: &Path) -> std::io::Result<std::fs::File> {
+        std::fs::create_dir_all(dir)?;
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(dir.join("owlyshield.log"))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn candidate_log_dirs(dir: &str) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        let configured = PathBuf::from(dir);
+        if !configured.as_os_str().is_empty() {
+            dirs.push(configured);
+        }
+
+        if let Some(program_data) = std::env::var_os("ProgramData") {
+            dirs.push(
+                PathBuf::from(program_data)
+                    .join("HydraDragonAntivirus")
+                    .join("hydradragon")
+                    .join("Owlyshield")
+                    .join("log"),
+            );
+        }
+
+        dirs.push(std::env::temp_dir().join("owlyshield"));
+        dirs
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn candidate_log_dirs(dir: &str) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        let configured = PathBuf::from(dir);
+        if !configured.as_os_str().is_empty() {
+            dirs.push(configured);
+        }
+
+        dirs.push(std::env::temp_dir().join("owlyshield"));
+        dirs
+    }
+
     #[cfg(target_os = "windows")]
     fn should_write_to_file(status: Status, message: &str) -> bool {
         if matches!(status, Status::Debug) {
@@ -147,28 +202,6 @@ impl Logging {
     }
 
     fn log_in_file(status: Status, message: &str, dir: &str) {
-        let log_dir = Path::new(dir);
-        if !log_dir.exists() {
-            let _ = std::fs::create_dir_all(log_dir);
-        }
-
-        #[cfg(target_os = "windows")]
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
-            .open(log_dir.join("owlyshield.log"))
-            .unwrap();
-
-        #[cfg(not(target_os = "windows"))]
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(log_dir.join("owlyshield.log"))
-            .unwrap();
-
         let now = (DateTime::from(SystemTime::now()) as DateTime<Local>)
             .format(LOG_TIME_FORMAT)
             .to_string();
@@ -179,9 +212,30 @@ impl Logging {
             format!("{} localhost owlyshield[{}]: {}: {}", now, std::process::id(), status.to_str(), message)
         };
 
-        if let Err(e) = writeln!(file, "{comment}") {
-            eprintln!("Couldn't write to file: {e}");
-            error!("Couldn't write to file: {e}");
+        let mut last_error: Option<(PathBuf, std::io::Error)> = None;
+
+        for log_dir in Self::candidate_log_dirs(dir) {
+            #[cfg(target_os = "windows")]
+            let open_result = Self::open_windows_log_file(&log_dir);
+
+            #[cfg(not(target_os = "windows"))]
+            let open_result = Self::open_log_file(&log_dir);
+
+            match open_result {
+                Ok(mut file) => {
+                    if let Err(e) = writeln!(file, "{comment}") {
+                        eprintln!("Couldn't write to log file {}: {}", log_dir.display(), e);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    last_error = Some((log_dir, e));
+                }
+            }
+        }
+
+        if let Some((path, err)) = last_error {
+            eprintln!("Couldn't open any log file. Last path {} failed: {}", path.display(), err);
         }
     }
 }

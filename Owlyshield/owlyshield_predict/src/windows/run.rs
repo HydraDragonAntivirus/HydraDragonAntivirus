@@ -24,11 +24,8 @@ use crate::shared_def::{IrpMajorOp, known_raw_event_name};
 use crate::utils::format_process_descriptor_with_fallback;
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
-const KERNEL_EXCLUDE_RULE_FILES: [&str; 3] = [
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FSFilter\default_rules.txt",
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\ProcessProtection\default_rules.txt",
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\DynamicHook\default_rules.txt",
-];
+const FSFILTER_EXCLUDE_RULE_FILE: &str =
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FSFilter\default_rules.txt";
 
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 fn normalize_kernel_rule_entry(line: &str) -> Option<String> {
@@ -77,7 +74,7 @@ fn sync_kernel_exclude_rule_file(path: &Path, dynamic_entries: &BTreeSet<String>
     }
 
     let mut output = String::from(
-        "# Auto-synced Owlyshield exclude rules.\r\n# Merged from behavior rules protected_paths.file_paths and existing manual entries.\r\n\r\n",
+        "# Auto-synced Owlyshield filesystem exclude rules.\r\n# Merged from behavior rules protected_paths.file_paths and existing manual entries.\r\n\r\n",
     );
     for entry in merged {
         output.push_str(&entry);
@@ -94,9 +91,7 @@ fn sync_kernel_exclude_rules(rules: &[BehaviorRule], driver: &Driver) -> Result<
         return Ok(());
     }
 
-    for rule_file in KERNEL_EXCLUDE_RULE_FILES {
-        sync_kernel_exclude_rule_file(Path::new(rule_file), &dynamic_entries)?;
-    }
+    sync_kernel_exclude_rule_file(Path::new(FSFILTER_EXCLUDE_RULE_FILE), &dynamic_entries)?;
 
     driver.reload_exclude_rules()?;
     Ok(())
