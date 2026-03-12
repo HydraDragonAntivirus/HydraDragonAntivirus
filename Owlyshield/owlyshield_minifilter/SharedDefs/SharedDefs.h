@@ -306,7 +306,8 @@ enum COM_MESSAGE_TYPE
     MESSAGE_KILL_AND_REMOVE_GID,     // Kill process and delete file
     MESSAGE_REVERT_REGISTRY_CHANGES,
     MESSAGE_ADD_HOOK,                 // Dynamic Hook Config
-    MESSAGE_HOOK_PROCESS              // Force hook a specific PID
+    MESSAGE_HOOK_PROCESS,             // Force hook a specific PID
+    MESSAGE_RELOAD_EXCLUDE_RULES      // Reload exclude rule caches from disk
 };
 
 #define IOCTL_HOOK_PROCESS CTL_CODE(FILE_DEVICE_OWLYSHIELD, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)

@@ -376,6 +376,17 @@ static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
     InterlockedExchange(&g_ProcessProtectionExcludeLoadState, loadSucceeded ? 2 : 0);
 }
 
+VOID ReloadProcessProtectionExcludeRules(VOID)
+{
+    EnsureProcessProtectionRuleMutex();
+    ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    FreeProcessProtectionExcludeRulesUnlocked();
+    g_ProcessProtectionExcludeRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 0);
+    EnsureProcessProtectionExcludeRulesLoaded();
+}
+
 static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_STRING NormalizedPath)
 {
     BOOLEAN matched = FALSE;

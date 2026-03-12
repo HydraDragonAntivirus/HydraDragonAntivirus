@@ -387,6 +387,29 @@ impl Driver {
         Ok(())
     }
 
+    pub fn reload_exclude_rules(&self) -> Result<(), Error> {
+        let mut msg = DriverComMessage {
+            r#type: DriverComMessageType::MessageReloadExcludeRules as c_ulong,
+            pid: 0,
+            gid: 0,
+            path: [0; 520],
+            quarantine_path: [0; 520],
+        };
+        let mut res_size: u32 = 0;
+
+        unsafe {
+            FilterSendMessage(
+                self.handle,
+                ptr::addr_of_mut!(msg) as *mut c_void,
+                mem::size_of::<DriverComMessage>() as c_ulong,
+                None,
+                0,
+                ptr::addr_of_mut!(res_size) as *mut u32,
+            )?;
+        }
+        Ok(())
+    }
+
     fn string_to_commessage_buffer(bufstr: &str) -> BufPath {
         let temp = U16CString::from_str(&bufstr).unwrap();
         let mut buf: BufPath = [0; 520];

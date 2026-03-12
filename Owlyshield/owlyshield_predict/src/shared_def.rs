@@ -58,6 +58,7 @@ pub enum DriverComMessageType {
     MessageRevertRegistryChanges,
     MessageAddHook,
     MessageHookProcess,
+    MessageReloadExcludeRules,
 }
 
 /// See [`shared_def::IOMessage`] struct and [this doc](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-major-function-codes).

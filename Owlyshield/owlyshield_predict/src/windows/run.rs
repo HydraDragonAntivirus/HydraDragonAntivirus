@@ -1,3 +1,7 @@
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use std::collections::BTreeSet;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -13,9 +17,90 @@ use crate::config::Param;
 use crate::watchlist::WatchList;
 #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
 use crate::behavioral::app_settings::AppSettings;
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+use crate::behavioral::behavior_engine::BehaviorRule;
 use crate::threathandling::WindowsThreatHandler;
 use crate::shared_def::{IrpMajorOp, known_raw_event_name};
 use crate::utils::format_process_descriptor_with_fallback;
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+const KERNEL_EXCLUDE_RULE_FILES: [&str; 3] = [
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\FSFilter\default_rules.txt",
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\ProcessProtection\default_rules.txt",
+    r"C:\Program Files\HydraDragonAntivirus\hydradragon\PYAS_Protection\PYAS_Protection_Rules\Process\Owlyshield\DynamicHook\default_rules.txt",
+];
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn normalize_kernel_rule_entry(line: &str) -> Option<String> {
+    let trimmed = line.trim().trim_matches('"');
+    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
+        return None;
+    }
+
+    let normalized = trimmed.replace('/', "\\").to_lowercase();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn collect_kernel_exclude_entries(rules: &[BehaviorRule]) -> BTreeSet<String> {
+    let mut entries = BTreeSet::new();
+    for rule in rules {
+        for path in &rule.protected_paths.file_paths {
+            if let Some(normalized) = normalize_kernel_rule_entry(path) {
+                entries.insert(normalized);
+            }
+        }
+    }
+    entries
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn sync_kernel_exclude_rule_file(path: &Path, dynamic_entries: &BTreeSet<String>) -> std::io::Result<()> {
+    let mut merged = BTreeSet::new();
+
+    if let Ok(existing) = fs::read_to_string(path) {
+        for line in existing.lines() {
+            if let Some(normalized) = normalize_kernel_rule_entry(line) {
+                merged.insert(normalized);
+            }
+        }
+    }
+
+    merged.extend(dynamic_entries.iter().cloned());
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut output = String::from(
+        "# Auto-synced Owlyshield exclude rules.\r\n# Merged from behavior rules protected_paths.file_paths and existing manual entries.\r\n\r\n",
+    );
+    for entry in merged {
+        output.push_str(&entry);
+        output.push_str("\r\n");
+    }
+
+    fs::write(path, output)
+}
+
+#[cfg(all(target_os = "windows", feature = "behavior_engine"))]
+fn sync_kernel_exclude_rules(rules: &[BehaviorRule], driver: &Driver) -> Result<(), Box<dyn std::error::Error>> {
+    let dynamic_entries = collect_kernel_exclude_entries(rules);
+    if dynamic_entries.is_empty() {
+        return Ok(());
+    }
+
+    for rule_file in KERNEL_EXCLUDE_RULE_FILES {
+        sync_kernel_exclude_rule_file(Path::new(rule_file), &dynamic_entries)?;
+    }
+
+    driver.reload_exclude_rules()?;
+    Ok(())
+}
 
 pub fn run() {
     Logging::init();
@@ -216,6 +301,8 @@ pub fn run() {
                 let rules_path = worker.app_settings.behavior_rules_path.clone();
                 if let Err(e) = worker.behavior_engine.load_rules(&rules_path) {
                     Logging::error(&format!("Failed to load behavior rules from {:?}: {}", rules_path, e));
+                } else if let Err(e) = sync_kernel_exclude_rules(&worker.behavior_engine.rules, &driver) {
+                    Logging::error(&format!("Failed to sync kernel exclude rules: {}", e));
                 }
             }
 

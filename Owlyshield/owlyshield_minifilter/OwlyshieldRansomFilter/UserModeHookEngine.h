@@ -290,6 +290,7 @@ typedef struct _USERMODE_HOOK_ENGINE
 
 NTSTATUS UserModeHookEngineInitialize(VOID);
 VOID UserModeHookEngineCleanup(VOID);
+VOID ReloadHookExcludeRules(VOID);
 
 NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId);
 NTSTATUS UserModeUnhookProcess(_In_ ULONG ProcessId);

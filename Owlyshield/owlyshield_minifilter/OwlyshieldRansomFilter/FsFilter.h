@@ -120,6 +120,7 @@ NTSTATUS GetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING
 NTSTATUS GetProcessCommandLineByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *CommandLine);
 NTSTATUS DeleteFileByPath(PUNICODE_STRING FilePath);
 NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath);
+VOID FSReloadPyasWhitelistRules(VOID);
 
 // FIX: This global variable should be removed or properly managed
 // Global variables in drivers should be avoided when possible

@@ -560,6 +560,17 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
     InterlockedExchange(&g_HookExcludeLoadState, loadSucceeded ? 2 : 0);
 }
 
+VOID ReloadHookExcludeRules(VOID)
+{
+    EnsureHookExcludeRuleMutex();
+    ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
+    FreeHookExcludeRulesUnlocked();
+    g_HookExcludeRules.Loaded = FALSE;
+    ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
+    InterlockedExchange(&g_HookExcludeLoadState, 0);
+    EnsureHookExcludeRulesLoaded();
+}
+
 static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
 {
     BOOLEAN matched = FALSE;

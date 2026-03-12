@@ -400,6 +400,12 @@ static VOID FSCleanupPyasWhitelistRules(VOID)
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
 }
 
+VOID FSReloadPyasWhitelistRules(VOID)
+{
+    FSCleanupPyasWhitelistRules();
+    FSLoadPyasWhitelistRules();
+}
+
 //
 //  Constant FLT_REGISTRATION structure for our filter.
 //  initializes the callback routines our filter wants to register
