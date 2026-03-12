@@ -355,19 +355,25 @@ static VOID EnsureProcessProtectionExcludeRulesLoaded(VOID)
     FreeProcessProtectionExcludeRulesUnlocked();
     ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
 
+    BOOLEAN loadSucceeded = FALSE;
     static const PCWSTR ruleFiles[] = {OWLY_PROCESS_PROTECTION_RULE_FILE_KERNEL};
     for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {
         UNICODE_STRING ruleFile;
+        NTSTATUS loadStatus;
         RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        (VOID) LoadProcessProtectionExcludeRulesFromFileUnlocked(&ruleFile);
+        loadStatus = LoadProcessProtectionExcludeRulesFromFileUnlocked(&ruleFile);
+        if (NT_SUCCESS(loadStatus))
+        {
+            loadSucceeded = TRUE;
+        }
     }
 
     ExAcquireFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
-    g_ProcessProtectionExcludeRules.Loaded = TRUE;
+    g_ProcessProtectionExcludeRules.Loaded = loadSucceeded;
     ExReleaseFastMutex(&g_ProcessProtectionExcludeRules.Mutex);
 
-    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, 2);
+    InterlockedExchange(&g_ProcessProtectionExcludeLoadState, loadSucceeded ? 2 : 0);
 }
 
 static BOOLEAN IsNormalizedPathExcludedByProcessProtectionRules(_In_ PCUNICODE_STRING NormalizedPath)

@@ -374,6 +374,7 @@ static VOID FSLoadPyasWhitelistRules(VOID)
 
     // Do file I/O entirely at PASSIVE_LEVEL, outside any mutex
     UNICODE_STRING ruleFilePath;
+    NTSTATUS loadStatus;
     RtlInitUnicodeString(&ruleFilePath, OWLY_FSFILTER_RULE_FILE_KERNEL);
 
     ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
@@ -381,11 +382,12 @@ static VOID FSLoadPyasWhitelistRules(VOID)
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
 
     // File I/O happens here with no mutex held
-    (VOID)FSLoadPyasWhitelistRulesFromFileUnlocked(&ruleFilePath);
+    loadStatus = FSLoadPyasWhitelistRulesFromFileUnlocked(&ruleFilePath);
 
-    // Now just mark as loaded under the mutex (no I/O, safe at APC_LEVEL)
+    // Only latch the cache as loaded after a successful file read. If the
+    // rules file is not present yet, keep the cache retryable.
     ExAcquireFastMutex(&g_PyasWhitelistRules.Mutex);
-    g_PyasWhitelistRules.Loaded = TRUE;
+    g_PyasWhitelistRules.Loaded = NT_SUCCESS(loadStatus);
     ExReleaseFastMutex(&g_PyasWhitelistRules.Mutex);
 }
 

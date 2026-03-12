@@ -536,21 +536,28 @@ static VOID EnsureHookExcludeRulesLoaded(VOID)
 
     // File I/O at PASSIVE_LEVEL, no mutex held.
     // Safe because we are the sole thread in this path (state == 1).
+    BOOLEAN loadSucceeded = FALSE;
     static const PCWSTR ruleFiles[] = {OWLY_DYNAMIC_HOOK_RULE_FILE_KERNEL};
     for (ULONG i = 0; i < RTL_NUMBER_OF(ruleFiles); ++i)
     {
         UNICODE_STRING ruleFile;
+        NTSTATUS loadStatus;
         RtlInitUnicodeString(&ruleFile, ruleFiles[i]);
-        (VOID) LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
+        loadStatus = LoadHookExcludeRulesFromFileUnlocked(&ruleFile);
+        if (NT_SUCCESS(loadStatus))
+        {
+            loadSucceeded = TRUE;
+        }
     }
 
     // Mark loaded in the struct (for callers that check Loaded directly).
     ExAcquireFastMutex(&g_HookExcludeRules.Mutex);
-    g_HookExcludeRules.Loaded = TRUE;
+    g_HookExcludeRules.Loaded = loadSucceeded;
     ExReleaseFastMutex(&g_HookExcludeRules.Mutex);
 
-    // Signal all waiting threads: loading complete (1 -> 2).
-    InterlockedExchange(&g_HookExcludeLoadState, 2);
+    // Signal all waiting threads. On failure, reset to 0 so a later call can retry
+    // after the rules file is created or updated.
+    InterlockedExchange(&g_HookExcludeLoadState, loadSucceeded ? 2 : 0);
 }
 
 static BOOLEAN IsNormalizedPathExcludedByHookRules(_In_ PCUNICODE_STRING NormalizedPath)
@@ -2682,6 +2689,10 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         }
 
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        if (status == STATUS_INVALID_PARAMETER)
+        {
+            return STATUS_CONFLICTING_ADDRESSES;
+        }
         if (NT_SUCCESS(status))
         {
             // Write JMP [RIP+0] -> Shellcode Address: FF 25 00 00 00 00 [Address]
@@ -2910,6 +2921,8 @@ NTSTATUS InjectSingleHook32(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout
         ULONG oldProt = 0;
 
         status = fnZwProtectVirtualMemory(ZwCurrentProcess(), &pageAddr, &pageSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        if (status == STATUS_INVALID_PARAMETER)
+            return STATUS_CONFLICTING_ADDRESSES;
         if (!NT_SUCCESS(status))
             return status;
 
@@ -3408,7 +3421,8 @@ NTSTATUS UserModeHookProcess(_In_ ULONG ProcessId)
                     // continue installing the remaining hooks.
                     if (hookStatus == STATUS_NOT_FOUND || hookStatus == STATUS_PROCEDURE_NOT_FOUND ||
                         hookStatus == STATUS_NOT_SUPPORTED || hookStatus == STATUS_ACCESS_VIOLATION ||
-                        hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES)
+                        hookStatus == STATUS_INVALID_ADDRESS || hookStatus == STATUS_CONFLICTING_ADDRESSES ||
+                        hookStatus == STATUS_INVALID_PARAMETER)
                     {
                         DbgPrint("UserModeHook: PID %lu skipping hook[%lu] '%s' - recoverable 0x%X\n", ProcessId, i,
                                  hookConfigSnapshot[i].FunctionName, hookStatus);
