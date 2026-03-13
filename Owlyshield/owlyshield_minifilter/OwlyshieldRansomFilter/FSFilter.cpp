@@ -2663,12 +2663,16 @@ static VOID AddRemProcessRoutineCore(HANDLE ParentId, HANDLE ProcessId, BOOLEAN 
         if (!NT_SUCCESS(hr)) {
             DbgPrint("!!! FSFilter: Failed to open process (non-fatal): %#010x.\n", hr);
             if (procHandleParent) ZwClose(procHandleParent);
-            // Still record using name from CreateInfo->ImageFileName if available
+
+            // Even if the process is already dead (STATUS_INVALID_CID,
+            // STATUS_PROCESS_IS_TERMINATING, etc.) we still want to record and
+            // forward it for scanning — the executable image is still on disk and
+            // may be malware. Use the name the kernel already captured in CreateInfo.
             if (CreateInfo && CreateInfo->ImageFileName) {
                 procName = const_cast<PUNICODE_STRING>(CreateInfo->ImageFileName);  // borrowed pointer, don't free
                 mustFreeProcName = FALSE;
             } else {
-                return;  // truly nothing to record
+                return;  // no name at all, truly nothing to record
             }
             goto record_process;  // skip the GetProcessNameByHandle calls
         }

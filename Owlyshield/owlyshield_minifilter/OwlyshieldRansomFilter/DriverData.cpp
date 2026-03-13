@@ -1,5 +1,11 @@
 #include "DriverData.h"
 
+// Sentinel stored in PidToGids when a terminate callback fires for a PID that
+// RecordNewProcess has not yet inserted. If RecordNewProcess later runs for the
+// same PID it will find this marker, skip insertion, and clean up the tombstone.
+// Value chosen to be unreachable by the monotonically-increasing GidCounter.
+#define TERMINATED_PID_SENTINEL ((ULONGLONG)0xFFFFFFFFFFFFFFFFULL)
+
 DriverData::DriverData(PDRIVER_OBJECT DriverObject) :
     FilterRun(FALSE),
     Filter(nullptr),
@@ -163,10 +169,18 @@ BOOLEAN DriverData::RemoveProcess(ULONG ProcessId) {
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ProcessId);
-    if (gid) {  // there is Gid
+    if (gid == TERMINATED_PID_SENTINEL) {
+        // Double-terminate (extremely rare): just remove the existing tombstone.
+        PidToGids.deleteNode(ProcessId);
+    } else if (gid) {
+        // Normal path: process was tracked, clean it up.
         ret = RemoveProcessRecordAux(ProcessId, gid);
+    } else {
+        // Terminate fired before RecordNewProcess — plant a tombstone so that
+        // if RecordNewProcess runs late for this PID it will detect the race
+        // and skip insertion instead of leaving a permanent ghost entry.
+        PidToGids.insertNode(ProcessId, (HANDLE)TERMINATED_PID_SENTINEL);
     }
-
     KeReleaseSpinLock(&GIDSystemLock, oldIrql);
     return ret;
 }
@@ -179,6 +193,21 @@ BOOLEAN DriverData::RecordNewProcess(
     BOOLEAN ret = FALSE;
     KIRQL oldIrql;
     KeAcquireSpinLock(&GIDSystemLock, &oldIrql);
+
+    // Check for tombstone planted by RemoveProcess when terminate fired first.
+    ULONGLONG existingEntry = (ULONGLONG)PidToGids.get(ProcessId);
+    if (existingEntry == TERMINATED_PID_SENTINEL) {
+        // The process already terminated before we recorded it.
+        // Remove tombstone and bail — do NOT insert a ghost entry.
+        PidToGids.deleteNode(ProcessId);
+        KeReleaseSpinLock(&GIDSystemLock, oldIrql);
+        // ProcessName ownership: free it here since we are not storing it.
+        if (ProcessName != NULL) {
+            ExFreePoolWithTag(ProcessName, 'RW');
+        }
+        return FALSE;
+    }
+
     ULONGLONG gid = (ULONGLONG)PidToGids.get(ParentPid);
     PPID_ENTRY pStrct = new PID_ENTRY;
     pStrct->Pid = ProcessId;
