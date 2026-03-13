@@ -102,7 +102,7 @@ typedef struct _PYAS_WHITELIST_RULE_SET
     ULONG Count;
     ULONG Capacity;
     FAST_MUTEX Mutex;
-    BOOLEAN MutexInitialized;
+    volatile LONG MutexInitialized; // FIX Bug4: 0=uninit, 1=initializing, 2=ready
     BOOLEAN Loaded;
 } PYAS_WHITELIST_RULE_SET, *PPYAS_WHITELIST_RULE_SET;
 
@@ -110,11 +110,37 @@ static PYAS_WHITELIST_RULE_SET g_PyasWhitelistRules = {0};
 
 static VOID FSEnsurePyasRuleMutex(VOID)
 {
-    if (!g_PyasWhitelistRules.MutexInitialized)
+    // FIX Bug4: The old code did a plain read of MutexInitialized and then
+    // called ExInitializeFastMutex without any atomics.  Two threads could
+    // both observe FALSE simultaneously and both reinitialize a live mutex,
+    // corrupting its state.  Use the same three-state CAS protocol that
+    // ProcessProtection.cpp uses:
+    //   0 = uninitialized
+    //   1 = one thread owns initialization (others must spin)
+    //   2 = initialized and ready
+    volatile LONG *pState = (volatile LONG *)&g_PyasWhitelistRules.MutexInitialized;
+
+    if (InterlockedCompareExchange(pState, 0, 0) == 2)
     {
-        ExInitializeFastMutex(&g_PyasWhitelistRules.Mutex);
-        g_PyasWhitelistRules.MutexInitialized = TRUE;
+        KeMemoryBarrier();
+        return;
     }
+
+    if (InterlockedCompareExchange(pState, 1, 0) == 0)
+    {
+        FAST_MUTEX tempMutex;
+        ExInitializeFastMutex(&tempMutex);
+        RtlCopyMemory(&g_PyasWhitelistRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
+        KeMemoryBarrier();
+        InterlockedExchange(pState, 2);
+        return;
+    }
+
+    while (InterlockedCompareExchange(pState, 0, 0) != 2)
+    {
+        YieldProcessor();
+    }
+    KeMemoryBarrier();
 }
 
 static VOID FSFreePyasWhitelistRulesUnlocked(VOID)

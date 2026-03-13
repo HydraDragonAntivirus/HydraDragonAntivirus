@@ -178,7 +178,7 @@ typedef struct _HOOK_EXCLUDE_RULE_SET
     ULONG Count;
     ULONG Capacity;
     FAST_MUTEX Mutex;
-    BOOLEAN MutexInitialized;
+    volatile LONG MutexInitialized; // FIX Bug3: 0=uninit, 1=initializing, 2=ready
     BOOLEAN Loaded;
 } HOOK_EXCLUDE_RULE_SET, *PHOOK_EXCLUDE_RULE_SET;
 
@@ -199,49 +199,49 @@ static VOID EnsureHookExcludeRuleMutex(VOID)
     // MutexInitialized==FALSE and both call ExInitializeFastMutex.
     // InterlockedCompareExchange was added to let only one winner publish.
     //
-    // FIX #4: The previous revision still had a subtle memory-ordering bug.
-    // On x86/x64 (TSO model) the CAS implicitly provides a store-store
-    // barrier, but on ARM64 a plain CAS does NOT prevent the CPU from
-    // reordering the preceding RtlCopyMemory stores past the flag flip.
-    // Loser threads spinning on MutexInitialized could observe TRUE before
-    // seeing all 32 bytes of the FAST_MUTEX, corrupting the mutex state.
+    // FIX Bug3: Three-state protocol so the ready flag is only published
+    // AFTER all FAST_MUTEX bytes are globally visible.
     //
-    // Fix: insert KeMemoryBarrier() between the copy and the publishing CAS.
-    // This emits a full DMB ISH on ARM64 (and is a no-op on x86/x64 where
-    // the CAS already provides the required ordering).
+    // States stored in g_HookExcludeRules.MutexInitialized (cast to LONG):
+    //   0 = uninitialized
+    //   1 = one thread owns initialization (others must spin)
+    //   2 = initialized and ready
     //
-    if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, 0, 0) == FALSE)
+    // The old code used a single CAS that published TRUE before
+    // RtlCopyMemory completed, so a losing thread could call
+    // ExAcquireFastMutex on a partially-written FAST_MUTEX.
+    //
+    volatile LONG *pState = (volatile LONG *)&g_HookExcludeRules.MutexInitialized;
+
+    // Fast path: already ready.
+    if (InterlockedCompareExchange(pState, 0, 0) == 2)
     {
-        // Speculatively initialize a local copy, then race to publish it.
+        KeMemoryBarrier();
+        return;
+    }
+
+    // Race to become the initializing thread (0 -> 1).
+    if (InterlockedCompareExchange(pState, 1, 0) == 0)
+    {
+        // Winner: initialize locally, copy, barrier, then publish 2.
         FAST_MUTEX tempMutex;
         ExInitializeFastMutex(&tempMutex);
-
-        // Only the first thread to flip MutexInitialized from FALSE to TRUE
-        // copies the initialized mutex into the global. Losers harmlessly
-        // discard their local copy - the winner's mutex is already valid.
-        if (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, TRUE, FALSE) == FALSE)
-        {
-            RtlCopyMemory(&g_HookExcludeRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
-
-            // FIX #4: Full store-store barrier BEFORE the publishing CAS so
-            // that all 32 FAST_MUTEX bytes are globally visible on ARM64
-            // before any loser thread observes MutexInitialized == TRUE.
-            KeMemoryBarrier();
-
-            // Mark initialized - this CAS is only for the winner; the earlier
-            // CAS (above) already won the race, so this always succeeds.
-            InterlockedExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, TRUE);
-        }
-
-        // Losers spin-wait until the winner's writes are visible.
-        while (InterlockedCompareExchange((volatile LONG *)&g_HookExcludeRules.MutexInitialized, 0, 0) == FALSE)
-        {
-            YieldProcessor();
-        }
-
-        // Acquire-barrier: ensure we see all bytes written before the flag.
+        RtlCopyMemory(&g_HookExcludeRules.Mutex, &tempMutex, sizeof(FAST_MUTEX));
+        // Full store-store barrier: all 32 FAST_MUTEX bytes must be visible
+        // before any waiter observes state == 2 (ARM64 requires this;
+        // it is a no-op on x86/x64 TSO).
         KeMemoryBarrier();
+        InterlockedExchange(pState, 2);
+        return;
     }
+
+    // Loser: spin until winner publishes 2.
+    while (InterlockedCompareExchange(pState, 0, 0) != 2)
+    {
+        YieldProcessor();
+    }
+    // Acquire-barrier: ensure all FAST_MUTEX bytes are visible to us.
+    KeMemoryBarrier();
 }
 
 static VOID FreeHookExcludeRulesUnlocked(VOID)
@@ -1165,7 +1165,12 @@ static BOOLEAN ContainsUnrelocatableInstructions(_In_reads_bytes_(StolenSize) co
         }
 
         // One-byte opcodes that may carry a RIP-relative ModRM:
-        // 8x, 0x-3x (ALU), C7, FF, etc.
+        // 8x, 0x-3x (ALU), C7, FF, F6, F7, etc.
+        // FIX Bug1+Bug2: Added 0xF6 and 0xF7 which were missing.  Without
+        // them the scanner consumes each byte of TEST/NOT/NEG/MUL/DIV
+        // instructions individually, misaligning the parser for every
+        // subsequent instruction.  A misaligned parser can skip over a real
+        // RIP-relative instruction and let a broken trampoline through.
         static const UCHAR kModrmOpcodes[] = {
             0x01, 0x03, 0x09, 0x0B, 0x11, 0x13, // ADD/OR/ADC/SBB
             0x21, 0x23, 0x29, 0x2B, 0x31, 0x33, // AND/SUB/XOR
@@ -1173,6 +1178,7 @@ static BOOLEAN ContainsUnrelocatableInstructions(_In_reads_bytes_(StolenSize) co
             0x85, 0x87, 0x89, 0x8B, 0x8D,       // TEST/XCHG/MOV/LEA
             0xC7,                               // MOV r/m, imm
             0xFF,                               // INC/DEC/CALL/JMP/PUSH
+            0xF6, 0xF7,                         // FIX Bug2: TEST/NOT/NEG/MUL/DIV r/m8 and r/m
         };
         BOOLEAN hasModrm = FALSE;
         for (SIZE_T k = 0; k < RTL_NUMBER_OF(kModrmOpcodes); ++k)
@@ -1190,22 +1196,46 @@ static BOOLEAN ContainsUnrelocatableInstructions(_In_reads_bytes_(StolenSize) co
             if ((modrm & 0xC7) == 0x05) // mod=00, rm=101 = RIP-relative
                 return TRUE;
 
-            // Estimate instruction length to advance i correctly
-            // (simplified - good enough for 14-byte prologues)
+            // Estimate instruction length to advance i correctly.
             UCHAR mod = (modrm >> 6) & 0x03;
-            UCHAR rm = modrm & 0x07;
+            UCHAR rm  = modrm & 0x07;
             SIZE_T instrLen = 2; // opcode + ModRM
+
+            // FIX Bug1: A SIB byte is present whenever mod != 3 AND rm == 4,
+            // regardless of whether mod is 0, 1, or 2.  The old code only
+            // handled mod==0, so for mod==1 (disp8+SIB) and mod==2
+            // (disp32+SIB) the SIB byte was silently dropped, advancing i
+            // one byte short.  The next iteration then consumed the SIB byte
+            // as if it were an opcode, potentially matching kModrmOpcodes and
+            // reading the displacement bytes as a ModRM -- which could mask a
+            // real RIP-relative instruction that follows.
+            if (rm == 0x04 && mod != 0x03)
+            {
+                instrLen += 1; // SIB byte present for mod 0/1/2 when rm==4
+                // For mod==0: if SIB.base == 5 there is an additional disp32.
+                if (mod == 0x00 && i + 2 < StolenSize && (Bytes[i + 2] & 0x07) == 0x05)
+                    instrLen += 4;
+            }
+            else if (mod == 0x00 && rm == 0x05)
+            {
+                // RIP-relative or abs disp32 (no SIB).  Already detected
+                // above via the (modrm & 0xC7) == 0x05 check, but include
+                // the disp32 in the length so we keep the parser aligned.
+                instrLen += 4;
+            }
+
             if (mod == 0x01)
                 instrLen += 1; // +disp8
             else if (mod == 0x02)
-                instrLen += 4;                  // +disp32
-            else if (mod == 0x00 && rm == 0x04) // SIB byte follows
-                instrLen += 1;
-            // special case: C7 also carries an imm32
-            if (b == 0xC7 && mod == 0x03)
-                instrLen += 4;
-            else if (b == 0xC7)
-                instrLen += 4;
+                instrLen += 4; // +disp32
+
+            // Opcodes that also carry an immediate.
+            if (b == 0xC7)
+                instrLen += 4; // imm32
+            else if (b == 0xF6 && ((modrm >> 3) & 0x07) == 0)
+                instrLen += 1; // TEST r/m8, imm8
+            else if (b == 0xF7 && ((modrm >> 3) & 0x07) == 0)
+                instrLen += 4; // TEST r/m, imm32
 
             i += instrLen;
             continue;
@@ -2719,6 +2749,19 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         // Embed stolenSize bytes in the shellcode trampoline.
         // Both use memory we already read into prologue[] above.
         // Re-read via ProbeForRead in case the page was remapped.
+
+        // FIX Bug5: Defensive bounds check.  ComputeStolenSize64 guarantees
+        // stolenSize <= USERMODE_HOOK_STOLEN_MAX, but assert here so that any
+        // future regression (e.g. a caller that bypasses ComputeStolenSize64)
+        // returns a clean error instead of silently overwriting the kRetSig
+        // bytes that immediately follow the placeholder in the shellcode.
+        if (stolenSize == 0 || stolenSize > USERMODE_HOOK_STOLEN_MAX)
+        {
+            DbgPrint("UserModeHook: stolenSize %zu out of range [1,%u] at %p - refusing hook\n",
+                     stolenSize, (ULONG)USERMODE_HOOK_STOLEN_MAX, HookDef->Address);
+            return STATUS_INVALID_PARAMETER;
+        }
+
         __try
         {
             ProbeForRead(HookDef->Address, stolenSize, 1);
