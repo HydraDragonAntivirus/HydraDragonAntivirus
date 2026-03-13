@@ -2431,8 +2431,9 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
                          NULL,
                          0);
 
-    if (destHandle != NULL)
-        ZwClose(destHandle);
+    // DON'T close destHandle here! We need it for the relative rename.
+    // if (destHandle != NULL)
+    //    ZwClose(destHandle);
 
     // Open the source file
     InitializeObjectAttributes(&objAttribs, FilePath,
@@ -2482,20 +2483,25 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
     RtlAppendUnicodeStringToString(&destPath, &filename);
 
     // Prepare rename information
-    ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + destPath.Length;
+    // We only need the size of the FILE_RENAME_INFORMATION + the relative filename
+    ULONG renameInfoSize = sizeof(FILE_RENAME_INFORMATION) + filename.Length;
     PFILE_RENAME_INFORMATION renameInfo = (PFILE_RENAME_INFORMATION)
         ExAllocatePool2(POOL_FLAG_NON_PAGED, renameInfoSize, 'RW');
 
     if (renameInfo == NULL)
     {
         ZwClose(sourceHandle);
+        ZwClose(destHandle); // Clean up
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     renameInfo->ReplaceIfExists = TRUE;
-    renameInfo->RootDirectory = NULL;
-    renameInfo->FileNameLength = destPath.Length;
-    RtlCopyMemory(renameInfo->FileName, destPath.Buffer, destPath.Length);
+    // Set the root directory to our open handle to the Quarantine folder!
+    renameInfo->RootDirectory = destHandle; 
+    renameInfo->FileNameLength = filename.Length;
+    
+    // ONLY copy the filename (e.g., "Code.exe"), not the full path
+    RtlCopyMemory(renameInfo->FileName, filename.Buffer, filename.Length);
 
     // Move the file to quarantine
     status = ZwSetInformationFile(sourceHandle,
@@ -2506,6 +2512,7 @@ NTSTATUS QuarantineFileByPath(PUNICODE_STRING FilePath)
 
     ExFreePoolWithTag(renameInfo, 'RW');
     ZwClose(sourceHandle);
+    ZwClose(destHandle); // Now we can close the directory handle
 
     if (NT_SUCCESS(status))
     {

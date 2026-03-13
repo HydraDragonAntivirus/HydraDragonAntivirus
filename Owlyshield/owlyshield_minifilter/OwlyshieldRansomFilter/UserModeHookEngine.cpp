@@ -1665,14 +1665,12 @@ UCHAR g_ShellcodeTemplate[] = {
     0x58,                                     // pop rax
 
     // ---- 28-byte stolen-instruction placeholder -------------------------
-    // Accommodates up to 28 bytes of original prologue rounded to an
-    // instruction boundary.  Unused trailing bytes remain as NOPs and are
-    // never reached (execution falls through to mov rax,retVA; jmp rax).
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
 
     // ---- Return jump <- patched: kRetSig ---------------------------------
-    0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xE0, // jmp rax
+    // jmp qword ptr [rip+0] followed by the 8-byte address
+    0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
 
     // ---- Padding --------------------------------------------------------
     0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
@@ -2673,7 +2671,8 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         static const UCHAR kIoctlSig[] = {0x48, 0xB8, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
         static const UCHAR kSizeSig[] = {0x48, 0xB8, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
         static const UCHAR kNtIoSig[] = {0x48, 0xB8, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44};
-        static const UCHAR kRetSig[] = {0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+        // Updated the signature to match the new 14-byte JMP pattern
+        static const UCHAR kRetSig[] = {0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
 
         SIZE_T offGuardMagic = FindPatternOffset(shellcode, sizeof(shellcode), kGuardMagicSig, sizeof(kGuardMagicSig));
         SIZE_T offJe64 = FindPatternOffset(shellcode, sizeof(shellcode), kJeSig64, sizeof(kJeSig64));
@@ -2750,7 +2749,8 @@ NTSTATUS InjectSingleHook(_In_ PEPROCESS Process, _In_ ULONG ProcessId, _Inout_ 
         }
 
         // Patch return target to original function + actual stolen bytes
-        *(PVOID *)(shellcode + offRet + 2) = (PVOID)((ULONG_PTR)HookDef->Address + stolenSize);
+        // Notice the offset is now +6 because the 8-byte address sits 6 bytes into the signature
+        *(PVOID *)(shellcode + offRet + 6) = (PVOID)((ULONG_PTR)HookDef->Address + stolenSize);
     }
 
     // Write Shellcode to Target at specific offset.
