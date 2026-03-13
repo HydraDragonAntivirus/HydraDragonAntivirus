@@ -964,6 +964,15 @@ VOID EnumerateExistingProcesses(VOID)
 
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
 
+                // Actually trigger the hooking engine for this pre-existing process
+                PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
+                    POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
+                if (ctx != NULL)
+                {
+                    ExInitializeWorkItem(&ctx->WorkItem, HookProcessWorkItemRoutine, ctx);
+                    ctx->ProcessId = pidNum;
+                    ExQueueWorkItem(&ctx->WorkItem, DelayedWorkQueue);
+                }
                 PIRP_ENTRY newEntry = new IRP_ENTRY();
                 if (newEntry != NULL)
                 {
