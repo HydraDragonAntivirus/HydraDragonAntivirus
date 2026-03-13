@@ -225,14 +225,6 @@ pub fn run() {
 
             whitelist.refresh_periodically();
 
-            if cfg!(feature = "novelty") {
-                let watchlist = WatchList::from(
-                    &Path::new(&thread_config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
-                )
-                .expect("Cannot open to_analyze.yml");
-                watchlist.refresh_periodically();
-            }
-
             #[cfg(all(target_os = "windows", feature = "behavior_engine"))]
             let mut worker = Worker::new(&thread_config, thread_app_settings).driver(driver.clone());
             #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
@@ -260,6 +252,11 @@ pub fn run() {
             }
 
             if cfg!(feature = "novelty") {
+                let watchlist = WatchList::from(
+                    &Path::new(&thread_config[Param::NoveltyPath]).join(Path::new("to_analyze.yml")),
+                )
+                .expect("Cannot open to_analyze.yml");
+                watchlist.refresh_periodically();
                 worker = worker.process_record_handler(Box::new(ProcessRecordHandlerNovelty::new(
                     &thread_config,
                     watchlist,
@@ -532,7 +529,3 @@ pub fn run() {
         }
     }
 }
-
-
-
-
