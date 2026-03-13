@@ -71,6 +71,7 @@ FSShouldIgnorePyasWhitelistPath(_In_ PCUNICODE_STRING Path);
 // Use InitHookNotifyDevice() / CleanupHookNotifyDevice() instead.
 
 // g_HookDeviceObject removed: hook device owned by Communication.cpp
+static PDRIVER_OBJECT g_DriverObject = NULL;   // set in DriverEntry; used by IoAllocateWorkItem
 static BOOLEAN g_UseLegacyProcessNotify = FALSE;
 static BOOLEAN g_ProcessNotifyRegistered = FALSE;
 static BOOLEAN g_ThreadNotifyRegistered = FALSE;
@@ -501,6 +502,11 @@ Return Value:
     UNREFERENCED_PARAMETER(RegistryPath);
     NTSTATUS status;
 
+    // Store DriverObject globally so IoAllocateWorkItem can reference it later.
+    // FltMgr attaches a device object to this driver after FltRegisterFilter,
+    // making DriverObject->DeviceObject valid for the driver's lifetime.
+    g_DriverObject = DriverObject;
+
     //
     // --- FIX: Initialize required function pointers FIRST and verify. ---
     //
@@ -891,11 +897,11 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
             if (ctx != NULL)
             {
                 // IoAllocateWorkItem pins the driver via DeviceObject reference count
-                ctx->WorkItem = IoAllocateWorkItem(g_DeviceObject); // your CDO or filter device
+                ctx->WorkItem = IoAllocateWorkItem(g_DriverObject->DeviceObject);
                 if (ctx->WorkItem == NULL) {
                     ExFreePoolWithTag(ctx, 'wHuM');
                 } else {
-                    ctx->ProcessId = pidNum;
+                    ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
                     IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine,
                                     DelayedWorkQueue, ctx);
                 }
@@ -979,15 +985,6 @@ VOID EnumerateExistingProcesses(VOID)
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
                 (VOID)UserModeHookProcess(pidNum); // direct call, safe here
 
-                // Actually trigger the hooking engine for this pre-existing process
-                PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
-                    POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
-                if (ctx != NULL)
-                {
-                    ExInitializeWorkItem(&ctx->WorkItem, HookProcessWorkItemRoutine, ctx);
-                    ctx->ProcessId = pidNum;
-                    ExQueueWorkItem(&ctx->WorkItem, DelayedWorkQueue);
-                }
                 PIRP_ENTRY newEntry = new IRP_ENTRY();
                 if (newEntry != NULL)
                 {
