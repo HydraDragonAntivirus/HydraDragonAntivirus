@@ -80,15 +80,21 @@ static BOOLEAN g_ImageNotifyRegistered = FALSE;
 // ImageLoadCallback runs in a loader lock path; calling heavy kernel operations
 // (KeStackAttachProcess, ZwAllocateVirtualMemory, ZwCreateFile) directly causes freezes.
 typedef struct _HOOK_PROCESS_WORK_ITEM {
-    WORK_QUEUE_ITEM WorkItem;
-    ULONG           ProcessId;
+    PIO_WORKITEM WorkItem;   // <-- handle, not embedded struct
+    ULONG        ProcessId;
 } HOOK_PROCESS_WORK_ITEM, *PHOOK_PROCESS_WORK_ITEM;
 
-static VOID HookProcessWorkItemRoutine(_In_ PVOID Parameter)
+static VOID HookProcessWorkItemRoutine(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_opt_ PVOID Parameter)
 {
+    UNREFERENCED_PARAMETER(DeviceObject);
     PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)Parameter;
     if (ctx == NULL) return;
+
     (VOID)UserModeHookProcess(ctx->ProcessId);
+
+    IoFreeWorkItem(ctx->WorkItem); // free the IO_WORKITEM first
     ExFreePoolWithTag(ctx, 'wHuM');
 }
 
@@ -879,13 +885,20 @@ VOID ImageLoadCallback(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE Proce
             // Queue a DelayedWorkQueue item so it runs on a system worker thread
             // at PASSIVE_LEVEL with no loader lock held.
             //
+            // In ImageLoadCallback only — loader lock path genuinely requires deferral
             PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
                 POOL_FLAG_NON_PAGED, sizeof(HOOK_PROCESS_WORK_ITEM), 'wHuM');
             if (ctx != NULL)
             {
-                ExInitializeWorkItem(&ctx->WorkItem, HookProcessWorkItemRoutine, ctx);
-                ctx->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
-                ExQueueWorkItem(&ctx->WorkItem, DelayedWorkQueue);
+                // IoAllocateWorkItem pins the driver via DeviceObject reference count
+                ctx->WorkItem = IoAllocateWorkItem(g_DeviceObject); // your CDO or filter device
+                if (ctx->WorkItem == NULL) {
+                    ExFreePoolWithTag(ctx, 'wHuM');
+                } else {
+                    ctx->ProcessId = pidNum;
+                    IoQueueWorkItem(ctx->WorkItem, HookProcessWorkItemRoutine,
+                                    DelayedWorkQueue, ctx);
+                }
             }
         }
     }
@@ -962,7 +975,9 @@ VOID EnumerateExistingProcesses(VOID)
                 RtlCopyMemory(procName->Buffer, entry->ImageName.Buffer, entry->ImageName.Length);
                 procName->Buffer[entry->ImageName.Length / sizeof(WCHAR)] = L'\0';
 
+                // No loader lock here; call directly at PASSIVE_LEVEL
                 ULONGLONG gid = driverData->RecordNewProcess(procName, pidNum, parentPid);
+                (VOID)UserModeHookProcess(pidNum); // direct call, safe here
 
                 // Actually trigger the hooking engine for this pre-existing process
                 PHOOK_PROCESS_WORK_ITEM ctx = (PHOOK_PROCESS_WORK_ITEM)ExAllocatePool2(
