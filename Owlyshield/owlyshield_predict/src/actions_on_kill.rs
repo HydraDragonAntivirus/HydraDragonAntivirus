@@ -15,7 +15,6 @@ use crate::predictions::prediction::input_tensors::VecvecCappedF32;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::logging::Logging;
 use crate::utils::{FILE_TIME_FORMAT, LONG_TIME_FORMAT};
-use crate::connectors::community::novelty;
 /// New struct to hold detailed threat information.
 #[derive(Debug, Clone)]
 pub struct ThreatInfo<'a> {
@@ -149,9 +148,9 @@ impl ActionOnKill for WriteReportFile {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&report_dir)?;
+        std::fs::create_dir_all(&Param::report_dir)?;
             let basename = Path::new(&proc.appname).file_name().unwrap().to_str().unwrap();
-            let temp = report_dir.join(Path::new(&format!(
+            let temp = Param::report_dir.join(Path::new(&format!(
                 "{}_{}_report_{}.log",
                 &basename,
                 now,

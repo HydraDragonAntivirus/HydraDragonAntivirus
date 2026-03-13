@@ -21,6 +21,7 @@ pub enum Param {
     MqttServer,
     NoveltyPath,
     RulesPath,
+    ReportDir,
     Unknown,
 }
 
@@ -46,6 +47,7 @@ impl Param {
             Param::MqttServer => "MQTT_SERVER",
             Param::NoveltyPath => "NOVELTY_PATH",
             Param::RulesPath => "RULES_PATH",
+            Param::ReportDir => "REPORT_DIR",
             _ => "UNKNOWN"
         }
     }
@@ -64,6 +66,7 @@ impl Param {
             Param::MqttServer => "mqtt_server",
             Param::NoveltyPath => "novelty_path",
             Param::RulesPath => "rules_path",
+            Param::ReportDir => "report_dir",
             _ => "unknown"
         }
     }
@@ -116,6 +119,7 @@ impl Param {
             "MQTT_SERVER" => Param::MqttServer,
             "NOVELTY_PATH" => Param::NoveltyPath,
             "RULES_PATH" => Param::RulesPath,
+            "REPORT_DIR" => Param::ReportDir,
             _ => Param::Unknown,
         }
     }
@@ -134,6 +138,7 @@ impl Param {
             "mqtt_server" => Param::MqttServer,
             "novelty_path" => Param::NoveltyPath,
             "rules_path" => Param::RulesPath,
+            "report_dir" => Param::ReportDir,
             _ => Param::Unknown,
         }
     }
