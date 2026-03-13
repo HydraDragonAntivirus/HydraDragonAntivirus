@@ -3,7 +3,6 @@
 
 // #![cfg_attr(debug_assertions, allow(dead_code, unused_imports, unused_variables))]
 extern crate num;
-#[macro_use]
 extern crate num_derive;
 
 #[cfg(feature = "service")]
@@ -146,6 +145,7 @@ mod watchlist;
 mod whitelist;
 pub(crate) mod worker;
 mod novelty;
+mod globals;
 #[cfg(target_os = "windows")]
 pub mod services;
 #[cfg(all(target_os = "windows", feature = "realtime_learning"))]
