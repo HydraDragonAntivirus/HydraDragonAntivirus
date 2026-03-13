@@ -152,7 +152,6 @@ impl Connector for Community {
         proc: &ProcessRecord,
         _prediction: f32,
     ) -> Result<(), ConnectorError> {
-        let report_dir = Path::new(&config[Param::ConfigPath]).join("threats");
         if let Err(e) = std::fs::create_dir_all(&report_dir) {
             error!("Cannot create report directory: {}", e);
             Logging::error(format!("Cannot create report directory: {}", e).as_str());
