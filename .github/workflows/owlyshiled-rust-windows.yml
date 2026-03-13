@@ -1,4 +1,4 @@
-name: Owlyshiled Rust
+name: Owlyshiled Rust Windows
 
 on:
   push:

@@ -144,7 +144,7 @@ pub fn run() {
         #[cfg(not(all(target_os = "windows", feature = "behavior_engine")))]
         let mut worker = Worker::new_replay(&config, &whitelist);
 
-        let filename = &Path::new(&config[Param::ProcessActivityLogPath])
+        let filename = &Path::new(&config[Param::RealTimeLearningPath])
             .join(Path::new("drivermessages.txt"));
         let mut file = File::open(Path::new(filename)).unwrap();
         let file_len = file.metadata().unwrap().len() as usize;

@@ -297,7 +297,7 @@ pub mod process_record_handling {
                     println!("with {prediction_behavioral} certainty");
                     println!(
                         "\nSee {}\\threats for details.",
-                        self.config[Param::ProcessActivityLogPath]
+                        self.config[Param::RealTimeLearningPath]
                     );
                     println!(
                         "\nPlease update {}\\exclusions.txt if it's a false positive",
@@ -366,7 +366,7 @@ pub mod process_record_handling {
                     println!("with {} certainty", prediction_behavioral);
                     println!(
                         "\nSee {}\\threats for details.",
-                        self.config[Param::ProcessActivityLogPath]
+                        self.config[Param::RealTimeLearningPath]
                     );
                     println!(
                         "\nPlease update {}\\exclusions.txt if it's a false positive",
@@ -657,7 +657,7 @@ pub mod worker_instance {
     impl IOMsgPostProcessorWriter {
         pub fn from(config: &Config) -> IOMsgPostProcessorWriter {
             let filename =
-                &Path::new(&config[Param::ProcessActivityLogPath]).join(Path::new("drivermessages.txt"));
+                &Path::new(&config[Param::RealTimeLearningPath]).join(Path::new("drivermessages.txt"));
             IOMsgPostProcessorWriter {
                 csv_writer: CsvWriter::from_path(filename),
             }
@@ -834,7 +834,7 @@ pub mod worker_instance {
 
         #[cfg(feature = "realtime_learning")]
         fn realtime_learning_output_dir(config: &Config) -> &str {
-            if let Some(path) = config.get_param(Param::ProcessActivityLogPath) {
+            if let Some(path) = config.get_param(Param::RealTimeLearningPath) {
                 return path;
             }
 
